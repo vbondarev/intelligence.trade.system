@@ -1,9 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <Nullable>enable</Nullable>
-        <ImplicitUsings>enable</ImplicitUsings>
+        <!-- Project-specific properties only; shared settings come from Directory.Build.props -->
         <UserSecretsId>dotnet-Intelligence.Trade.System.Backend.Host-be56ab2b-bcc8-44bd-adb3-548f722c02c6</UserSecretsId>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     </PropertyGroup>

@@ -1,0 +1,55 @@
+﻿<Project>
+
+  <!-- ─── Targeting ─────────────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- ─── Language features ─────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- ─── Code quality ──────────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <!-- ─── Deterministic builds ──────────────────────────────────────────── -->
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <!-- Set CI=true in pipeline env to get reproducible builds -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- ─── Assembly metadata ─────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <Authors>Intelligence TradeSystem</Authors>
+    <Product>Intelligence Trade System</Product>
+    <Copyright>Copyright © Intelligence TradeSystem $([System.DateTime]::Now.Year)</Copyright>
+  </PropertyGroup>
+
+  <!-- ─── Versioning ────────────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
+
+  <!-- ─── Debug ─────────────────────────────────────────────────────────── -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <Optimize>false</Optimize>
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- ─── Release ───────────────────────────────────────────────────────── -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+</Project>
+
