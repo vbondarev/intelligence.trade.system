@@ -1,0 +1,7 @@
+﻿services:
+  intelligence.trade.system.backend.host:
+    image: intelligence.trade.system.backend.host
+    build:
+      context: .
+      dockerfile: Intelligence.Trade.System.Backend.Host/Dockerfile
+
