@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bybit.Net" Version="6.10.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Abstractions\Intelligence.TradeSystem.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

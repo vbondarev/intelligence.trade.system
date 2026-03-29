@@ -3,4 +3,7 @@
     <File Path="compose.yaml" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
+  <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
+  <Project Path="Intelligence.TradeSystem.Abstractions/Intelligence.TradeSystem.Abstractions.csproj" />
+  <Project Path="Intelligence.TradeSystem.Exchanges/Intelligence.TradeSystem.Exchanges.csproj" />
 </Solution>
