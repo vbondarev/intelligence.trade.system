@@ -1,3 +1,5 @@
+using Intelligence.TradeSystem.Exchanges.Bybit;
+
 namespace Intelligence.TradeSystem.Backend.Host;
 
 public static class Program
@@ -6,6 +8,7 @@ public static class Program
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
         builder.Services.AddHostedService<Worker>();
+        builder.Services.AddBybitExchange();
 
         var host = builder.Build();
         host.Run();
