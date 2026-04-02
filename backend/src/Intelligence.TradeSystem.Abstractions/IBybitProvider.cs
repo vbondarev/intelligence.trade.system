@@ -38,5 +38,22 @@ public interface IBybitProvider
         MarketCategory category,
         int limit = 50,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает список последних совершённых сделок (<c>/v5/market/recent-trade</c>).
+    /// </summary>
+    /// <param name="limit">
+    /// Количество последних сделок. По умолчанию 60 — достаточно для статистически
+    /// значимой дельты объёма. Bybit поддерживает до 1000.
+    /// </param>
+    /// <returns>
+    /// Список доменных моделей <see cref="Trade"/>;
+    /// пустой список (<c>[]</c>) если запрос завершился ошибкой.
+    /// </returns>
+    Task<IReadOnlyList<Trade>> GetRecentTradesAsync(
+        string symbol,
+        MarketCategory category,
+        int limit = 60,
+        CancellationToken cancellationToken = default);
 }
 

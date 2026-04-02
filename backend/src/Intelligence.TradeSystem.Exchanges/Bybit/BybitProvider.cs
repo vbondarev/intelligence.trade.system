@@ -1,8 +1,10 @@
-﻿using Bybit.Net.Interfaces.Clients;
+﻿using Bybit.Net.Enums;
+using Bybit.Net.Interfaces.Clients;
 using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.Extensions.Logging;
+using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
@@ -172,4 +174,39 @@ internal sealed class BybitProvider : IBybitProvider
             ob.Timestamp,
             ob.Bids.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList(),
             ob.Asks.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList());
+
+    public async Task<IReadOnlyList<Trade>> GetRecentTradesAsync(
+        string symbol,
+        MarketCategory category,
+        int limit = 60,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _client.V5Api.ExchangeData.GetTradeHistoryAsync(
+            category.ToBybitCategory(),
+            symbol,
+            null,
+            null,
+            limit,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch recent trades for {Symbol} ({Category}): {Error}",
+                symbol, category, response.Error?.Message);
+            return [];
+        }
+
+        return response.Data?.List?
+            .Select(t => MapTrade(t, symbol, category))
+            .ToList() ?? [];
+    }
+
+    private static Trade MapTrade(BybitTradeHistory t, string symbol, MarketCategory category) =>
+        new(symbol,
+            category,
+            t.Timestamp,
+            t.Side == OrderSide.Buy ? TradeSide.Buy : TradeSide.Sell,
+            t.Quantity,
+            t.Price);
 }
