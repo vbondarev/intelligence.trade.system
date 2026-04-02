@@ -288,4 +288,44 @@ internal sealed class BybitProvider : IBybitProvider
     private static FundingRateEntry MapFundingRateEntry(
         BybitFundingHistory e, string symbol, MarketCategory category) =>
         new(symbol, category, e.Timestamp, e.FundingRate);
+
+    public async Task<IReadOnlyList<LongShortRatioEntry>> GetLongShortRatioHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        LongShortRatioPeriod period,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        if (category == MarketCategory.Spot)
+            throw new ArgumentException(
+                "Long/short ratio data is not available for the Spot market. Use Linear or Inverse.",
+                nameof(category));
+
+        var response = await _client.V5Api.ExchangeData.GetLongShortRatioAsync(
+            category.ToBybitCategory(),
+            symbol,
+            period.ToBybitDataPeriod(),
+            startTime,
+            endTime,
+            limit,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch long/short ratio for {Symbol} ({Category}, {Period}): {Error}",
+                symbol, category, period, response.Error?.Message);
+            return [];
+        }
+
+        return response.Data?
+            .Select(e => MapLongShortRatioEntry(e, symbol, category))
+            .ToList() ?? [];
+    }
+
+    private static LongShortRatioEntry MapLongShortRatioEntry(
+        BybitLongShortRatio e, string symbol, MarketCategory category) =>
+        new(symbol, category, e.Timestamp, e.BuyRatio, e.SellRatio);
 }

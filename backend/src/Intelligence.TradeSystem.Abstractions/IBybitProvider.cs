@@ -105,5 +105,30 @@ public interface IBybitProvider
         DateTime? endTime = null,
         int? limit = 30,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает исторический ряд соотношения лонг/шорт позиций (<c>/v5/market/account-ratio</c>).
+    /// </summary>
+    /// <param name="period">Период агрегации каждой точки ряда.</param>
+    /// <param name="limit">
+    /// Количество точек. По умолчанию 50 — при периоде <see cref="LongShortRatioPeriod.FiveMinutes"/>
+    /// покрывает ~4 часа истории. Bybit поддерживает до 500 записей за запрос.
+    /// </param>
+    /// <returns>
+    /// Список доменных моделей <see cref="LongShortRatioEntry"/>;
+    /// пустой список (<c>[]</c>) если запрос завершился ошибкой.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Если <paramref name="category"/> равен <see cref="MarketCategory.Spot"/> —
+    /// Bybit не предоставляет данные лонг/шорт соотношения для спотового рынка.
+    /// </exception>
+    Task<IReadOnlyList<LongShortRatioEntry>> GetLongShortRatioHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        LongShortRatioPeriod period,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 50,
+        CancellationToken cancellationToken = default);
 }
 
