@@ -26,7 +26,7 @@ internal sealed class BybitProvider : IBybitProvider
         int? limit = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _client.V5Api.ExchangeData.GetKlinesAsync(
+        var response = await _client.V5Api.ExchangeData.GetKlinesAsync(
             category.ToBybitCategory(),
             symbol,
             interval.ToBybitInterval(),
@@ -35,17 +35,17 @@ internal sealed class BybitProvider : IBybitProvider
             limit,
             cancellationToken);
 
-        if (!result.Success)
+        if (!response.Success)
         {
             _logger.LogError(
                 "Failed to fetch klines for {Symbol} ({Category}, {Interval}): {Error}",
-                symbol, category, interval, result.Error?.Message);
+                symbol, category, interval, response.Error?.Message);
             return [];
         }
 
-        return result.Data.List
+        return response.Data?.List?
             .Select(k => MapKline(symbol, category, interval, k))
-            .ToList();
+            .ToList() ?? [];
     }
 
     private static Kline MapKline(

@@ -9,4 +9,8 @@
     <ProjectReference Include="..\Intelligence.TradeSystem.Abstractions\Intelligence.TradeSystem.Abstractions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Bybit\Responses\" />
+  </ItemGroup>
+
 </Project>

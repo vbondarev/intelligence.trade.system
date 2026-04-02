@@ -8,4 +8,5 @@
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
   <Project Path="Intelligence.TradeSystem.Abstractions/Intelligence.TradeSystem.Abstractions.csproj" />
   <Project Path="Intelligence.TradeSystem.Exchanges/Intelligence.TradeSystem.Exchanges.csproj" />
+  <Project Path="Intelligence.TradeSystem.Indicators/Intelligence.TradeSystem.Indicators.csproj" />
 </Solution>
