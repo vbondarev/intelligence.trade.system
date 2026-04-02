@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path="../compose.yaml" />
+    <File Path="../.editorconfig" />
     <File Path="../.gitignore" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
