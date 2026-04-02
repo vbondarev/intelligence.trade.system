@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Exchanges.Bybit;
+using Intelligence.TradeSystem.Exchanges;
 
 namespace Intelligence.TradeSystem.Backend.Host;
 

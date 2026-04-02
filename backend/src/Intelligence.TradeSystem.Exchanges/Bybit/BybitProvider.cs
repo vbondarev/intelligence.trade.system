@@ -6,12 +6,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
-internal sealed class BybitBybitProvider : IBybitProvider
+internal sealed class BybitProvider : IBybitProvider
 {
     private readonly IBybitRestClient _client;
-    private readonly ILogger<BybitBybitProvider> _logger;
+    private readonly ILogger<BybitProvider> _logger;
 
-    public BybitBybitProvider(IBybitRestClient client, ILogger<BybitBybitProvider> logger)
+    public BybitProvider(IBybitRestClient client, ILogger<BybitProvider> logger)
     {
         _client = client;
         _logger = logger;
@@ -61,6 +61,4 @@ internal sealed class BybitBybitProvider : IBybitProvider
             kline.ClosePrice,
             kline.Volume,
             kline.QuoteVolume);
-
-
 }
