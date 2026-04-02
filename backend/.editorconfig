@@ -150,3 +150,12 @@ trim_trailing_whitespace = false
 [{.idea,.vs,*.DotSettings.user}/**]
 generated_code = true
 
+# ─── Test projects ────────────────────────────────────────────────────────────
+# Два паттерна: файлы в подпапках тестового проекта И файлы прямо в его корне
+[{src/**Tests*/**/*.cs,src/**Tests*/*.cs}]
+# Метод_Должен_Делать_Что_Когда_Условие — общепринятое соглашение именования тестов
+dotnet_naming_rule.members_must_be_pascal.severity        = none
+dotnet_naming_rule.local_vars_must_be_camel.severity      = none
+dotnet_diagnostic.CA1707.severity                         = none
+# Тестовые методы не должны быть статическими (xUnit создаёт экземпляр класса)
+dotnet_diagnostic.CA1822.severity                         = none
