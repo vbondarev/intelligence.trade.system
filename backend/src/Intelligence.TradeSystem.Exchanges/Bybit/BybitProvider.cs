@@ -250,4 +250,42 @@ internal sealed class BybitProvider : IBybitProvider
     private static OpenInterestEntry MapOpenInterestEntry(
         BybitOpenInterest e, string symbol, MarketCategory category) =>
         new(symbol, category, e.Timestamp, e.OpenInterest);
+
+    public async Task<IReadOnlyList<FundingRateEntry>> GetFundingRateHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 30,
+        CancellationToken cancellationToken = default)
+    {
+        if (category == MarketCategory.Spot)
+            throw new ArgumentException(
+                "Funding rate data is not available for the Spot market. Use Linear or Inverse.",
+                nameof(category));
+
+        var response = await _client.V5Api.ExchangeData.GetFundingRateHistoryAsync(
+            category.ToBybitCategory(),
+            symbol,
+            startTime,
+            endTime,
+            limit,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch funding rate history for {Symbol} ({Category}): {Error}",
+                symbol, category, response.Error?.Message);
+            return [];
+        }
+
+        return response.Data?.List?
+            .Select(e => MapFundingRateEntry(e, symbol, category))
+            .ToList() ?? [];
+    }
+
+    private static FundingRateEntry MapFundingRateEntry(
+        BybitFundingHistory e, string symbol, MarketCategory category) =>
+        new(symbol, category, e.Timestamp, e.FundingRate);
 }

@@ -81,5 +81,29 @@ public interface IBybitProvider
         DateTime? endTime = null,
         int? limit = 48,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает историю ставки финансирования (<c>/v5/market/funding/history</c>).
+    /// </summary>
+    /// <param name="limit">
+    /// Количество записей. По умолчанию 30 — покрывает ~10 дней
+    /// (3 начисления в сутки × 10 дней), достаточно для расчёта <c>Avg7dRate</c>.
+    /// Bybit возвращает до 200 записей за запрос.
+    /// </param>
+    /// <returns>
+    /// Список доменных моделей <see cref="FundingRateEntry"/>;
+    /// пустой список (<c>[]</c>) если запрос завершился ошибкой.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Если <paramref name="category"/> равен <see cref="MarketCategory.Spot"/> —
+    /// Bybit не предоставляет ставку финансирования для спотового рынка.
+    /// </exception>
+    Task<IReadOnlyList<FundingRateEntry>> GetFundingRateHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 30,
+        CancellationToken cancellationToken = default);
 }
 
