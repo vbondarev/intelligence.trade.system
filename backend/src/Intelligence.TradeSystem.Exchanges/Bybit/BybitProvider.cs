@@ -92,6 +92,29 @@ internal sealed class BybitProvider : IBybitProvider
         }
     }
 
+    public async Task<OrderBook?> GetOrderBookAsync(
+        string symbol,
+        MarketCategory category,
+        int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _client.V5Api.ExchangeData.GetOrderbookAsync(
+            category.ToBybitCategory(),
+            symbol,
+            limit,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch order book for {Symbol} ({Category}): {Error}",
+                symbol, category, response.Error?.Message);
+            return null;
+        }
+
+        return response.Data is null ? null : MapOrderBook(response.Data, category);
+    }
+
     private static Kline MapKline(
         string symbol,
         MarketCategory category,
@@ -142,4 +165,11 @@ internal sealed class BybitProvider : IBybitProvider
             t.LowPrice24h,
             t.Volume24h,
             t.Turnover24h);
+
+    private static OrderBook MapOrderBook(BybitOrderbook ob, MarketCategory category) =>
+        new(ob.Symbol,
+            category,
+            ob.Timestamp,
+            ob.Bids.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList(),
+            ob.Asks.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList());
 }
