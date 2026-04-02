@@ -36,10 +36,9 @@ internal static class RsiCalculator
             avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
         }
 
-        if (avgLoss == 0m) return 100m;
+        if (avgLoss == 0m) return avgGain == 0m ? 50m : 100m;
 
         var rs = avgGain / avgLoss;
         return 100m - 100m / (1m + rs);
     }
 }
-

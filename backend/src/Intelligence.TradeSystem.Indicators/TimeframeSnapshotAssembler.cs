@@ -32,12 +32,12 @@ public static class TimeframeSnapshotAssembler
     public static TimeframeAnalysisSnapshot Assemble(IReadOnlyList<Kline> klines, string timeframe)
     {
         // 1. Normalize
-        var sorted = klines.OrderBy(k => k.StartTime).ToArray();
-
-        if (sorted.Length == 0)
+        if (klines.Count == 0)
         {
             throw new ArgumentException("Klines collection is empty.", nameof(klines));
         }
+
+        var sorted = klines.OrderBy(k => k.StartTime).ToArray();
 
         // 2. Project
         var closes  = Array.ConvertAll(sorted, k => k.Close);
@@ -82,10 +82,10 @@ public static class TimeframeSnapshotAssembler
         return new TimeframeAnalysisSnapshot
         {
             Timeframe             = timeframe,
-            LastCandleOpenTimeUtc = new DateTimeOffset(lastKline.StartTime, TimeSpan.Zero),
+            LastCandleOpenTimeUtc = new DateTimeOffset(DateTime.SpecifyKind(lastKline.StartTime, DateTimeKind.Utc)),
             LastCandle = new CandleSnapshot
             {
-                OpenTimeUtc = new DateTimeOffset(lastKline.StartTime, TimeSpan.Zero),
+                OpenTimeUtc = new DateTimeOffset(DateTime.SpecifyKind(lastKline.StartTime, DateTimeKind.Utc)),
                 Open        = lastKline.Open,
                 High        = lastKline.High,
                 Low         = lastKline.Low,
@@ -126,5 +126,3 @@ public static class TimeframeSnapshotAssembler
         };
     }
 }
-
-

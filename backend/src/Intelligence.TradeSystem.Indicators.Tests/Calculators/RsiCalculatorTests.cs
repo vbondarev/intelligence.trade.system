@@ -67,5 +67,15 @@ public sealed class RsiCalculatorTests
 
         result.Should().BeLessThan(30m);
     }
-}
 
+    [Fact]
+    public void Returns_50_When_All_Prices_Are_Identical()
+    {
+        // Полностью плоский рынок: avgGain == 0 и avgLoss == 0 → нейтральный RSI = 50
+        var closes = Enumerable.Repeat(100m, 30).ToArray();
+
+        var result = RsiCalculator.Compute(closes);
+
+        result.Should().Be(50m);
+    }
+}

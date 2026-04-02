@@ -58,6 +58,8 @@ internal static class VolumeProfileDetector
         // Перебираем бакеты по убыванию объёма, отбираем ближайшие к цене HVN
         foreach (var i in Enumerable.Range(0, BucketCount).OrderByDescending(i => volumes[i]))
         {
+            if (volumes[i] == 0m) break; // все оставшиеся тоже нулевые — дальше нет смысла
+
             var bucketMid = minPrice + (i + 0.5m) * bucketSize;
 
             if (bucketMid < currentPrice && supports.Count < 2)
@@ -82,4 +84,3 @@ internal static class VolumeProfileDetector
             resistances.ElementAtOrDefault(1));
     }
 }
-
