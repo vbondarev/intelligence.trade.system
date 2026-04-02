@@ -1,9 +1,9 @@
-﻿using Bybit.Net.Enums;
-using Bybit.Net.Interfaces.Clients;
+﻿using Bybit.Net.Interfaces.Clients;
 using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.Extensions.Logging;
+using BybitOrderSide = Bybit.Net.Enums.OrderSide;
 using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
@@ -206,7 +206,48 @@ internal sealed class BybitProvider : IBybitProvider
         new(symbol,
             category,
             t.Timestamp,
-            t.Side == OrderSide.Buy ? TradeSide.Buy : TradeSide.Sell,
+            t.Side == BybitOrderSide.Buy ? TradeSide.Buy : TradeSide.Sell,
             t.Quantity,
             t.Price);
+
+    public async Task<IReadOnlyList<OpenInterestEntry>> GetOpenInterestHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        OpenInterestInterval interval,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 48,
+        CancellationToken cancellationToken = default)
+    {
+        if (category == MarketCategory.Spot)
+            throw new ArgumentException(
+                "Open interest data is not available for the Spot market. Use Linear or Inverse.",
+                nameof(category));
+
+        var response = await _client.V5Api.ExchangeData.GetOpenInterestAsync(
+            category.ToBybitCategory(),
+            symbol,
+            interval.ToBybitOpenInterestInterval(),
+            startTime,
+            endTime,
+            limit,
+            null,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch open interest for {Symbol} ({Category}, {Interval}): {Error}",
+                symbol, category, interval, response.Error?.Message);
+            return [];
+        }
+
+        return response.Data?.List?
+            .Select(e => MapOpenInterestEntry(e, symbol, category))
+            .ToList() ?? [];
+    }
+
+    private static OpenInterestEntry MapOpenInterestEntry(
+        BybitOpenInterest e, string symbol, MarketCategory category) =>
+        new(symbol, category, e.Timestamp, e.OpenInterest);
 }

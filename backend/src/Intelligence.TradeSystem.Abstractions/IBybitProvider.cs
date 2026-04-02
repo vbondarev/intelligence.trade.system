@@ -55,5 +55,31 @@ public interface IBybitProvider
         MarketCategory category,
         int limit = 60,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает исторический ряд открытого интереса (<c>/v5/market/open-interest</c>).
+    /// </summary>
+    /// <param name="interval">Интервал агрегации каждой точки ряда.</param>
+    /// <param name="limit">
+    /// Количество точек. По умолчанию 48 — при интервале <see cref="OpenInterestInterval.FiveMinutes"/>
+    /// покрывает 4 часа истории, достаточно для расчёта <c>Change1hPct</c> и <c>Change4hPct</c>.
+    /// Bybit возвращает до 200 записей за запрос.
+    /// </param>
+    /// <returns>
+    /// Список доменных моделей <see cref="OpenInterestEntry"/>;
+    /// пустой список (<c>[]</c>) если запрос завершился ошибкой.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Если <paramref name="category"/> равен <see cref="MarketCategory.Spot"/> —
+    /// Bybit не предоставляет данные OI для спотового рынка.
+    /// </exception>
+    Task<IReadOnlyList<OpenInterestEntry>> GetOpenInterestHistoryAsync(
+        string symbol,
+        MarketCategory category,
+        OpenInterestInterval interval,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        int? limit = 48,
+        CancellationToken cancellationToken = default);
 }
 

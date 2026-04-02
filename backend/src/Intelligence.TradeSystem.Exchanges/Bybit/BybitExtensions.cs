@@ -1,6 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using BybitCategory = Bybit.Net.Enums.Category;
 using BybitKlineInterval = Bybit.Net.Enums.KlineInterval;
+using BybitOpenInterestInterval = Bybit.Net.Enums.OpenInterestInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
@@ -31,6 +32,18 @@ internal static class BybitExtensions
             KlineInterval.OneDay => BybitKlineInterval.OneDay,
             KlineInterval.OneWeek => BybitKlineInterval.OneWeek,
             KlineInterval.OneMonth => BybitKlineInterval.OneMonth,
+            _ => throw new ArgumentOutOfRangeException(nameof(interval), interval, null)
+        };
+
+    public static BybitOpenInterestInterval ToBybitOpenInterestInterval(this OpenInterestInterval interval) =>
+        interval switch
+        {
+            OpenInterestInterval.FiveMinutes    => BybitOpenInterestInterval.FiveMinutes,
+            OpenInterestInterval.FifteenMinutes => BybitOpenInterestInterval.FifteenMinutes,
+            OpenInterestInterval.ThirtyMinutes  => BybitOpenInterestInterval.ThirtyMinutes,
+            OpenInterestInterval.OneHour        => BybitOpenInterestInterval.OneHour,
+            OpenInterestInterval.FourHours      => BybitOpenInterestInterval.FourHours,
+            OpenInterestInterval.OneDay         => BybitOpenInterestInterval.OneDay,
             _ => throw new ArgumentOutOfRangeException(nameof(interval), interval, null)
         };
 }
