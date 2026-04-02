@@ -12,5 +12,17 @@ public interface IBybitProvider
         DateTime? endTime = null,
         int? limit = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает текущий тикер инструмента (<c>/v5/market/tickers</c>).
+    /// </summary>
+    /// <returns>
+    /// Доменную модель <see cref="Ticker"/> с сырыми данными биржи,
+    /// либо <c>null</c> если запрос завершился ошибкой.
+    /// </returns>
+    Task<Ticker?> GetTickerAsync(
+        string symbol,
+        MarketCategory category,
+        CancellationToken cancellationToken = default);
 }
 

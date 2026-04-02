@@ -1,6 +1,5 @@
 ﻿using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Tests.Helpers;
-using Xunit;
 
 namespace Intelligence.TradeSystem.Indicators.Tests;
 

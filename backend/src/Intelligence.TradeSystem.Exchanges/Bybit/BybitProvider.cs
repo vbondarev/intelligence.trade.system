@@ -48,6 +48,50 @@ internal sealed class BybitProvider : IBybitProvider
             .ToList() ?? [];
     }
 
+    public async Task<Ticker?> GetTickerAsync(
+        string symbol,
+        MarketCategory category,
+        CancellationToken cancellationToken = default)
+    {
+        if (category == MarketCategory.Spot)
+        {
+            var response = await _client.V5Api.ExchangeData.GetSpotTickersAsync(
+                symbol,
+                cancellationToken);
+
+            if (!response.Success)
+            {
+                _logger.LogError(
+                    "Failed to fetch spot ticker for {Symbol}: {Error}",
+                    symbol, response.Error?.Message);
+                return null;
+            }
+
+            var ticker = response.Data?.List?.FirstOrDefault();
+            return ticker is null ? null : MapSpotTicker(symbol, ticker);
+        }
+        else
+        {
+            var response = await _client.V5Api.ExchangeData.GetLinearInverseTickersAsync(
+                category.ToBybitCategory(),
+                symbol,
+                null,
+                null,
+                cancellationToken);
+
+            if (!response.Success)
+            {
+                _logger.LogError(
+                    "Failed to fetch ticker for {Symbol} ({Category}): {Error}",
+                    symbol, category, response.Error?.Message);
+                return null;
+            }
+
+            var ticker = response.Data?.List?.FirstOrDefault();
+            return ticker is null ? null : MapLinearInverseTicker(symbol, category, ticker);
+        }
+    }
+
     private static Kline MapKline(
         string symbol,
         MarketCategory category,
@@ -61,4 +105,41 @@ internal sealed class BybitProvider : IBybitProvider
             kline.ClosePrice,
             kline.Volume,
             kline.QuoteVolume);
+
+    private static Ticker MapLinearInverseTicker(
+        string symbol,
+        MarketCategory category,
+        BybitLinearInverseTicker t) =>
+        new(symbol,
+            category,
+            t.LastPrice,
+            t.MarkPrice,
+            t.IndexPrice,
+            t.BestBidPrice    ?? 0m,
+            t.BestBidQuantity ?? 0m,
+            t.BestAskPrice    ?? 0m,
+            t.BestAskQuantity ?? 0m,
+            t.PriceChangePercentage24h,
+            t.HighPrice24h,
+            t.LowPrice24h,
+            t.Volume24h,
+            t.Turnover24h);
+
+    private static Ticker MapSpotTicker(
+        string symbol,
+        BybitSpotTicker t) =>
+        new(symbol,
+            MarketCategory.Spot,
+            t.LastPrice,
+            MarkPrice:   0m,
+            IndexPrice:  0m,
+            t.BestBidPrice    ?? 0m,
+            t.BestBidQuantity ?? 0m,
+            t.BestAskPrice    ?? 0m,
+            t.BestAskQuantity ?? 0m,
+            t.PriceChangePercentag24h,
+            t.HighPrice24h,
+            t.LowPrice24h,
+            t.Volume24h,
+            t.Turnover24h);
 }
