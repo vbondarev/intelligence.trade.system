@@ -1,0 +1,18 @@
+Intelligence.TradeSystem.sln
+
+src/
+ ├─ Intelligence.TradeSystem.Domain
+ ├─ Intelligence.TradeSystem.Application
+ ├─ Intelligence.TradeSystem.Abstractions
+ ├─ Intelligence.TradeSystem.Exchanges
+ ├─ Intelligence.TradeSystem.Analytics
+ ├─ Intelligence.TradeSystem.Ai
+ ├─ Intelligence.TradeSystem.Infrastructure
+ ├─ Intelligence.TradeSystem.Persistence
+ ├─ Intelligence.TradeSystem.Worker
+ └─ Intelligence.TradeSystem.Api
+
+tests/
+ ├─ Intelligence.TradeSystem.UnitTests
+ ├─ Intelligence.TradeSystem.IntegrationTests
+ └─ Intelligence.TradeSystem.ArchitectureTests

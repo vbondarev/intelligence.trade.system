@@ -11,6 +11,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Intelligence.TradeSystem.Exchanges\Intelligence.TradeSystem.Exchanges.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
       <Content Include="..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>
