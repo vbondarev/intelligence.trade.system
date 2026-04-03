@@ -8,7 +8,7 @@
 ## Текущее положение
 
 ```
-Фаза 1 ██████████████████░░░░  Exchanges 9/10 ✅ | Assemblers 10/11 ✅ | 1 остался
+Фаза 1 ████████████████████░░  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | тесты
 Фаза 2 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
@@ -50,7 +50,7 @@
 | ✅ | `DerivativesSnapshotAssembler` | `Ticker` + `FundingRateSnapshot` + `OpenInterestSnapshot` + `LongShortRatioSnapshot` | `DerivativesSnapshot` |
 | ✅ | `PortfolioSnapshotAssembler` | `AccountBalance?` + `IReadOnlyList<OpenPosition>` | `PortfolioSnapshot` (включает маппинг `OpenPositionSnapshot`) |
 | ✅ | `SentimentSnapshotAssembler` | `DerivativesSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot` + `TimeframeAnalysisSnapshot` (H1) + `TimeframeAnalysisSnapshot` (H4) | `SentimentSnapshot` |
-| ❌ | `MarketAnalysisSnapshotAssembler` | все снапшоты | `MarketAnalysisSnapshot` |
+| ✅ | `MarketAnalysisSnapshotAssembler` | все снапшоты | `MarketAnalysisSnapshot` |
 
 > **Примечание:** `OpenPositionSnapshotAssembler` как отдельный класс не создаётся —
 > маппинг `OpenPosition → OpenPositionSnapshot` реализован как приватный метод `MapPosition`
@@ -102,8 +102,10 @@
   - Выход: `SentimentSnapshot`
   - Все скоры нормализованы в `[-1, 1]`; определяет `MarketRegime` (Trending / MeanReversion / Volatile / Neutral)
 
-- [ ] **1.4** `MarketAnalysisSnapshotAssembler`
+- [x] **1.4** `MarketAnalysisSnapshotAssembler`
   - Финальный оркестратор: принимает все готовые снапшоты, возвращает `MarketAnalysisSnapshot`
+  - `Category` нормализуется в lowercase (`Linear` → `"linear"`)
+  - `Tags` формируются автоматически из данных снапшотов (regime, funding, RSI, orderbook, tradeflow)
 
 - [ ] **1.5** Тесты на новые ассемблеры в `Intelligence.TradeSystem.Indicators.Tests`
 
