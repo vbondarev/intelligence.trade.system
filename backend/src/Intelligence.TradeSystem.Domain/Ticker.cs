@@ -2,7 +2,8 @@
 
 /// <summary>
 /// Текущее состояние цены торгового инструмента — сырые данные с биржи.
-/// Содержит лучшие котировки, последнюю цену и статистику за 24 часа.
+/// Содержит лучшие котировки, последнюю цену, статистику за 24 часа,
+/// а также деривативные поля (funding rate, open interest) для линейных/инверсных инструментов.
 /// Производные поля (спред, процент изменения в пунктах и т.п.) вычисляются в ассемблере.
 /// </summary>
 public sealed record Ticker(
@@ -78,5 +79,45 @@ public sealed record Ticker(
 
     /// <summary>Оборот за 24 часа (в котируемой валюте, обычно USDT).</summary>
     public decimal Turnover24h { get; init; } = Turnover24h;
+
+    // ── Derivative-only fields (null for Spot) ──────────────────────────────
+
+    /// <summary>
+    /// Текущая ставка финансирования (funding rate).
+    /// Положительная — лонги платят шортам; отрицательная — наоборот.
+    /// <para>
+    /// Актуальна только для <see cref="MarketCategory.Linear"/> и
+    /// <see cref="MarketCategory.Inverse"/>; для <see cref="MarketCategory.Spot"/> равна <c>null</c>.
+    /// </para>
+    /// </summary>
+    public decimal? FundingRate { get; init; }
+
+    /// <summary>
+    /// Время следующего начисления ставки финансирования (UTC).
+    /// <para>
+    /// Актуальна только для <see cref="MarketCategory.Linear"/> и
+    /// <see cref="MarketCategory.Inverse"/>; для <see cref="MarketCategory.Spot"/> равна <c>null</c>.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? NextFundingTimeUtc { get; init; }
+
+    /// <summary>
+    /// Открытый интерес — суммарный объём незакрытых контрактов (в базовых единицах).
+    /// <para>
+    /// Актуальна только для <see cref="MarketCategory.Linear"/> и
+    /// <see cref="MarketCategory.Inverse"/>; для <see cref="MarketCategory.Spot"/> равна <c>null</c>.
+    /// </para>
+    /// </summary>
+    public decimal? OpenInterest { get; init; }
+
+    /// <summary>
+    /// Стоимость открытого интереса в USD.
+    /// Удобна для сравнения между инструментами с разным номиналом контракта.
+    /// <para>
+    /// Актуальна только для <see cref="MarketCategory.Linear"/> и
+    /// <see cref="MarketCategory.Inverse"/>; для <see cref="MarketCategory.Spot"/> равна <c>null</c>.
+    /// </para>
+    /// </summary>
+    public decimal? OpenInterestValue { get; init; }
 }
 

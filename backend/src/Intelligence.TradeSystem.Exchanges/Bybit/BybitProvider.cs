@@ -148,7 +148,15 @@ internal sealed class BybitProvider : IBybitProvider
             t.HighPrice24h,
             t.LowPrice24h,
             t.Volume24h,
-            t.Turnover24h);
+            t.Turnover24h)
+        {
+            FundingRate        = t.FundingRate,
+            NextFundingTimeUtc = t.NextFundingTime.HasValue
+                ? new DateTimeOffset(t.NextFundingTime.Value, TimeSpan.Zero)
+                : null,
+            OpenInterest      = t.OpenInterest,
+            OpenInterestValue = t.OpenInterestValue,
+        };
 
     private static Ticker MapSpotTicker(
         string symbol,
