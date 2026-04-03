@@ -1,13 +1,7 @@
 ﻿using Bybit.Net.Interfaces.Clients;
-using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.Extensions.Logging;
-using BybitAccountType = Bybit.Net.Enums.AccountType;
-using BybitOrderSide = Bybit.Net.Enums.OrderSide;
-using BybitPositionSide = Bybit.Net.Enums.PositionSide;
-using BybitPositionStatus = Bybit.Net.Enums.PositionStatus;
 using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
@@ -46,11 +40,12 @@ internal sealed class BybitProvider : IBybitProvider
             _logger.LogError(
                 "Failed to fetch klines for {Symbol} ({Category}, {Interval}): {Error}",
                 symbol, category, interval, response.Error?.Message);
+
             return [];
         }
 
         return response.Data?.List?
-            .Select(k => MapKline(symbol, category, interval, k))
+            .Select(kline => kline.MapKline(symbol, category, interval))
             .ToList() ?? [];
     }
 
@@ -74,7 +69,7 @@ internal sealed class BybitProvider : IBybitProvider
             }
 
             var ticker = response.Data?.List?.FirstOrDefault();
-            return ticker is null ? null : MapSpotTicker(symbol, ticker);
+            return ticker?.MapSpotTicker(symbol);
         }
         else
         {
@@ -94,7 +89,7 @@ internal sealed class BybitProvider : IBybitProvider
             }
 
             var ticker = response.Data?.List?.FirstOrDefault();
-            return ticker is null ? null : MapLinearInverseTicker(symbol, category, ticker);
+            return ticker?.MapLinearInverseTicker(symbol, category);
         }
     }
 
@@ -118,74 +113,8 @@ internal sealed class BybitProvider : IBybitProvider
             return null;
         }
 
-        return response.Data is null ? null : MapOrderBook(response.Data, category);
+        return response.Data?.MapOrderBook(category);
     }
-
-    private static Kline MapKline(
-        string symbol,
-        MarketCategory category,
-        KlineInterval interval,
-        BybitKline kline) =>
-        new(symbol, category, interval,
-            kline.StartTime,
-            kline.OpenPrice,
-            kline.HighPrice,
-            kline.LowPrice,
-            kline.ClosePrice,
-            kline.Volume,
-            kline.QuoteVolume);
-
-    private static Ticker MapLinearInverseTicker(
-        string symbol,
-        MarketCategory category,
-        BybitLinearInverseTicker t) =>
-        new(symbol,
-            category,
-            t.LastPrice,
-            t.MarkPrice,
-            t.IndexPrice,
-            t.BestBidPrice    ?? 0m,
-            t.BestBidQuantity ?? 0m,
-            t.BestAskPrice    ?? 0m,
-            t.BestAskQuantity ?? 0m,
-            t.PriceChangePercentage24h,
-            t.HighPrice24h,
-            t.LowPrice24h,
-            t.Volume24h,
-            t.Turnover24h)
-        {
-            FundingRate        = t.FundingRate,
-            NextFundingTimeUtc = t.NextFundingTime.HasValue
-                ? new DateTimeOffset(t.NextFundingTime.Value, TimeSpan.Zero)
-                : null,
-            OpenInterest      = t.OpenInterest,
-            OpenInterestValue = t.OpenInterestValue,
-        };
-
-    private static Ticker MapSpotTicker(
-        string symbol,
-        BybitSpotTicker t) =>
-        new(symbol,
-            MarketCategory.Spot,
-            t.LastPrice,
-            MarkPrice:   0m,
-            IndexPrice:  0m,
-            t.BestBidPrice    ?? 0m,
-            t.BestBidQuantity ?? 0m,
-            t.BestAskPrice    ?? 0m,
-            t.BestAskQuantity ?? 0m,
-            t.PriceChangePercentag24h,
-            t.HighPrice24h,
-            t.LowPrice24h,
-            t.Volume24h,
-            t.Turnover24h);
-
-    private static OrderBook MapOrderBook(BybitOrderbook ob, MarketCategory category) =>
-        new(ob.Symbol,
-            category,
-            ob.Timestamp,
-            ob.Bids.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList(),
-            ob.Asks.Select(e => new OrderBookEntry(e.Price, e.Quantity)).ToList());
 
     public async Task<IReadOnlyList<Trade>> GetRecentTradesAsync(
         string symbol,
@@ -210,17 +139,9 @@ internal sealed class BybitProvider : IBybitProvider
         }
 
         return response.Data?.List?
-            .Select(t => MapTrade(t, symbol, category))
+            .Select(t => t.MapTrade(symbol, category))
             .ToList() ?? [];
     }
-
-    private static Trade MapTrade(BybitTradeHistory t, string symbol, MarketCategory category) =>
-        new(symbol,
-            category,
-            t.Timestamp,
-            t.Side == BybitOrderSide.Buy ? TradeSide.Buy : TradeSide.Sell,
-            t.Quantity,
-            t.Price);
 
     public async Task<IReadOnlyList<OpenInterestEntry>> GetOpenInterestHistoryAsync(
         string symbol,
@@ -232,9 +153,11 @@ internal sealed class BybitProvider : IBybitProvider
         CancellationToken cancellationToken = default)
     {
         if (category == MarketCategory.Spot)
+        {
             throw new ArgumentException(
                 "Open interest data is not available for the Spot market. Use Linear or Inverse.",
                 nameof(category));
+        }
 
         var response = await _client.V5Api.ExchangeData.GetOpenInterestAsync(
             category.ToBybitCategory(),
@@ -255,13 +178,9 @@ internal sealed class BybitProvider : IBybitProvider
         }
 
         return response.Data?.List?
-            .Select(e => MapOpenInterestEntry(e, symbol, category))
+            .Select(e => e.MapOpenInterestEntry(symbol, category))
             .ToList() ?? [];
     }
-
-    private static OpenInterestEntry MapOpenInterestEntry(
-        BybitOpenInterest e, string symbol, MarketCategory category) =>
-        new(symbol, category, e.Timestamp, e.OpenInterest);
 
     public async Task<IReadOnlyList<FundingRateEntry>> GetFundingRateHistoryAsync(
         string symbol,
@@ -272,9 +191,11 @@ internal sealed class BybitProvider : IBybitProvider
         CancellationToken cancellationToken = default)
     {
         if (category == MarketCategory.Spot)
+        {
             throw new ArgumentException(
                 "Funding rate data is not available for the Spot market. Use Linear or Inverse.",
                 nameof(category));
+        }
 
         var response = await _client.V5Api.ExchangeData.GetFundingRateHistoryAsync(
             category.ToBybitCategory(),
@@ -293,13 +214,9 @@ internal sealed class BybitProvider : IBybitProvider
         }
 
         return response.Data?.List?
-            .Select(e => MapFundingRateEntry(e, symbol, category))
+            .Select(e => e.MapFundingRateEntry(symbol, category))
             .ToList() ?? [];
     }
-
-    private static FundingRateEntry MapFundingRateEntry(
-        BybitFundingHistory e, string symbol, MarketCategory category) =>
-        new(symbol, category, e.Timestamp, e.FundingRate);
 
     public async Task<IReadOnlyList<LongShortRatioEntry>> GetLongShortRatioHistoryAsync(
         string symbol,
@@ -311,9 +228,11 @@ internal sealed class BybitProvider : IBybitProvider
         CancellationToken cancellationToken = default)
     {
         if (category == MarketCategory.Spot)
+        {
             throw new ArgumentException(
                 "Long/short ratio data is not available for the Spot market. Use Linear or Inverse.",
                 nameof(category));
+        }
 
         var response = await _client.V5Api.ExchangeData.GetLongShortRatioAsync(
             category.ToBybitCategory(),
@@ -333,13 +252,9 @@ internal sealed class BybitProvider : IBybitProvider
         }
 
         return response.Data?
-            .Select(e => MapLongShortRatioEntry(e, symbol, category))
+            .Select(e => e.MapLongShortRatioEntry(symbol, category))
             .ToList() ?? [];
     }
-
-    private static LongShortRatioEntry MapLongShortRatioEntry(
-        BybitLongShortRatio e, string symbol, MarketCategory category) =>
-        new(symbol, category, e.Timestamp, e.BuyRatio, e.SellRatio);
 
     public async Task<IReadOnlyList<OpenPosition>> GetOpenPositionsAsync(
         MarketCategory category,
@@ -347,9 +262,11 @@ internal sealed class BybitProvider : IBybitProvider
         CancellationToken cancellationToken = default)
     {
         if (category == MarketCategory.Spot)
+        {
             throw new ArgumentException(
                 "Position data is not available for the Spot market. Use Linear or Inverse.",
                 nameof(category));
+        }
 
         var response = await _client.V5Api.Trading.GetPositionsAsync(
             category.ToBybitCategory(),
@@ -370,50 +287,12 @@ internal sealed class BybitProvider : IBybitProvider
 
         return response.Data?.List?
             .Where(p => p.Quantity > 0m)
-            .Select(p => MapOpenPosition(p, category))
+            .Select(p => p.MapOpenPosition(category))
             .ToList() ?? [];
     }
 
-    private static OpenPosition MapOpenPosition(BybitPosition p, MarketCategory category) =>
-        new(p.Symbol,
-            category,
-            MapPositionSide(p.Side),
-            MapPositionStatus(p.PositionStatus),
-            p.Quantity,
-            p.AveragePrice,
-            p.PositionValue,
-            p.Leverage,
-            p.MarkPrice,
-            p.BreakEvenPrice,
-            p.LiquidationPrice,
-            p.UnrealizedPnl,
-            p.TakeProfit,
-            p.StopLoss,
-            p.TrailingStop,
-            p.RiskId,
-            p.RiskLimitValue,
-            p.CreateTime.HasValue ? new DateTimeOffset(p.CreateTime.Value, TimeSpan.Zero) : null,
-            p.UpdateTime.HasValue ? new DateTimeOffset(p.UpdateTime.Value, TimeSpan.Zero) : null);
-
-    private static PositionSide MapPositionSide(BybitPositionSide? side) =>
-        side switch
-        {
-            BybitPositionSide.Buy  => PositionSide.Long,
-            BybitPositionSide.Sell => PositionSide.Short,
-            _                      => PositionSide.Unknown,
-        };
-
-    private static PositionStatus MapPositionStatus(BybitPositionStatus? status) =>
-        status switch
-        {
-            BybitPositionStatus.Normal          => PositionStatus.Normal,
-            BybitPositionStatus.Liquidation     => PositionStatus.Liquidation,
-            BybitPositionStatus.AutoDeleverage  => PositionStatus.AutoDeleverage,
-            BybitPositionStatus.Inactive        => PositionStatus.Inactive,
-            _                                   => PositionStatus.Normal,
-        };
-
-    public async Task<AccountBalance?> GetWalletBalanceAsync(        AccountType accountType,
+    public async Task<AccountBalance?> GetWalletBalanceAsync(
+        AccountType accountType,
         CancellationToken cancellationToken = default)
     {
         var response = await _client.V5Api.Account.GetBalancesAsync(
@@ -430,34 +309,6 @@ internal sealed class BybitProvider : IBybitProvider
         }
 
         var balance = response.Data?.List?.FirstOrDefault();
-        return balance is null ? null : MapAccountBalance(balance);
+        return balance?.MapAccountBalance();
     }
-
-    private static AccountBalance MapAccountBalance(BybitBalance b) =>
-        new(MapAccountType(b.AccountType),
-            b.TotalEquity,
-            b.TotalWalletBalance,
-            b.TotalAvailableBalance,
-            b.TotalPerpUnrealizedPnl,
-            b.Assets?
-                .Select(MapCoinBalance)
-                .ToList() ?? []);
-
-    private static CoinBalance MapCoinBalance(BybitAssetBalance a) =>
-        new(a.Asset,
-            a.Equity,
-            a.UsdValue,
-            a.WalletBalance,
-            a.Free,
-            a.Locked,
-            a.UnrealizedPnl);
-
-    private static AccountType MapAccountType(BybitAccountType accountType) =>
-        accountType switch
-        {
-            BybitAccountType.Unified  => AccountType.Unified,
-            BybitAccountType.Contract => AccountType.Contract,
-            BybitAccountType.Spot     => AccountType.Spot,
-            _                         => AccountType.Unified,
-        };
 }

@@ -7,7 +7,7 @@ using BybitOpenInterestInterval = Bybit.Net.Enums.OpenInterestInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
-internal static class BybitExtensions
+internal static class ToBybitTypeMapperExtensions
 {
     public static BybitCategory ToBybitCategory(this MarketCategory category) =>
         category switch
