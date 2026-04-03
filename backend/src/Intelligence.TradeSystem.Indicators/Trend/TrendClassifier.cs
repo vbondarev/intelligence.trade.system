@@ -3,25 +3,61 @@
 namespace Intelligence.TradeSystem.Indicators.Trend;
 
 /// <summary>
-/// Определяет направление рыночного тренда и его силу на основе выравнивания EMA.
+/// Определяет направление рыночного тренда и его силу на основе взаимного расположения
+/// экспоненциальных скользящих средних и текущей цены.
 /// </summary>
+/// <remarks>
+/// Логика классификации:
+/// <list type="bullet">
+/// <item>
+/// <description>
+/// <see cref="MarketTrend.Bullish"/> — если <c>EMA20 &gt; EMA50 &gt; EMA200</c>
+/// и текущая цена выше <c>EMA200</c>.
+/// </description>
+/// </item>
+/// <item>
+/// <description>
+/// <see cref="MarketTrend.Bearish"/> — если <c>EMA20 &lt; EMA50 &lt; EMA200</c>
+/// и текущая цена ниже <c>EMA200</c>.
+/// </description>
+/// </item>
+/// <item>
+/// <description>
+/// Во всех остальных случаях возвращается <see cref="MarketTrend.Sideways"/>.
+/// </description>
+/// </item>
+/// </list>
+/// <para>
+/// Сила тренда возвращается в диапазоне <c>[0; 1]</c>.
+/// Для направленного тренда базовая сила равна <c>1.0</c>.
+/// Для бокового рынка рассчитывается частичная структурная оценка, но ограничивается сверху
+/// значением <c>0.49</c>, чтобы состояние <c>Sideways</c> не выглядело как сильный тренд.
+/// </para>
+/// <para>
+/// Дополнительное усиление за объём применяется только для направленного тренда
+/// и только если <paramref name="volumeRatio"/> больше <c>1</c>.
+/// </para>
+/// </remarks>
 internal static class TrendClassifier
 {
     /// <summary>
-    /// Возвращает направление тренда и нормализованную оценку его силы [0, 1].
-    /// <para>
-    /// Логика классификации:
-    /// <list type="bullet">
-    ///   <item><c>EMA20 &gt; EMA50 &gt; EMA200</c> → <see cref="MarketTrend.Bullish"/></item>
-    ///   <item><c>EMA20 &lt; EMA50 &lt; EMA200</c> → <see cref="MarketTrend.Bearish"/></item>
-    ///   <item>Иначе → <see cref="MarketTrend.Sideways"/></item>
-    /// </list>
-    /// </para>
-    /// <para>
-    /// <c>TrendStrengthScore</c> складывается из трёх условий выравнивания EMA (по 0.33 каждое)
-    /// и буста от объёма до +0.2 при <c>VolumeRatio &gt; 1</c>.
-    /// </para>
+    /// Классифицирует направление тренда и возвращает оценку его силы.
     /// </summary>
+    /// <param name="ema20">Значение EMA с периодом 20.</param>
+    /// <param name="ema50">Значение EMA с периодом 50.</param>
+    /// <param name="ema200">Значение EMA с периодом 200.</param>
+    /// <param name="currentPrice">Текущая цена инструмента.</param>
+    /// <param name="volumeRatio">
+    /// Отношение текущего объёма к среднему объёму.
+    /// Значение больше <c>1</c> интерпретируется как повышенный объём.
+    /// </param>
+    /// <returns>
+    /// Кортеж из:
+    /// <list type="bullet">
+    /// <item><description><c>Trend</c> — направление рынка.</description></item>
+    /// <item><description><c>StrengthScore</c> — сила тренда в диапазоне <c>[0; 1]</c>.</description></item>
+    /// </list>
+    /// </returns>
     public static (MarketTrend Trend, decimal StrengthScore) Classify(
         decimal ema20,
         decimal ema50,
@@ -29,45 +65,72 @@ internal static class TrendClassifier
         decimal currentPrice,
         decimal volumeRatio)
     {
+        volumeRatio = Math.Max(0m, volumeRatio);
+
         var bullishAlignment = ema20 > ema50 && ema50 > ema200;
         var bearishAlignment = ema20 < ema50 && ema50 < ema200;
 
-        // Базовый score: каждое из трёх условий выравнивания даёт 0.33
+        var isPriceAboveEma200 = currentPrice > ema200;
+        var isPriceBelowEma200 = currentPrice < ema200;
+
+        MarketTrend trend;
         decimal baseScore;
 
-        if (bullishAlignment || bearishAlignment)
+        if (bullishAlignment && isPriceAboveEma200)
         {
-            baseScore = 1m;
+            trend = MarketTrend.Bullish;
+            baseScore = 1.0m;
+        }
+        else if (bearishAlignment && isPriceBelowEma200)
+        {
+            trend = MarketTrend.Bearish;
+            baseScore = 1.0m;
         }
         else
         {
-            var points = 0m;
+            trend = MarketTrend.Sideways;
 
-            if (ema20  > ema50)   points += 0.33m;
-            if (ema50  > ema200)  points += 0.33m;
-            if (currentPrice > ema200) points += 0.34m;
+            var bullPoints = 0m;
+            if (ema20 > ema50)
+            {
+                bullPoints += 0.33m;
+            }
 
-            // При медвежьем частичном выравнивании берём обратные условия
+            if (ema50 > ema200)
+            {
+                bullPoints += 0.33m;
+            }
+
+            if (isPriceAboveEma200)
+            {
+                bullPoints += 0.34m;
+            }
+
             var bearPoints = 0m;
-            if (ema20  < ema50)   bearPoints += 0.33m;
-            if (ema50  < ema200)  bearPoints += 0.33m;
-            if (currentPrice < ema200) bearPoints += 0.34m;
+            if (ema20 < ema50)
+            {
+                bearPoints += 0.33m;
+            }
 
-            baseScore = Math.Max(points, bearPoints);
+            if (ema50 < ema200)
+            {
+                bearPoints += 0.33m;
+            }
+
+            if (isPriceBelowEma200)
+            {
+                bearPoints += 0.34m;
+            }
+
+            baseScore = Math.Min(Math.Max(bullPoints, bearPoints), 0.49m);
         }
 
-        // Буст от объёма: до +0.2 при VolumeRatio > 1
-        var volumeBoost = volumeRatio > 1m
+        var volumeBoost = trend is MarketTrend.Bullish or MarketTrend.Bearish && volumeRatio > 1m
             ? Math.Min((volumeRatio - 1m) * 0.1m, 0.2m)
             : 0m;
 
         var strengthScore = Math.Min(baseScore + volumeBoost, 1m);
 
-        var trend = bullishAlignment ? MarketTrend.Bullish
-                  : bearishAlignment ? MarketTrend.Bearish
-                  : MarketTrend.Sideways;
-
         return (trend, Math.Round(strengthScore, 4));
     }
 }
-
