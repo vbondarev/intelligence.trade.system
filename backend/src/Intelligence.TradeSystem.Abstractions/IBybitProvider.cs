@@ -132,6 +132,33 @@ public interface IBybitProvider
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Возвращает список открытых позиций (<c>/v5/position/list</c>).
+    /// </summary>
+    /// <param name="category">
+    /// Категория рынка. Поддерживаются <see cref="MarketCategory.Linear"/>
+    /// и <see cref="MarketCategory.Inverse"/>; для спота позиций нет.
+    /// </param>
+    /// <param name="symbol">
+    /// Тикер инструмента. Если <c>null</c> — возвращаются все позиции категории (до 200).
+    /// </param>
+    /// <returns>
+    /// Список доменных моделей <see cref="OpenPosition"/> с ненулевым размером;
+    /// пустой список (<c>[]</c>) если запрос завершился ошибкой или позиций нет.
+    /// </returns>
+    /// <remarks>
+    /// Приватный эндпоинт — требует настроенных API-ключей.
+    /// Позиции с <c>Size == 0</c> автоматически исключаются из результата.
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// Если <paramref name="category"/> равен <see cref="MarketCategory.Spot"/> —
+    /// Bybit не предоставляет позиции для спотового рынка.
+    /// </exception>
+    Task<IReadOnlyList<OpenPosition>> GetOpenPositionsAsync(
+        MarketCategory category,
+        string? symbol = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Возвращает баланс торгового аккаунта (<c>/v5/account/wallet-balance</c>).
     /// </summary>
     /// <param name="accountType">

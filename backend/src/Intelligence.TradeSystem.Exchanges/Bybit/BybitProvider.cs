@@ -2,9 +2,12 @@
 using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.Extensions.Logging;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitOrderSide = Bybit.Net.Enums.OrderSide;
+using BybitPositionSide = Bybit.Net.Enums.PositionSide;
+using BybitPositionStatus = Bybit.Net.Enums.PositionStatus;
 using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
@@ -338,8 +341,79 @@ internal sealed class BybitProvider : IBybitProvider
         BybitLongShortRatio e, string symbol, MarketCategory category) =>
         new(symbol, category, e.Timestamp, e.BuyRatio, e.SellRatio);
 
-    public async Task<AccountBalance?> GetWalletBalanceAsync(
-        AccountType accountType,
+    public async Task<IReadOnlyList<OpenPosition>> GetOpenPositionsAsync(
+        MarketCategory category,
+        string? symbol = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (category == MarketCategory.Spot)
+            throw new ArgumentException(
+                "Position data is not available for the Spot market. Use Linear or Inverse.",
+                nameof(category));
+
+        var response = await _client.V5Api.Trading.GetPositionsAsync(
+            category.ToBybitCategory(),
+            symbol,
+            null,
+            null,
+            200,
+            null,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch open positions ({Category}, {Symbol}): {Error}",
+                category, symbol ?? "all", response.Error?.Message);
+            return [];
+        }
+
+        return response.Data?.List?
+            .Where(p => p.Quantity > 0m)
+            .Select(p => MapOpenPosition(p, category))
+            .ToList() ?? [];
+    }
+
+    private static OpenPosition MapOpenPosition(BybitPosition p, MarketCategory category) =>
+        new(p.Symbol,
+            category,
+            MapPositionSide(p.Side),
+            MapPositionStatus(p.PositionStatus),
+            p.Quantity,
+            p.AveragePrice,
+            p.PositionValue,
+            p.Leverage,
+            p.MarkPrice,
+            p.BreakEvenPrice,
+            p.LiquidationPrice,
+            p.UnrealizedPnl,
+            p.TakeProfit,
+            p.StopLoss,
+            p.TrailingStop,
+            p.RiskId,
+            p.RiskLimitValue,
+            p.CreateTime.HasValue ? new DateTimeOffset(p.CreateTime.Value, TimeSpan.Zero) : null,
+            p.UpdateTime.HasValue ? new DateTimeOffset(p.UpdateTime.Value, TimeSpan.Zero) : null);
+
+    private static PositionSide MapPositionSide(BybitPositionSide? side) =>
+        side switch
+        {
+            BybitPositionSide.Buy  => PositionSide.Long,
+            BybitPositionSide.Sell => PositionSide.Short,
+            _                      => PositionSide.Unknown,
+        };
+
+    private static PositionStatus MapPositionStatus(BybitPositionStatus? status) =>
+        status switch
+        {
+            BybitPositionStatus.Normal          => PositionStatus.Normal,
+            BybitPositionStatus.Liquidation     => PositionStatus.Liquidation,
+            BybitPositionStatus.AutoDeleverage  => PositionStatus.AutoDeleverage,
+            BybitPositionStatus.Inactive        => PositionStatus.Inactive,
+            _                                   => PositionStatus.Normal,
+        };
+
+    public async Task<AccountBalance?> GetWalletBalanceAsync(        AccountType accountType,
         CancellationToken cancellationToken = default)
     {
         var response = await _client.V5Api.Account.GetBalancesAsync(
