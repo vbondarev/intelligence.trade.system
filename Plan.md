@@ -8,13 +8,13 @@
 ## Текущее положение
 
 ```
-Фаза 1 █████████░░░░░░░░░░░░░  Exchanges ✅ | Assemblers 8/12 ✅ | + 4 осталось
+Фаза 1 ██████████████████░░░░  Exchanges 9/10 ✅ | Assemblers 10/11 ✅ | 1 остался
 Фаза 2 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 6 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 7 ░░░░░░░░░░░░░░░░░░░░░░  тесты частично (TimeframeSnapshotAssemblerTests)
+Фаза 7 ████░░░░░░░░░░░░░░░░░░  Calculators ✅ | Assemblers частично
 ```
 
 ---
@@ -48,10 +48,13 @@
 | ✅ | `FundingRateSnapshotAssembler` | `IReadOnlyList<FundingRateEntry>` | `FundingRateSnapshot` |
 | ✅ | `LongShortRatioSnapshotAssembler` | `IReadOnlyList<LongShortRatioEntry>` | `LongShortRatioSnapshot` |
 | ✅ | `DerivativesSnapshotAssembler` | `Ticker` + `FundingRateSnapshot` + `OpenInterestSnapshot` + `LongShortRatioSnapshot` | `DerivativesSnapshot` |
-| ❌ | `SentimentSnapshotAssembler` | `FundingRateSnapshot` + `LongShortRatioSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot` | `SentimentSnapshot` |
-| ❌ | `OpenPositionSnapshotAssembler` | `OpenPosition` | `OpenPositionSnapshot` |
-| ❌ | `PortfolioSnapshotAssembler` | `AccountBalance` + `IReadOnlyList<OpenPosition>` | `PortfolioSnapshot` |
+| ✅ | `PortfolioSnapshotAssembler` | `AccountBalance?` + `IReadOnlyList<OpenPosition>` | `PortfolioSnapshot` (включает маппинг `OpenPositionSnapshot`) |
+| ✅ | `SentimentSnapshotAssembler` | `DerivativesSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot` + `TimeframeAnalysisSnapshot` (H1) + `TimeframeAnalysisSnapshot` (H4) | `SentimentSnapshot` |
 | ❌ | `MarketAnalysisSnapshotAssembler` | все снапшоты | `MarketAnalysisSnapshot` |
+
+> **Примечание:** `OpenPositionSnapshotAssembler` как отдельный класс не создаётся —
+> маппинг `OpenPosition → OpenPositionSnapshot` реализован как приватный метод `MapPosition`
+> внутри `PortfolioSnapshotAssembler`.
 
 ### Вспомогательные компоненты (`Indicators`)
 
@@ -64,6 +67,22 @@
 | ✅ | `VolumeProfileDetector` |
 | ✅ | `TrendClassifier` |
 
+### Тесты (`Intelligence.TradeSystem.Indicators.Tests`)
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `EmaCalculatorTests` |
+| ✅ | `RsiCalculatorTests` |
+| ✅ | `AtrCalculatorTests` |
+| ✅ | `SmaCalculatorTests` |
+| ✅ | `VolumeProfileDetectorTests` |
+| ✅ | `TrendClassifierTests` |
+| ✅ | `TimeframeSnapshotAssemblerTests` |
+| ❌ | `DerivativesSnapshotAssemblerTests` |
+| ❌ | `PortfolioSnapshotAssemblerTests` |
+| ❌ | `SentimentSnapshotAssemblerTests` |
+| ❌ | `MarketAnalysisSnapshotAssemblerTests` |
+
 ---
 
 ## Фаза 1 — Завершение слоя Indicators `[текущий этап]`
@@ -73,25 +92,20 @@
   - Выход: `DerivativesSnapshot`
   - Вычисляет: `PremiumVsIndexPct`, `FundingRateAvg24h`, `OpenInterestChange1hPct / 4hPct`, `LongRatio / ShortRatio`
 
-- [ ] **1.2** `SentimentSnapshotAssembler`
-  - Вход: `FundingRateSnapshot` + `LongShortRatioSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot`
+- [x] **1.2** `PortfolioSnapshotAssembler`
+  - Вход: `AccountBalance?` + `IReadOnlyList<OpenPosition>`
+  - Выход: `PortfolioSnapshot` с вложенными `OpenPositionSnapshot`
+  - Маппинг позиций реализован приватным методом `MapPosition`; позиции с `Size = 0` пропускаются
+
+- [x] **1.3** `SentimentSnapshotAssembler`
+  - Вход: `DerivativesSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot` + `TimeframeAnalysisSnapshot` (H1, H4)
   - Выход: `SentimentSnapshot`
   - Все скоры нормализованы в `[-1, 1]`; определяет `MarketRegime` (Trending / MeanReversion / Volatile / Neutral)
 
-- [ ] **1.3** `OpenPositionSnapshotAssembler`
-  - Вход: `OpenPosition`
-  - Выход: `OpenPositionSnapshot`
-  - Вычисляет: `UnrealizedPnlPct = UnrealizedPnl / PositionValue × 100` (safe division)
-
-- [ ] **1.4** `PortfolioSnapshotAssembler`
-  - Вход: `AccountBalance` + `IReadOnlyList<OpenPosition>`
-  - Выход: `PortfolioSnapshot`
-  - Заполняет `TotalEquityUsd`, `AvailableBalanceUsd`, `TotalWalletBalanceUsd`, `TotalUnrealizedPnlUsd`, `OpenPositions`
-
-- [ ] **1.5** `MarketAnalysisSnapshotAssembler`
+- [ ] **1.4** `MarketAnalysisSnapshotAssembler`
   - Финальный оркестратор: принимает все готовые снапшоты, возвращает `MarketAnalysisSnapshot`
 
-- [ ] **1.6** Тесты на новые ассемблеры в `Intelligence.TradeSystem.Indicators.Tests`
+- [ ] **1.5** Тесты на новые ассемблеры в `Intelligence.TradeSystem.Indicators.Tests`
 
 ---
 
@@ -175,10 +189,15 @@ Backend.Host    ← Infrastructure, Worker, Api
   → TelegramUpdateHandler
   → IMarketAnalysisService.BuildSnapshotAsync("BTCUSDT", Linear)
       → IBybitProvider × 9 endpoints (параллельно)
-      → Assemblers × 12 (последовательно)
+      → Assemblers × 11 (последовательно)
       → MarketAnalysisSnapshot
   → IGptAnalyticsService.AnalyzeAsync(snapshot, "внутридневная торговля")
       → PromptBuilder → prompt string
       → OpenAI chat/completions → аналитика
   → Telegram → пользователь получает ответ
 ```
+
+
+
+
+
