@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Indicators.Calculators;
 using Intelligence.TradeSystem.Indicators.Levels;
 using Intelligence.TradeSystem.Indicators.Trend;
 
-namespace Intelligence.TradeSystem.Indicators;
+namespace Intelligence.TradeSystem.Indicators.Assemblers;
 
 /// <summary>
 /// Оркестрирует полную цепочку вычислений и собирает <see cref="TimeframeAnalysisSnapshot"/>

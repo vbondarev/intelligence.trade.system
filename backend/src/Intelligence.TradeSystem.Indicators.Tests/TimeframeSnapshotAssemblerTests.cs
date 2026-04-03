@@ -1,4 +1,5 @@
 ﻿using FluentAssertions;
+using Intelligence.TradeSystem.Indicators.Assemblers;
 using Intelligence.TradeSystem.Indicators.Tests.Helpers;
 
 namespace Intelligence.TradeSystem.Indicators.Tests;

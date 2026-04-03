@@ -1,6 +1,6 @@
 ﻿using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators;
+namespace Intelligence.TradeSystem.Indicators.Assemblers;
 
 /// <summary>
 /// Собирает <see cref="SentimentSnapshot"/> из уже вычисленных снапшотов деривативов,

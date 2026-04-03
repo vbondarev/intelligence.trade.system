@@ -1,7 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators;
+namespace Intelligence.TradeSystem.Indicators.Assemblers;
 
 /// <summary>
 /// Собирает <see cref="TradeFlowSnapshot"/> из списка сырых сделок <see cref="Trade"/>.
