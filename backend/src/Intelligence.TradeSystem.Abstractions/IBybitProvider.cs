@@ -130,5 +130,22 @@ public interface IBybitProvider
         DateTime? endTime = null,
         int? limit = 50,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает баланс торгового аккаунта (<c>/v5/account/wallet-balance</c>).
+    /// </summary>
+    /// <param name="accountType">
+    /// Тип аккаунта. Для Unified Trading Account используйте <see cref="AccountType.Unified"/>.
+    /// </param>
+    /// <returns>
+    /// Доменную модель <see cref="AccountBalance"/> с агрегированными суммами и списком монет,
+    /// либо <c>null</c> если запрос завершился ошибкой.
+    /// </returns>
+    /// <remarks>
+    /// Приватный эндпоинт — требует настроенных API-ключей в конфигурации клиента Bybit.
+    /// </remarks>
+    Task<AccountBalance?> GetWalletBalanceAsync(
+        AccountType accountType,
+        CancellationToken cancellationToken = default);
 }
 

@@ -1,4 +1,5 @@
 ﻿using Intelligence.TradeSystem.Domain;
+using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitCategory = Bybit.Net.Enums.Category;
 using BybitDataPeriod = Bybit.Net.Enums.DataPeriod;
 using BybitKlineInterval = Bybit.Net.Enums.KlineInterval;
@@ -58,5 +59,14 @@ internal static class BybitExtensions
             LongShortRatioPeriod.FourHours      => BybitDataPeriod.FourHours,
             LongShortRatioPeriod.OneDay         => BybitDataPeriod.OneDay,
             _ => throw new ArgumentOutOfRangeException(nameof(period), period, null)
+        };
+
+    public static BybitAccountType ToBybitAccountType(this AccountType accountType) =>
+        accountType switch
+        {
+            AccountType.Unified  => BybitAccountType.Unified,
+            AccountType.Contract => BybitAccountType.Contract,
+            AccountType.Spot     => BybitAccountType.Spot,
+            _ => throw new ArgumentOutOfRangeException(nameof(accountType), accountType, null)
         };
 }

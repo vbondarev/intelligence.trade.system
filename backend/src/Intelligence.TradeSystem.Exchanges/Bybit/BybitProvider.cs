@@ -3,6 +3,7 @@ using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.Extensions.Logging;
+using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitOrderSide = Bybit.Net.Enums.OrderSide;
 using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
@@ -336,4 +337,53 @@ internal sealed class BybitProvider : IBybitProvider
     private static LongShortRatioEntry MapLongShortRatioEntry(
         BybitLongShortRatio e, string symbol, MarketCategory category) =>
         new(symbol, category, e.Timestamp, e.BuyRatio, e.SellRatio);
+
+    public async Task<AccountBalance?> GetWalletBalanceAsync(
+        AccountType accountType,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _client.V5Api.Account.GetBalancesAsync(
+            accountType.ToBybitAccountType(),
+            null,
+            cancellationToken);
+
+        if (!response.Success)
+        {
+            _logger.LogError(
+                "Failed to fetch wallet balance ({AccountType}): {Error}",
+                accountType, response.Error?.Message);
+            return null;
+        }
+
+        var balance = response.Data?.List?.FirstOrDefault();
+        return balance is null ? null : MapAccountBalance(balance);
+    }
+
+    private static AccountBalance MapAccountBalance(BybitBalance b) =>
+        new(MapAccountType(b.AccountType),
+            b.TotalEquity,
+            b.TotalWalletBalance,
+            b.TotalAvailableBalance,
+            b.TotalPerpUnrealizedPnl,
+            b.Assets?
+                .Select(MapCoinBalance)
+                .ToList() ?? []);
+
+    private static CoinBalance MapCoinBalance(BybitAssetBalance a) =>
+        new(a.Asset,
+            a.Equity,
+            a.UsdValue,
+            a.WalletBalance,
+            a.Free,
+            a.Locked,
+            a.UnrealizedPnl);
+
+    private static AccountType MapAccountType(BybitAccountType accountType) =>
+        accountType switch
+        {
+            BybitAccountType.Unified  => AccountType.Unified,
+            BybitAccountType.Contract => AccountType.Contract,
+            BybitAccountType.Spot     => AccountType.Spot,
+            _                         => AccountType.Unified,
+        };
 }
