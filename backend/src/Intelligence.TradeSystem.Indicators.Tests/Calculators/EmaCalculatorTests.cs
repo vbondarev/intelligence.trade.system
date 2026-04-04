@@ -47,6 +47,16 @@ public sealed class EmaCalculatorTests
     }
 
     [Fact]
+    public void Returns_Single_Value_When_Array_Has_One_Element()
+    {
+        // values.Length(1) < period(10) → fallback: среднее по доступным = само значение.
+        // Фиксирует контракт для минимально возможного ненулевого массива.
+        var result = EmaCalculator.Compute([42m], period: 10);
+
+        result.Should().BeApproximately(42m, precision: 0.0001m);
+    }
+
+    [Fact]
     public void Returns_Sma_Seed_When_Count_Equals_Period()
     {
         // Ровно period значений → loop не выполняется → результат = SMA seed
@@ -78,6 +88,35 @@ public sealed class EmaCalculatorTests
         var result = EmaCalculator.Compute(values, period: 10);
 
         result.Should().BeApproximately(50m, precision: 0.0001m);
+    }
+
+    [Fact]
+    public void Converges_To_Constant_For_Flat_Series_With_Different_Period()
+    {
+        // Подтверждает, что EMA = константа при любом периоде, а не только при period=10.
+        // Если логика сглаживания работает корректно для period=3 — она универсальна.
+        var values = Enumerable.Repeat(75m, 20).ToArray();
+
+        var result = EmaCalculator.Compute(values, period: 3);
+
+        result.Should().BeApproximately(75m, precision: 0.0001m);
+    }
+
+    [Fact]
+    public void Returns_Last_Value_When_Period_Is_One()
+    {
+        // period=1 → k = 2/(1+1) = 1 → EMA = value×1 + prevEMA×0 = value (текущее значение)
+        // EMA вырождается в «просто последнее значение» — математический инвариант.
+        //
+        // Seed = [10].Average() = 10
+        // i=1: EMA = 20×1 + 10×0 = 20
+        // i=2: EMA = 30×1 + 20×0 = 30
+        // i=3: EMA = 40×1 + 30×0 = 40
+        //
+        // Ловит ошибки: k = 2/period (=2) вместо 2/(period+1), неправильный seed, off-by-one.
+        var result = EmaCalculator.Compute([10m, 20m, 30m, 40m], period: 1);
+
+        result.Should().BeApproximately(40m, precision: 0.0001m);
     }
 
     // ── Smoothing formula ────────────────────────────────────────────────────
@@ -133,6 +172,45 @@ public sealed class EmaCalculatorTests
         var sma = SmaCalculator.Compute(values, period);
 
         ema.Should().BeLessThan(sma);
+    }
+
+    [Fact]
+    public void Returns_Exact_Ema_After_Sharp_Impulse()
+    {
+        // Количественное усиление behavioural-теста: фиксирует точное значение EMA после импульса.
+        // 15×10m + 100m, period=5 → k = 2/(5+1) = 1/3
+        //
+        // EMA плоской части = 10 (константа).
+        // Импульс: EMA = 100×(1/3) + 10×(2/3) = 100/3 + 20/3 = 40
+        //
+        // SMA последних 5 = (10×4 + 100)/5 = 28 → подтверждает EMA(40) > SMA(28).
+        var values = Enumerable.Repeat(10m, 15).Append(100m).ToArray();
+
+        var result = EmaCalculator.Compute(values, period: 5);
+
+        result.Should().BeApproximately(40m, precision: 0.0001m);
+    }
+
+    [Fact]
+    public void Returns_Expected_Ema_For_Extended_Deterministic_Series()
+    {
+        // 12 значений с колебательным паттерном, period=3 → k = 0.5
+        //
+        // Seed = (20+40+60)/3        = 40
+        // i=3:  80×0.5 + 40×0.5     = 60
+        // i=4:  60×0.5 + 60×0.5     = 60
+        // i=5:  40×0.5 + 60×0.5     = 50
+        // i=6:  20×0.5 + 50×0.5     = 35
+        // i=7:  40×0.5 + 35×0.5     = 37.5
+        // i=8:  60×0.5 + 37.5×0.5   = 48.75
+        // i=9:  80×0.5 + 48.75×0.5  = 64.375
+        // i=10: 60×0.5 + 64.375×0.5 = 62.1875
+        // i=11: 40×0.5 + 62.1875×0.5 = 51.09375
+        decimal[] values = [20m, 40m, 60m, 80m, 60m, 40m, 20m, 40m, 60m, 80m, 60m, 40m];
+
+        var result = EmaCalculator.Compute(values, period: 3);
+
+        result.Should().BeApproximately(51.09375m, precision: 0.0001m);
     }
 }
 
