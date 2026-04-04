@@ -8,6 +8,7 @@
   <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
   <Folder Name="/Tests/">
+    <Project Path="Intelligence.TradeSystem.Analysis.Tests/Intelligence.TradeSystem.Analysis.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Indicators.Tests/Intelligence.TradeSystem.Indicators.Tests.csproj" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Abstractions/Intelligence.TradeSystem.Abstractions.csproj" />

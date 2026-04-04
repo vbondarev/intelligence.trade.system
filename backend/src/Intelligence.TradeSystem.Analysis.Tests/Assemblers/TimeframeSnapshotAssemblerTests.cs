@@ -1,8 +1,9 @@
 ﻿using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
-using Intelligence.TradeSystem.Indicators.Tests.Helpers;
+using Intelligence.TradeSystem.Analysis.Tests.Helpers;
+using Xunit;
 
-namespace Intelligence.TradeSystem.Indicators.Tests;
+namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
 
 public sealed class TimeframeSnapshotAssemblerTests
 {
