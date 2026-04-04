@@ -15,7 +15,7 @@ namespace Intelligence.TradeSystem.Indicators.Levels;
 /// <item><description>Из кластеров выбираются два ближайших уровня поддержки и два ближайших уровня сопротивления относительно текущей цены.</description></item>
 /// </list>
 /// </remarks>
-internal static class VolumeProfileDetector
+public static class VolumeProfileDetector
 {
     private const int BucketCount = 100;
     private const decimal HvnThresholdRatio = 0.7m; // кластер считаем сильным, если бакет >= 70% от max volume

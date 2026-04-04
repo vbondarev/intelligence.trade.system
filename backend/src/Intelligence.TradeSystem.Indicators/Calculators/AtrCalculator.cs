@@ -23,7 +23,7 @@
 /// значениям <c>True Range</c>.
 /// </para>
 /// </remarks>
-internal static class AtrCalculator
+public static class AtrCalculator
 {
     /// <summary>
     /// Вычисляет ATR (Average True Range) по последовательностям High, Low и Close.

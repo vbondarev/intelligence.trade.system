@@ -1,7 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators.Assemblers;
+namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
 /// <summary>
 /// Финальный оркестратор слоя Indicators.

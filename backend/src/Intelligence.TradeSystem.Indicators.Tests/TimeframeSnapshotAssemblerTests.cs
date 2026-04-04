@@ -1,5 +1,5 @@
 ﻿using FluentAssertions;
-using Intelligence.TradeSystem.Indicators.Assemblers;
+using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Indicators.Tests.Helpers;
 
 namespace Intelligence.TradeSystem.Indicators.Tests;
@@ -11,8 +11,10 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         var act = () => TimeframeSnapshotAssembler.Assemble([], timeframe: "1h");
 
-        act.Should().Throw<ArgumentException>()
-           .WithParameterName("klines");
+        act
+            .Should()
+            .Throw<ArgumentException>()
+            .WithParameterName("klines");
     }
 
     [Fact]

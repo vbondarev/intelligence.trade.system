@@ -1,7 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators.Assemblers;
+namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
 /// <summary>
 /// Собирает <see cref="PortfolioSnapshot"/> из сырых данных аккаунта и списка открытых позиций.

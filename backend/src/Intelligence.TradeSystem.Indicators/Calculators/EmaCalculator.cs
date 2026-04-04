@@ -12,7 +12,7 @@
 /// </code>
 /// Если данных меньше периода, возвращается среднее по всем доступным значениям.
 /// </remarks>
-internal static class EmaCalculator
+public static class EmaCalculator
 {
     /// <summary>
     /// Вычисляет EMA на последнем элементе массива.

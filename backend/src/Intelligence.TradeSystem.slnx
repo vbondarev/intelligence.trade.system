@@ -4,6 +4,7 @@
     <File Path="../.editorconfig" />
     <File Path="../.gitignore" />
   </Folder>
+  <Project Path="Intelligence.TradeSystem.Analysis/Intelligence.TradeSystem.Analysis.csproj" />
   <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
   <Folder Name="/Tests/">

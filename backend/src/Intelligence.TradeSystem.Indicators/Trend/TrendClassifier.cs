@@ -38,7 +38,7 @@ namespace Intelligence.TradeSystem.Indicators.Trend;
 /// и только если <paramref name="volumeRatio"/> больше <c>1</c>.
 /// </para>
 /// </remarks>
-internal static class TrendClassifier
+public static class TrendClassifier
 {
     /// <summary>
     /// Классифицирует направление тренда и возвращает оценку его силы.

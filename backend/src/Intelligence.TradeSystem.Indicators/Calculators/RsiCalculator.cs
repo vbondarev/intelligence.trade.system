@@ -13,7 +13,7 @@
 /// что соответствует нейтральному значению RSI.
 /// </para>
 /// </remarks>
-internal static class RsiCalculator
+public static class RsiCalculator
 {
     /// <summary>
     /// Вычисляет значение RSI в диапазоне от 0 до 100.

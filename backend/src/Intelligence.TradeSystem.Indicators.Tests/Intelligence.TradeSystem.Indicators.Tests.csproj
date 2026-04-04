@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Intelligence.TradeSystem.Analysis\Intelligence.TradeSystem.Analysis.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Indicators\Intelligence.TradeSystem.Indicators.csproj" />
   </ItemGroup>
 
