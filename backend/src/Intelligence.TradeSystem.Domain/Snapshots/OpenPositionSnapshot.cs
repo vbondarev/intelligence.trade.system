@@ -32,7 +32,10 @@ public sealed record OpenPositionSnapshot
     /// </summary>
     public decimal LiquidationPrice { get; init; }
 
-    /// <summary>Текущая стоимость позиции в USD: <c>Size × MarkPrice</c>.</summary>
+    /// <summary>
+    /// Стоимость позиции в USD, полученная из исходного <c>OpenPosition.PositionValue</c>.
+    /// Маппится как есть; если исходное значение отсутствует, используется <c>0</c>.
+    /// </summary>
     public decimal PositionValueUsd { get; init; }
 
     /// <summary>Кредитное плечо, используемое по позиции.</summary>

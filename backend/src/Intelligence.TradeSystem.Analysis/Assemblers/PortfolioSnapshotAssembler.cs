@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.Analysis.Assemblers;
 /// <list type="number">
 ///   <item>Валидация списка позиций</item>
 ///   <item>Балансы из <see cref="AccountBalance"/>; <c>null</c>-баланс даёт нулевые значения</item>
-///   <item>Маппинг каждой позиции в <see cref="OpenPositionSnapshot"/>; позиции с нулевым размером пропускаются</item>
+///   <item>Маппинг каждой позиции в <see cref="OpenPositionSnapshot"/>; позиции с размером <c>&lt;= 0</c> пропускаются</item>
 ///   <item>Вычисление <c>UnrealizedPnlPct</c> через безопасное деление</item>
 ///   <item>Сборка снимка</item>
 /// </list>
@@ -43,7 +43,7 @@ public static class PortfolioSnapshotAssembler
         var totalWalletBalance   = balance?.TotalWalletBalance      ?? 0m;
         var totalUnrealizedPnl   = balance?.TotalPerpUnrealizedPnl  ?? 0m;
 
-        // 3. Map positions — skip any that somehow have zero size (defence-in-depth)
+        // 3. Map positions — skip any that somehow have non-positive size (defence-in-depth)
         var openPositions = positions
             .Where(p => p.Size > 0m)
             .Select(MapPosition)

@@ -24,7 +24,7 @@ public static class OpenInterestSnapshotAssembler
     /// Минимальное изменение OI за 1 час (в процентах), при превышении которого
     /// позиционирование считается аккумуляцией или дистрибуцией.
     /// </summary>
-    internal const decimal TrendThresholdPct = 1m;
+    private const decimal TrendThresholdPct = 1m;
 
     /// <summary>
     /// Вычисляет и возвращает <see cref="OpenInterestSnapshot"/> для переданного ряда точек.
