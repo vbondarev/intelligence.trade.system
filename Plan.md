@@ -1,20 +1,20 @@
 ﻿# Intelligence Trade System — План реализации
 
 > Последнее обновление: 2026-04-05
-> Текущий статус: **Фаза 1 завершена. Следующий шаг — тесты оставшихся Assembler'ов (1.5), затем Фаза 2**
+> Текущий статус: **Фаза 1 и 1.5 завершены. Следующий шаг — Фаза 2 (`Intelligence.TradeSystem.Application`)**
 
 ---
 
 ## Текущее положение
 
 ```
-Фаза 1 ████████████████████░░  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Assembler тесты 1/5 🔄
+Фаза 1 ██████████████████████  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Analysis assembler tests 11/11 ✅
 Фаза 2 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 6 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 7 ████████░░░░░░░░░░░░░░  Indicators.Tests ✅ 107 тестов | Analysis.Tests 🔄 14/~55 тестов
+Фаза 7 ████████████░░░░░░░░░░  Indicators.Tests ✅ 109 тестов | Analysis.Tests ✅ 163 теста | Integration/Architecture ░░
 ```
 
 ---
@@ -67,7 +67,7 @@
 | ✅ | `VolumeProfileDetector` |
 | ✅ | `TrendClassifier` |
 
-### Тесты (`Intelligence.TradeSystem.Indicators.Tests`) — 107 тестов ✅
+### Тесты (`Intelligence.TradeSystem.Indicators.Tests`) — 109 тестов ✅
 
 | Статус | Тест |
 |--------|------|
@@ -78,27 +78,25 @@
 | ✅ | `VolumeProfileDetectorTests` |
 | ✅ | `TrendClassifierTests` |
 
-### Тесты (`Intelligence.TradeSystem.Analysis.Tests`) — 14 тестов ✅
-
-> ⚠️ Проект имел ошибку компиляции: `<Using Include="NUnit.Framework"/>` без NUnit-пакета — **исправлено 2026-04-05**.
+### Тесты (`Intelligence.TradeSystem.Analysis.Tests`) — 163 теста ✅
 
 | Статус | Тест |
 |--------|------|
 | ✅ | `TimeframeSnapshotAssemblerTests` |
-| ❌ | `PriceSnapshotAssemblerTests` |
-| ❌ | `TradeFlowSnapshotAssemblerTests` |
-| ❌ | `OrderBookSnapshotAssemblerTests` |
-| ❌ | `OpenInterestSnapshotAssemblerTests` |
-| ❌ | `FundingRateSnapshotAssemblerTests` |
-| ❌ | `LongShortRatioSnapshotAssemblerTests` |
-| ❌ | `DerivativesSnapshotAssemblerTests` |
-| ❌ | `PortfolioSnapshotAssemblerTests` |
-| ❌ | `SentimentSnapshotAssemblerTests` |
-| ❌ | `MarketAnalysisSnapshotAssemblerTests` |
+| ✅ | `PriceSnapshotAssemblerTests` |
+| ✅ | `TradeFlowSnapshotAssemblerTests` |
+| ✅ | `OrderBookSnapshotAssemblerTests` |
+| ✅ | `OpenInterestSnapshotAssemblerTests` |
+| ✅ | `FundingRateSnapshotAssemblerTests` |
+| ✅ | `LongShortRatioSnapshotAssemblerTests` |
+| ✅ | `DerivativesSnapshotAssemblerTests` |
+| ✅ | `PortfolioSnapshotAssemblerTests` |
+| ✅ | `SentimentSnapshotAssemblerTests` |
+| ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
 ---
 
-## Фаза 1 — Завершение слоя Analysis `[текущий этап]`
+## Фаза 1 — Завершение слоя Analysis `[завершено]`
 
 - [x] **1.1** `DerivativesSnapshotAssembler`
   - Вход: `Ticker` (текущий funding rate, open interest) + `FundingRateSnapshot` + `OpenInterestSnapshot` + `LongShortRatioSnapshot`
@@ -108,7 +106,7 @@
 - [x] **1.2** `PortfolioSnapshotAssembler`
   - Вход: `AccountBalance?` + `IReadOnlyList<OpenPosition>`
   - Выход: `PortfolioSnapshot` с вложенными `OpenPositionSnapshot`
-  - Маппинг позиций реализован приватным методом `MapPosition`; позиции с `Size = 0` пропускаются
+  - Маппинг позиций реализован приватным методом `MapPosition`; позиции с `Size <= 0` пропускаются
 
 - [x] **1.3** `SentimentSnapshotAssembler`
   - Вход: `DerivativesSnapshot` + `OrderBookSnapshot` + `TradeFlowSnapshot` + `TimeframeAnalysisSnapshot` (H1, H4)
@@ -120,14 +118,14 @@
   - `Category` нормализуется в lowercase (`Linear` → `"linear"`)
   - `Tags` формируются автоматически из данных снапшотов (regime, funding, RSI, orderbook, tradeflow)
 
-- [ ] **1.5** Тесты на оставшиеся ассемблеры в `Intelligence.TradeSystem.Analysis.Tests`
-  - [ ] **1.5.1** `MarketAnalysisSnapshotAssemblerTests` — центральный оркестратор, наивысший приоритет
-  - [ ] **1.5.2** `PriceSnapshotAssemblerTests`
-  - [ ] **1.5.3** `TradeFlowSnapshotAssemblerTests`
-  - [ ] **1.5.4** `DerivativesSnapshotAssemblerTests`
-  - [ ] **1.5.5** `PortfolioSnapshotAssemblerTests`
-  - [ ] **1.5.6** `SentimentSnapshotAssemblerTests`
-  - [ ] **1.5.7** `OrderBookSnapshotAssemblerTests`, `OpenInterestSnapshotAssemblerTests`, `FundingRateSnapshotAssemblerTests`, `LongShortRatioSnapshotAssemblerTests`
+- [x] **1.5** Тесты на ассемблеры в `Intelligence.TradeSystem.Analysis.Tests`
+  - [x] **1.5.1** `MarketAnalysisSnapshotAssemblerTests` — центральный оркестратор, покрыт production-ready regression test suite
+  - [x] **1.5.2** `PriceSnapshotAssemblerTests`
+  - [x] **1.5.3** `TradeFlowSnapshotAssemblerTests`
+  - [x] **1.5.4** `DerivativesSnapshotAssemblerTests`
+  - [x] **1.5.5** `PortfolioSnapshotAssemblerTests`
+  - [x] **1.5.6** `SentimentSnapshotAssemblerTests`
+  - [x] **1.5.7** `OrderBookSnapshotAssemblerTests`, `OpenInterestSnapshotAssemblerTests`, `FundingRateSnapshotAssemblerTests`, `LongShortRatioSnapshotAssemblerTests`
 
 ---
 

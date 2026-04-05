@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path="../compose.yaml" />
+    <File Path="../../Plan.md" />
+    <File Path="../../README.md" />
     <File Path="../.editorconfig" />
     <File Path="../.gitignore" />
     <File Path="Directory.Build.props" />
