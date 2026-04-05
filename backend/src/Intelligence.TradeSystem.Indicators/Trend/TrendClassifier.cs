@@ -29,17 +29,22 @@ namespace Intelligence.TradeSystem.Indicators.Trend;
 /// </list>
 /// <para>
 /// Сила тренда возвращается в диапазоне <c>[0; 1]</c>.
-/// Для направленного тренда базовая сила равна <c>1.0</c>.
+/// Для направленного тренда базовая сила равна <c>0.80</c>.
+/// Повышенный объём может увеличить её до <c>1.00</c>, делая подтверждённый тренд
+/// сильнее, чем тренд без объёмной поддержки.
 /// Для бокового рынка рассчитывается частичная структурная оценка, но ограничивается сверху
 /// значением <c>0.49</c>, чтобы состояние <c>Sideways</c> не выглядело как сильный тренд.
 /// </para>
 /// <para>
 /// Дополнительное усиление за объём применяется только для направленного тренда
-/// и только если <paramref name="volumeRatio"/> больше <c>1</c>.
+/// и только если <c>volumeRatio</c> больше <c>1</c>.
 /// </para>
 /// </remarks>
 public static class TrendClassifier
 {
+    private const decimal DirectedTrendBaseScore = 0.80m;
+    private const decimal MaxVolumeBoost = 0.20m;
+
     /// <summary>
     /// Классифицирует направление тренда и возвращает оценку его силы.
     /// </summary>
@@ -55,7 +60,9 @@ public static class TrendClassifier
     /// Кортеж из:
     /// <list type="bullet">
     /// <item><description><c>Trend</c> — направление рынка.</description></item>
-    /// <item><description><c>StrengthScore</c> — сила тренда в диапазоне <c>[0; 1]</c>.</description></item>
+    /// <item><description><c>StrengthScore</c> — сила тренда в диапазоне <c>[0; 1]</c>.
+    /// Для <c>Bullish</c>/<c>Bearish</c> — от <c>0.80</c> до <c>1.00</c>,
+    /// для <c>Sideways</c> — от <c>0.00</c> до <c>0.49</c>.</description></item>
     /// </list>
     /// </returns>
     public static (MarketTrend Trend, decimal StrengthScore) Classify(
@@ -79,12 +86,12 @@ public static class TrendClassifier
         if (bullishAlignment && isPriceAboveEma200)
         {
             trend = MarketTrend.Bullish;
-            baseScore = 1.0m;
+            baseScore = DirectedTrendBaseScore;
         }
         else if (bearishAlignment && isPriceBelowEma200)
         {
             trend = MarketTrend.Bearish;
-            baseScore = 1.0m;
+            baseScore = DirectedTrendBaseScore;
         }
         else
         {
@@ -125,8 +132,9 @@ public static class TrendClassifier
             baseScore = Math.Min(Math.Max(bullPoints, bearPoints), 0.49m);
         }
 
-        var volumeBoost = trend is MarketTrend.Bullish or MarketTrend.Bearish && volumeRatio > 1m
-            ? Math.Min((volumeRatio - 1m) * 0.1m, 0.2m)
+        var isDirectedTrend = trend is MarketTrend.Bullish or MarketTrend.Bearish;
+        var volumeBoost = isDirectedTrend && volumeRatio > 1m
+            ? Math.Min((volumeRatio - 1m) * 0.1m, MaxVolumeBoost)
             : 0m;
 
         var strengthScore = Math.Min(baseScore + volumeBoost, 1m);

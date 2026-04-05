@@ -56,40 +56,55 @@ public sealed class TrendClassifierTests
     // ── Strength score: directed trends ─────────────────────────────────────
 
     [Fact]
-    public void StrengthScore_Is_1_For_Full_Bullish_Alignment_Without_Volume_Boost()
+    public void StrengthScore_Is_0_8_For_Full_Bullish_Alignment_Without_Volume_Boost()
     {
-        // volumeRatio == 1 → boost == 0; полное выравнивание → baseScore == 1
+        // volumeRatio == 1 → boost == 0; направленный тренд получает базовый score = 0.80.
         var (_, score) = TrendClassifier.Classify(200m, 150m, 100m, currentPrice: 210m, volumeRatio: 1m);
 
-        score.Should().Be(1m);
+        score.Should().Be(0.8m);
     }
 
     [Fact]
-    public void StrengthScore_Is_1_For_Full_Bearish_Alignment_Without_Volume_Boost()
+    public void StrengthScore_Is_0_8_For_Full_Bearish_Alignment_Without_Volume_Boost()
     {
         var (_, score) = TrendClassifier.Classify(100m, 150m, 200m, currentPrice: 90m, volumeRatio: 1m);
 
-        score.Should().Be(1m);
+        score.Should().Be(0.8m);
     }
 
     [Fact]
-    public void StrengthScore_For_Directed_Trend_Is_Always_1_Regardless_Of_VolumeRatio()
+    public void VolumeBoost_Is_Applied_For_Bullish_Trend_When_VolumeRatio_Greater_Than_1()
     {
-        // Честный публичный контракт: StrengthScore == 1 для Bullish/Bearish независимо от объёма.
-        //
-        // Примечание об ненаблюдаемости volume boost:
-        //   Volume boost применяется внутри для Bullish/Bearish, но baseScore = 1.0 и
-        //   Math.Min(1.0 + boost, 1.0) = 1.0 при любом неотрицательном boost.
-        //   Через публичный Classify() результат volume boost для directed trend проверить нельзя.
-        var (_, scoreBullishLowVol)  = TrendClassifier.Classify(200m, 150m, 100m, 210m, volumeRatio: 1m);
-        var (_, scoreBullishHighVol) = TrendClassifier.Classify(200m, 150m, 100m, 210m, volumeRatio: 10m);
-        var (_, scoreBearishLowVol)  = TrendClassifier.Classify(100m, 150m, 200m,  90m, volumeRatio: 1m);
-        var (_, scoreBearishHighVol) = TrendClassifier.Classify(100m, 150m, 200m,  90m, volumeRatio: 10m);
+        // baseScore = 0.80; при volumeRatio = 3 → boost = min((3-1)*0.1, 0.2) = 0.20.
+        // Итог: 0.80 + 0.20 = 1.00.
+        var (_, scoreBase) = TrendClassifier.Classify(200m, 150m, 100m, currentPrice: 210m, volumeRatio: 1m);
+        var (_, scoreBoosted) = TrendClassifier.Classify(200m, 150m, 100m, currentPrice: 210m, volumeRatio: 3m);
 
-        scoreBullishLowVol.Should().Be(1m);
-        scoreBullishHighVol.Should().Be(1m);
-        scoreBearishLowVol.Should().Be(1m);
-        scoreBearishHighVol.Should().Be(1m);
+        scoreBase.Should().Be(0.8m);
+        scoreBoosted.Should().Be(1m);
+        scoreBoosted.Should().BeGreaterThan(scoreBase);
+    }
+
+    [Fact]
+    public void VolumeBoost_Is_Applied_For_Bearish_Trend_When_VolumeRatio_Greater_Than_1()
+    {
+        var (_, scoreBase) = TrendClassifier.Classify(100m, 150m, 200m, currentPrice: 90m, volumeRatio: 1m);
+        var (_, scoreBoosted) = TrendClassifier.Classify(100m, 150m, 200m, currentPrice: 90m, volumeRatio: 3m);
+
+        scoreBase.Should().Be(0.8m);
+        scoreBoosted.Should().Be(1m);
+        scoreBoosted.Should().BeGreaterThan(scoreBase);
+    }
+
+    [Fact]
+    public void VolumeBoost_Is_Capped_At_0_2_For_Directed_Trend()
+    {
+        // volumeRatio = 3 и volumeRatio = 1000 одинаково упираются в MaxVolumeBoost = 0.20.
+        var (_, scoreAtCapEdge) = TrendClassifier.Classify(200m, 150m, 100m, currentPrice: 210m, volumeRatio: 3m);
+        var (_, scoreExtremeVolume) = TrendClassifier.Classify(200m, 150m, 100m, currentPrice: 210m, volumeRatio: 1000m);
+
+        scoreAtCapEdge.Should().Be(1m);
+        scoreExtremeVolume.Should().Be(1m);
     }
 
     [Fact]
