@@ -21,9 +21,9 @@ public static class MarketAnalysisSnapshotAssembler
 {
     /// <summary>
     /// Порог абсолютного значения ставки финансирования, при котором выставляется тег <c>funding-spike</c>.
-    /// Совпадает с <see cref="FundingRateSnapshotAssembler.ExtremeFundingThreshold"/>.
+    /// Совпадает с <see cref="AnalysisThresholds.FundingExtremeThreshold"/>.
     /// </summary>
-    private const decimal FundingSpikeThreshold = FundingRateSnapshotAssembler.ExtremeFundingThreshold;
+    private const decimal FundingSpikeThreshold = AnalysisThresholds.FundingExtremeThreshold;
 
     /// <summary>
     /// Минимальный абсолютный дисбаланс стакана на глубине Top-5,

@@ -26,7 +26,7 @@ public static class FundingRateSnapshotAssembler
     /// <c>CurrentRate &gt; threshold</c> → бычий перегрев (лонги переплачивают).
     /// <c>CurrentRate &lt; -threshold</c> → медвежий перегрев (шорты переплачивают).
     /// </summary>
-    internal const decimal ExtremeFundingThreshold = 0.001m;
+    private const decimal ExtremeFundingThreshold = AnalysisThresholds.FundingExtremeThreshold;
 
     /// <summary>Количество записей в 24 часах (8-часовой интервал начислений).</summary>
     private const int Periods24h = 3;

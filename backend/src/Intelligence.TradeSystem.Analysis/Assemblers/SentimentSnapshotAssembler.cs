@@ -23,21 +23,21 @@ public static class SentimentSnapshotAssembler
     /// <summary>
     /// Нормализующий делитель ставки финансирования.
     /// При <c>|rate| == factor</c> скор достигает ±1.
-    /// Совпадает с <see cref="FundingRateSnapshotAssembler.ExtremeFundingThreshold"/>.
+    /// Совпадает с <see cref="AnalysisThresholds.FundingExtremeThreshold"/>.
     /// </summary>
-    internal const decimal FundingNormalizationFactor = 0.001m;
+    private const decimal FundingNormalizationFactor = AnalysisThresholds.FundingExtremeThreshold;
 
     /// <summary>
     /// Нормализующий делитель дельты объёма.
     /// Дельта 50 % даёт скор ±1; значения выше обрезаются.
     /// </summary>
-    internal const decimal TradeFlowNormalizationFactor = 50m;
+    private const decimal TradeFlowNormalizationFactor = 50m;
 
     /// <summary>
     /// Минимальный абсолютный скор, гарантированный при выставленном флаге агрессивного давления.
     /// Если флаг <c>HasAggressiveBuyPressure</c> установлен, скор не будет ниже +<see cref="AggressivePressureFloor"/>.
     /// </summary>
-    internal const decimal AggressivePressureFloor = 0.5m;
+    private const decimal AggressivePressureFloor = 0.5m;
 
     /// <summary>Вес дисбаланса стакана на глубине 5 в агрегированном скоре.</summary>
     private const decimal ImbalanceWeightTop5 = 0.5m;
