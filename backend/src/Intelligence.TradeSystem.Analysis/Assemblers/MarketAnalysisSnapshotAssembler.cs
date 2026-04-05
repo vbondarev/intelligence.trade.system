@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Domain.Snapshots;
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
 /// <summary>
-/// Финальный оркестратор слоя Indicators.
+/// Финальный оркестратор слоя Analysis.
 /// Собирает корневой <see cref="MarketAnalysisSnapshot"/> из уже вычисленных частичных снапшотов,
 /// не выполняя никаких повторных расчётов.
 /// <para>
