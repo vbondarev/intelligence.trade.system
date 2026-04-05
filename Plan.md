@@ -1,20 +1,20 @@
 ﻿# Intelligence Trade System — План реализации
 
-> Последнее обновление: 2026-04-04
-> Текущий статус: **Фаза 1 — завершение слоя Indicators**
+> Последнее обновление: 2026-04-05
+> Текущий статус: **Фаза 1 завершена. Следующий шаг — тесты оставшихся Assembler'ов (1.5), затем Фаза 2**
 
 ---
 
 ## Текущее положение
 
 ```
-Фаза 1 ████████████████████░░  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | тесты
+Фаза 1 ████████████████████░░  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Assembler тесты 1/5 🔄
 Фаза 2 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 6 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 7 ████░░░░░░░░░░░░░░░░░░  Calculators ✅ | Assemblers частично
+Фаза 7 ████████░░░░░░░░░░░░░░  Indicators.Tests ✅ 107 тестов | Analysis.Tests 🔄 14/~55 тестов
 ```
 
 ---
@@ -67,7 +67,7 @@
 | ✅ | `VolumeProfileDetector` |
 | ✅ | `TrendClassifier` |
 
-### Тесты (`Intelligence.TradeSystem.Indicators.Tests`)
+### Тесты (`Intelligence.TradeSystem.Indicators.Tests`) — 107 тестов ✅
 
 | Статус | Тест |
 |--------|------|
@@ -77,7 +77,20 @@
 | ✅ | `SmaCalculatorTests` |
 | ✅ | `VolumeProfileDetectorTests` |
 | ✅ | `TrendClassifierTests` |
+
+### Тесты (`Intelligence.TradeSystem.Analysis.Tests`) — 14 тестов ✅
+
+> ⚠️ Проект имел ошибку компиляции: `<Using Include="NUnit.Framework"/>` без NUnit-пакета — **исправлено 2026-04-05**.
+
+| Статус | Тест |
+|--------|------|
 | ✅ | `TimeframeSnapshotAssemblerTests` |
+| ❌ | `PriceSnapshotAssemblerTests` |
+| ❌ | `TradeFlowSnapshotAssemblerTests` |
+| ❌ | `OrderBookSnapshotAssemblerTests` |
+| ❌ | `OpenInterestSnapshotAssemblerTests` |
+| ❌ | `FundingRateSnapshotAssemblerTests` |
+| ❌ | `LongShortRatioSnapshotAssemblerTests` |
 | ❌ | `DerivativesSnapshotAssemblerTests` |
 | ❌ | `PortfolioSnapshotAssemblerTests` |
 | ❌ | `SentimentSnapshotAssemblerTests` |
@@ -107,7 +120,14 @@
   - `Category` нормализуется в lowercase (`Linear` → `"linear"`)
   - `Tags` формируются автоматически из данных снапшотов (regime, funding, RSI, orderbook, tradeflow)
 
-- [ ] **1.5** Тесты на новые ассемблеры в `Intelligence.TradeSystem.Indicators.Tests`
+- [ ] **1.5** Тесты на оставшиеся ассемблеры в `Intelligence.TradeSystem.Analysis.Tests`
+  - [ ] **1.5.1** `MarketAnalysisSnapshotAssemblerTests` — центральный оркестратор, наивысший приоритет
+  - [ ] **1.5.2** `PriceSnapshotAssemblerTests`
+  - [ ] **1.5.3** `TradeFlowSnapshotAssemblerTests`
+  - [ ] **1.5.4** `DerivativesSnapshotAssemblerTests`
+  - [ ] **1.5.5** `PortfolioSnapshotAssemblerTests`
+  - [ ] **1.5.6** `SentimentSnapshotAssemblerTests`
+  - [ ] **1.5.7** `OrderBookSnapshotAssemblerTests`, `OpenInterestSnapshotAssemblerTests`, `FundingRateSnapshotAssemblerTests`, `LongShortRatioSnapshotAssemblerTests`
 
 ---
 
