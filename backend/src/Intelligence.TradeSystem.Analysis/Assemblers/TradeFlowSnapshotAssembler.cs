@@ -1,7 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators;
+namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
 /// <summary>
 /// Собирает <see cref="TradeFlowSnapshot"/> из списка сырых сделок <see cref="Trade"/>.
@@ -22,7 +22,7 @@ public static class TradeFlowSnapshotAssembler
     /// Порог дельты объёма в процентах, выше которого давление считается агрессивным.
     /// Если <c>|DeltaPct| > AggressivePressureThresholdPct</c> — выставляется соответствующий флаг.
     /// </summary>
-    internal const decimal AggressivePressureThresholdPct = 10m;
+    private const decimal AggressivePressureThresholdPct = 10m;
 
     /// <summary>
     /// Вычисляет и возвращает <see cref="TradeFlowSnapshot"/> для переданного списка сделок.

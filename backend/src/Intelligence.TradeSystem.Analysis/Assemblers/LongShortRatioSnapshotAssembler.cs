@@ -1,7 +1,7 @@
 ﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Indicators;
+namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
 /// <summary>
 /// Собирает <see cref="LongShortRatioSnapshot"/> из исторического ряда точек
@@ -25,7 +25,7 @@ public static class LongShortRatioSnapshotAssembler
     /// <c>CurrentBuyRatio &lt; (1 − ExtremeLongThreshold)</c> → экстремально короткий рынок.
     /// Контрарный сигнал: экстремальные значения повышают вероятность разворота.
     /// </summary>
-    internal const decimal ExtremeLongThreshold = 0.65m;
+    private const decimal ExtremeLongThreshold = 0.65m;
 
     /// <summary>
     /// Вычисляет и возвращает <see cref="LongShortRatioSnapshot"/> для переданного ряда точек.

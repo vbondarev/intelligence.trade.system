@@ -1,7 +1,9 @@
 ﻿using FluentAssertions;
-using Intelligence.TradeSystem.Indicators.Tests.Helpers;
+using Intelligence.TradeSystem.Analysis.Assemblers;
+using Intelligence.TradeSystem.Analysis.Tests.Helpers;
+using Xunit;
 
-namespace Intelligence.TradeSystem.Indicators.Tests;
+namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
 
 public sealed class TimeframeSnapshotAssemblerTests
 {
@@ -10,8 +12,10 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         var act = () => TimeframeSnapshotAssembler.Assemble([], timeframe: "1h");
 
-        act.Should().Throw<ArgumentException>()
-           .WithParameterName("klines");
+        act
+            .Should()
+            .Throw<ArgumentException>()
+            .WithParameterName("klines");
     }
 
     [Fact]
