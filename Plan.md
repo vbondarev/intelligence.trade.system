@@ -36,7 +36,7 @@
 | ✅ | `/v5/position/list` | `GetOpenPositionsAsync` | `IReadOnlyList<OpenPosition>` |
 | ❌ | `/v5/market/instruments-info` | `GetInstrumentInfoAsync` | `InstrumentInfo?` |
 
-### Ассемблеры (`Intelligence.TradeSystem.Indicators`)
+### Ассемблеры (`Intelligence.TradeSystem.Analysis`)
 
 | Статус | Ассемблер | Вход | Выход |
 |--------|-----------|------|-------|
@@ -98,7 +98,7 @@
 
 ---
 
-## Фаза 1 — Завершение слоя Indicators `[текущий этап]`
+## Фаза 1 — Завершение слоя Analysis `[текущий этап]`
 
 - [x] **1.1** `DerivativesSnapshotAssembler`
   - Вход: `Ticker` (текущий funding rate, open interest) + `FundingRateSnapshot` + `OpenInterestSnapshot` + `LongShortRatioSnapshot`
@@ -192,7 +192,8 @@ Domain          ← нет зависимостей (только BCL)
 Abstractions    ← Domain
 Exchanges       ← Abstractions, Domain, Bybit.Net SDK
 Indicators      ← Domain
-Application     ← Abstractions, Domain, Indicators
+Analysis        ← Domain, Indicators
+Application     ← Abstractions, Domain, Analysis
 Analytics       ← Domain, Indicators
 Ai              ← Domain, Analytics, OpenAI SDK
 Infrastructure  ← Application, Exchanges, Ai, Persistence
