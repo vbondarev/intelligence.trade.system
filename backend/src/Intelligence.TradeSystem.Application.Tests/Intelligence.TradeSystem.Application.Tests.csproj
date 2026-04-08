@@ -17,9 +17,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Intelligence.TradeSystem.Exchanges\Intelligence.TradeSystem.Exchanges.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Application\Intelligence.TradeSystem.Application.csproj" />
   </ItemGroup>
 
 </Project>
-
 
