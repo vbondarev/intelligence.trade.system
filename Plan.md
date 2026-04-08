@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
-> Последнее обновление: 2026-04-05
-> Текущий статус: **Фаза 1 и 1.5 завершены. Следующий шаг — Фаза 2 (`Intelligence.TradeSystem.Application`)**
+> Последнее обновление: 2026-04-08
+> Текущий статус: **Фазы 1, 1.5 и 2 завершены. Следующий шаг — Фаза 3 (`Intelligence.TradeSystem.Analytics`). Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -9,17 +9,27 @@
 
 ```
 Фаза 1 ██████████████████████  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Analysis assembler tests 11/11 ✅
-Фаза 2 ░░░░░░░░░░░░░░░░░░░░░░  не начата
+Фаза 2 ██████████████████████  Application orchestration ✅ | DI registration ✅ | Application tests ✅
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 6 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 7 ████████████░░░░░░░░░░  Indicators.Tests ✅ 109 тестов | Analysis.Tests ✅ 163 теста | Integration/Architecture ░░
+Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Backend.Host scaffold ✅ | Infrastructure/Persistence/Worker projects ░░
+Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 293 теста | Integration/Architecture ░░
 ```
 
 ---
 
 ## Реализованные компоненты
+
+### Базовые абстракции (`Intelligence.TradeSystem.Abstractions`)
+
+| Статус | Компонент | Назначение |
+|--------|-----------|------------|
+| ✅ | `ExchangeId` | Идентификатор поддерживаемой биржи в orchestration-слое |
+| ✅ | `IMarketDataProvider` | Нейтральный контракт публичных market-data capability |
+| ✅ | `IDerivativesDataProvider` | Нейтральный контракт производных/деривативных данных |
+| ✅ | `IPrivateAccountProvider` | Нейтральный контракт приватных аккаунтных данных |
+| ✅ | `IBybitProvider` | Временный compatibility-контракт поверх capability-интерфейсов для мягкой миграции |
 
 ### Bybit эндпоинты (`Intelligence.TradeSystem.Exchanges`)
 
@@ -35,6 +45,10 @@
 | ✅ | `/v5/account/wallet-balance` | `GetWalletBalanceAsync` | `AccountBalance?` |
 | ✅ | `/v5/position/list` | `GetOpenPositionsAsync` | `IReadOnlyList<OpenPosition>` |
 | ❌ | `/v5/market/instruments-info` | `GetInstrumentInfoAsync` | `InstrumentInfo?` |
+
+> **Примечание:** текущая реализация биржевого слоя уже ориентирована на capability-интерфейсы
+> (`IMarketDataProvider`, `IDerivativesDataProvider`, `IPrivateAccountProvider`).
+> `IBybitProvider` сохранён как compatibility-обёртка и не является целевой долгосрочной абстракцией.
 
 ### Ассемблеры (`Intelligence.TradeSystem.Analysis`)
 
@@ -94,6 +108,22 @@
 | ✅ | `SentimentSnapshotAssemblerTests` |
 | ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
+### Тесты (`Intelligence.TradeSystem.Application.Tests`) — 16 тестов ✅
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `MarketDataCollectorTests` |
+| ✅ | `MarketAnalysisServiceTests` |
+| ✅ | `StartupExtensionsTests` |
+
+### Тесты (`Intelligence.TradeSystem.Exchanges.Tests`) — 5 тестов ✅
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `StartupExtensionsTests` |
+
+> **Итого по solution:** `293` unit-теста, все проходят успешно.
+
 ---
 
 ## Фаза 1 — Завершение слоя Analysis `[завершено]`
@@ -129,12 +159,17 @@
 
 ---
 
-## Фаза 2 — Проект `Intelligence.TradeSystem.Application`
+## Фаза 2 — Проект `Intelligence.TradeSystem.Application` `[завершено]`
 
-- [ ] **2.1** Интерфейс `IMarketDataCollector` — декларирует сбор всех рыночных данных по символу
-- [ ] **2.2** `MarketDataCollector` — параллельно вызывает все `GetXxxAsync` через `IBybitProvider`
-- [ ] **2.3** Интерфейс `IMarketAnalysisService` — `BuildSnapshotAsync(string symbol, MarketCategory category) → MarketAnalysisSnapshot`
-- [ ] **2.4** `MarketAnalysisService` — вызывает `MarketDataCollector`, прогоняет через все ассемблеры
+- [x] **2.1** Интерфейс `IMarketDataCollector` — декларирует сбор всех рыночных данных по символу и бирже
+- [x] **2.2** `MarketDataCollector` — параллельно вызывает `GetXxxAsync` через нейтральные capability-интерфейсы
+  - Зависит от `IMarketDataProvider`, `IDerivativesDataProvider`, `IPrivateAccountProvider`
+  - Поддерживает `ExchangeId`, нормализацию `symbol`, `MarketCategory.Spot`/derivatives branching
+- [x] **2.3** Интерфейс `IMarketAnalysisService` — `BuildSnapshotAsync(ExchangeId exchangeId, string symbol, MarketCategory category) → MarketAnalysisSnapshot`
+- [x] **2.4** `MarketAnalysisService` — вызывает `MarketDataCollector`, валидирует критичные данные и прогоняет их через все ассемблеры
+- [x] **2.5** `CollectedMarketData` — нормализованный пакет сырых данных для downstream-оркестрации
+- [x] **2.6** `StartupExtensions.AddApplication()` — DI-регистрация orchestration-сервисов
+- [x] **2.7** `Intelligence.TradeSystem.Application.Tests` — production-ready unit tests для collector/service/DI
 
 ---
 
@@ -170,13 +205,19 @@
 - [ ] **6.1** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenAI client
 - [ ] **6.2** `Intelligence.TradeSystem.Persistence` — кэширование снапшотов (Redis / in-memory), история запросов
 - [ ] **6.3** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
-- [ ] **6.4** `Intelligence.TradeSystem.Backend.Host` — подключение реальных сервисов, `appsettings` конфигурация
+- [~] **6.4** `Intelligence.TradeSystem.Backend.Host` — минимальный host/composition root уже существует (`AddBybitExchange()`, `AddApplication()`, `Worker`)
+  - [ ] Подключить реальный `BybitRestClient` и production-конфигурацию внешних клиентов
+  - [ ] Расширить composition root по мере появления `Infrastructure` / `Ai` / `Api`
 
 ---
 
 ## Фаза 7 — Тесты и качество
 
-- [ ] **7.1** `UnitTests` — покрытие ассемблеров, форматтеров, классификаторов
+- [x] **7.1** `UnitTests` — покрытие `Indicators`, `Analysis`, `Application`, `Exchanges`
+  - `Intelligence.TradeSystem.Indicators.Tests` — 109 тестов
+  - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
+  - `Intelligence.TradeSystem.Application.Tests` — 16 тестов
+  - `Intelligence.TradeSystem.Exchanges.Tests` — 5 тестов
 - [ ] **7.2** `IntegrationTests` — `IBybitProvider` против Bybit testnet, end-to-end сборка `MarketAnalysisSnapshot`
 - [ ] **7.3** `ArchitectureTests` — `NetArchTest`: проверка зависимостей между слоями
 - [ ] **7.4** `/v5/market/instruments-info` — шаг цены, лот-сайз для нормализации отображения в Telegram
@@ -192,13 +233,14 @@ Exchanges       ← Abstractions, Domain, Bybit.Net SDK
 Indicators      ← Domain
 Analysis        ← Domain, Indicators
 Application     ← Abstractions, Domain, Analysis
-Analytics       ← Domain, Indicators
-Ai              ← Domain, Analytics, OpenAI SDK
-Infrastructure  ← Application, Exchanges, Ai, Persistence
-Persistence     ← Domain
-Worker          ← Infrastructure
-Api             ← Application, Ai, Telegram.Bot SDK
-Backend.Host    ← Infrastructure, Worker, Api
+Backend.Host    ← Application, Exchanges, Microsoft.Extensions.Hosting
+
+Analytics       ← planned (Domain, Indicators)
+Ai              ← planned (Domain, Analytics, OpenAI SDK)
+Persistence     ← planned (Domain)
+Infrastructure  ← planned (Application, Exchanges, Ai, Persistence)
+Worker          ← planned (Infrastructure)
+Api             ← planned (Application, Ai, Telegram.Bot SDK)
 ```
 
 ---
@@ -208,8 +250,8 @@ Backend.Host    ← Infrastructure, Worker, Api
 ```
 Пользователь → Telegram → /analyze BTCUSDT
   → TelegramUpdateHandler
-  → IMarketAnalysisService.BuildSnapshotAsync("BTCUSDT", Linear)
-      → IBybitProvider × 9 endpoints (параллельно)
+  → IMarketAnalysisService.BuildSnapshotAsync(Bybit, "BTCUSDT", Linear)
+      → IMarketDataProvider / IDerivativesDataProvider / IPrivateAccountProvider × 9 endpoints (параллельно)
       → Assemblers × 11 (последовательно)
       → MarketAnalysisSnapshot
   → IGptAnalyticsService.AnalyzeAsync(snapshot, "внутридневная торговля")
@@ -217,6 +259,15 @@ Backend.Host    ← Infrastructure, Worker, Api
       → OpenAI chat/completions → аналитика
   → Telegram → пользователь получает ответ
 ```
+
+---
+
+## Ближайшие шаги
+
+1. Запустить **Фазу 3** и спроектировать `Intelligence.TradeSystem.Analytics` поверх уже готового `MarketAnalysisSnapshot`.
+2. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
+3. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
+4. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
 
 
 
