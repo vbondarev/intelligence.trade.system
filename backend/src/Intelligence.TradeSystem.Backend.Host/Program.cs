@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Exchanges;
 
 namespace Intelligence.TradeSystem.Backend.Host;
@@ -9,6 +10,7 @@ public static class Program
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
         builder.Services.AddHostedService<Worker>();
         builder.Services.AddBybitExchange();
+        builder.Services.AddApplication();
 
         var host = builder.Build();
         host.Run();

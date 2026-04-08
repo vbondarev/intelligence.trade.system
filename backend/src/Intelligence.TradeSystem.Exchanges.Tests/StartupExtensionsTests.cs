@@ -2,7 +2,7 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
-using NSubstitute;
+using Moq;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests;
 
@@ -84,7 +84,7 @@ public sealed class StartupExtensionsTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IBybitRestClient>());
+        services.AddSingleton(new Mock<IBybitRestClient>().Object);
         return services;
     }
 }
