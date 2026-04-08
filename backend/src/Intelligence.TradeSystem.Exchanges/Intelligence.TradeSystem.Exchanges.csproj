@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="Bybit.Net" Version="6.10.0" />
+    <PackageReference Include="Bybit.Net" />
   </ItemGroup>
 
   <ItemGroup>

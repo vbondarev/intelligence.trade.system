@@ -7,6 +7,7 @@
     <File Path="../.gitignore" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Analysis/Intelligence.TradeSystem.Analysis.csproj" />
   <Project Path="Intelligence.TradeSystem.Application/Intelligence.TradeSystem.Application.csproj" />
