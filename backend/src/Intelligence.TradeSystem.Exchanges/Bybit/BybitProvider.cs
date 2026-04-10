@@ -6,7 +6,7 @@ using KlineInterval = Intelligence.TradeSystem.Domain.KlineInterval;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
-internal sealed class BybitProvider : IBybitProvider
+internal sealed partial class BybitProvider : IBybitProvider
 {
     private readonly IBybitRestClient _client;
     private readonly ILogger<BybitProvider> _logger;
@@ -37,9 +37,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch klines for {Symbol} ({Category}, {Interval}): {Error}",
-                symbol, category, interval, response.Error?.Message);
+            LogFailedToFetchKlines(_logger, symbol, category, interval, response.Error?.Message);
 
             return [];
         }
@@ -62,9 +60,7 @@ internal sealed class BybitProvider : IBybitProvider
 
             if (!response.Success)
             {
-                _logger.LogError(
-                    "Failed to fetch spot ticker for {Symbol}: {Error}",
-                    symbol, response.Error?.Message);
+                LogFailedToFetchSpotTicker(_logger, symbol, response.Error?.Message);
                 return null;
             }
 
@@ -82,9 +78,7 @@ internal sealed class BybitProvider : IBybitProvider
 
             if (!response.Success)
             {
-                _logger.LogError(
-                    "Failed to fetch ticker for {Symbol} ({Category}): {Error}",
-                    symbol, category, response.Error?.Message);
+                LogFailedToFetchTicker(_logger, symbol, category, response.Error?.Message);
                 return null;
             }
 
@@ -107,9 +101,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch order book for {Symbol} ({Category}): {Error}",
-                symbol, category, response.Error?.Message);
+            LogFailedToFetchOrderBook(_logger, symbol, category, response.Error?.Message);
             return null;
         }
 
@@ -132,9 +124,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch recent trades for {Symbol} ({Category}): {Error}",
-                symbol, category, response.Error?.Message);
+            LogFailedToFetchRecentTrades(_logger, symbol, category, response.Error?.Message);
             return [];
         }
 
@@ -171,9 +161,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch open interest for {Symbol} ({Category}, {Interval}): {Error}",
-                symbol, category, interval, response.Error?.Message);
+            LogFailedToFetchOpenInterest(_logger, symbol, category, interval, response.Error?.Message);
             return [];
         }
 
@@ -207,9 +195,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch funding rate history for {Symbol} ({Category}): {Error}",
-                symbol, category, response.Error?.Message);
+            LogFailedToFetchFundingRateHistory(_logger, symbol, category, response.Error?.Message);
             return [];
         }
 
@@ -245,9 +231,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch long/short ratio for {Symbol} ({Category}, {Period}): {Error}",
-                symbol, category, period, response.Error?.Message);
+            LogFailedToFetchLongShortRatio(_logger, symbol, category, period, response.Error?.Message);
             return [];
         }
 
@@ -279,9 +263,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch open positions ({Category}, {Symbol}): {Error}",
-                category, symbol ?? "all", response.Error?.Message);
+            LogFailedToFetchOpenPositions(_logger, category, symbol ?? "all", response.Error?.Message);
             return [];
         }
 
@@ -302,9 +284,7 @@ internal sealed class BybitProvider : IBybitProvider
 
         if (!response.Success)
         {
-            _logger.LogError(
-                "Failed to fetch wallet balance ({AccountType}): {Error}",
-                accountType, response.Error?.Message);
+            LogFailedToFetchWalletBalance(_logger, accountType, response.Error?.Message);
             return null;
         }
 
