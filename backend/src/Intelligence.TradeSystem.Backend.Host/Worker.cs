@@ -1,6 +1,6 @@
 namespace Intelligence.TradeSystem.Backend.Host;
 
-public class Worker : BackgroundService
+public partial class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
 
@@ -10,12 +10,15 @@ public class Worker : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (_logger.IsEnabled(LogLevel.Information))
-            {
-                _logger.LogInformation("Worker running at: {Time}", DateTimeOffset.Now);
-            }
+            LogWorkerRunning(_logger, DateTimeOffset.Now);
 
             await Task.Delay(1000, stoppingToken);
         }
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Information,
+        Message = "Worker running at: {Time}")]
+    private static partial void LogWorkerRunning(ILogger logger, DateTimeOffset time);
 }
