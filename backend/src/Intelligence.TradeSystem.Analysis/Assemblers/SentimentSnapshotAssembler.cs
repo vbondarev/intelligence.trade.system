@@ -48,15 +48,6 @@ public static class SentimentSnapshotAssembler
     /// <summary>Вес дисбаланса стакана на глубине 20 в агрегированном скоре.</summary>
     private const decimal ImbalanceWeightTop20 = 0.2m;
 
-    /// <summary>
-    /// Минимальный средний <c>TrendStrengthScore</c> по H1 + H4,
-    /// при котором режим классифицируется как <c>Trending</c>.
-    /// </summary>
-    private const decimal TrendingStrengthThreshold = 0.6m;
-
-    /// <summary>Порог <c>VolumeRatio</c>, при превышении которого фиксируется всплеск объёма (<c>Volatile</c>).</summary>
-    private const decimal VolumeSpikeThreshold = 2.0m;
-
     // ── Public API ───────────────────────────────────────────────────────────
 
     /// <summary>
@@ -152,10 +143,14 @@ public static class SentimentSnapshotAssembler
 
         // Aggressive flags guarantee a minimum meaningful signal even when delta is modest
         if (tradeFlow.HasAggressiveBuyPressure && score < AggressivePressureFloor)
+        {
             score = AggressivePressureFloor;
+        }
 
         if (tradeFlow.HasAggressiveSellPressure && score > -AggressivePressureFloor)
+        {
             score = -AggressivePressureFloor;
+        }
 
         return Math.Round(score, 4);
     }
@@ -170,50 +165,7 @@ public static class SentimentSnapshotAssembler
     /// </list>
     /// Приоритет классификации: Trending → Volatile → MeanReversion → Neutral.
     /// </summary>
-    private static string ClassifyMarketRegime(
-        TimeframeAnalysisSnapshot h1,
-        TimeframeAnalysisSnapshot h4)
-    {
-        var avgStrength = (h1.TrendStrengthScore + h4.TrendStrengthScore) / 2m;
-        var bothDirectional = h1.Trend == h4.Trend &&
-                              (h1.Trend == MarketTrend.Bullish || h1.Trend == MarketTrend.Bearish);
-
-        // Trending: aligned direction + sufficient trend strength
-        if (bothDirectional && avgStrength >= TrendingStrengthThreshold)
-            return MarketRegimes.Trending;
-
-        // Volatile: opposite direction signals or pronounced volume spike
-        var conflicting =
-            (h1.Trend == MarketTrend.Bullish && h4.Trend == MarketTrend.Bearish) ||
-            (h1.Trend == MarketTrend.Bearish && h4.Trend == MarketTrend.Bullish);
-
-        var volumeSpike = h1.VolumeRatio > VolumeSpikeThreshold ||
-                          h4.VolumeRatio > VolumeSpikeThreshold;
-
-        if (conflicting || volumeSpike)
-            return MarketRegimes.Volatile;
-
-        // MeanReversion: RSI extreme on any TF, or both stuck in sideways consolidation
-        var rsiExtreme = h1.RsiOverbought || h1.RsiOversold ||
-                         h4.RsiOverbought || h4.RsiOversold;
-
-        var bothSideways = h1.Trend == MarketTrend.Sideways &&
-                           h4.Trend == MarketTrend.Sideways;
-
-        if (rsiExtreme || bothSideways)
-            return MarketRegimes.MeanReversion;
-
-        return MarketRegimes.Neutral;
-    }
-
-    // ── Regime name constants ────────────────────────────────────────────────
-
-    private static class MarketRegimes
-    {
-        internal const string Trending      = "Trending";
-        internal const string MeanReversion = "MeanReversion";
-        internal const string Volatile      = "Volatile";
-        internal const string Neutral       = "Neutral";
-    }
+    private static string ClassifyMarketRegime(TimeframeAnalysisSnapshot h1, TimeframeAnalysisSnapshot h4)
+        => MarketRegimePolicy.Classify(h1, h4);
 }
 
