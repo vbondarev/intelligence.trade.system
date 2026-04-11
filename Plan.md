@@ -14,7 +14,7 @@
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
 Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
-Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 323 теста | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 325 тестов | Integration/Architecture ░░
 ```
 
 ---
@@ -112,7 +112,7 @@
 | ✅ | `SentimentSnapshotAssemblerTests` |
 | ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
-### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 30 тестов ✅
+### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 32 теста ✅
 
 | Статус | Тест |
 |--------|------|
@@ -135,7 +135,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `323` unit-теста, все проходят успешно.
+> **Итого по solution:** `325` unit-тестов, все проходят успешно.
 
 ---
 
@@ -240,7 +240,7 @@
 ## Фаза 7 — Тесты и качество
 
 - [x] **7.1** `UnitTests` — покрытие `Indicators`, `Analysis`, `Application`, `Exchanges`
-  - `Intelligence.TradeSystem.Analytics.Tests` — 30 тестов
+  - `Intelligence.TradeSystem.Analytics.Tests` — 32 теста
   - `Intelligence.TradeSystem.Indicators.Tests` — 109 тестов
   - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
   - `Intelligence.TradeSystem.Application.Tests` — 16 тестов

@@ -137,6 +137,84 @@ public sealed class SnapshotTextFormatterTests
     }
 
     [Fact]
+    public void Preserves_Price_Like_Precision_For_Low_Priced_Instruments()
+    {
+        var snapshot = CreateSnapshot(
+            symbol: "SHIBUSDT",
+            lastPrice: 0.00003452m,
+            markPrice: 0.00003449m,
+            indexPrice: 0.00003444m,
+            bidPrice: 0.00003450m,
+            askPrice: 0.00003454m,
+            high24h: 0.00003510m,
+            low24h: 0.00003280m,
+            bidWalls:
+            [
+                new LiquidityWall { Price = 0.00003410m, Size = 12500000m, DistancePctFromMarket = 1.22m },
+            ],
+            openPositions:
+            [
+                new OpenPositionSnapshot
+                {
+                    Symbol = "SHIBUSDT",
+                    Side = PositionSide.Long,
+                    Size = 1500000m,
+                    AvgPrice = 0.00003390m,
+                    MarkPrice = 0.00003452m,
+                    BreakEvenPrice = 0.00003401m,
+                    LiquidationPrice = 0.00002980m,
+                    PositionValueUsd = 51.78m,
+                    Leverage = 3m,
+                    UnrealizedPnlUsd = 0.93m,
+                    UnrealizedPnlPct = 1.795m,
+                },
+            ],
+            m15: CreateTimeframe("15m") with
+            {
+                LastCandle = CreateCandle(close: 0.00003452m),
+                Ema20 = 0.00003410m,
+                Ema50 = 0.00003380m,
+                Ema200 = 0.00003150m,
+                Atr14 = 0.00000085m,
+                Support1 = 0.00003390m,
+                Support2 = 0.00003310m,
+                Resistance1 = 0.00003490m,
+                Resistance2 = 0.00003560m,
+            });
+
+        var result = _formatter.Format(snapshot);
+
+        result.Should().Contain("  last_price: 0.00003452");
+        result.Should().Contain("  mark_price: 0.00003449");
+        result.Should().Contain("  bid_price: 0.0000345");
+        result.Should().Contain("  ask_price: 0.00003454");
+        result.Should().Contain("  high_24h: 0.0000351");
+        result.Should().Contain("  low_24h: 0.0000328");
+        result.Should().Contain("price=0.0000341, size=12500000, distance_pct=1.22%");
+        result.Should().Contain("avg_price=0.0000339, mark_price=0.00003452, break_even_price=0.00003401, liquidation_price=0.0000298");
+        result.Should().Contain("  15m: trend=Unknown, strength=0.4, rsi14=55, atr14=0.00000085");
+        result.Should().Contain(", ema20=0.0000341, ema50=0.0000338, ema200=0.0000315");
+        result.Should().Contain(", support1=0.0000339, support2=0.0000331, resistance1=0.0000349, resistance2=0.0000356");
+        result.Should().NotContain("last_price: 0\r\n");
+        result.Should().NotContain("mark_price: 0\r\n");
+    }
+
+    [Fact]
+    public void Keeps_Btc_Like_Prices_Compact_While_Using_Higher_Precision_For_Price_Like_Fields_Only()
+    {
+        var snapshot = CreateSnapshot();
+
+        var result = _formatter.Format(snapshot);
+
+        result.Should().Contain("  last_price: 65000");
+        result.Should().Contain("  mark_price: 64990.25");
+        result.Should().Contain("  bid_size: 10.5");
+        result.Should().Contain("  long_ratio: 0.52");
+        result.Should().Contain("  total_equity_usd: 10000");
+        result.Should().Contain("  spread_pct: 0.0154%");
+    }
+
+    [Fact]
     public void Returns_Deterministic_Output_For_Same_Input()
     {
         var snapshot = CreateSnapshot();
@@ -171,31 +249,39 @@ public sealed class SnapshotTextFormatterTests
         DateTimeOffset? capturedAtUtc = null,
         DateTimeOffset? nextFundingTimeUtc = null,
         decimal? premiumVsIndexPct = 0.18m,
+        string symbol = "BTCUSDT",
         decimal lastPrice = 65000m,
+        decimal markPrice = 64990.25m,
+        decimal indexPrice = 64980.5m,
+        decimal bidPrice = 64995m,
+        decimal askPrice = 65005m,
+        decimal high24h = 65200m,
+        decimal low24h = 64000m,
         decimal spreadPct = 0.0154m,
         List<LiquidityWall>? bidWalls = null,
         List<LiquidityWall>? askWalls = null,
-        List<OpenPositionSnapshot>? openPositions = null) =>
+        List<OpenPositionSnapshot>? openPositions = null,
+        TimeframeAnalysisSnapshot? m15 = null) =>
         new()
         {
             Exchange = "Bybit",
-            Symbol = "BTCUSDT",
+            Symbol = symbol,
             Category = "linear",
             CapturedAtUtc = capturedAtUtc ?? new DateTimeOffset(2026, 4, 12, 12, 0, 0, TimeSpan.Zero),
             Price = new PriceSnapshot
             {
                 LastPrice = lastPrice,
-                MarkPrice = 64990.25m,
-                IndexPrice = 64980.5m,
-                BidPrice = 64995m,
-                AskPrice = 65005m,
+                MarkPrice = markPrice,
+                IndexPrice = indexPrice,
+                BidPrice = bidPrice,
+                AskPrice = askPrice,
                 BidSize = 10.5m,
                 AskSize = 12.25m,
                 SpreadAbs = 10m,
                 SpreadPct = spreadPct,
                 Price24hChangePct = 1.2m,
-                High24h = 65200m,
-                Low24h = 64000m,
+                High24h = high24h,
+                Low24h = low24h,
                 Volume24h = 12345.67m,
                 Turnover24h = 800000000.12m,
             },
@@ -245,7 +331,7 @@ public sealed class SnapshotTextFormatterTests
                 HasAggressiveBuyPressure = true,
                 HasAggressiveSellPressure = false,
             },
-            M15 = CreateTimeframe("15m"),
+            M15 = m15 ?? CreateTimeframe("15m"),
             H1 = CreateTimeframe("1h") with { Trend = MarketTrend.Bullish, TrendStrengthScore = 0.78m },
             H4 = CreateTimeframe("4h") with { Trend = MarketTrend.Bullish, TrendStrengthScore = 0.72m },
             D1 = CreateTimeframe("1d") with { Trend = MarketTrend.Bullish, TrendStrengthScore = 0.68m },
@@ -266,6 +352,18 @@ public sealed class SnapshotTextFormatterTests
                 OpenPositions = openPositions ?? [],
             },
             Tags = tags ?? ["trend", "momentum"],
+        };
+
+    private static CandleSnapshot CreateCandle(decimal close) =>
+        new()
+        {
+            OpenTimeUtc = new DateTimeOffset(2026, 4, 12, 11, 0, 0, TimeSpan.Zero),
+            Open = close,
+            High = close,
+            Low = close,
+            Close = close,
+            Volume = 1200m,
+            Turnover = 78000000m,
         };
 
     private static TimeframeAnalysisSnapshot CreateTimeframe(string timeframe) =>

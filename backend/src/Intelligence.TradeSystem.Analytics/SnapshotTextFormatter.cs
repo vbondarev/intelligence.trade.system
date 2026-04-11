@@ -48,36 +48,36 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
     private static void AppendPriceSection(StringBuilder builder, PriceSnapshot price)
     {
         builder.AppendLine("price:");
-        builder.Append("  last_price: ").AppendLine(FormatDecimal(price.LastPrice));
-        builder.Append("  mark_price: ").AppendLine(FormatDecimal(price.MarkPrice));
-        builder.Append("  index_price: ").AppendLine(FormatDecimal(price.IndexPrice));
-        builder.Append("  bid_price: ").AppendLine(FormatDecimal(price.BidPrice));
-        builder.Append("  ask_price: ").AppendLine(FormatDecimal(price.AskPrice));
-        builder.Append("  bid_size: ").AppendLine(FormatDecimal(price.BidSize));
-        builder.Append("  ask_size: ").AppendLine(FormatDecimal(price.AskSize));
-        builder.Append("  spread_abs: ").AppendLine(FormatDecimal(price.SpreadAbs));
+        builder.Append("  last_price: ").AppendLine(FormatPriceLike(price.LastPrice));
+        builder.Append("  mark_price: ").AppendLine(FormatPriceLike(price.MarkPrice));
+        builder.Append("  index_price: ").AppendLine(FormatPriceLike(price.IndexPrice));
+        builder.Append("  bid_price: ").AppendLine(FormatPriceLike(price.BidPrice));
+        builder.Append("  ask_price: ").AppendLine(FormatPriceLike(price.AskPrice));
+        builder.Append("  bid_size: ").AppendLine(FormatQuantityOrValue(price.BidSize));
+        builder.Append("  ask_size: ").AppendLine(FormatQuantityOrValue(price.AskSize));
+        builder.Append("  spread_abs: ").AppendLine(FormatPriceLike(price.SpreadAbs));
         builder.Append("  spread_pct: ").AppendLine(FormatPercent(price.SpreadPct));
         builder.Append("  price_24h_change_pct: ").AppendLine(FormatPercent(price.Price24hChangePct));
-        builder.Append("  high_24h: ").AppendLine(FormatDecimal(price.High24h));
-        builder.Append("  low_24h: ").AppendLine(FormatDecimal(price.Low24h));
-        builder.Append("  volume_24h: ").AppendLine(FormatDecimal(price.Volume24h));
-        builder.Append("  turnover_24h: ").AppendLine(FormatDecimal(price.Turnover24h));
+        builder.Append("  high_24h: ").AppendLine(FormatPriceLike(price.High24h));
+        builder.Append("  low_24h: ").AppendLine(FormatPriceLike(price.Low24h));
+        builder.Append("  volume_24h: ").AppendLine(FormatQuantityOrValue(price.Volume24h));
+        builder.Append("  turnover_24h: ").AppendLine(FormatQuantityOrValue(price.Turnover24h));
         builder.AppendLine();
     }
 
     private static void AppendDerivativesSection(StringBuilder builder, DerivativesSnapshot derivatives)
     {
         builder.AppendLine("derivatives:");
-        builder.Append("  funding_rate: ").AppendLine(FormatDecimal(derivatives.FundingRate));
-        builder.Append("  funding_rate_avg_24h: ").AppendLine(FormatDecimal(derivatives.FundingRateAvg24h));
+        builder.Append("  funding_rate: ").AppendLine(FormatMetricOrRatio(derivatives.FundingRate));
+        builder.Append("  funding_rate_avg_24h: ").AppendLine(FormatMetricOrRatio(derivatives.FundingRateAvg24h));
         builder.Append("  next_funding_time_utc: ").AppendLine(FormatDateTime(derivatives.NextFundingTimeUtc));
-        builder.Append("  open_interest: ").AppendLine(FormatDecimal(derivatives.OpenInterest));
-        builder.Append("  open_interest_value: ").AppendLine(FormatDecimal(derivatives.OpenInterestValue));
+        builder.Append("  open_interest: ").AppendLine(FormatQuantityOrValue(derivatives.OpenInterest));
+        builder.Append("  open_interest_value: ").AppendLine(FormatQuantityOrValue(derivatives.OpenInterestValue));
         builder.Append("  open_interest_change_1h_pct: ").AppendLine(FormatPercent(derivatives.OpenInterestChange1hPct));
         builder.Append("  open_interest_change_4h_pct: ").AppendLine(FormatPercent(derivatives.OpenInterestChange4hPct));
         builder.Append("  premium_vs_index_pct: ").AppendLine(FormatNullablePercent(derivatives.PremiumVsIndexPct));
-        builder.Append("  long_ratio: ").AppendLine(FormatDecimal(derivatives.LongRatio));
-        builder.Append("  short_ratio: ").AppendLine(FormatDecimal(derivatives.ShortRatio));
+        builder.Append("  long_ratio: ").AppendLine(FormatMetricOrRatio(derivatives.LongRatio));
+        builder.Append("  short_ratio: ").AppendLine(FormatMetricOrRatio(derivatives.ShortRatio));
         builder.AppendLine();
     }
 
@@ -85,17 +85,17 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
     {
         builder.AppendLine("order_book:");
         builder.Append("  captured_at_utc: ").AppendLine(orderBook.CapturedAtUtc.ToString("O", _invariantCulture));
-        builder.Append("  best_bid_price: ").AppendLine(FormatDecimal(orderBook.BestBidPrice));
-        builder.Append("  best_ask_price: ").AppendLine(FormatDecimal(orderBook.BestAskPrice));
-        builder.Append("  total_bid_volume_top5: ").AppendLine(FormatDecimal(orderBook.TotalBidVolumeTop5));
-        builder.Append("  total_ask_volume_top5: ").AppendLine(FormatDecimal(orderBook.TotalAskVolumeTop5));
-        builder.Append("  total_bid_volume_top10: ").AppendLine(FormatDecimal(orderBook.TotalBidVolumeTop10));
-        builder.Append("  total_ask_volume_top10: ").AppendLine(FormatDecimal(orderBook.TotalAskVolumeTop10));
-        builder.Append("  total_bid_volume_top20: ").AppendLine(FormatDecimal(orderBook.TotalBidVolumeTop20));
-        builder.Append("  total_ask_volume_top20: ").AppendLine(FormatDecimal(orderBook.TotalAskVolumeTop20));
-        builder.Append("  imbalance_top5: ").AppendLine(FormatDecimal(orderBook.ImbalanceTop5));
-        builder.Append("  imbalance_top10: ").AppendLine(FormatDecimal(orderBook.ImbalanceTop10));
-        builder.Append("  imbalance_top20: ").AppendLine(FormatDecimal(orderBook.ImbalanceTop20));
+        builder.Append("  best_bid_price: ").AppendLine(FormatPriceLike(orderBook.BestBidPrice));
+        builder.Append("  best_ask_price: ").AppendLine(FormatPriceLike(orderBook.BestAskPrice));
+        builder.Append("  total_bid_volume_top5: ").AppendLine(FormatQuantityOrValue(orderBook.TotalBidVolumeTop5));
+        builder.Append("  total_ask_volume_top5: ").AppendLine(FormatQuantityOrValue(orderBook.TotalAskVolumeTop5));
+        builder.Append("  total_bid_volume_top10: ").AppendLine(FormatQuantityOrValue(orderBook.TotalBidVolumeTop10));
+        builder.Append("  total_ask_volume_top10: ").AppendLine(FormatQuantityOrValue(orderBook.TotalAskVolumeTop10));
+        builder.Append("  total_bid_volume_top20: ").AppendLine(FormatQuantityOrValue(orderBook.TotalBidVolumeTop20));
+        builder.Append("  total_ask_volume_top20: ").AppendLine(FormatQuantityOrValue(orderBook.TotalAskVolumeTop20));
+        builder.Append("  imbalance_top5: ").AppendLine(FormatMetricOrRatio(orderBook.ImbalanceTop5));
+        builder.Append("  imbalance_top10: ").AppendLine(FormatMetricOrRatio(orderBook.ImbalanceTop10));
+        builder.Append("  imbalance_top20: ").AppendLine(FormatMetricOrRatio(orderBook.ImbalanceTop20));
         builder.Append("  bid_walls: ").AppendLine(FormatLiquidityWalls(orderBook.BidWalls));
         builder.Append("  ask_walls: ").AppendLine(FormatLiquidityWalls(orderBook.AskWalls));
         builder.AppendLine();
@@ -106,15 +106,15 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
         builder.AppendLine("trade_flow:");
         builder.Append("  window_start_utc: ").AppendLine(tradeFlow.WindowStartUtc.ToString("O", _invariantCulture));
         builder.Append("  window_end_utc: ").AppendLine(tradeFlow.WindowEndUtc.ToString("O", _invariantCulture));
-        builder.Append("  buy_volume: ").AppendLine(FormatDecimal(tradeFlow.BuyVolume));
-        builder.Append("  sell_volume: ").AppendLine(FormatDecimal(tradeFlow.SellVolume));
-        builder.Append("  delta_volume: ").AppendLine(FormatDecimal(tradeFlow.DeltaVolume));
+        builder.Append("  buy_volume: ").AppendLine(FormatQuantityOrValue(tradeFlow.BuyVolume));
+        builder.Append("  sell_volume: ").AppendLine(FormatQuantityOrValue(tradeFlow.SellVolume));
+        builder.Append("  delta_volume: ").AppendLine(FormatQuantityOrValue(tradeFlow.DeltaVolume));
         builder.Append("  delta_pct: ").AppendLine(FormatPercent(tradeFlow.DeltaPct));
         builder.Append("  total_trades: ").AppendLine(tradeFlow.TotalTrades.ToString(_invariantCulture));
         builder.Append("  buy_trades: ").AppendLine(tradeFlow.BuyTrades.ToString(_invariantCulture));
         builder.Append("  sell_trades: ").AppendLine(tradeFlow.SellTrades.ToString(_invariantCulture));
-        builder.Append("  avg_trade_size: ").AppendLine(FormatDecimal(tradeFlow.AvgTradeSize));
-        builder.Append("  max_trade_size: ").AppendLine(FormatDecimal(tradeFlow.MaxTradeSize));
+        builder.Append("  avg_trade_size: ").AppendLine(FormatQuantityOrValue(tradeFlow.AvgTradeSize));
+        builder.Append("  max_trade_size: ").AppendLine(FormatQuantityOrValue(tradeFlow.MaxTradeSize));
         builder.Append("  aggressive_buy_pressure: ").AppendLine(FormatBoolean(tradeFlow.HasAggressiveBuyPressure));
         builder.Append("  aggressive_sell_pressure: ").AppendLine(FormatBoolean(tradeFlow.HasAggressiveSellPressure));
         builder.AppendLine();
@@ -137,33 +137,33 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
             .Append(": trend=")
             .Append(timeframe.Trend)
             .Append(", strength=")
-            .Append(FormatDecimal(timeframe.TrendStrengthScore))
+            .Append(FormatMetricOrRatio(timeframe.TrendStrengthScore))
             .Append(", rsi14=")
-            .Append(FormatDecimal(timeframe.Rsi14))
+            .Append(FormatMetricOrRatio(timeframe.Rsi14))
             .Append(", atr14=")
-            .Append(FormatDecimal(timeframe.Atr14))
+            .Append(FormatPriceLike(timeframe.Atr14))
             .Append(", volume_ratio=")
-            .Append(FormatDecimal(timeframe.VolumeRatio))
+            .Append(FormatMetricOrRatio(timeframe.VolumeRatio))
             .Append(", ema20=")
-            .Append(FormatDecimal(timeframe.Ema20))
+            .Append(FormatPriceLike(timeframe.Ema20))
             .Append(", ema50=")
-            .Append(FormatDecimal(timeframe.Ema50))
+            .Append(FormatPriceLike(timeframe.Ema50))
             .Append(", ema200=")
-            .Append(FormatDecimal(timeframe.Ema200))
+            .Append(FormatPriceLike(timeframe.Ema200))
             .Append(", ema_alignment=")
             .Append(FormatEmaAlignment(timeframe))
             .Append(", last_close=")
-            .Append(FormatDecimal(timeframe.LastCandle.Close))
+            .Append(FormatPriceLike(timeframe.LastCandle.Close))
             .Append(", candle_open_time_utc=")
             .Append(timeframe.LastCandleOpenTimeUtc.ToString("O", _invariantCulture))
             .Append(", support1=")
-            .Append(FormatDecimal(timeframe.Support1))
+            .Append(FormatPriceLike(timeframe.Support1))
             .Append(", support2=")
-            .Append(FormatDecimal(timeframe.Support2))
+            .Append(FormatPriceLike(timeframe.Support2))
             .Append(", resistance1=")
-            .Append(FormatDecimal(timeframe.Resistance1))
+            .Append(FormatPriceLike(timeframe.Resistance1))
             .Append(", resistance2=")
-            .Append(FormatDecimal(timeframe.Resistance2))
+            .Append(FormatPriceLike(timeframe.Resistance2))
             .Append(", distance_to_support1_pct=")
             .Append(FormatPercent(timeframe.DistanceToSupport1Pct))
             .Append(", distance_to_resistance1_pct=")
@@ -181,20 +181,20 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
     {
         builder.AppendLine("sentiment:");
         builder.Append("  market_regime: ").AppendLine(string.IsNullOrWhiteSpace(sentiment.MarketRegime) ? NotAvailable : sentiment.MarketRegime);
-        builder.Append("  long_short_bias_score: ").AppendLine(FormatDecimal(sentiment.LongShortBiasScore));
-        builder.Append("  funding_bias_score: ").AppendLine(FormatDecimal(sentiment.FundingBiasScore));
-        builder.Append("  order_book_pressure_score: ").AppendLine(FormatDecimal(sentiment.OrderBookPressureScore));
-        builder.Append("  trade_flow_pressure_score: ").AppendLine(FormatDecimal(sentiment.TradeFlowPressureScore));
+        builder.Append("  long_short_bias_score: ").AppendLine(FormatMetricOrRatio(sentiment.LongShortBiasScore));
+        builder.Append("  funding_bias_score: ").AppendLine(FormatMetricOrRatio(sentiment.FundingBiasScore));
+        builder.Append("  order_book_pressure_score: ").AppendLine(FormatMetricOrRatio(sentiment.OrderBookPressureScore));
+        builder.Append("  trade_flow_pressure_score: ").AppendLine(FormatMetricOrRatio(sentiment.TradeFlowPressureScore));
         builder.AppendLine();
     }
 
     private static void AppendPortfolioSection(StringBuilder builder, PortfolioSnapshot portfolio)
     {
         builder.AppendLine("portfolio:");
-        builder.Append("  total_equity_usd: ").AppendLine(FormatDecimal(portfolio.TotalEquityUsd));
-        builder.Append("  available_balance_usd: ").AppendLine(FormatDecimal(portfolio.AvailableBalanceUsd));
-        builder.Append("  total_wallet_balance_usd: ").AppendLine(FormatDecimal(portfolio.TotalWalletBalanceUsd));
-        builder.Append("  total_unrealized_pnl_usd: ").AppendLine(FormatDecimal(portfolio.TotalUnrealizedPnlUsd));
+        builder.Append("  total_equity_usd: ").AppendLine(FormatQuantityOrValue(portfolio.TotalEquityUsd));
+        builder.Append("  available_balance_usd: ").AppendLine(FormatQuantityOrValue(portfolio.AvailableBalanceUsd));
+        builder.Append("  total_wallet_balance_usd: ").AppendLine(FormatQuantityOrValue(portfolio.TotalWalletBalanceUsd));
+        builder.Append("  total_unrealized_pnl_usd: ").AppendLine(FormatQuantityOrValue(portfolio.TotalUnrealizedPnlUsd));
         builder.Append("  open_positions: ").AppendLine(FormatOpenPositions(portfolio.OpenPositions));
     }
 
@@ -218,7 +218,7 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
         return string.Join(
             "; ",
             walls.Select(static wall =>
-                FormattableString.Invariant($"price={FormatDecimal(wall.Price)}, size={FormatDecimal(wall.Size)}, distance_pct={FormatPercent(wall.DistancePctFromMarket)}")));
+                FormattableString.Invariant($"price={FormatPriceLike(wall.Price)}, size={FormatQuantityOrValue(wall.Size)}, distance_pct={FormatPercent(wall.DistancePctFromMarket)}")));
     }
 
     private static string FormatOpenPositions(List<OpenPositionSnapshot> openPositions)
@@ -232,7 +232,7 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
             "; ",
             openPositions.Select(static position =>
                 FormattableString.Invariant(
-                    $"symbol={position.Symbol}, side={position.Side}, size={FormatDecimal(position.Size)}, avg_price={FormatDecimal(position.AvgPrice)}, mark_price={FormatDecimal(position.MarkPrice)}, break_even_price={FormatDecimal(position.BreakEvenPrice)}, liquidation_price={FormatDecimal(position.LiquidationPrice)}, position_value_usd={FormatDecimal(position.PositionValueUsd)}, leverage={FormatDecimal(position.Leverage)}, unrealized_pnl_usd={FormatDecimal(position.UnrealizedPnlUsd)}, unrealized_pnl_pct={FormatPercent(position.UnrealizedPnlPct)}")));
+                    $"symbol={position.Symbol}, side={position.Side}, size={FormatQuantityOrValue(position.Size)}, avg_price={FormatPriceLike(position.AvgPrice)}, mark_price={FormatPriceLike(position.MarkPrice)}, break_even_price={FormatPriceLike(position.BreakEvenPrice)}, liquidation_price={FormatPriceLike(position.LiquidationPrice)}, position_value_usd={FormatQuantityOrValue(position.PositionValueUsd)}, leverage={FormatMetricOrRatio(position.Leverage)}, unrealized_pnl_usd={FormatQuantityOrValue(position.UnrealizedPnlUsd)}, unrealized_pnl_pct={FormatPercent(position.UnrealizedPnlPct)}")));
     }
 
     private static string FormatEmaAlignment(TimeframeAnalysisSnapshot timeframe) =>
@@ -256,7 +256,11 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
 
     private static string FormatPercent(decimal value) => value.ToString("0.####", _invariantCulture) + "%";
 
-    private static string FormatDecimal(decimal value) => value.ToString("0.####", _invariantCulture);
+    private static string FormatMetricOrRatio(decimal value) => value.ToString("0.####", _invariantCulture);
+
+    private static string FormatQuantityOrValue(decimal value) => value.ToString("0.####", _invariantCulture);
+
+    private static string FormatPriceLike(decimal value) => value.ToString("0.################", _invariantCulture);
 }
 
 
