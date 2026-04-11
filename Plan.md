@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
-> Последнее обновление: 2026-04-08
-> Текущий статус: **Фазы 1, 1.5 и 2 завершены. Следующий шаг — Фаза 3 (`Intelligence.TradeSystem.Analytics`). Параллельный технический долг — `/v5/market/instruments-info`**
+> Последнее обновление: 2026-04-11
+> Текущий статус: **Фазы 1, 1.5 и 2 завершены. Следующий шаг — Фаза 3 (`Intelligence.TradeSystem.Analytics`). `MarketAnalysisSnapshot` зафиксирован как основной payload для GPT. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -12,8 +12,8 @@
 Фаза 2 ██████████████████████  Application orchestration ✅ | DI registration ✅ | Application tests ✅
 Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  не начата
-Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Backend.Host scaffold ✅ | Infrastructure/Persistence/Worker projects ░░
+Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
+Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
 Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 293 теста | Integration/Architecture ░░
 ```
 
@@ -69,6 +69,10 @@
 > **Примечание:** `OpenPositionSnapshotAssembler` как отдельный класс не создаётся —
 > маппинг `OpenPosition → OpenPositionSnapshot` реализован как приватный метод `MapPosition`
 > внутри `PortfolioSnapshotAssembler`.
+
+> **Примечание:** `MarketAnalysisSnapshot` является каноническим структурированным payload для downstream-слоёв.
+> В GPT по умолчанию передаётся именно он (при необходимости вместе с компактным текстовым контекстом из `Analytics`),
+> а не полный raw dump свечей/сделок/стакана.
 
 ### Вспомогательные компоненты (`Indicators`)
 
@@ -175,37 +179,45 @@
 
 ## Фаза 3 — Проект `Intelligence.TradeSystem.Analytics`
 
-- [ ] **3.1** `IAnalyticsFormatter` — интерфейс форматирования снапшота в текст для GPT
-- [ ] **3.2** `SnapshotTextFormatter` — секции: цена, деривативы, стакан, тренд, портфель
+- [ ] **3.1** `IAnalyticsFormatter` — интерфейс форматирования `MarketAnalysisSnapshot` в компактный текстовый контекст для GPT / Web UI
+- [ ] **3.2** `SnapshotTextFormatter` — секции: цена, деривативы, стакан, trade flow, тренд, сентимент, портфель
 - [ ] **3.3** `IMarketRegimeClassifier` — определяет рыночный режим на основе мультифреймовых данных
 - [ ] **3.4** `MarketRegimeClassifier` — реализация на основе `TrendStrengthScore` и `TradeFlowSnapshot`
+
+> **Роль фазы:** не пересчитывать raw market data заново, а интерпретировать уже готовый
+> `MarketAnalysisSnapshot` и при необходимости готовить компактный narrative-контекст для AI и UI.
 
 ---
 
 ## Фаза 4 — Проект `Intelligence.TradeSystem.Ai`
 
 - [ ] **4.1** `IPromptBuilder` — строит GPT-prompt из `MarketAnalysisSnapshot` + запроса пользователя
-- [ ] **4.2** `PromptBuilder` — шаблон системного промпта + форматированные данные из `Analytics`
+- [ ] **4.2** `PromptBuilder` — шаблон системного промпта + JSON-представление `MarketAnalysisSnapshot` + форматированные данные из `Analytics`
 - [ ] **4.3** `IGptAnalyticsService` — `AnalyzeAsync(MarketAnalysisSnapshot, string userQuery) → string`
 - [ ] **4.4** `GptAnalyticsService` — интеграция с OpenAI SDK (`chat/completions`)
 
----
-
-## Фаза 5 — Проект `Intelligence.TradeSystem.Api` (Telegram Bot)
-
-- [ ] **5.1** Интеграция `Telegram.Bot` SDK, настройка webhook/polling
-- [ ] **5.2** `TelegramUpdateHandler` — обрабатывает входящие сообщения, маршрутизирует команды
-- [ ] **5.3** Команда `/analyze <symbol>` — вызывает `IMarketAnalysisService` + `IGptAnalyticsService`
-- [ ] **5.4** Форматтер ответа для Telegram — разбивка на части, Markdown-разметка
+> **Роль фазы:** не вычислять индикаторы и уровни внутри LLM, а использовать уже подготовленный
+> `MarketAnalysisSnapshot` как основной AI payload и получать интерпретацию / ответ на пользовательский вопрос.
 
 ---
 
-## Фаза 6 — Инфраструктура и хост
+## Фаза 5 — Проект `Intelligence.TradeSystem.Api` (Web API)
 
-- [ ] **6.1** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenAI client
-- [ ] **6.2** `Intelligence.TradeSystem.Persistence` — кэширование снапшотов (Redis / in-memory), история запросов
-- [ ] **6.3** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
-- [~] **6.4** `Intelligence.TradeSystem.Backend.Host` — минимальный host/composition root уже существует (`AddBybitExchange()`, `AddApplication()`, `Worker`)
+- [ ] **5.1** ASP.NET Core Web API — базовый composition root для HTTP endpoints
+- [ ] **5.2** `AnalysisController` / minimal endpoints — маршрутизация HTTP-запросов на snapshot- и AI-анализ
+- [ ] **5.3** Endpoint `POST /api/analysis/snapshot` — вызывает `IMarketAnalysisService` и возвращает `MarketAnalysisSnapshot`
+- [ ] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `IGptAnalyticsService` и возвращает AI-аналитику
+- [ ] **5.5** DTO-модели запросов/ответов, базовый health endpoint, валидация входных параметров
+
+---
+
+## Фаза 6 — Web UI, инфраструктура и хост
+
+- [ ] **6.1** `Intelligence.TradeSystem.Web` — web-клиент поверх `Intelligence.TradeSystem.Api` для ввода символа/категории/запроса и отображения результата
+- [ ] **6.2** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenAI client
+- [ ] **6.3** `Intelligence.TradeSystem.Persistence` — кэширование снапшотов (Redis / in-memory), история запросов
+- [ ] **6.4** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
+- [~] **6.5** `Intelligence.TradeSystem.Backend.Host` — минимальный host/composition root уже существует (`AddBybitExchange()`, `AddApplication()`, `Worker`)
   - [ ] Подключить реальный `BybitRestClient` и production-конфигурацию внешних клиентов
   - [ ] Расширить composition root по мере появления `Infrastructure` / `Ai` / `Api`
 
@@ -220,7 +232,7 @@
   - `Intelligence.TradeSystem.Exchanges.Tests` — 5 тестов
 - [ ] **7.2** `IntegrationTests` — `IBybitProvider` против Bybit testnet, end-to-end сборка `MarketAnalysisSnapshot`
 - [ ] **7.3** `ArchitectureTests` — `NetArchTest`: проверка зависимостей между слоями
-- [ ] **7.4** `/v5/market/instruments-info` — шаг цены, лот-сайз для нормализации отображения в Telegram
+- [ ] **7.4** `/v5/market/instruments-info` — шаг цены, лот-сайз для нормализации отображения в Web UI / API ответах
 
 ---
 
@@ -238,9 +250,10 @@ Backend.Host    ← Application, Exchanges, Microsoft.Extensions.Hosting
 Analytics       ← planned (Domain, Indicators)
 Ai              ← planned (Domain, Analytics, OpenAI SDK)
 Persistence     ← planned (Domain)
+Api             ← planned (Application, Analytics, Ai, ASP.NET Core)
+Web             ← planned (HTTP client to Api)
 Infrastructure  ← planned (Application, Exchanges, Ai, Persistence)
 Worker          ← planned (Infrastructure)
-Api             ← planned (Application, Ai, Telegram.Bot SDK)
 ```
 
 ---
@@ -248,26 +261,29 @@ Api             ← planned (Application, Ai, Telegram.Bot SDK)
 ## Пользовательский сценарий (целевой)
 
 ```
-Пользователь → Telegram → /analyze BTCUSDT
-  → TelegramUpdateHandler
+Пользователь → Web UI → HTTP POST /api/analysis/ai
+  → Analysis API endpoint
   → IMarketAnalysisService.BuildSnapshotAsync(Bybit, "BTCUSDT", Linear)
       → IMarketDataProvider / IDerivativesDataProvider / IPrivateAccountProvider × 9 endpoints (параллельно)
       → Assemblers × 11 (последовательно)
       → MarketAnalysisSnapshot
   → IGptAnalyticsService.AnalyzeAsync(snapshot, "внутридневная торговля")
-      → PromptBuilder → prompt string
+      → PromptBuilder → snapshot JSON + analytics context + user query
       → OpenAI chat/completions → аналитика
-  → Telegram → пользователь получает ответ
+  → Web API response → Web UI → пользователь получает ответ
 ```
 
 ---
 
 ## Ближайшие шаги
 
-1. Запустить **Фазу 3** и спроектировать `Intelligence.TradeSystem.Analytics` поверх уже готового `MarketAnalysisSnapshot`.
-2. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
-3. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
-4. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
+1. Запустить **Фазу 3** и реализовать `Intelligence.TradeSystem.Analytics` поверх уже готового `MarketAnalysisSnapshot`.
+2. Запустить **Фазу 4**: зафиксировать prompt contract, где в GPT уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
+3. Запустить **Фазу 5**: поднять `Intelligence.TradeSystem.Api` с endpoint'ами snapshot- и AI-анализа.
+4. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
+5. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
+6. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
+7. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
 
 
 
