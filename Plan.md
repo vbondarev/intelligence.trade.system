@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
 > Последнее обновление: 2026-04-11
-> Текущий статус: **Фазы 1, 1.5 и 2 завершены. Следующий шаг — Фаза 3 (`Intelligence.TradeSystem.Analytics`). `MarketAnalysisSnapshot` зафиксирован как основной payload для GPT. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
+> Текущий статус: **Фазы 1, 1.5, 2 и 3 завершены. Следующий шаг — Фаза 4 (`Intelligence.TradeSystem.Ai`). `MarketAnalysisSnapshot` зафиксирован как основной payload для GPT. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -10,11 +10,11 @@
 ```
 Фаза 1 ██████████████████████  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Analysis assembler tests 11/11 ✅
 Фаза 2 ██████████████████████  Application orchestration ✅ | DI registration ✅ | Application tests ✅
-Фаза 3 ░░░░░░░░░░░░░░░░░░░░░░  не начата
+Фаза 3 ██████████████████████  formatter ✅ | shared regime policy ✅ | regime classifier ✅ | output composer ✅ | DI registration ✅ | Analytics tests ✅
 Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
 Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
-Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 293 теста | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 323 теста | Integration/Architecture ░░
 ```
 
 ---
@@ -112,6 +112,15 @@
 | ✅ | `SentimentSnapshotAssemblerTests` |
 | ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
+### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 30 тестов ✅
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `AnalyticsOutputComposerTests` |
+| ✅ | `MarketRegimeClassifierTests` |
+| ✅ | `SnapshotTextFormatterTests` |
+| ✅ | `StartupExtensionsTests` |
+
 ### Тесты (`Intelligence.TradeSystem.Application.Tests`) — 16 тестов ✅
 
 | Статус | Тест |
@@ -126,7 +135,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `293` unit-теста, все проходят успешно.
+> **Итого по solution:** `323` unit-теста, все проходят успешно.
 
 ---
 
@@ -179,10 +188,15 @@
 
 ## Фаза 3 — Проект `Intelligence.TradeSystem.Analytics`
 
-- [ ] **3.1** `IAnalyticsFormatter` — интерфейс форматирования `MarketAnalysisSnapshot` в компактный текстовый контекст для GPT / Web UI
-- [ ] **3.2** `SnapshotTextFormatter` — секции: цена, деривативы, стакан, trade flow, тренд, сентимент, портфель
-- [ ] **3.3** `IMarketRegimeClassifier` — определяет рыночный режим на основе мультифреймовых данных
-- [ ] **3.4** `MarketRegimeClassifier` — реализация на основе `TrendStrengthScore` и `TradeFlowSnapshot`
+- [x] **3.1** `Intelligence.TradeSystem.Analytics` — проект создан, базовые контракты `IAnalyticsFormatter` и `IMarketRegimeClassifier` добавлены
+- [x] **3.2** `IAnalyticsFormatter` + `SnapshotTextFormatter` — реализован compact deterministic formatter по секциям: цена, деривативы, стакан, trade flow, тренд, сентимент, портфель
+- [x] **3.3** `IMarketRegimeClassifier` — контракт зафиксирован поверх `MarketAnalysisSnapshot`, возвращает канонические значения `MarketRegimes`
+- [x] **3.4** `MarketRegimeClassifier` — реализован с parity-логикой относительно текущей эвристики `SentimentSnapshotAssembler`
+- [x] **3.5** `MarketRegimePolicy` — общий источник истины для эвристики `MarketRegime`, разделяемый `Analysis` и `Analytics`
+- [x] **3.6** `AnalyticsOutput` + `IAnalyticsOutputComposer` + `AnalyticsOutputComposer` — единый downstream-friendly output contract, объединяющий `MarketRegime` и `FormattedContext`
+- [x] **3.7** `StartupExtensions.AddAnalytics()` — DI-регистрация formatter / classifier / output composer + контрактные unit tests на resolution и scoped lifetime
+- [x] **3.8** `SnapshotTextFormatterTests` — production-ready tests на null-guard, секции, placeholders, invariant culture и deterministic output
+- [x] **3.9** XML-документация `Analytics` — синхронизирована с фактическим контрактом: слой работает поверх готового `MarketAnalysisSnapshot`, не пересчитывает raw exchange data и не формирует финальный user-facing ответ
 
 > **Роль фазы:** не пересчитывать raw market data заново, а интерпретировать уже готовый
 > `MarketAnalysisSnapshot` и при необходимости готовить компактный narrative-контекст для AI и UI.
@@ -226,6 +240,7 @@
 ## Фаза 7 — Тесты и качество
 
 - [x] **7.1** `UnitTests` — покрытие `Indicators`, `Analysis`, `Application`, `Exchanges`
+  - `Intelligence.TradeSystem.Analytics.Tests` — 30 тестов
   - `Intelligence.TradeSystem.Indicators.Tests` — 109 тестов
   - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
   - `Intelligence.TradeSystem.Application.Tests` — 16 тестов
@@ -277,13 +292,12 @@ Worker          ← planned (Infrastructure)
 
 ## Ближайшие шаги
 
-1. Запустить **Фазу 3** и реализовать `Intelligence.TradeSystem.Analytics` поверх уже готового `MarketAnalysisSnapshot`.
-2. Запустить **Фазу 4**: зафиксировать prompt contract, где в GPT уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
-3. Запустить **Фазу 5**: поднять `Intelligence.TradeSystem.Api` с endpoint'ами snapshot- и AI-анализа.
-4. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
-5. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
-6. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
-7. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
+1. Запустить **Фазу 4**: зафиксировать prompt contract, где в GPT уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
+2. Запустить **Фазу 5**: поднять `Intelligence.TradeSystem.Api` с endpoint'ами snapshot- и AI-анализа.
+3. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
+4. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
+5. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
+6. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
 
 
 
