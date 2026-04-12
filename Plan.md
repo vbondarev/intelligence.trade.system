@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
 > Последнее обновление: 2026-04-12
-> Текущий статус: **Фазы 1, 1.5, 2, 3 и 4 завершены. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
+> Текущий статус: **Фазы 1, 1.5, 2, 3, 4 и 5 завершены. В `Intelligence.TradeSystem.Api` реализованы controller-based route surface, endpoint `POST /api/analysis/snapshot`, endpoint `POST /api/analysis/ai`, DTO-контракты, базовые `/` и `/health` endpoints, валидация входных параметров и расширенный API regression/smoke test suite. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -12,9 +12,9 @@
 Фаза 2 ██████████████████████  Application orchestration ✅ | DI registration ✅ | Application tests ✅
 Фаза 3 ██████████████████████  formatter ✅ | shared regime policy ✅ | regime classifier ✅ | output composer ✅ | DI registration ✅ | Analytics tests ✅
 Фаза 4 ██████████████████████  prompt contract ✅ | prompt builder ✅ | llm service contract ✅ | llm orchestration ✅ | llm options ✅ | provider integration ✅
-Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
+Фаза 5 ██████████████████████  API scaffold ✅ | route surface ✅ | snapshot endpoint ✅ | ai endpoint ✅ | dto/health/validation ✅
 Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
-Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 409 тестов | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Tests ✅ 435 тестов | Integration/Architecture ░░
 ```
 
 ---
@@ -125,6 +125,17 @@
 | ✅ | `PromptBuildResultTests` |
 | ✅ | `PromptMessageTests` |
 
+### Тесты (`Intelligence.TradeSystem.Api.Tests`) — 26 тестов ✅
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `AnalysisRouteSurfaceTests` |
+| ✅ | `SnapshotEndpointTests` |
+| ✅ | `AiEndpointTests` |
+| ✅ | `HealthEndpointTests` |
+| ✅ | `CompositionRootSmokeTests` |
+| ✅ | `RootEndpointTests` |
+
 ### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 32 теста ✅
 
 | Статус | Тест |
@@ -148,7 +159,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `409` unit-тестов, все проходят успешно.
+> **Итого по solution:** `435` тестов, все проходят успешно.
 
 ---
 
@@ -232,11 +243,11 @@
 
 ## Фаза 5 — Проект `Intelligence.TradeSystem.Api` (Web API)
 
-- [ ] **5.1** ASP.NET Core Web API — базовый composition root для HTTP endpoints
-- [ ] **5.2** `AnalysisController` / minimal endpoints — маршрутизация HTTP-запросов на snapshot- и AI-анализ
-- [ ] **5.3** Endpoint `POST /api/analysis/snapshot` — вызывает `IMarketAnalysisService` и возвращает `MarketAnalysisSnapshot`
-- [ ] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `ILlmAnalyticsService` и возвращает AI-аналитику
-- [ ] **5.5** DTO-модели запросов/ответов, базовый health endpoint, валидация входных параметров
+- [x] **5.1** ASP.NET Core Web API — базовый composition root для HTTP endpoints
+- [x] **5.2** `AnalysisController` / minimal endpoints — маршрутизация HTTP-запросов на snapshot- и AI-анализ
+- [x] **5.3** Endpoint `POST /api/analysis/snapshot` — вызывает `IMarketAnalysisService` и возвращает `MarketAnalysisSnapshot`
+- [x] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `ILlmAnalyticsService` и возвращает AI-аналитику
+- [x] **5.5** DTO-модели запросов/ответов, базовый health endpoint, валидация входных параметров
 
 ---
 
@@ -254,13 +265,14 @@
 
 ## Фаза 7 — Тесты и качество
 
-- [x] **7.1** `UnitTests` — покрытие `Indicators`, `Analysis`, `Application`, `Exchanges`
-  - `Intelligence.TradeSystem.Ai.Tests` — 15 тестов
+- [x] **7.1** `Tests` — покрытие `Ai`, `Analytics`, `Indicators`, `Analysis`, `Application`, `Exchanges`, `Api`
+  - `Intelligence.TradeSystem.Ai.Tests` — 84 теста
   - `Intelligence.TradeSystem.Analytics.Tests` — 32 теста
   - `Intelligence.TradeSystem.Indicators.Tests` — 109 тестов
   - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
   - `Intelligence.TradeSystem.Application.Tests` — 16 тестов
   - `Intelligence.TradeSystem.Exchanges.Tests` — 5 тестов
+  - `Intelligence.TradeSystem.Api.Tests` — 26 тестов
 - [ ] **7.2** `IntegrationTests` — `IBybitProvider` против Bybit testnet, end-to-end сборка `MarketAnalysisSnapshot`
 - [ ] **7.3** `ArchitectureTests` — `NetArchTest`: проверка зависимостей между слоями
 - [ ] **7.4** `/v5/market/instruments-info` — шаг цены, лот-сайз для нормализации отображения в Web UI / API ответах
@@ -279,9 +291,9 @@ Application     ← Abstractions, Domain, Analysis
 Backend.Host    ← Application, Exchanges, Microsoft.Extensions.Hosting
 
 Analytics       ← Domain, Indicators
-Ai              ← started (Domain, Analytics, provider-neutral prompt contract; planned OpenRouter client)
+Ai              ← Domain, Analytics, OpenRouter client integration
 Persistence     ← planned (Domain)
-Api             ← planned (Application, Analytics, Ai, ASP.NET Core)
+Api             ← Application, Exchanges, Analytics, Ai, ASP.NET Core
 Web             ← planned (HTTP client to Api)
 Infrastructure  ← planned (Application, Exchanges, Ai, Persistence)
 Worker          ← planned (Infrastructure)
@@ -308,12 +320,11 @@ Worker          ← planned (Infrastructure)
 
 ## Ближайшие шаги
 
-1. Продолжить **Фазу 4**: реализовать `PromptBuilder` поверх уже зафиксированного prompt contract, где в LLM уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
-2. Запустить **Фазу 5**: поднять `Intelligence.TradeSystem.Api` с endpoint'ами snapshot- и AI-анализа.
-3. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
-4. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
-5. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
-6. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
+1. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
+2. Подключить production-конфигурацию внешних клиентов в рамках **6.2** (`Bybit`, `OpenRouter`, secret/config wiring).
+3. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
+4. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
+5. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
 
 
 
