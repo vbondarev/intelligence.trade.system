@@ -12,11 +12,13 @@
   <Project Path="Intelligence.TradeSystem.Analysis/Intelligence.TradeSystem.Analysis.csproj" />
   <Project Path="Intelligence.TradeSystem.Analytics/Intelligence.TradeSystem.Analytics.csproj" />
   <Project Path="Intelligence.TradeSystem.Ai/Intelligence.TradeSystem.Ai.csproj" />
+  <Project Path="Intelligence.TradeSystem.Api/Intelligence.TradeSystem.Api.csproj" />
   <Project Path="Intelligence.TradeSystem.Application/Intelligence.TradeSystem.Application.csproj" />
   <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Intelligence.TradeSystem.Ai.Tests/Intelligence.TradeSystem.Ai.Tests.csproj" />
+    <Project Path="Intelligence.TradeSystem.Api.Tests/Intelligence.TradeSystem.Api.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Analytics.Tests/Intelligence.TradeSystem.Analytics.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Analysis.Tests/Intelligence.TradeSystem.Analysis.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Application.Tests/Intelligence.TradeSystem.Application.Tests.csproj" />

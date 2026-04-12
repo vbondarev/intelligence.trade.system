@@ -1,4 +1,6 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+﻿using Bybit.Net.Clients;
+using Bybit.Net.Interfaces.Clients;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Exchanges.Bybit;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -8,6 +10,7 @@ public static class StartupExtensions
 {
     public static IServiceCollection AddBybitExchange(this IServiceCollection services)
     {
+        services.AddScoped<IBybitRestClient>(_ => new BybitRestClient(static _ => { }));
         services.AddScoped<BybitProvider>();
         services.AddScoped<IMarketDataProvider>(serviceProvider => serviceProvider.GetRequiredService<BybitProvider>());
         services.AddScoped<IDerivativesDataProvider>(serviceProvider => serviceProvider.GetRequiredService<BybitProvider>());
