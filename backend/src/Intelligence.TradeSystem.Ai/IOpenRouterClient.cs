@@ -2,7 +2,7 @@
 
 /// <summary>
 /// Тонкий контракт клиента OpenRouter поверх normalized chat prompt payload.
-/// Concrete HTTP-интеграция реализуется отдельным классом на шаге <c>4.5</c>.
+/// Concrete HTTP-интеграция предоставляется классом <see cref="OpenRouterClient"/>.
 /// </summary>
 public interface IOpenRouterClient
 {

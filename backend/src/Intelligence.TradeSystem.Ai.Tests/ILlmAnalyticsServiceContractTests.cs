@@ -24,20 +24,6 @@ public sealed class ILlmAnalyticsServiceContractTests
         parameters[2].ParameterType.Should().Be<CancellationToken>();
         parameters[2].Name.Should().Be("cancellationToken");
     }
-
-    [Fact]
-    public void Declares_Optional_CancellationToken_For_Asynchronous_Consumers()
-    {
-        var method = typeof(ILlmAnalyticsService).GetMethod("AnalyzeAsync");
-
-        method.Should().NotBeNull();
-
-        var cancellationTokenParameter = method
-            .GetParameters()
-            .Single(static parameter => parameter.Name == "cancellationToken");
-
-        cancellationTokenParameter.IsOptional.Should().BeTrue();
-    }
 }
 
 

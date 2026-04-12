@@ -14,7 +14,7 @@
 Фаза 4 ██████████████████████  prompt contract ✅ | prompt builder ✅ | llm service contract ✅ | llm orchestration ✅ | llm options ✅ | provider integration ✅
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
 Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
-Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 405 тестов | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 409 тестов | Integration/Architecture ░░
 ```
 
 ---
@@ -112,7 +112,7 @@
 | ✅ | `SentimentSnapshotAssemblerTests` |
 | ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
-### Тесты (`Intelligence.TradeSystem.Ai.Tests`) — 80 тестов ✅
+### Тесты (`Intelligence.TradeSystem.Ai.Tests`) — 84 теста ✅
 
 | Статус | Тест |
 |--------|------|
@@ -148,7 +148,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `405` unit-тестов, все проходят успешно.
+> **Итого по solution:** `409` unit-тестов, все проходят успешно.
 
 ---
 

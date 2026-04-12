@@ -3,6 +3,16 @@
 public sealed class PromptMessageTests
 {
     [Fact]
+    public void Throws_When_Role_Is_Not_Defined()
+    {
+        const string parameterName = "role";
+        var action = () => new PromptMessage((PromptRole)999, "summary");
+
+        action.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName(parameterName);
+    }
+
+    [Fact]
     public void Throws_When_Content_Is_Null()
     {
         const string parameterName = "content";

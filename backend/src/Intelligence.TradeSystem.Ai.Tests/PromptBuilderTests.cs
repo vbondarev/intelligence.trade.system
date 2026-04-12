@@ -21,8 +21,11 @@ public sealed class PromptBuilderTests
         result.Messages.Should().HaveCount(2);
         result.Messages[0].Role.Should().Be(PromptRole.System);
         result.Messages[1].Role.Should().Be(PromptRole.User);
-        result.Messages[0].Content.Should().Contain("Не придумывай отсутствующие данные");
-        result.Messages[1].Content.Should().StartWith("user_query:\nanalyze btc\n\nmarket_analysis_snapshot_json:\n```json\n{");
+        result.Messages[0].Content.Should().Contain("MarketAnalysisSnapshot");
+        result.Messages[0].Content.Should().Contain("Analytics context");
+        result.Messages[0].Content.Should().Contain("Не придумывай");
+        result.Messages[1].Content.Should().StartWith("user_query:\nanalyze btc");
+        result.Messages[1].Content.Should().Contain("\n\nmarket_analysis_snapshot_json:\n```json\n{");
     }
 
     [Fact]

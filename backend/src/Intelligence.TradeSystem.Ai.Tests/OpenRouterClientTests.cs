@@ -122,6 +122,35 @@ public sealed class OpenRouterClientTests
     }
 
     [Fact]
+    public async Task CompleteChatAsync_Uses_ChatCompletions_Endpoint_When_BaseUrl_Ends_With_Slash()
+    {
+        Uri? capturedUri = null;
+        var options = CreateValidOptions();
+        options.BaseUrl = "https://openrouter.ai/api/v1/";
+
+        var client = CreateClient(request =>
+        {
+            capturedUri = request.RequestUri;
+            return CreateJsonResponse(HttpStatusCode.OK, """
+                {
+                  "choices": [
+                    {
+                      "message": {
+                        "role": "assistant",
+                        "content": "market summary"
+                      }
+                    }
+                  ]
+                }
+                """);
+        }, options);
+
+        await client.CompleteChatAsync(CreatePrompt());
+
+        capturedUri.Should().Be(new Uri("https://openrouter.ai/api/v1/chat/completions"));
+    }
+
+    [Fact]
     public async Task CompleteChatAsync_Throws_HttpRequestException_When_Status_Code_Is_Not_Success()
     {
         var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.Unauthorized, """
@@ -153,6 +182,37 @@ public sealed class OpenRouterClientTests
     }
 
     [Fact]
+    public async Task CompleteChatAsync_Uses_Raw_Error_Body_When_Error_Json_Does_Not_Contain_Message()
+    {
+        var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.BadRequest, """
+            {
+              "error": {
+                "code": 400
+              }
+            }
+            """));
+
+        var action = () => client.CompleteChatAsync(CreatePrompt());
+
+        await action.Should().ThrowAsync<HttpRequestException>()
+            .WithMessage("*\"code\": 400*");
+    }
+
+    [Fact]
+    public async Task CompleteChatAsync_Throws_HttpRequestException_With_Status_Only_When_Error_Body_Is_Empty()
+    {
+        var client = CreateClient(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway)
+        {
+            Content = new StringContent(string.Empty, Encoding.UTF8, "text/plain"),
+        }));
+
+        var action = () => client.CompleteChatAsync(CreatePrompt());
+
+        await action.Should().ThrowAsync<HttpRequestException>()
+            .WithMessage("*502 (BadGateway)");
+    }
+
+    [Fact]
     public async Task CompleteChatAsync_Throws_When_Response_Json_Is_Malformed()
     {
         var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.OK, "{ not-json }"));
@@ -169,6 +229,25 @@ public sealed class OpenRouterClientTests
         var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.OK, """
             {
               "choices": []
+            }
+            """));
+
+        var action = () => client.CompleteChatAsync(CreatePrompt());
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*non-empty assistant message*");
+    }
+
+    [Fact]
+    public async Task CompleteChatAsync_Throws_When_First_Choice_Message_Is_Null()
+    {
+        var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.OK, """
+            {
+              "choices": [
+                {
+                  "message": null
+                }
+              ]
             }
             """));
 
@@ -204,28 +283,6 @@ public sealed class OpenRouterClientTests
             .WithMessage("*non-empty assistant message*");
     }
 
-    [Fact]
-    public async Task CompleteChatAsync_Throws_When_Prompt_Contains_Unsupported_Role()
-    {
-        var client = CreateClient(_ => CreateJsonResponse(HttpStatusCode.OK, """
-            {
-              "choices": [
-                {
-                  "message": {
-                    "role": "assistant",
-                    "content": "ok"
-                  }
-                }
-              ]
-            }
-            """));
-        var prompt = new PromptBuildResult([new((PromptRole)999, "unexpected")]);
-
-        var action = () => client.CompleteChatAsync(prompt);
-
-        await action.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*Unsupported prompt role*");
-    }
 
     [Fact]
     public async Task CompleteChatAsync_Propagates_OperationCanceledException()

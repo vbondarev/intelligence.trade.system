@@ -11,6 +11,16 @@ public sealed class PromptBuildRequestTests
             .WithParameterName("snapshot");
     }
 
+    [Fact]
+    public void Throws_When_UserQuery_Is_Null()
+    {
+        const string parameterName = "userQuery";
+        var action = () => new PromptBuildRequest(PromptTestData.CreateSnapshot(), null!);
+
+        action.Should().Throw<ArgumentException>()
+            .WithParameterName(parameterName);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
