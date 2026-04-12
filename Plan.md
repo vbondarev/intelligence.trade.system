@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
-> Последнее обновление: 2026-04-11
-> Текущий статус: **Фазы 1, 1.5, 2 и 3 завершены. Следующий шаг — Фаза 4 (`Intelligence.TradeSystem.Ai`). `MarketAnalysisSnapshot` зафиксирован как основной payload для GPT. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
+> Последнее обновление: 2026-04-12
+> Текущий статус: **Фазы 1, 1.5, 2, 3 и 4 завершены. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -11,10 +11,10 @@
 Фаза 1 ██████████████████████  Exchanges 9/10 ✅ | Assemblers 11/11 ✅ | Indicator тесты ✅ | Analysis assembler tests 11/11 ✅
 Фаза 2 ██████████████████████  Application orchestration ✅ | DI registration ✅ | Application tests ✅
 Фаза 3 ██████████████████████  formatter ✅ | shared regime policy ✅ | regime classifier ✅ | output composer ✅ | DI registration ✅ | Analytics tests ✅
-Фаза 4 ░░░░░░░░░░░░░░░░░░░░░░  не начата
+Фаза 4 ██████████████████████  prompt contract ✅ | prompt builder ✅ | llm service contract ✅ | llm orchestration ✅ | llm options ✅ | provider integration ✅
 Фаза 5 ░░░░░░░░░░░░░░░░░░░░░░  Web API не начат
 Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
-Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 325 тестов | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Unit tests ✅ 409 тестов | Integration/Architecture ░░
 ```
 
 ---
@@ -71,7 +71,7 @@
 > внутри `PortfolioSnapshotAssembler`.
 
 > **Примечание:** `MarketAnalysisSnapshot` является каноническим структурированным payload для downstream-слоёв.
-> В GPT по умолчанию передаётся именно он (при необходимости вместе с компактным текстовым контекстом из `Analytics`),
+> В LLM по умолчанию передаётся именно он (при необходимости вместе с компактным текстовым контекстом из `Analytics`),
 > а не полный raw dump свечей/сделок/стакана.
 
 ### Вспомогательные компоненты (`Indicators`)
@@ -112,6 +112,19 @@
 | ✅ | `SentimentSnapshotAssemblerTests` |
 | ✅ | `MarketAnalysisSnapshotAssemblerTests` |
 
+### Тесты (`Intelligence.TradeSystem.Ai.Tests`) — 84 теста ✅
+
+| Статус | Тест |
+|--------|------|
+| ✅ | `OpenRouterClientTests` |
+| ✅ | `LlmOptionsTests` |
+| ✅ | `LlmAnalyticsServiceTests` |
+| ✅ | `ILlmAnalyticsServiceContractTests` |
+| ✅ | `PromptBuilderTests` |
+| ✅ | `PromptBuildRequestTests` |
+| ✅ | `PromptBuildResultTests` |
+| ✅ | `PromptMessageTests` |
+
 ### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 32 теста ✅
 
 | Статус | Тест |
@@ -135,7 +148,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `325` unit-тестов, все проходят успешно.
+> **Итого по solution:** `409` unit-тестов, все проходят успешно.
 
 ---
 
@@ -205,13 +218,15 @@
 
 ## Фаза 4 — Проект `Intelligence.TradeSystem.Ai`
 
-- [ ] **4.1** `IPromptBuilder` — строит GPT-prompt из `MarketAnalysisSnapshot` + запроса пользователя
-- [ ] **4.2** `PromptBuilder` — шаблон системного промпта + JSON-представление `MarketAnalysisSnapshot` + форматированные данные из `Analytics`
-- [ ] **4.3** `IGptAnalyticsService` — `AnalyzeAsync(MarketAnalysisSnapshot, string userQuery) → string`
-- [ ] **4.4** `GptAnalyticsService` — интеграция с OpenAI SDK (`chat/completions`)
+- [x] **4.1** `IPromptBuilder` + `PromptBuildRequest` + `PromptBuildResult` + `PromptMessage` + `PromptRole` — provider-neutral prompt-building contract поверх `MarketAnalysisSnapshot` + `AnalyticsOutput` + `userQuery`
+- [x] **4.2** `PromptBuilder` — шаблон системного промпта + JSON-представление `MarketAnalysisSnapshot` + форматированные данные из `Analytics`
+- [x] **4.3** `ILlmAnalyticsService` — `AnalyzeAsync(MarketAnalysisSnapshot snapshot, string userQuery) → string`
+- [x] **4.4** `LlmAnalyticsService` — orchestration-сервис поверх `IAnalyticsOutputComposer`, `IPromptBuilder` и LLM provider client
+- [x] **4.5** `IOpenRouterClient` / `OpenRouterClient` — реализована concrete интеграция с OpenRouter API (`chat/completions`) поверх `HttpClient`, `PromptBuildResult` и `LlmOptions`
+- [x] **4.6** `LlmOptions` — конфигурация provider/baseUrl/apiKey/model/temperature/maxTokens
 
 > **Роль фазы:** не вычислять индикаторы и уровни внутри LLM, а использовать уже подготовленный
-> `MarketAnalysisSnapshot` как основной AI payload и получать интерпретацию / ответ на пользовательский вопрос.
+> `MarketAnalysisSnapshot` как основной AI payload и получать интерпретацию / ответ на пользовательский вопрос через OpenRouter.
 
 ---
 
@@ -220,7 +235,7 @@
 - [ ] **5.1** ASP.NET Core Web API — базовый composition root для HTTP endpoints
 - [ ] **5.2** `AnalysisController` / minimal endpoints — маршрутизация HTTP-запросов на snapshot- и AI-анализ
 - [ ] **5.3** Endpoint `POST /api/analysis/snapshot` — вызывает `IMarketAnalysisService` и возвращает `MarketAnalysisSnapshot`
-- [ ] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `IGptAnalyticsService` и возвращает AI-аналитику
+- [ ] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `ILlmAnalyticsService` и возвращает AI-аналитику
 - [ ] **5.5** DTO-модели запросов/ответов, базовый health endpoint, валидация входных параметров
 
 ---
@@ -228,7 +243,7 @@
 ## Фаза 6 — Web UI, инфраструктура и хост
 
 - [ ] **6.1** `Intelligence.TradeSystem.Web` — web-клиент поверх `Intelligence.TradeSystem.Api` для ввода символа/категории/запроса и отображения результата
-- [ ] **6.2** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenAI client
+- [ ] **6.2** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenRouter client
 - [ ] **6.3** `Intelligence.TradeSystem.Persistence` — кэширование снапшотов (Redis / in-memory), история запросов
 - [ ] **6.4** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
 - [~] **6.5** `Intelligence.TradeSystem.Backend.Host` — минимальный host/composition root уже существует (`AddBybitExchange()`, `AddApplication()`, `Worker`)
@@ -240,6 +255,7 @@
 ## Фаза 7 — Тесты и качество
 
 - [x] **7.1** `UnitTests` — покрытие `Indicators`, `Analysis`, `Application`, `Exchanges`
+  - `Intelligence.TradeSystem.Ai.Tests` — 15 тестов
   - `Intelligence.TradeSystem.Analytics.Tests` — 32 теста
   - `Intelligence.TradeSystem.Indicators.Tests` — 109 тестов
   - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
@@ -262,8 +278,8 @@ Analysis        ← Domain, Indicators
 Application     ← Abstractions, Domain, Analysis
 Backend.Host    ← Application, Exchanges, Microsoft.Extensions.Hosting
 
-Analytics       ← planned (Domain, Indicators)
-Ai              ← planned (Domain, Analytics, OpenAI SDK)
+Analytics       ← Domain, Indicators
+Ai              ← started (Domain, Analytics, provider-neutral prompt contract; planned OpenRouter client)
 Persistence     ← planned (Domain)
 Api             ← planned (Application, Analytics, Ai, ASP.NET Core)
 Web             ← planned (HTTP client to Api)
@@ -282,9 +298,9 @@ Worker          ← planned (Infrastructure)
       → IMarketDataProvider / IDerivativesDataProvider / IPrivateAccountProvider × 9 endpoints (параллельно)
       → Assemblers × 11 (последовательно)
       → MarketAnalysisSnapshot
-  → IGptAnalyticsService.AnalyzeAsync(snapshot, "внутридневная торговля")
+  → ILlmAnalyticsService.AnalyzeAsync(snapshot, "внутридневная торговля")
       → PromptBuilder → snapshot JSON + analytics context + user query
-      → OpenAI chat/completions → аналитика
+      → OpenRouter chat/completions → аналитика
   → Web API response → Web UI → пользователь получает ответ
 ```
 
@@ -292,7 +308,7 @@ Worker          ← planned (Infrastructure)
 
 ## Ближайшие шаги
 
-1. Запустить **Фазу 4**: зафиксировать prompt contract, где в GPT уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
+1. Продолжить **Фазу 4**: реализовать `PromptBuilder` поверх уже зафиксированного prompt contract, где в LLM уходит `MarketAnalysisSnapshot` (JSON) + compact analytics context + `userQuery`.
 2. Запустить **Фазу 5**: поднять `Intelligence.TradeSystem.Api` с endpoint'ами snapshot- и AI-анализа.
 3. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
 4. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
