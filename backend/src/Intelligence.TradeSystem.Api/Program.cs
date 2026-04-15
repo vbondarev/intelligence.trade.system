@@ -14,6 +14,8 @@ public partial class Program
 
         builder.AddServiceDefaults();
         builder.Services.AddControllers();
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen();
         builder.Services.AddSingleton(_ => builder.Configuration.GetSection(LlmOptions.SectionName).Get<LlmOptions>() ?? new LlmOptions());
         builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>();
         builder.Services.AddAnalytics();
@@ -23,6 +25,12 @@ public partial class Program
         builder.Services.AddBybitExchange();
 
         var app = builder.Build();
+
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
 
         app.MapGet("/", () => Results.Ok(new
         {

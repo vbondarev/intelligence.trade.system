@@ -6,7 +6,8 @@ public partial class Program
 
         builder
             .AddProject<Projects.Intelligence_TradeSystem_Api>("api")
-            .WithExternalHttpEndpoints();
+            .WithExternalHttpEndpoints()
+            .WithUrl("/swagger", "Swagger");
 
         builder.Build().Run();
     }
