@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
-> Последнее обновление: 2026-04-12
-> Текущий статус: **Фазы 1, 1.5, 2, 3, 4 и 5 завершены. В `Intelligence.TradeSystem.Api` реализованы controller-based route surface, endpoint `POST /api/analysis/snapshot`, endpoint `POST /api/analysis/ai`, DTO-контракты, базовые `/` и `/health` endpoints, валидация входных параметров и расширенный API regression/smoke test suite. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). В фазе 6 начат Aspire bootstrap: добавлены `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost`, проекты помещены в solution folder `Aspire`, `Intelligence.TradeSystem.Backend.Host` удалён из solution и workspace. Секреты пока остаются в `appsettings.json`. Параллельный технический долг — `/v5/market/instruments-info`**
+> Последнее обновление: 2026-04-15
+> Текущий статус: **Фазы 1, 1.5, 2, 3, 4 и 5 завершены. В `Intelligence.TradeSystem.Api` реализованы controller-based route surface, endpoint `POST /api/analysis/snapshot`, endpoint `POST /api/analysis/ai`, DTO-контракты, базовые `/` и `/health` endpoints, валидация входных параметров, dev-only Swagger UI по `/swagger` и расширенный API regression/smoke test suite. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). В фазе 6 начат Aspire bootstrap: добавлены `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost`, проекты помещены в solution folder `Aspire`, `Intelligence.TradeSystem.Backend.Host` удалён из solution и workspace, а для ресурса `api` опубликована Swagger-ссылка через интерфейс Aspire. Секреты пока остаются в `appsettings.json`. Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -14,7 +14,7 @@
 Фаза 4 ██████████████████████  prompt contract ✅ | prompt builder ✅ | llm service contract ✅ | llm orchestration ✅ | llm options ✅ | provider integration ✅
 Фаза 5 ██████████████████████  API scaffold ✅ | route surface ✅ | snapshot endpoint ✅ | ai endpoint ✅ | dto/health/validation ✅
 Фаза 6 ████░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Aspire bootstrap ~
-Фаза 7 ███████████████░░░░░░░  Tests ✅ 435 тестов | Integration/Architecture ░░
+Фаза 7 ███████████████░░░░░░░  Tests ✅ 437 тестов | Integration/Architecture ░░
 ```
 
 ---
@@ -125,7 +125,7 @@
 | ✅ | `PromptBuildResultTests` |
 | ✅ | `PromptMessageTests` |
 
-### Тесты (`Intelligence.TradeSystem.Api.Tests`) — 26 тестов ✅
+### Тесты (`Intelligence.TradeSystem.Api.Tests`) — 28 тестов ✅
 
 | Статус | Тест |
 |--------|------|
@@ -135,6 +135,7 @@
 | ✅ | `HealthEndpointTests` |
 | ✅ | `CompositionRootSmokeTests` |
 | ✅ | `RootEndpointTests` |
+| ✅ | `SwaggerEndpointTests` |
 
 ### Тесты (`Intelligence.TradeSystem.Analytics.Tests`) — 32 теста ✅
 
@@ -159,7 +160,7 @@
 |--------|------|
 | ✅ | `StartupExtensionsTests` |
 
-> **Итого по solution:** `435` тестов, все проходят успешно.
+> **Итого по solution:** `437` тестов, все проходят успешно.
 
 ---
 
@@ -248,6 +249,7 @@
 - [x] **5.3** Endpoint `POST /api/analysis/snapshot` — вызывает `IMarketAnalysisService` и возвращает `MarketAnalysisSnapshot`
 - [x] **5.4** Endpoint `POST /api/analysis/ai` — вызывает `IMarketAnalysisService` + `ILlmAnalyticsService` и возвращает AI-аналитику
 - [x] **5.5** DTO-модели запросов/ответов, базовый health endpoint, валидация входных параметров
+- [x] **5.6** Swagger / OpenAPI для локальной разработки — классический `/swagger` включён только в `Development` и покрыт regression-тестами
 
 ---
 
@@ -260,6 +262,7 @@
 - [~] **6.5** `Intelligence.TradeSystem.AppHost` — Aspire AppHost для локального запуска и отладки `Intelligence.TradeSystem.Api`
   - [x] Добавить Aspire-проекты в solution folder `Aspire`
   - [x] Поднять через AppHost `Intelligence.TradeSystem.Api`
+  - [x] Опубликовать ссылку `Swagger` для ресурса `api` в Aspire Dashboard
   - [ ] Подготовить расширение orchestration для будущих сервисов
 - [x] **6.6** Удалить `Intelligence.TradeSystem.Backend.Host`
 - [ ] **6.7** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
@@ -275,7 +278,7 @@
   - `Intelligence.TradeSystem.Analysis.Tests` — 163 теста
   - `Intelligence.TradeSystem.Application.Tests` — 16 тестов
   - `Intelligence.TradeSystem.Exchanges.Tests` — 5 тестов
-  - `Intelligence.TradeSystem.Api.Tests` — 26 тестов
+  - `Intelligence.TradeSystem.Api.Tests` — 28 тестов
 - [ ] **7.2** `IntegrationTests` — `IBybitProvider` против Bybit testnet, end-to-end сборка `MarketAnalysisSnapshot`
 - [ ] **7.3** `ArchitectureTests` — `NetArchTest`: проверка зависимостей между слоями
 - [ ] **7.4** `/v5/market/instruments-info` — шаг цены, лот-сайз для нормализации отображения в Web UI / API ответах
@@ -324,8 +327,8 @@ AppHost         ← Aspire orchestration для Api и будущих серви
 
 ## Ближайшие шаги
 
-1. Добить локальный запуск и отладку `Intelligence.TradeSystem.Api` через Aspire AppHost и проверить его end-to-end.
-2. Подготовить расширение orchestration для будущих `Web` / `Persistence` / `Worker`.
+1. Подготовить расширение orchestration для будущих `Web` / `Persistence` / `Worker` поверх уже добавленного `Aspire AppHost` и resource links.
+2. Проверить end-to-end локальный сценарий `AppHost → Api → Swagger` через интерфейс Aspire Dashboard.
 3. На текущем этапе оставить секреты в `appsettings.json`.
 4. Затем запустить **Фазу 6.1**: реализовать Web UI поверх API.
 5. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.

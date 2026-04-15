@@ -1,4 +1,6 @@
-public partial class Program
+namespace Intelligence.TradeSystem.AppHost;
+
+public static class Program
 {
     public static void Main(string[] args)
     {
