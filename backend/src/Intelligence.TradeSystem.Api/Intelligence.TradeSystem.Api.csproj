@@ -1,10 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.Ai\Intelligence.TradeSystem.Ai.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Analytics\Intelligence.TradeSystem.Analytics.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Application\Intelligence.TradeSystem.Application.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Exchanges\Intelligence.TradeSystem.Exchanges.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.ServiceDefaults\Intelligence.TradeSystem.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

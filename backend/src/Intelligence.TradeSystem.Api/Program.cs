@@ -1,5 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Contracts;
-using Intelligence.TradeSystem.Ai;
+﻿using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Exchanges;
@@ -12,7 +11,10 @@ public partial class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        builder.AddServiceDefaults();
         builder.Services.AddControllers();
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen();
         builder.Services.AddSingleton(_ => builder.Configuration.GetSection(LlmOptions.SectionName).Get<LlmOptions>() ?? new LlmOptions());
         builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>();
         builder.Services.AddAnalytics();
@@ -23,19 +25,20 @@ public partial class Program
 
         var app = builder.Build();
 
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
+
         app.MapGet("/", () => Results.Ok(new
         {
             Service = "Intelligence.TradeSystem.Api",
             Status = "Started",
         }));
 
-        app.MapGet("/health", static () => Results.Ok(new HealthResponse
-        {
-            Service = "Intelligence.TradeSystem.Api",
-            Status = "Healthy",
-        }));
-
         app.MapControllers();
+        app.MapDefaultEndpoints();
 
         app.Run();
     }
