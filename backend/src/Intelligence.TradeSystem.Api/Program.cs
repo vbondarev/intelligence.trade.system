@@ -1,5 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Contracts;
-using Intelligence.TradeSystem.Ai;
+﻿using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Exchanges;
@@ -36,12 +35,6 @@ public partial class Program
         {
             Service = "Intelligence.TradeSystem.Api",
             Status = "Started",
-        }));
-
-        app.MapGet("/health", static () => Results.Ok(new HealthResponse
-        {
-            Service = "Intelligence.TradeSystem.Api",
-            Status = "Healthy",
         }));
 
         app.MapControllers();
