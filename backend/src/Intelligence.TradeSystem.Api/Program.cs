@@ -12,6 +12,7 @@ public partial class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        builder.AddServiceDefaults();
         builder.Services.AddControllers();
         builder.Services.AddSingleton(_ => builder.Configuration.GetSection(LlmOptions.SectionName).Get<LlmOptions>() ?? new LlmOptions());
         builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>();
@@ -36,6 +37,7 @@ public partial class Program
         }));
 
         app.MapControllers();
+        app.MapDefaultEndpoints();
 
         app.Run();
     }

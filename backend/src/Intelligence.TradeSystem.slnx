@@ -14,8 +14,11 @@
   <Project Path="Intelligence.TradeSystem.Ai/Intelligence.TradeSystem.Ai.csproj" />
   <Project Path="Intelligence.TradeSystem.Api/Intelligence.TradeSystem.Api.csproj" />
   <Project Path="Intelligence.TradeSystem.Application/Intelligence.TradeSystem.Application.csproj" />
-  <Project Path="Intelligence.TradeSystem.Backend.Host/Intelligence.TradeSystem.Backend.Host.csproj" />
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
+  <Folder Name="/Aspire/">
+    <Project Path="Intelligence.TradeSystem.AppHost/Intelligence.TradeSystem.AppHost.csproj" />
+    <Project Path="Intelligence.TradeSystem.ServiceDefaults/Intelligence.TradeSystem.ServiceDefaults.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="Intelligence.TradeSystem.Ai.Tests/Intelligence.TradeSystem.Ai.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Api.Tests/Intelligence.TradeSystem.Api.Tests.csproj" />

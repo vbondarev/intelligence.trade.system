@@ -1,7 +1,7 @@
 ﻿# Intelligence Trade System — План реализации
 
 > Последнее обновление: 2026-04-12
-> Текущий статус: **Фазы 1, 1.5, 2, 3, 4 и 5 завершены. В `Intelligence.TradeSystem.Api` реализованы controller-based route surface, endpoint `POST /api/analysis/snapshot`, endpoint `POST /api/analysis/ai`, DTO-контракты, базовые `/` и `/health` endpoints, валидация входных параметров и расширенный API regression/smoke test suite. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). Параллельный технический долг — `/v5/market/instruments-info`**
+> Текущий статус: **Фазы 1, 1.5, 2, 3, 4 и 5 завершены. В `Intelligence.TradeSystem.Api` реализованы controller-based route surface, endpoint `POST /api/analysis/snapshot`, endpoint `POST /api/analysis/ai`, DTO-контракты, базовые `/` и `/health` endpoints, валидация входных параметров и расширенный API regression/smoke test suite. В `Intelligence.TradeSystem.Ai` реализованы prompt-building contract, `PromptBuilder`, `ILlmAnalyticsService`, `LlmAnalyticsService`, `IOpenRouterClient`, `OpenRouterClient` и `LlmOptions`. `MarketAnalysisSnapshot` зафиксирован как основной payload для LLM. Пользовательский канал изменён на web-first (`Api` + `Web`). В фазе 6 начат Aspire bootstrap: добавлены `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost`, проекты помещены в solution folder `Aspire`, `Intelligence.TradeSystem.Backend.Host` удалён из solution и workspace. Секреты пока остаются в `appsettings.json`. Параллельный технический долг — `/v5/market/instruments-info`**
 
 ---
 
@@ -13,7 +13,7 @@
 Фаза 3 ██████████████████████  formatter ✅ | shared regime policy ✅ | regime classifier ✅ | output composer ✅ | DI registration ✅ | Analytics tests ✅
 Фаза 4 ██████████████████████  prompt contract ✅ | prompt builder ✅ | llm service contract ✅ | llm orchestration ✅ | llm options ✅ | provider integration ✅
 Фаза 5 ██████████████████████  API scaffold ✅ | route surface ✅ | snapshot endpoint ✅ | ai endpoint ✅ | dto/health/validation ✅
-Фаза 6 ███░░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Backend.Host scaffold ✅ | остальное ░░
+Фаза 6 ████░░░░░░░░░░░░░░░░░░  Web UI / Infrastructure / Aspire bootstrap ~
 Фаза 7 ███████████████░░░░░░░  Tests ✅ 435 тестов | Integration/Architecture ░░
 ```
 
@@ -251,15 +251,18 @@
 
 ---
 
-## Фаза 6 — Web UI, инфраструктура и хост
+## Фаза 6 — Web UI, инфраструктура и Aspire
 
 - [ ] **6.1** `Intelligence.TradeSystem.Web` — web-клиент поверх `Intelligence.TradeSystem.Api` для ввода символа/категории/запроса и отображения результата
-- [ ] **6.2** `Intelligence.TradeSystem.Infrastructure` — конфигурация DI: Bybit client с API-ключами, OpenRouter client
+- [ ] **6.2** `Intelligence.TradeSystem.Infrastructure` — конфигурация внешних клиентов и окружения: `Bybit`, `OpenRouter`; на текущем этапе секреты хранятся в `appsettings.json`
 - [ ] **6.3** `Intelligence.TradeSystem.Persistence` — кэширование снапшотов (Redis / in-memory), история запросов
-- [ ] **6.4** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
-- [~] **6.5** `Intelligence.TradeSystem.Backend.Host` — минимальный host/composition root уже существует (`AddBybitExchange()`, `AddApplication()`, `Worker`)
-  - [ ] Подключить реальный `BybitRestClient` и production-конфигурацию внешних клиентов
-  - [ ] Расширить composition root по мере появления `Infrastructure` / `Ai` / `Api`
+- [x] **6.4** `Intelligence.TradeSystem.ServiceDefaults` — общие defaults для локального запуска и сервисной конфигурации
+- [~] **6.5** `Intelligence.TradeSystem.AppHost` — Aspire AppHost для локального запуска и отладки `Intelligence.TradeSystem.Api`
+  - [x] Добавить Aspire-проекты в solution folder `Aspire`
+  - [x] Поднять через AppHost `Intelligence.TradeSystem.Api`
+  - [ ] Подготовить расширение orchestration для будущих сервисов
+- [x] **6.6** Удалить `Intelligence.TradeSystem.Backend.Host`
+- [ ] **6.7** `Intelligence.TradeSystem.Worker` — фоновый сервис: периодическое обновление данных, инвалидация кэша
 
 ---
 
@@ -288,15 +291,16 @@ Exchanges       ← Abstractions, Domain, Bybit.Net SDK
 Indicators      ← Domain
 Analysis        ← Domain, Indicators
 Application     ← Abstractions, Domain, Analysis
-Backend.Host    ← Application, Exchanges, Microsoft.Extensions.Hosting
 
 Analytics       ← Domain, Indicators
 Ai              ← Domain, Analytics, OpenRouter client integration
 Persistence     ← planned (Domain)
-Api             ← Application, Exchanges, Analytics, Ai, ASP.NET Core
-Web             ← planned (HTTP client to Api)
 Infrastructure  ← planned (Application, Exchanges, Ai, Persistence)
-Worker          ← planned (Infrastructure)
+ServiceDefaults ← общие Aspire/service defaults
+Api             ← Application, Exchanges, Analytics, Ai, ASP.NET Core, ServiceDefaults
+Web             ← planned (HTTP client to Api)
+Worker          ← planned (Infrastructure, ServiceDefaults)
+AppHost         ← Aspire orchestration для Api и будущих сервисов
 ```
 
 ---
@@ -320,11 +324,12 @@ Worker          ← planned (Infrastructure)
 
 ## Ближайшие шаги
 
-1. Запустить **Фазу 6.1**: реализовать Web UI поверх API.
-2. Подключить production-конфигурацию внешних клиентов в рамках **6.2** (`Bybit`, `OpenRouter`, secret/config wiring).
-3. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
-4. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
-5. Развивать мультибиржевую архитектуру поверх capability-интерфейсов и постепенно выводить потребителей из зависимости на `IBybitProvider`.
+1. Добить локальный запуск и отладку `Intelligence.TradeSystem.Api` через Aspire AppHost и проверить его end-to-end.
+2. Подготовить расширение orchestration для будущих `Web` / `Persistence` / `Worker`.
+3. На текущем этапе оставить секреты в `appsettings.json`.
+4. Затем запустить **Фазу 6.1**: реализовать Web UI поверх API.
+5. Закрыть технический долг по `/v5/market/instruments-info` для будущей нормализации ценовых шагов и лот-сайза.
+6. Подготовить **integration tests** для exchange-слоя и end-to-end сборки `MarketAnalysisSnapshot`.
 
 
 
