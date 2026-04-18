@@ -1,17 +1,15 @@
 ﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
 /// <summary>
-/// HTTP surface для analysis API.
-/// Предоставляет endpoint'ы snapshot- и AI-analysis с базовой валидацией HTTP-входа
-/// и mapping прикладных ошибок в стабильные HTTP-ответы.
+/// Обрабатывает HTTP-запросы на построение рыночного снимка и AI-анализа.
 /// </summary>
 [ApiController]
 [Route("api/analysis")]
@@ -23,8 +21,8 @@ public sealed class AnalysisController : ControllerBase
     /// <summary>
     /// Инициализирует новый экземпляр <see cref="AnalysisController"/>.
     /// </summary>
-    /// <param name="marketAnalysisService">Сервис построения финального <see cref="MarketAnalysisSnapshot"/>.</param>
-    /// <param name="llmAnalyticsService">Сервис AI-анализа поверх готового <see cref="MarketAnalysisSnapshot"/>.</param>
+    /// <param name="marketAnalysisService">Сервис построения агрегированного рыночного снимка.</param>
+    /// <param name="llmAnalyticsService">Сервис построения текстового AI-анализа по готовому рыночному снимку.</param>
     /// <exception cref="ArgumentNullException">Если любая из зависимостей равна <c>null</c>.</exception>
     public AnalysisController(
         IMarketAnalysisService marketAnalysisService,
@@ -35,14 +33,20 @@ public sealed class AnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// Выполняет snapshot-analysis и возвращает готовый <see cref="MarketAnalysisSnapshot"/>.
+    /// Строит рыночный снимок по указанному инструменту.
     /// </summary>
+    /// <param name="request">Параметры инструмента и рынка, для которых нужно построить снимок.</param>
+    /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
+    /// <returns>
+    /// HTTP 200 с <see cref="MarketAnalysisResponse"/>, если снимок успешно построен;
+    /// иначе один из стандартных problem-details ответов.
+    /// </returns>
     [HttpPost("snapshot")]
-    [ProducesResponseType(typeof(MarketAnalysisSnapshot), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MarketAnalysisResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<MarketAnalysisSnapshot>> Snapshot(
+    public async Task<ActionResult<MarketAnalysisResponse>> Snapshot(
         [FromBody] SnapshotAnalysisRequest? request,
         CancellationToken cancellationToken)
     {
@@ -59,7 +63,7 @@ public sealed class AnalysisController : ControllerBase
                 category,
                 cancellationToken).ConfigureAwait(false);
 
-            return Ok(snapshot);
+            return Ok(snapshot.ToResponse());
         }
         catch (ArgumentException exception)
         {
@@ -79,8 +83,14 @@ public sealed class AnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// Выполняет AI-analysis поверх готового <see cref="MarketAnalysisSnapshot"/>.
+    /// Выполняет AI-анализ по указанному инструменту и пользовательскому запросу.
     /// </summary>
+    /// <param name="request">Параметры инструмента и текст запроса к AI-анализу.</param>
+    /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
+    /// <returns>
+    /// HTTP 200 с <see cref="AiAnalysisResponse"/>, если AI-анализ успешно построен;
+    /// иначе один из стандартных problem-details ответов.
+    /// </returns>
     [HttpPost("ai")]
     [ProducesResponseType(typeof(AiAnalysisResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

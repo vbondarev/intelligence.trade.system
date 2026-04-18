@@ -2,6 +2,7 @@
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Exchanges;
+using System.Reflection;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -14,7 +15,16 @@ public partial class Program
         builder.AddServiceDefaults();
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddSwaggerGen();
+        builder.Services.AddSwaggerGen(options =>
+        {
+            var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+            var xmlFilePath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
+
+            if (File.Exists(xmlFilePath))
+            {
+                options.IncludeXmlComments(xmlFilePath, includeControllerXmlComments: true);
+            }
+        });
         builder.Services.AddSingleton(_ => builder.Configuration.GetSection(LlmOptions.SectionName).Get<LlmOptions>() ?? new LlmOptions());
         builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>();
         builder.Services.AddAnalytics();
