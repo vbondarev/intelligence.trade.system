@@ -40,7 +40,8 @@ public sealed class AnalysisController : ControllerBase
     /// <returns>
     /// HTTP 200 с <see cref="MarketAnalysisResponse"/>, если снимок успешно построен;
     /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
-    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода.
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода. Аналогично,
+    /// стандартный <c>400 ValidationProblemDetails</c> возвращается для невалидного enum-значения <c>category</c>.
     /// </returns>
     [HttpPost("snapshot")]
     [ProducesResponseType(typeof(MarketAnalysisResponse), StatusCodes.Status200OK)]
@@ -91,7 +92,8 @@ public sealed class AnalysisController : ControllerBase
     /// <returns>
     /// HTTP 200 с <see cref="AiAnalysisResponse"/>, если AI-анализ успешно построен;
     /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
-    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода.
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода. Аналогично,
+    /// стандартный <c>400 ValidationProblemDetails</c> возвращается для невалидного enum-значения <c>category</c>.
     /// </returns>
     [HttpPost("ai")]
     [ProducesResponseType(typeof(AiAnalysisResponse), StatusCodes.Status200OK)]
@@ -195,11 +197,14 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryParseCategory(request.Category, out category, out var categoryError))
+        if (request.Category is null)
         {
-            validationProblem = BadRequestProblem(categoryError!);
+            category = default;
+            validationProblem = BadRequestProblem("Field 'category' is required.");
             return false;
         }
+
+        category = request.Category.Value;
 
         validationProblem = null;
         return true;
@@ -258,24 +263,6 @@ public sealed class AnalysisController : ControllerBase
         }
 
         normalized = value.Trim();
-        error = null;
-        return true;
-    }
-
-    private static bool TryParseCategory(string? value, out MarketCategory category, out string? error)
-    {
-        if (!TryNormalizeRequiredString(value, "category", out var normalized, out error))
-        {
-            category = default;
-            return false;
-        }
-
-        if (!Enum.TryParse(normalized, ignoreCase: true, out category) || !Enum.IsDefined(category))
-        {
-            error = $"Field 'category' value '{normalized}' is not supported.";
-            return false;
-        }
-
         error = null;
         return true;
     }

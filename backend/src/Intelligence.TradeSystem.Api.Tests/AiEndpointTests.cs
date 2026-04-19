@@ -109,7 +109,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task Ai_Trims_Symbol_Category_And_UserQuery_Before_Calling_Dependencies()
+    public async Task Ai_Trims_Symbol_And_UserQuery_Before_Calling_Dependencies()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
@@ -128,7 +128,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
         {
             exchange = "Bybit",
             symbol = "  BTCUSDT  ",
-            category = "  Linear  ",
+            category = "Linear",
             userQuery = "  intraday outlook  ",
         });
 
@@ -166,6 +166,35 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
         root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
         root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
         root.GetProperty("errors").ToString().Should().Contain("exchange");
+
+        marketAnalysisService.VerifyNoOtherCalls();
+        llmAnalyticsService.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Ai_Returns_BadRequest_When_Category_Is_Invalid_And_Does_Not_Call_Dependencies()
+    {
+        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var llmAnalyticsService = new Mock<ILlmAnalyticsService>(MockBehavior.Strict);
+
+        using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
+
+        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "futures",
+            userQuery = "intraday outlook",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("category");
 
         marketAnalysisService.VerifyNoOtherCalls();
         llmAnalyticsService.VerifyNoOtherCalls();

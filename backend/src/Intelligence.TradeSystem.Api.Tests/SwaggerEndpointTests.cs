@@ -152,6 +152,28 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .GetProperty("exchange")
             .ToString()
             .Should().Contain("ExchangeId");
+
+        var marketCategorySchema = root
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("MarketCategory");
+
+        marketCategorySchema
+            .GetProperty("type")
+            .GetString()
+            .Should().Be("string");
+
+        marketCategorySchema
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(x => x.GetString())
+            .Should().Contain(["Spot", "Linear", "Inverse"]);
+
+        aiAnalysisRequestSchema
+            .GetProperty("properties")
+            .GetProperty("category")
+            .ToString()
+            .Should().Contain("MarketCategory");
     }
 
     [Fact]

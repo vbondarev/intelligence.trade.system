@@ -1,4 +1,5 @@
 ﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Api.Contracts;
 
@@ -18,8 +19,8 @@ public sealed record SnapshotAnalysisRequest
     public string? Symbol { get; init; }
 
     /// <summary>
-    /// Категория рынка инструмента как строковое имя значения enum, например <c>Linear</c>, <c>Spot</c> или <c>Inverse</c>.
+    /// Категория рынка инструмента. В JSON передаётся строковым именем значения enum, например <c>Linear</c>, <c>Spot</c> или <c>Inverse</c>.
     /// </summary>
-    public string? Category { get; init; }
+    public MarketCategory? Category { get; init; }
 }
 
