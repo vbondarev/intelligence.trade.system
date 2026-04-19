@@ -1,11 +1,11 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO технического анализа одного таймфрейма.</summary>
-public sealed record MarketAnalysisTimeframeModel
+public sealed record TimeframeModel
 {
     public required string Timeframe { get; init; }
     public DateTimeOffset LastCandleOpenTimeUtc { get; init; }
-    public required MarketAnalysisCandleModel LastCandle { get; init; }
+    public required CandleModel LastCandle { get; init; }
     public decimal Ema20 { get; init; }
     public decimal Ema50 { get; init; }
     public decimal Ema200 { get; init; }

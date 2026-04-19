@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO текущего состояния цены инструмента.</summary>
-public sealed record MarketAnalysisPriceModel
+public sealed record PriceModel
 {
     public decimal LastPrice { get; init; }
     public decimal MarkPrice { get; init; }

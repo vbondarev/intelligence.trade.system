@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO одной открытой позиции.</summary>
-public sealed record MarketAnalysisOpenPositionModel
+public sealed record OpenPositionModel
 {
     public required string Symbol { get; init; }
     public required string Side { get; init; }

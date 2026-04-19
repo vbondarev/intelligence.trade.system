@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO агрегированного рыночного сентимента.</summary>
-public sealed record MarketAnalysisSentimentModel
+public sealed record SentimentModel
 {
     public decimal LongShortBiasScore { get; init; }
     public decimal FundingBiasScore { get; init; }

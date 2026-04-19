@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO агрегированного потока сделок.</summary>
-public sealed record MarketAnalysisTradeFlowModel
+public sealed record TradeFlowModel
 {
     public DateTimeOffset WindowStartUtc { get; init; }
     public DateTimeOffset WindowEndUtc { get; init; }

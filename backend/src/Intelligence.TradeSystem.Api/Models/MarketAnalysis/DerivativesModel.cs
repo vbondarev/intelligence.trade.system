@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO деривативных метрик инструмента.</summary>
-public sealed record MarketAnalysisDerivativesModel
+public sealed record DerivativesModel
 {
     public decimal FundingRate { get; init; }
     public DateTimeOffset? NextFundingTimeUtc { get; init; }

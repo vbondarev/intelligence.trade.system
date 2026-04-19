@@ -1,5 +1,5 @@
 ﻿using Intelligence.TradeSystem.Api.Contracts;
-using Intelligence.TradeSystem.Api.Models;
+using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
@@ -30,11 +30,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisPriceModel ToPriceModel(PriceSnapshot snapshot)
+    private static PriceModel ToPriceModel(PriceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisPriceModel
+        return new PriceModel
         {
             LastPrice = snapshot.LastPrice,
             MarkPrice = snapshot.MarkPrice,
@@ -53,11 +53,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisDerivativesModel ToDerivativesModel(DerivativesSnapshot snapshot)
+    private static DerivativesModel ToDerivativesModel(DerivativesSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisDerivativesModel
+        return new DerivativesModel
         {
             FundingRate = snapshot.FundingRate,
             NextFundingTimeUtc = snapshot.NextFundingTimeUtc,
@@ -72,11 +72,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisOrderBookModel ToOrderBookModel(OrderBookSnapshot snapshot)
+    private static OrderBookModel ToOrderBookModel(OrderBookSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisOrderBookModel
+        return new OrderBookModel
         {
             CapturedAtUtc = snapshot.CapturedAtUtc,
             BestBidPrice = snapshot.BestBidPrice,
@@ -97,11 +97,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisTradeFlowModel ToTradeFlowModel(TradeFlowSnapshot snapshot)
+    private static TradeFlowModel ToTradeFlowModel(TradeFlowSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisTradeFlowModel
+        return new TradeFlowModel
         {
             WindowStartUtc = snapshot.WindowStartUtc,
             WindowEndUtc = snapshot.WindowEndUtc,
@@ -119,11 +119,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisTimeframeModel ToTimeframeModel(TimeframeAnalysisSnapshot snapshot)
+    private static TimeframeModel ToTimeframeModel(TimeframeAnalysisSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisTimeframeModel
+        return new TimeframeModel
         {
             Timeframe = snapshot.Timeframe,
             LastCandleOpenTimeUtc = snapshot.LastCandleOpenTimeUtc,
@@ -154,11 +154,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisSentimentModel ToSentimentModel(SentimentSnapshot snapshot)
+    private static SentimentModel ToSentimentModel(SentimentSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisSentimentModel
+        return new SentimentModel
         {
             LongShortBiasScore = snapshot.LongShortBiasScore,
             FundingBiasScore = snapshot.FundingBiasScore,
@@ -168,11 +168,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisPortfolioModel ToPortfolioModel(PortfolioSnapshot snapshot)
+    private static PortfolioModel ToPortfolioModel(PortfolioSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisPortfolioModel
+        return new PortfolioModel
         {
             TotalEquityUsd = snapshot.TotalEquityUsd,
             AvailableBalanceUsd = snapshot.AvailableBalanceUsd,
@@ -182,22 +182,22 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisOrderBookLevelModel ToOrderBookLevelModel(OrderBookLevel level)
+    private static OrderBookLevelModel ToOrderBookLevelModel(OrderBookLevel level)
     {
         ArgumentNullException.ThrowIfNull(level);
 
-        return new MarketAnalysisOrderBookLevelModel
+        return new OrderBookLevelModel
         {
             Price = level.Price,
             Size = level.Size,
         };
     }
 
-    private static MarketAnalysisLiquidityWallModel ToLiquidityWallModel(LiquidityWall wall)
+    private static LiquidityWallModel ToLiquidityWallModel(LiquidityWall wall)
     {
         ArgumentNullException.ThrowIfNull(wall);
 
-        return new MarketAnalysisLiquidityWallModel
+        return new LiquidityWallModel
         {
             Price = wall.Price,
             Size = wall.Size,
@@ -205,11 +205,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisCandleModel ToCandleModel(CandleSnapshot snapshot)
+    private static CandleModel ToCandleModel(CandleSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisCandleModel
+        return new CandleModel
         {
             OpenTimeUtc = snapshot.OpenTimeUtc,
             Open = snapshot.Open,
@@ -221,11 +221,11 @@ internal static class MarketAnalysisMapperExtensions
         };
     }
 
-    private static MarketAnalysisOpenPositionModel ToOpenPositionModel(OpenPositionSnapshot snapshot)
+    private static OpenPositionModel ToOpenPositionModel(OpenPositionSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new MarketAnalysisOpenPositionModel
+        return new OpenPositionModel
         {
             Symbol = snapshot.Symbol,
             Side = snapshot.Side.ToString(),

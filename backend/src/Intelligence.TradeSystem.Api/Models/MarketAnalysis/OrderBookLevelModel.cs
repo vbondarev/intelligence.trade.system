@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO одного ценового уровня стакана.</summary>
-public sealed record MarketAnalysisOrderBookLevelModel
+public sealed record OrderBookLevelModel
 {
     public decimal Price { get; init; }
     public decimal Size { get; init; }

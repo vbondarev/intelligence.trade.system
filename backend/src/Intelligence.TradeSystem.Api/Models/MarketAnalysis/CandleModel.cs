@@ -1,7 +1,7 @@
-﻿namespace Intelligence.TradeSystem.Api.Models;
+﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO последней свечи таймфрейма.</summary>
-public sealed record MarketAnalysisCandleModel
+public sealed record CandleModel
 {
     public DateTimeOffset OpenTimeUtc { get; init; }
     public decimal Open { get; init; }

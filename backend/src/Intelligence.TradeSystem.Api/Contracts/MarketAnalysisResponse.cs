@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models;
+﻿using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 namespace Intelligence.TradeSystem.Api.Contracts;
 
@@ -20,34 +20,34 @@ public sealed record MarketAnalysisResponse
     public required DateTimeOffset CapturedAtUtc { get; init; }
 
     /// <summary>Текущее состояние цены инструмента и статистика за последние 24 часа.</summary>
-    public required MarketAnalysisPriceModel Price { get; init; }
+    public required PriceModel Price { get; init; }
 
     /// <summary>Деривативные метрики инструмента: funding rate, open interest и соотношение long/short.</summary>
-    public required MarketAnalysisDerivativesModel Derivatives { get; init; }
+    public required DerivativesModel Derivatives { get; init; }
 
     /// <summary>Агрегированное состояние стакана заявок на момент снимка.</summary>
-    public required MarketAnalysisOrderBookModel OrderBook { get; init; }
+    public required OrderBookModel OrderBook { get; init; }
 
     /// <summary>Агрегированный поток сделок за последнее скользящее окно.</summary>
-    public required MarketAnalysisTradeFlowModel TradeFlow { get; init; }
+    public required TradeFlowModel TradeFlow { get; init; }
 
     /// <summary>Технический анализ таймфрейма 15 минут.</summary>
-    public required MarketAnalysisTimeframeModel M15 { get; init; }
+    public required TimeframeModel M15 { get; init; }
 
     /// <summary>Технический анализ таймфрейма 1 час.</summary>
-    public required MarketAnalysisTimeframeModel H1 { get; init; }
+    public required TimeframeModel H1 { get; init; }
 
     /// <summary>Технический анализ таймфрейма 4 часа.</summary>
-    public required MarketAnalysisTimeframeModel H4 { get; init; }
+    public required TimeframeModel H4 { get; init; }
 
     /// <summary>Технический анализ дневного таймфрейма.</summary>
-    public required MarketAnalysisTimeframeModel D1 { get; init; }
+    public required TimeframeModel D1 { get; init; }
 
     /// <summary>Агрегированные оценки рыночного сентимента и режима.</summary>
-    public required MarketAnalysisSentimentModel Sentiment { get; init; }
+    public required SentimentModel Sentiment { get; init; }
 
     /// <summary>Текущее состояние торгового счёта и открытых позиций.</summary>
-    public required MarketAnalysisPortfolioModel Portfolio { get; init; }
+    public required PortfolioModel Portfolio { get; init; }
 
     /// <summary>Классификационные теги снимка, полезные для быстрой интерпретации клиентами и downstream-пайплайнами.</summary>
     public required List<string> Tags { get; init; }
