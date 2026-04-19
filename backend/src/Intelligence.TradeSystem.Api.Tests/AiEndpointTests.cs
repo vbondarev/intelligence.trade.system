@@ -1,12 +1,12 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 
@@ -109,7 +109,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task Ai_Trims_Request_Values_Before_Calling_Dependencies()
+    public async Task Ai_Trims_Symbol_Category_And_UserQuery_Before_Calling_Dependencies()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
@@ -126,7 +126,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
         {
-            exchange = "  Bybit  ",
+            exchange = "Bybit",
             symbol = "  BTCUSDT  ",
             category = "  Linear  ",
             userQuery = "  intraday outlook  ",
@@ -140,6 +140,35 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
         llmAnalyticsService.Verify(
             x => x.AnalyzeAsync(snapshot, "intraday outlook", It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task Ai_Returns_BadRequest_When_Exchange_Is_Invalid_And_Does_Not_Call_Dependencies()
+    {
+        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var llmAnalyticsService = new Mock<ILlmAnalyticsService>(MockBehavior.Strict);
+
+        using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
+
+        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        {
+            exchange = "binance",
+            symbol = "BTCUSDT",
+            category = "Linear",
+            userQuery = "intraday outlook",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("exchange");
+
+        marketAnalysisService.VerifyNoOtherCalls();
+        llmAnalyticsService.VerifyNoOtherCalls();
     }
 
     [Fact]

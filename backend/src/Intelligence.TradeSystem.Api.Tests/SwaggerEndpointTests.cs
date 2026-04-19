@@ -130,6 +130,28 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .GetProperty("description")
             .GetString()
             .Should().Be("Пользовательский запрос, который передаётся AI-сервису вместе с рыночным снимком.");
+
+        var exchangeIdSchema = root
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("ExchangeId");
+
+        exchangeIdSchema
+            .GetProperty("type")
+            .GetString()
+            .Should().Be("string");
+
+        exchangeIdSchema
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(x => x.GetString())
+            .Should().Contain("Bybit");
+
+        aiAnalysisRequestSchema
+            .GetProperty("properties")
+            .GetProperty("exchange")
+            .ToString()
+            .Should().Contain("ExchangeId");
     }
 
     [Fact]

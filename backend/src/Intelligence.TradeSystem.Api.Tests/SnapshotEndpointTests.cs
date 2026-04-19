@@ -104,11 +104,14 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
             category = "linear",
         });
 
-        await ProblemDetailsAssertions.AssertProblemAsync(
-            response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            "exchange");
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("exchange");
 
         marketAnalysisService.VerifyNoOtherCalls();
     }
@@ -200,7 +203,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
-    public async Task Snapshot_Trims_Request_Values_Before_Calling_Service()
+    public async Task Snapshot_Trims_Symbol_And_Category_Before_Calling_Service()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
@@ -212,7 +215,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
         {
-            exchange = "  Bybit  ",
+            exchange = "Bybit",
             symbol = "  BTCUSDT  ",
             category = "  Linear  ",
         });

@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Exchanges;
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -13,7 +14,11 @@ public partial class Program
         var builder = WebApplication.CreateBuilder(args);
 
         builder.AddServiceDefaults();
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
+            });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
         {

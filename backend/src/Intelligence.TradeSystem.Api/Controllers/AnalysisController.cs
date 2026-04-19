@@ -39,7 +39,8 @@ public sealed class AnalysisController : ControllerBase
     /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
     /// <returns>
     /// HTTP 200 с <see cref="MarketAnalysisResponse"/>, если снимок успешно построен;
-    /// иначе один из стандартных problem-details ответов.
+    /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода.
     /// </returns>
     [HttpPost("snapshot")]
     [ProducesResponseType(typeof(MarketAnalysisResponse), StatusCodes.Status200OK)]
@@ -89,7 +90,8 @@ public sealed class AnalysisController : ControllerBase
     /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
     /// <returns>
     /// HTTP 200 с <see cref="AiAnalysisResponse"/>, если AI-анализ успешно построен;
-    /// иначе один из стандартных problem-details ответов.
+    /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода.
     /// </returns>
     [HttpPost("ai")]
     [ProducesResponseType(typeof(AiAnalysisResponse), StatusCodes.Status200OK)]
@@ -175,13 +177,16 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryParseExchange(request.Exchange, out exchangeId, out var exchangeError))
+        if (request.Exchange is null)
         {
+            exchangeId = default;
             symbol = string.Empty;
             category = default;
-            validationProblem = BadRequestProblem(exchangeError!);
+            validationProblem = BadRequestProblem("Field 'exchange' is required.");
             return false;
         }
+
+        exchangeId = request.Exchange.Value;
 
         if (!TryNormalizeRequiredString(request.Symbol, "symbol", out symbol, out var symbolError))
         {
@@ -218,9 +223,7 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryValidateSnapshotRequest(request is null
-                ? null
-                : new SnapshotAnalysisRequest
+        if (!TryValidateSnapshotRequest(new SnapshotAnalysisRequest
                 {
                     Exchange = request.Exchange,
                     Symbol = request.Symbol,
@@ -255,24 +258,6 @@ public sealed class AnalysisController : ControllerBase
         }
 
         normalized = value.Trim();
-        error = null;
-        return true;
-    }
-
-    private static bool TryParseExchange(string? value, out ExchangeId exchangeId, out string? error)
-    {
-        if (!TryNormalizeRequiredString(value, "exchange", out var normalized, out error))
-        {
-            exchangeId = default;
-            return false;
-        }
-
-        if (!Enum.TryParse(normalized, ignoreCase: true, out exchangeId) || !Enum.IsDefined(exchangeId))
-        {
-            error = $"Field 'exchange' value '{normalized}' is not supported.";
-            return false;
-        }
-
         error = null;
         return true;
     }
