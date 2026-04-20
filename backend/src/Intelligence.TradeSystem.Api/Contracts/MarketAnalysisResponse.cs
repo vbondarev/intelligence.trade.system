@@ -46,8 +46,9 @@ public sealed record MarketAnalysisResponse
     /// <summary>Агрегированные оценки рыночного сентимента и режима.</summary>
     public required SentimentModel Sentiment { get; init; }
 
-    /// <summary>Текущее состояние торгового счёта и открытых позиций.</summary>
-    public required PortfolioModel Portfolio { get; init; }
+    // TODO: Временно отключен, до необходимости релизации анализа данных из портфеля
+    // /// <summary>Текущее состояние торгового счёта и открытых позиций.</summary>
+    // public required PortfolioModel Portfolio { get; init; }
 
     /// <summary>Классификационные теги снимка, полезные для быстрой интерпретации клиентами и downstream-пайплайнами.</summary>
     public required List<string> Tags { get; init; }
