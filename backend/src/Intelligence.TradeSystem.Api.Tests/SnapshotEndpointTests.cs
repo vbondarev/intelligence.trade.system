@@ -52,7 +52,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         result.TradeFlow.HasAggressiveBuyPressure.Should().BeTrue();
         result.M15.Timeframe.Should().Be("15m");
         result.H1.Trend.Should().Be("Bullish");
-        // result.Portfolio.OpenPositions.Should().ContainSingle(position => position.Symbol == "BTCUSDT" && position.Side == "Long");
+        result.Portfolio.OpenPositions.Should().ContainSingle(position => position.Symbol == "BTCUSDT" && position.Side == "Long");
         result.Tags.Should().Equal("trend", "momentum");
 
         marketAnalysisService.Verify(
@@ -88,7 +88,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         root.GetProperty("price").GetProperty("lastPrice").GetDecimal().Should().Be(65000m);
         root.GetProperty("m15").GetProperty("timeframe").GetString().Should().Be("15m");
         root.GetProperty("h1").GetProperty("trend").GetString().Should().Be("Bullish");
-        // root.GetProperty("portfolio").GetProperty("openPositions").GetArrayLength().Should().Be(1);
+        root.GetProperty("portfolio").GetProperty("openPositions").GetArrayLength().Should().Be(1);
     }
 
     [Fact]

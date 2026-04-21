@@ -25,7 +25,7 @@ internal static class MarketAnalysisMapperExtensions
             H4 = ToTimeframeModel(snapshot.H4),
             D1 = ToTimeframeModel(snapshot.D1),
             Sentiment = ToSentimentModel(snapshot.Sentiment),
-            // Portfolio = ToPortfolioModel(snapshot.Portfolio),
+            Portfolio = ToPortfolioModel(snapshot.Portfolio),
             Tags = [.. snapshot.Tags],
         };
     }
