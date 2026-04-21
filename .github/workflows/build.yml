@@ -1,4 +1,4 @@
-name: Build
+name: Build and Test
 
 on:
   pull_request:
@@ -24,8 +24,24 @@ jobs:
       - name: Build
         run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
 
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
+
       - name: Test
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
         if: always()
