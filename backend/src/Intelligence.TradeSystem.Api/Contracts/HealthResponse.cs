@@ -1,14 +1,14 @@
 ﻿namespace Intelligence.TradeSystem.Api.Contracts;
 
 /// <summary>
-/// Базовый HTTP response contract для проверки liveness/readiness API-хоста.
+/// Ответ API для проверки доступности и готовности сервиса.
 /// </summary>
 public sealed record HealthResponse
 {
-    /// <summary>Имя сервиса, который отвечает на health-запрос.</summary>
+    /// <summary>Имя сервиса, сформировавшего ответ.</summary>
     public required string Service { get; init; }
 
-    /// <summary>Текущий статус health-проверки.</summary>
+    /// <summary>Текущий итоговый статус проверки состояния сервиса.</summary>
     public required string Status { get; init; }
 }
 

@@ -1,15 +1,17 @@
-﻿namespace Intelligence.TradeSystem.Api.Contracts;
+﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Domain;
+
+namespace Intelligence.TradeSystem.Api.Contracts;
 
 /// <summary>
-/// HTTP request contract для AI-analysis.
+/// Запрос API на построение AI-анализа по указанному инструменту.
 /// </summary>
 public sealed record AiAnalysisRequest
 {
     /// <summary>
-    /// Идентификатор биржи.
-    /// На текущем этапе ожидается строковое имя enum-значения, например <c>Bybit</c>.
+    /// Идентификатор биржи. В JSON передаётся строковым именем значения enum, например <c>Bybit</c>.
     /// </summary>
-    public string? Exchange { get; init; }
+    public ExchangeId? Exchange { get; init; }
 
     /// <summary>
     /// Тикер торгового инструмента, например <c>BTCUSDT</c>.
@@ -17,12 +19,12 @@ public sealed record AiAnalysisRequest
     public string? Symbol { get; init; }
 
     /// <summary>
-    /// Категория рынка инструмента, например <c>Linear</c>, <c>Spot</c> или <c>Inverse</c>.
+    /// Категория рынка инструмента. В JSON передаётся строковым именем значения enum, например <c>Linear</c>, <c>Spot</c> или <c>Inverse</c>.
     /// </summary>
-    public string? Category { get; init; }
+    public MarketCategory? Category { get; init; }
 
     /// <summary>
-    /// Пользовательский запрос к AI-analysis.
+    /// Пользовательский запрос, который передаётся AI-сервису вместе с рыночным снимком.
     /// </summary>
     public string? UserQuery { get; init; }
 }

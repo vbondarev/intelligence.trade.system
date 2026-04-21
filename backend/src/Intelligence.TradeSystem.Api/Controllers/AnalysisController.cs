@@ -1,17 +1,15 @@
 ﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
 /// <summary>
-/// HTTP surface для analysis API.
-/// Предоставляет endpoint'ы snapshot- и AI-analysis с базовой валидацией HTTP-входа
-/// и mapping прикладных ошибок в стабильные HTTP-ответы.
+/// Обрабатывает HTTP-запросы на построение рыночного снимка и AI-анализа.
 /// </summary>
 [ApiController]
 [Route("api/analysis")]
@@ -23,8 +21,8 @@ public sealed class AnalysisController : ControllerBase
     /// <summary>
     /// Инициализирует новый экземпляр <see cref="AnalysisController"/>.
     /// </summary>
-    /// <param name="marketAnalysisService">Сервис построения финального <see cref="MarketAnalysisSnapshot"/>.</param>
-    /// <param name="llmAnalyticsService">Сервис AI-анализа поверх готового <see cref="MarketAnalysisSnapshot"/>.</param>
+    /// <param name="marketAnalysisService">Сервис построения агрегированного рыночного снимка.</param>
+    /// <param name="llmAnalyticsService">Сервис построения текстового AI-анализа по готовому рыночному снимку.</param>
     /// <exception cref="ArgumentNullException">Если любая из зависимостей равна <c>null</c>.</exception>
     public AnalysisController(
         IMarketAnalysisService marketAnalysisService,
@@ -35,14 +33,22 @@ public sealed class AnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// Выполняет snapshot-analysis и возвращает готовый <see cref="MarketAnalysisSnapshot"/>.
+    /// Строит рыночный снимок по указанному инструменту.
     /// </summary>
+    /// <param name="request">Параметры инструмента и рынка, для которых нужно построить снимок.</param>
+    /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
+    /// <returns>
+    /// HTTP 200 с <see cref="MarketAnalysisResponse"/>, если снимок успешно построен;
+    /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода. Аналогично,
+    /// стандартный <c>400 ValidationProblemDetails</c> возвращается для невалидного enum-значения <c>category</c>.
+    /// </returns>
     [HttpPost("snapshot")]
-    [ProducesResponseType(typeof(MarketAnalysisSnapshot), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MarketAnalysisResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<MarketAnalysisSnapshot>> Snapshot(
+    public async Task<ActionResult<MarketAnalysisResponse>> Snapshot(
         [FromBody] SnapshotAnalysisRequest? request,
         CancellationToken cancellationToken)
     {
@@ -59,7 +65,7 @@ public sealed class AnalysisController : ControllerBase
                 category,
                 cancellationToken).ConfigureAwait(false);
 
-            return Ok(snapshot);
+            return Ok(snapshot.ToResponse());
         }
         catch (ArgumentException exception)
         {
@@ -79,8 +85,16 @@ public sealed class AnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// Выполняет AI-analysis поверх готового <see cref="MarketAnalysisSnapshot"/>.
+    /// Выполняет AI-анализ по указанному инструменту и пользовательскому запросу.
     /// </summary>
+    /// <param name="request">Параметры инструмента и текст запроса к AI-анализу.</param>
+    /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
+    /// <returns>
+    /// HTTP 200 с <see cref="AiAnalysisResponse"/>, если AI-анализ успешно построен;
+    /// иначе один из стандартных problem-details ответов. Если <c>exchange</c> содержит невалидное enum-значение,
+    /// ASP.NET Core возвращает стандартный <c>400 ValidationProblemDetails</c> до выполнения метода. Аналогично,
+    /// стандартный <c>400 ValidationProblemDetails</c> возвращается для невалидного enum-значения <c>category</c>.
+    /// </returns>
     [HttpPost("ai")]
     [ProducesResponseType(typeof(AiAnalysisResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -165,13 +179,16 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryParseExchange(request.Exchange, out exchangeId, out var exchangeError))
+        if (request.Exchange is null)
         {
+            exchangeId = default;
             symbol = string.Empty;
             category = default;
-            validationProblem = BadRequestProblem(exchangeError!);
+            validationProblem = BadRequestProblem("Field 'exchange' is required.");
             return false;
         }
+
+        exchangeId = request.Exchange.Value;
 
         if (!TryNormalizeRequiredString(request.Symbol, "symbol", out symbol, out var symbolError))
         {
@@ -180,11 +197,14 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryParseCategory(request.Category, out category, out var categoryError))
+        if (request.Category is null)
         {
-            validationProblem = BadRequestProblem(categoryError!);
+            category = default;
+            validationProblem = BadRequestProblem("Field 'category' is required.");
             return false;
         }
+
+        category = request.Category.Value;
 
         validationProblem = null;
         return true;
@@ -208,9 +228,7 @@ public sealed class AnalysisController : ControllerBase
             return false;
         }
 
-        if (!TryValidateSnapshotRequest(request is null
-                ? null
-                : new SnapshotAnalysisRequest
+        if (!TryValidateSnapshotRequest(new SnapshotAnalysisRequest
                 {
                     Exchange = request.Exchange,
                     Symbol = request.Symbol,
@@ -245,42 +263,6 @@ public sealed class AnalysisController : ControllerBase
         }
 
         normalized = value.Trim();
-        error = null;
-        return true;
-    }
-
-    private static bool TryParseExchange(string? value, out ExchangeId exchangeId, out string? error)
-    {
-        if (!TryNormalizeRequiredString(value, "exchange", out var normalized, out error))
-        {
-            exchangeId = default;
-            return false;
-        }
-
-        if (!Enum.TryParse(normalized, ignoreCase: true, out exchangeId) || !Enum.IsDefined(exchangeId))
-        {
-            error = $"Field 'exchange' value '{normalized}' is not supported.";
-            return false;
-        }
-
-        error = null;
-        return true;
-    }
-
-    private static bool TryParseCategory(string? value, out MarketCategory category, out string? error)
-    {
-        if (!TryNormalizeRequiredString(value, "category", out var normalized, out error))
-        {
-            category = default;
-            return false;
-        }
-
-        if (!Enum.TryParse(normalized, ignoreCase: true, out category) || !Enum.IsDefined(category))
-        {
-            error = $"Field 'category' value '{normalized}' is not supported.";
-            return false;
-        }
-
         error = null;
         return true;
     }

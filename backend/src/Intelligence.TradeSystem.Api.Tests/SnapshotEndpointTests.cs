@@ -1,11 +1,12 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 
@@ -21,7 +22,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
-    public async Task Snapshot_Returns_Ok_And_MarketAnalysisSnapshot_When_Request_Is_Valid()
+    public async Task Snapshot_Returns_Ok_And_MarketAnalysisResponse_When_Request_Is_Valid()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
@@ -40,15 +41,54 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<MarketAnalysisSnapshot>();
+        var result = await response.Content.ReadFromJsonAsync<MarketAnalysisResponse>();
         result.Should().NotBeNull();
         result.Exchange.Should().Be("Bybit");
         result.Symbol.Should().Be("BTCUSDT");
         result.Category.Should().Be("linear");
+        result.Price.LastPrice.Should().Be(65000m);
+        result.Derivatives.NextFundingTimeUtc.Should().Be(new DateTimeOffset(2026, 4, 12, 16, 0, 0, TimeSpan.Zero));
+        result.OrderBook.TopBids.Should().ContainSingle(level => level.Price == 64995m && level.Size == 10m);
+        result.TradeFlow.HasAggressiveBuyPressure.Should().BeTrue();
+        result.M15.Timeframe.Should().Be("15m");
+        result.H1.Trend.Should().Be("Bullish");
+        result.Portfolio.OpenPositions.Should().ContainSingle(position => position.Symbol == "BTCUSDT" && position.Side == "Long");
+        result.Tags.Should().Equal("trend", "momentum");
 
         marketAnalysisService.Verify(
             x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task Snapshot_Response_Uses_Public_Dto_Shape_Without_MarketData_Wrapper()
+    {
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        marketAnalysisService
+            .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+
+        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+
+        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "Linear",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.TryGetProperty("marketData", out _).Should().BeFalse();
+        root.GetProperty("exchange").GetString().Should().Be("Bybit");
+        root.GetProperty("price").GetProperty("lastPrice").GetDecimal().Should().Be(65000m);
+        root.GetProperty("m15").GetProperty("timeframe").GetString().Should().Be("15m");
+        root.GetProperty("h1").GetProperty("trend").GetString().Should().Be("Bullish");
+        root.GetProperty("portfolio").GetProperty("openPositions").GetArrayLength().Should().Be(1);
     }
 
     [Fact]
@@ -64,11 +104,14 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
             category = "linear",
         });
 
-        await ProblemDetailsAssertions.AssertProblemAsync(
-            response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            "exchange");
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("exchange");
 
         marketAnalysisService.VerifyNoOtherCalls();
     }
@@ -107,11 +150,14 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
             category = "futures",
         });
 
-        await ProblemDetailsAssertions.AssertProblemAsync(
-            response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            "category");
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("category");
 
         marketAnalysisService.VerifyNoOtherCalls();
     }
@@ -160,7 +206,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
-    public async Task Snapshot_Trims_Request_Values_Before_Calling_Service()
+    public async Task Snapshot_Trims_Symbol_Before_Calling_Service()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
@@ -172,9 +218,9 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
         {
-            exchange = "  Bybit  ",
+            exchange = "Bybit",
             symbol = "  BTCUSDT  ",
-            category = "  Linear  ",
+            category = "Linear",
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
