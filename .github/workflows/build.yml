@@ -23,3 +23,14 @@ jobs:
 
       - name: Build
         run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
