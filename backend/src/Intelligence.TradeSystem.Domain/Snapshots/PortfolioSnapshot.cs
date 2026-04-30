@@ -6,6 +6,14 @@
 /// </summary>
 public sealed record PortfolioSnapshot
 {
+    /// <summary>
+    /// Признак доступности данных портфеля.
+    /// <c>false</c> — данные временно недоступны (например, биржа вернула ошибку или истёк токен).
+    /// При <c>false</c> числовые поля содержат нулевые значения.
+    /// По умолчанию <c>true</c>.
+    /// </summary>
+    public bool IsAvailable { get; init; } = true;
+
     /// <summary>Суммарный капитал счёта в USD: <c>WalletBalance + UnrealizedPnL</c>.</summary>
     public decimal TotalEquityUsd { get; init; }
 

@@ -4,6 +4,9 @@ using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Exchanges;
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -18,6 +21,35 @@ public partial class Program
             .AddJsonOptions(options =>
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
+            })
+            .ConfigureApiBehaviorOptions(options =>
+            {
+                options.InvalidModelStateResponseFactory = context =>
+                {
+                    var query = context.HttpContext.Request.Query;
+
+                    var hasModeError = context.ModelState.Any(e =>
+                        e.Key.Equals("mode", StringComparison.OrdinalIgnoreCase) &&
+                        e.Value?.Errors.Count > 0);
+
+                    if (hasModeError && query.ContainsKey("mode"))
+                    {
+                        var detail = $"Field 'mode' has invalid value '{query["mode"]}'. " +
+                                     "Allowed values: Intraday, Swing, Portfolio.";
+                        return new BadRequestObjectResult(new ProblemDetails
+                        {
+                            Status = StatusCodes.Status400BadRequest,
+                            Title  = "Request validation failed.",
+                            Detail = detail,
+                        });
+                    }
+
+                    // Default behaviour for all other binding/validation errors.
+                    return new BadRequestObjectResult(new ValidationProblemDetails(context.ModelState)
+                    {
+                        Status = StatusCodes.Status400BadRequest,
+                    });
+                };
             });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
@@ -37,6 +69,17 @@ public partial class Program
         builder.Services.AddScoped<ILlmAnalyticsService, LlmAnalyticsService>();
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
+        var freshnessOptions = builder.Configuration
+            .GetSection(SnapshotFreshnessOptions.SectionName)
+            .Get<SnapshotFreshnessOptions>() ?? SnapshotFreshnessOptions.Default;
+        builder.Services.AddOptions<SnapshotFreshnessOptions>().Configure(o =>
+        {
+            // no-op: options bound via singleton below
+        });
+        builder.Services.AddSingleton(freshnessOptions);
+        builder.Services.AddSingleton<Microsoft.Extensions.Options.IOptions<SnapshotFreshnessOptions>>(
+            sp => Microsoft.Extensions.Options.Options.Create(sp.GetRequiredService<SnapshotFreshnessOptions>()));
+        builder.Services.AddSingleton<ISnapshotHealthEvaluator, SnapshotHealthEvaluator>();
 
         var app = builder.Build();
 

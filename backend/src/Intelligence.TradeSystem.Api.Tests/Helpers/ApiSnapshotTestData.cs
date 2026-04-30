@@ -4,7 +4,26 @@ namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
 internal static class ApiSnapshotTestData
 {
-    public static MarketAnalysisSnapshot CreateSnapshot() =>
+    public static MarketAnalysisSnapshot CreateSnapshot() => CreateSnapshot(MarketTrend.Bullish);
+
+    /// <summary>
+    /// Создаёт снапшот, в котором все таймфреймы имеют указанный тренд.
+    /// </summary>
+    public static MarketAnalysisSnapshot CreateSnapshot(MarketTrend trend) =>
+        CreateSnapshot(trend, overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null);
+
+    /// <summary>
+    /// Создаёт снапшот с явными override'ами EMA-флагов для всех таймфреймов.
+    /// Используется для тестирования граничных случаев <c>isTrendConfirmed</c>.
+    /// </summary>
+    public static MarketAnalysisSnapshot CreateSnapshot(
+        MarketTrend trend,
+        bool? overrideIsAboveEma200,
+        bool? overrideEmaBullish,
+        bool? overrideEmaBearish,
+        decimal? overrideRsi14 = null,
+        bool? overrideRsiOverbought = null,
+        bool? overrideRsiOversold = null) =>
         new()
         {
             Exchange = "Bybit",
@@ -90,10 +109,10 @@ internal static class ApiSnapshotTestData
                 HasAggressiveBuyPressure = true,
                 HasAggressiveSellPressure = false,
             },
-            M15 = CreateTimeframe("15m"),
-            H1 = CreateTimeframe("1h"),
-            H4 = CreateTimeframe("4h"),
-            D1 = CreateTimeframe("1d"),
+            M15 = CreateTimeframe("15m", trend, overrideIsAboveEma200, overrideEmaBullish, overrideEmaBearish, overrideRsi14, overrideRsiOverbought, overrideRsiOversold),
+            H1 = CreateTimeframe("1h", trend, overrideIsAboveEma200, overrideEmaBullish, overrideEmaBearish, overrideRsi14, overrideRsiOverbought, overrideRsiOversold),
+            H4 = CreateTimeframe("4h", trend, overrideIsAboveEma200, overrideEmaBullish, overrideEmaBearish, overrideRsi14, overrideRsiOverbought, overrideRsiOversold),
+            D1 = CreateTimeframe("1d", trend, overrideIsAboveEma200, overrideEmaBullish, overrideEmaBearish, overrideRsi14, overrideRsiOverbought, overrideRsiOversold),
             Sentiment = new SentimentSnapshot
             {
                 LongShortBiasScore = 0.1m,
@@ -129,8 +148,26 @@ internal static class ApiSnapshotTestData
             Tags = ["trend", "momentum"],
         };
 
-    private static TimeframeAnalysisSnapshot CreateTimeframe(string timeframe) =>
-        new()
+    private static TimeframeAnalysisSnapshot CreateTimeframe(
+        string timeframe,
+        MarketTrend trend = MarketTrend.Bullish,
+        bool? overrideIsAboveEma200 = null,
+        bool? overrideEmaBullish = null,
+        bool? overrideEmaBearish = null,
+        decimal? overrideRsi14 = null,
+        bool? overrideRsiOverbought = null,
+        bool? overrideRsiOversold = null)
+    {
+        // Семантически корректные дефолты:
+        // Bearish-тренд → цена ниже EMA200; Bullish/Sideways/Unknown → выше.
+        var isAboveEma200  = overrideIsAboveEma200 ?? (trend != MarketTrend.Bearish);
+        var emaBullish     = overrideEmaBullish     ?? (trend == MarketTrend.Bullish);
+        var emaBearish     = overrideEmaBearish     ?? (trend == MarketTrend.Bearish);
+        var rsi14          = overrideRsi14          ?? 55m;
+        var rsiOverbought  = overrideRsiOverbought  ?? false;
+        var rsiOversold    = overrideRsiOversold    ?? false;
+
+        return new TimeframeAnalysisSnapshot
         {
             Timeframe = timeframe,
             LastCandleOpenTimeUtc = new DateTimeOffset(2026, 4, 12, 13, 0, 0, TimeSpan.Zero),
@@ -147,27 +184,28 @@ internal static class ApiSnapshotTestData
             Ema20 = 64900m,
             Ema50 = 64850m,
             Ema200 = 64000m,
-            Rsi14 = 55m,
+            Rsi14 = rsi14,
             Atr14 = 180m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.1m,
             TrendStrengthScore = 0.4m,
-            Trend = MarketTrend.Bullish,
+            Trend = trend,
             Support1 = 64600m,
             Support2 = 64250m,
             Resistance1 = 65200m,
             Resistance2 = 65650m,
             IsAboveEma20 = true,
             IsAboveEma50 = true,
-            IsAboveEma200 = true,
-            EmaBullishAlignment = true,
-            EmaBearishAlignment = false,
-            RsiOverbought = false,
-            RsiOversold = false,
+            IsAboveEma200 = isAboveEma200,
+            EmaBullishAlignment = emaBullish,
+            EmaBearishAlignment = emaBearish,
+            RsiOverbought = rsiOverbought,
+            RsiOversold = rsiOversold,
             CandleRangePct = 0.5385m,
             DistanceToSupport1Pct = 0.6154m,
             DistanceToResistance1Pct = 0.3077m,
         };
+    }
 }
 
 

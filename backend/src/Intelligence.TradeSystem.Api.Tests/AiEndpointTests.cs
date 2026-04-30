@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -37,7 +37,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -70,7 +70,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -96,7 +96,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsync("/api/analysis/ai", content: null);
+        using var response = await client.PostAsync("/api/market-analysis/ai", content: null);
 
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
@@ -124,7 +124,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "  BTCUSDT  ",
@@ -150,7 +150,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "binance",
             symbol = "BTCUSDT",
@@ -179,7 +179,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -212,7 +212,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -241,7 +241,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -274,7 +274,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -305,7 +305,7 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         using var client = _factory.CreateClientWithAnalysisServices(marketAnalysisService.Object, llmAnalyticsService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/ai", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/ai", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",

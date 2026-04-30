@@ -12,25 +12,13 @@ namespace Intelligence.TradeSystem.Analysis.Assemblers;
 /// <list type="number">
 ///   <item>Валидация всех обязательных параметров</item>
 ///   <item>Нормализация <see cref="MarketCategory"/> в строковую форму категории</item>
-///   <item>Построение тегов классификации из уже собранных данных</item>
+///   <item>Построение тегов классификации из уже собранных данных (делегируется <see cref="MarketTagsBuilder"/>)</item>
 ///   <item>Сборка корневого снимка с фиксацией времени сборки (<c>DateTimeOffset.UtcNow</c>)</item>
 /// </list>
 /// </para>
 /// </summary>
 public static class MarketAnalysisSnapshotAssembler
 {
-    /// <summary>
-    /// Порог абсолютного значения ставки финансирования, при котором выставляется тег <c>funding-spike</c>.
-    /// Совпадает с <see cref="AnalysisThresholds.FundingExtremeThreshold"/>.
-    /// </summary>
-    private const decimal FundingSpikeThreshold = AnalysisThresholds.FundingExtremeThreshold;
-
-    /// <summary>
-    /// Минимальный абсолютный дисбаланс стакана на глубине Top-5,
-    /// при превышении которого выставляется тег <c>bid-pressure</c> или <c>ask-pressure</c>.
-    /// </summary>
-    private const decimal OrderBookPressureThreshold = 0.3m;
-
     // ── Public API ───────────────────────────────────────────────────────────
 
     /// <summary>
@@ -85,8 +73,8 @@ public static class MarketAnalysisSnapshotAssembler
         // 2. Category string — lowercase to match API conventions: "linear", "spot", "inverse"
         var categoryString = category.ToString().ToLowerInvariant();
 
-        // 3. Tags — derived from already-assembled data; no new calculations
-        var tags = BuildTags(derivatives, orderBook, tradeFlow, h1, sentiment);
+        // 3. Tags — делегируется MarketTagsBuilder (V1 whitelist, детерминированный порядок, лимит 4)
+        var tags = MarketTagsBuilder.Build(derivatives, orderBook, tradeFlow, sentiment);
 
         // 4. Assemble
         return new MarketAnalysisSnapshot
@@ -112,102 +100,4 @@ public static class MarketAnalysisSnapshotAssembler
             Tags = tags,
         };
     }
-
-    // ── Private helpers ──────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Формирует набор описательных тегов из уже собранных снапшотов.
-    /// Теги предназначены для быстрой классификации снимка downstream-компонентами
-    /// (GPT-форматтер, логирование, кэш-инвалидация).
-    /// Никаких новых расчётов не выполняется — только чтение готовых полей.
-    /// </summary>
-    private static List<string> BuildTags(
-        DerivativesSnapshot derivatives,
-        OrderBookSnapshot orderBook,
-        TradeFlowSnapshot tradeFlow,
-        TimeframeAnalysisSnapshot h1,
-        SentimentSnapshot sentiment)
-    {
-        var tags = new List<string>();
-
-        // Market regime tag (kebab-case)
-        var regimeTag = ToKebabCase(sentiment.MarketRegime);
-        if (!string.IsNullOrEmpty(regimeTag))
-        {
-            tags.Add(regimeTag);
-        }
-
-        // Funding rate signal
-        if (Math.Abs(derivatives.FundingRate) >= FundingSpikeThreshold)
-        {
-            tags.Add("funding-spike");
-        }
-        else if (derivatives.FundingRate > 0m)
-        {
-            tags.Add("positive-funding");
-        }
-        else if (derivatives.FundingRate < 0m)
-        {
-            tags.Add("negative-funding");
-        }
-
-        // Trade flow pressure
-        if (tradeFlow.HasAggressiveBuyPressure)
-        {
-            tags.Add("aggressive-buying");
-        }
-        else if (tradeFlow.HasAggressiveSellPressure)
-        {
-            tags.Add("aggressive-selling");
-        }
-
-        // RSI extremes on H1 (closest relevant timeframe)
-        if (h1.RsiOverbought)
-        {
-            tags.Add("rsi-overbought");
-        }
-        else if (h1.RsiOversold)
-        {
-            tags.Add("rsi-oversold");
-        }
-
-        // Order book imbalance (Top-5 — most actionable depth)
-        if (orderBook.ImbalanceTop5 > OrderBookPressureThreshold)
-        {
-            tags.Add("bid-pressure");
-        }
-        else if (orderBook.ImbalanceTop5 < -OrderBookPressureThreshold)
-        {
-            tags.Add("ask-pressure");
-        }
-
-        return tags;
-    }
-
-    /// <summary>
-    /// Конвертирует PascalCase строку в kebab-case.
-    /// Например: <c>MeanReversion</c> → <c>mean-reversion</c>.
-    /// </summary>
-    private static string ToKebabCase(string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        var result = new System.Text.StringBuilder(value.Length + 4);
-
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (char.IsUpper(value[i]) && i > 0)
-            {
-                result.Append('-');
-            }
-
-            result.Append(char.ToLowerInvariant(value[i]));
-        }
-
-        return result.ToString();
-    }
 }
-

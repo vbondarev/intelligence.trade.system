@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -32,7 +32,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "bybit",
             symbol = "BTCUSDT",
@@ -71,7 +71,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -97,7 +97,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "binance",
             symbol = "BTCUSDT",
@@ -122,7 +122,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             symbol = "BTCUSDT",
             category = "linear",
@@ -143,7 +143,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -168,7 +168,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -189,7 +189,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = " ",
@@ -216,7 +216,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "  BTCUSDT  ",
@@ -236,7 +236,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsync("/api/analysis/snapshot", content: null);
+        using var response = await client.PostAsync("/api/market-analysis/snapshot", content: null);
 
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
@@ -254,7 +254,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
         using var content = new StringContent("{ malformed json", Encoding.UTF8, "application/json");
 
-        using var response = await client.PostAsync("/api/analysis/snapshot", content);
+        using var response = await client.PostAsync("/api/market-analysis/snapshot", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
@@ -271,7 +271,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -295,7 +295,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
@@ -319,7 +319,7 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
 
         using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
 
-        using var response = await client.PostAsJsonAsync("/api/analysis/snapshot", new
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
             symbol = "BTCUSDT",
