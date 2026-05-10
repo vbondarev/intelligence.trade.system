@@ -45,8 +45,8 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
         // orderBook — имеет собственный CapturedAtUtc
         AddSection("orderBook", snapshot.OrderBook.CapturedAtUtc, reference, thresholds.OrderBookMaxAge, requiredSections, sectionAges, warnings, ref isFresh);
 
-        // tradeFlow
-        AddSection("tradeFlow", reference, reference, thresholds.TradeFlowMaxAge, requiredSections, sectionAges, warnings, ref isFresh);
+        // tradeFlow — используем WindowEndUtc как реальный timestamp данных секции
+        AddSection("tradeFlow", snapshot.TradeFlow.WindowEndUtc, reference, thresholds.TradeFlowMaxAge, requiredSections, sectionAges, warnings, ref isFresh);
 
         // timeframe секции
         AddSection("m15", reference, reference, thresholds.M15MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
