@@ -23,7 +23,7 @@ internal sealed record LlmTimeframeSummaryResult
 
     /// <summary>
     /// Качество моментума.
-    /// Инвариант: <see cref="Payloads.MomentumState.Healthy"/> → IsTrendConfirmed == true &amp;&amp; Bias ≠ Neutral.
+    /// Инвариант: <see cref="MomentumState.Healthy"/> → IsTrendConfirmed == true &amp;&amp; Bias ≠ Neutral.
     /// </summary>
     public required MomentumState MomentumState { get; init; }
 
