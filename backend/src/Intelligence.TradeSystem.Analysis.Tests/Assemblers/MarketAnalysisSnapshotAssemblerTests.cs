@@ -104,12 +104,12 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         result.Sentiment.Should().BeSameAs(sentiment);
         result.Portfolio.Should().BeSameAs(portfolio);
 
+        // V1 whitelist: MeanReversion → нет тега режима; rsi-overbought → не в V1.
+        // Порядок: regime → funding → pressure → aggression.
         result.Tags.Should().Equal(
-            "mean-reversion",
             "positive-funding",
-            "aggressive-buying",
-            "rsi-overbought",
-            "bid-pressure");
+            "bid-pressure",
+            "aggressive-buying");
     }
 
     [Theory]
@@ -124,13 +124,26 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
     }
 
     [Fact]
-    public void Adds_Kebab_Case_Regime_Tag_When_MarketRegime_Is_Present()
+    public void Does_Not_Add_Regime_Tag_For_Non_Whitelisted_Regime_MeanReversion()
     {
+        // MeanReversion — вне V1 whitelist → тег не добавляется
         var sentiment = CreateSentiment(marketRegime: "MeanReversion");
 
         var result = AssembleWithDefaults(sentiment: sentiment);
 
-        result.Tags.Should().Contain("mean-reversion");
+        result.Tags.Should().NotContain("mean-reversion");
+        result.Tags.Should().NotContain("trending");
+        result.Tags.Should().NotContain("neutral");
+    }
+
+    [Fact]
+    public void Adds_Trending_Regime_Tag_When_MarketRegime_Is_Trending()
+    {
+        var sentiment = CreateSentiment(marketRegime: "Trending");
+
+        var result = AssembleWithDefaults(sentiment: sentiment);
+
+        result.Tags.Should().Contain("trending");
     }
 
     [Fact]
@@ -147,28 +160,27 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
     }
 
     [Fact]
-    public void Adds_Funding_Spike_Tag_When_Absolute_FundingRate_Equals_Threshold_And_Suppresses_Directional_Tag()
+    public void Adds_Positive_Funding_Tag_When_FundingRate_Is_Above_Zero_Regardless_Of_Magnitude()
     {
+        // V1 не имеет "funding-spike" — любой положительный fundingRate даёт "positive-funding"
         var derivatives = CreateDerivatives(fundingRate: 0.001m);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
 
-        result.Tags.Should().Contain("funding-spike");
-        result.Tags.Should().NotContain("positive-funding");
+        result.Tags.Should().Contain("positive-funding");
         result.Tags.Should().NotContain("negative-funding");
     }
 
     [Theory]
     [InlineData(0.0005, "positive-funding")]
     [InlineData(-0.0005, "negative-funding")]
-    public void Adds_Directional_Funding_Tag_When_Funding_Is_Below_Spike_Threshold(decimal fundingRate, string expectedTag)
+    public void Adds_Directional_Funding_Tag_For_NonZero_Funding_Rate(decimal fundingRate, string expectedTag)
     {
         var derivatives = CreateDerivatives(fundingRate: fundingRate);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
 
         result.Tags.Should().Contain(expectedTag);
-        result.Tags.Should().NotContain("funding-spike");
     }
 
     [Fact]
@@ -183,16 +195,14 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
     }
 
     [Fact]
-    public void Uses_Only_H1_For_Rsi_Tags_And_Prefers_Overbought_When_Both_H1_Flags_Are_Set()
+    public void Does_Not_Add_RSI_Tags_Because_They_Are_Not_In_V1_Whitelist()
     {
-        var m15 = CreateTimeframe("15m", rsiOversold: true);
+        // RSI-теги (rsi-overbought, rsi-oversold) — вне V1 whitelist
         var h1 = CreateTimeframe("1h", rsiOverbought: true, rsiOversold: true);
-        var h4 = CreateTimeframe("4h", rsiOversold: true);
-        var d1 = CreateTimeframe("1d", rsiOversold: true);
 
-        var result = AssembleWithDefaults(m15: m15, h1: h1, h4: h4, d1: d1);
+        var result = AssembleWithDefaults(h1: h1);
 
-        result.Tags.Should().Contain("rsi-overbought");
+        result.Tags.Should().NotContain("rsi-overbought");
         result.Tags.Should().NotContain("rsi-oversold");
     }
 
@@ -259,12 +269,12 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             sentiment: sentiment);
 
         result.Category.Should().Be("inverse");
+        // V1: MeanReversion → нет тега; funding-spike → negative-funding; rsi-oversold → нет тега.
+        // Порядок: regime → funding → pressure → aggression.
         result.Tags.Should().Equal(
-            "mean-reversion",
-            "funding-spike",
-            "aggressive-selling",
-            "rsi-oversold",
-            "ask-pressure");
+            "negative-funding",
+            "ask-pressure",
+            "aggressive-selling");
     }
 
     private static MarketAnalysisSnapshot AssembleWithDefaults(

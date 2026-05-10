@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Intelligence.TradeSystem.Api.Tests;
@@ -13,8 +13,8 @@ public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFact
     }
 
     [Theory]
-    [InlineData("/api/analysis/snapshot")]
-    [InlineData("/api/analysis/ai")]
+    [InlineData("/api/market-analysis/snapshot")]
+    [InlineData("/api/market-analysis/ai")]
     public async Task Get_Route_Returns_MethodNotAllowed(string route)
     {
         using var response = await _client.GetAsync(route);
@@ -25,7 +25,7 @@ public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFact
     [Fact]
     public async Task Unknown_Analysis_Route_Returns_NotFound()
     {
-        using var response = await _client.GetAsync("/api/analysis/unknown");
+        using var response = await _client.GetAsync("/api/market-analysis/unknown");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

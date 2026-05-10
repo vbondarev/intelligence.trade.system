@@ -46,7 +46,7 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         var root = json.RootElement;
         var snapshotPost = root
             .GetProperty("paths")
-            .GetProperty("/api/analysis/snapshot")
+            .GetProperty("/api/market-analysis/snapshot")
             .GetProperty("post");
 
         var schemaReference = snapshotPost
@@ -89,7 +89,7 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var snapshotPost = root
             .GetProperty("paths")
-            .GetProperty("/api/analysis/snapshot")
+            .GetProperty("/api/market-analysis/snapshot")
             .GetProperty("post");
 
         snapshotPost
