@@ -70,13 +70,13 @@ public static class TimeframeSnapshotAssembler
             ? Math.Round((lastKline.High - lastKline.Low) / lastKline.Close * 100m, 4)
             : 0m;
 
-        var distToSupport1 = levels.Support1 > 0m && lastClose > 0m
-            ? Math.Round((lastClose - levels.Support1) / lastClose * 100m, 4)
-            : 0m;
+        var distToSupport1 = levels.Support1 is { } s1 && lastClose > 0m
+            ? Math.Round((lastClose - s1) / lastClose * 100m, 4)
+            : (decimal?)null;
 
-        var distToResistance1 = levels.Resistance1 > 0m && lastClose > 0m
-            ? Math.Round((levels.Resistance1 - lastClose) / lastClose * 100m, 4)
-            : 0m;
+        var distToResistance1 = levels.Resistance1 is { } r1 && lastClose > 0m
+            ? Math.Round((r1 - lastClose) / lastClose * 100m, 4)
+            : (decimal?)null;
 
         // 7. Assemble
         return new TimeframeAnalysisSnapshot

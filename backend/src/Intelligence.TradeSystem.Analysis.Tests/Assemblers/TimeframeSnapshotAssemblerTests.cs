@@ -122,10 +122,10 @@ public sealed class TimeframeSnapshotAssemblerTests
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
-        if (result.Support1 > 0m)
+        if (result.Support1 is not null)
             result.Support1.Should().BeLessThan(result.LastCandle.Close);
 
-        if (result.Support2 > 0m)
+        if (result.Support2 is not null)
             result.Support2.Should().BeLessThan(result.LastCandle.Close);
     }
 
@@ -135,10 +135,10 @@ public sealed class TimeframeSnapshotAssemblerTests
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
-        if (result.Resistance1 > 0m)
+        if (result.Resistance1 is not null)
             result.Resistance1.Should().BeGreaterThan(result.LastCandle.Close);
 
-        if (result.Resistance2 > 0m)
+        if (result.Resistance2 is not null)
             result.Resistance2.Should().BeGreaterThan(result.LastCandle.Close);
     }
 

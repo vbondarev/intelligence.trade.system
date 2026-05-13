@@ -29,7 +29,7 @@ public static class VolumeProfileDetector
 
         if (klines.Length == 0)
         {
-            return new LevelSet(0m, 0m, 0m, 0m);
+            return new LevelSet(null, null, null, null);
         }
 
         var minPrice = klines.Min(k => k.Low);
@@ -38,7 +38,7 @@ public static class VolumeProfileDetector
 
         if (range == 0m)
         {
-            return new LevelSet(minPrice, minPrice, minPrice, minPrice);
+            return new LevelSet(null, null, null, null);
         }
 
         var bucketSize = range / BucketCount;
@@ -74,7 +74,7 @@ public static class VolumeProfileDetector
         var maxVolume = volumes.Max();
         if (maxVolume <= 0m)
         {
-            return new LevelSet(0m, 0m, 0m, 0m);
+            return new LevelSet(null, null, null, null);
         }
 
         var threshold = maxVolume * HvnThresholdRatio;
@@ -95,10 +95,10 @@ public static class VolumeProfileDetector
             .ToList();
 
         return new LevelSet(
-            supports.ElementAtOrDefault(0),
-            supports.ElementAtOrDefault(1),
-            resistances.ElementAtOrDefault(0),
-            resistances.ElementAtOrDefault(1));
+            supports.Count > 0 ? supports[0] : null,
+            supports.Count > 1 ? supports[1] : null,
+            resistances.Count > 0 ? resistances[0] : null,
+            resistances.Count > 1 ? resistances[1] : null);
     }
 
     private static int GetBucketIndex(decimal price, decimal minPrice, decimal bucketSize)

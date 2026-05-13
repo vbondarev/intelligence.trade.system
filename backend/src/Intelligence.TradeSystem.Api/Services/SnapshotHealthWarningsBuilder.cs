@@ -164,8 +164,8 @@ internal static class SnapshotHealthWarningsBuilder
         {
             var isFar = tf.Trend switch
             {
-                MarketTrend.Bullish => tf.DistanceToSupport1Pct > FarFromLevelThreshold,
-                MarketTrend.Bearish => tf.DistanceToResistance1Pct > FarFromLevelThreshold,
+                MarketTrend.Bullish => tf.DistanceToSupport1Pct is { } ds && ds > FarFromLevelThreshold,
+                MarketTrend.Bearish => tf.DistanceToResistance1Pct is { } dr && dr > FarFromLevelThreshold,
                 _                   => false,
             };
 

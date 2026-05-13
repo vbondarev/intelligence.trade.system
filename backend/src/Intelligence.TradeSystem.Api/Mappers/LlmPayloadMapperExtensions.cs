@@ -225,28 +225,28 @@ internal static class LlmPayloadMapperExtensions
 
     /// <summary>
     /// Строит метаданные ценового уровня поддержки или сопротивления.
-    /// Возвращает <c>null</c>, если уровень равен нулю (не обнаружен).
+    /// Возвращает <c>null</c>, если уровень равен <c>null</c> (не обнаружен).
     /// </summary>
     private static LlmLevelMetaPayload? BuildLevelMeta(
-        decimal levelPrice,
-        decimal lastClose,
-        bool    isSupport,
-        decimal distancePct = -1m)
+        decimal? levelPrice,
+        decimal  lastClose,
+        bool     isSupport,
+        decimal? distancePct = null)
     {
-        if (levelPrice == 0m)
+        if (levelPrice is not { } price)
             return null;
 
         decimal? distance = null;
 
-        if (distancePct >= 0m)
+        if (distancePct is { } providedDistance)
         {
-            distance = distancePct;
+            distance = providedDistance;
         }
         else if (lastClose > 0m)
         {
             distance = isSupport
-                ? Math.Round((lastClose - levelPrice) / lastClose * 100m, 4)
-                : Math.Round((levelPrice - lastClose) / lastClose * 100m, 4);
+                ? Math.Round((lastClose - price) / lastClose * 100m, 4)
+                : Math.Round((price - lastClose) / lastClose * 100m, 4);
 
             if (distance < 0m)
                 distance = null;
@@ -254,7 +254,7 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmLevelMetaPayload
         {
-            Price       = levelPrice,
+            Price       = price,
             Strength    = LevelStrengthV1,
             Source      = LevelSourceV1,
             DistancePct = distance,

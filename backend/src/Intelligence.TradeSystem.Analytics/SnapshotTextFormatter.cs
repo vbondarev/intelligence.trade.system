@@ -75,7 +75,7 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
         builder.Append("  open_interest_value: ").AppendLine(FormatQuantityOrValue(derivatives.OpenInterestValue));
         builder.Append("  open_interest_change_1h_pct: ").AppendLine(FormatPercent(derivatives.OpenInterestChange1hPct));
         builder.Append("  open_interest_change_4h_pct: ").AppendLine(FormatPercent(derivatives.OpenInterestChange4hPct));
-        builder.Append("  premium_vs_index_pct: ").AppendLine(FormatNullablePercent(derivatives.PremiumVsIndexPct));
+        builder.Append("  premium_vs_index_pct: ").AppendLine(FormatPercent(derivatives.PremiumVsIndexPct));
         builder.Append("  long_ratio: ").AppendLine(FormatMetricOrRatio(derivatives.LongRatio));
         builder.Append("  short_ratio: ").AppendLine(FormatMetricOrRatio(derivatives.ShortRatio));
         builder.AppendLine();
@@ -247,20 +247,21 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
             ? value.Value.ToString("O", _invariantCulture)
             : NotAvailable;
 
-    private static string FormatNullablePercent(decimal? value) =>
-        value.HasValue
-            ? FormatPercent(value.Value)
-            : NotAvailable;
-
     private static string FormatBoolean(bool value) => value ? "true" : "false";
 
     private static string FormatPercent(decimal value) => value.ToString("0.####", _invariantCulture) + "%";
+
+    private static string FormatPercent(decimal? value) =>
+        value.HasValue ? FormatPercent(value.Value) : NotAvailable;
 
     private static string FormatMetricOrRatio(decimal value) => value.ToString("0.####", _invariantCulture);
 
     private static string FormatQuantityOrValue(decimal value) => value.ToString("0.####", _invariantCulture);
 
     private static string FormatPriceLike(decimal value) => value.ToString("0.################", _invariantCulture);
+
+    private static string FormatPriceLike(decimal? value) =>
+        value.HasValue ? FormatPriceLike(value.Value) : NotAvailable;
 }
 
 
