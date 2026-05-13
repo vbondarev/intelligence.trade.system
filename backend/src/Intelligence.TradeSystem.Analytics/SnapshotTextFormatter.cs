@@ -256,6 +256,9 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
 
     private static string FormatMetricOrRatio(decimal value) => value.ToString("0.####", _invariantCulture);
 
+    private static string FormatMetricOrRatio(decimal? value) =>
+        value.HasValue ? FormatMetricOrRatio(value.Value) : NotAvailable;
+
     private static string FormatQuantityOrValue(decimal value) => value.ToString("0.####", _invariantCulture);
 
     private static string FormatPriceLike(decimal value) => value.ToString("0.################", _invariantCulture);

@@ -97,7 +97,7 @@ internal static class LlmTimeframeSummaryBuilder
     /// Neutral bias: всегда Neutral.
     /// </summary>
     private static MomentumState ComputeMomentumState(
-        TimeframeBias bias, bool isTrendConfirmed, decimal rsi14, bool rsiOverbought, bool rsiOversold) =>
+        TimeframeBias bias, bool isTrendConfirmed, decimal? rsi14, bool rsiOverbought, bool rsiOversold) =>
         bias switch
         {
             TimeframeBias.Bullish when rsiOverbought || rsi14 > 70m                     => MomentumState.Overextended,

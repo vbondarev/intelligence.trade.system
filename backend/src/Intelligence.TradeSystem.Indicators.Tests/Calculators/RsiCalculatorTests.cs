@@ -31,13 +31,13 @@ public sealed class RsiCalculatorTests
     // ── Boundary & fallback ──────────────────────────────────────────────────
 
     [Fact]
-    public void Returns_50_When_Insufficient_Data()
+    public void Returns_Null_When_Insufficient_Data()
     {
         var closes = new[] { 100m, 101m, 102m }; // < period + 1
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().Be(50m);
+        result.Should().BeNull();
     }
 
     [Fact]
@@ -59,7 +59,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeApproximately(0m, precision: 0.0001m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeApproximately(0m, precision: 0.0001m);
     }
 
     [Fact]
@@ -70,7 +71,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeInRange(0m, 100m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeInRange(0m, 100m);
     }
 
     [Fact]
@@ -80,7 +82,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeGreaterThan(70m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeGreaterThan(70m);
     }
 
     [Fact]
@@ -90,7 +93,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeLessThan(30m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeLessThan(30m);
     }
 
     [Fact]
@@ -119,7 +123,8 @@ public sealed class RsiCalculatorTests
         // RS=3 → RSI = 100 - 100/4 = 75
         var result = RsiCalculator.Compute([100m, 106m, 104m], period: 2);
 
-        result.Should().BeApproximately(75m, precision: 0.0001m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeApproximately(75m, precision: 0.0001m);
     }
 
     [Fact]
@@ -138,7 +143,8 @@ public sealed class RsiCalculatorTests
         // Ловит ошибки: неправильный seed, сдвиг цикла, деление gains/losses, формулу RS.
         var result = RsiCalculator.Compute([10m, 13m, 11m, 15m, 12m], period: 2);
 
-        result.Should().BeApproximately(44m, precision: 0.0001m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeApproximately(44m, precision: 0.0001m);
     }
 
     [Fact]
@@ -161,7 +167,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes, period: 2);
 
-        result.Should().BeApproximately(67.1875m, precision: 0.0001m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeApproximately(67.1875m, precision: 0.0001m);
     }
 
     // ── Special cases: period = 1 ────────────────────────────────────────────
@@ -183,7 +190,8 @@ public sealed class RsiCalculatorTests
         // RS=0 → RSI = 100 - 100/(1+0) = 0.
         var result = RsiCalculator.Compute([100m, 90m], period: 1);
 
-        result.Should().BeApproximately(0m, precision: 0.0001m);
+        result.Should().HaveValue();
+        result!.Value.Should().BeApproximately(0m, precision: 0.0001m);
     }
 
     [Fact]

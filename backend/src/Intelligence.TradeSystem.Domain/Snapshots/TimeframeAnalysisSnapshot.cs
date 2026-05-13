@@ -35,8 +35,9 @@ public sealed record TimeframeAnalysisSnapshot
     /// <summary>
     /// Индекс относительной силы за 14 периодов (RSI 14).
     /// Диапазон [0, 100]: выше 70 — перекупленность, ниже 30 — перепроданность.
+    /// <c>null</c> — недостаточно данных для расчёта.
     /// </summary>
-    public decimal Rsi14 { get; init; }
+    public decimal? Rsi14 { get; init; }
 
     /// <summary>
     /// Средний истинный диапазон за 14 периодов (ATR 14).

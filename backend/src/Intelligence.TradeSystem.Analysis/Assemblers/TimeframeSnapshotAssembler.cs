@@ -117,8 +117,8 @@ public static class TimeframeSnapshotAssembler
             EmaBullishAlignment = ema20 > ema50 && ema50 > ema200,
             EmaBearishAlignment = ema20 < ema50 && ema50 < ema200,
 
-            RsiOverbought = rsi14 >= 70m,
-            RsiOversold   = rsi14 <= 30m,
+            RsiOverbought = rsi14 is { } rsiHigh && rsiHigh >= 70m,
+            RsiOversold   = rsi14 is { } rsiLow  && rsiLow  <= 30m,
 
             CandleRangePct           = candleRangePct,
             DistanceToSupport1Pct    = distToSupport1,

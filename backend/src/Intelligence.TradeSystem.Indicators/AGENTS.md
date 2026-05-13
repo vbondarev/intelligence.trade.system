@@ -27,7 +27,7 @@
 ## Current calculation contracts
 - `SmaCalculator` averages the last `period` values, returns `0m` for an empty array, and averages all available values when the series is shorter than `period`.
 - `EmaCalculator` seeds EMA with SMA of the first `period` values; if the series is shorter than `period`, it returns the average of all values, and `0m` for an empty array.
-- `RsiCalculator` uses Wilder smoothing, returns `50m` when there is not enough data, and keeps the neutral/edge-case behavior `all flat -> 50`, `only gains -> 100`, `only losses -> 0`.
+- `RsiCalculator` uses Wilder smoothing, returns `null` when `closes.Length < period + 1` (insufficient data), and keeps the neutral/edge-case behavior `all flat -> 50`, `only gains -> 100`, `only losses -> 0`.
 - `AtrCalculator` uses the shortest shared length of `highs/lows/closes`, returns `0m` when fewer than two candles are available, and falls back to average true range when there are fewer than `period` TR values.
 - `TrendClassifier` requires strict alignment for directed trends (`EMA20 > EMA50 > EMA200` with price above `EMA200`, or the bearish mirror). Directed trends start at `0.80` strength, can gain at most `0.20` from `volumeRatio`, and sideways scores must stay `<= 0.49`.
 - `VolumeProfileDetector` uses a fixed 100-bucket profile, merges adjacent strong HVN buckets into clusters, and returns the two closest supports/resistances relative to `klines[^1].Close`.

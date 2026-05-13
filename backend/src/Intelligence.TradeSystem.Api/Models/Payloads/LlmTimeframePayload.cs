@@ -19,7 +19,7 @@ public sealed record LlmTimeframePayload
     public required decimal Ema20 { get; init; }
     public required decimal Ema50 { get; init; }
     public required decimal Ema200 { get; init; }
-    public required decimal Rsi14 { get; init; }
+    public decimal? Rsi14 { get; init; }
     public required decimal Atr14 { get; init; }
     public required decimal VolumeRatio { get; init; }
     /// <summary>Ближайший уровень поддержки. <c>null</c> — не обнаружен.</summary>

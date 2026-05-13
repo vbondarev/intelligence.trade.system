@@ -9,8 +9,8 @@
 /// затем начальные средние значения инициализируются как SMA первых <c>period</c> изменений,
 /// после чего применяется сглаживание Уайлдера.
 /// <para>
-/// Если данных недостаточно для полного расчёта, метод возвращает <c>50</c>,
-/// что соответствует нейтральному значению RSI.
+/// Если данных недостаточно для полного расчёта (<c>closes.Length &lt; period + 1</c>),
+/// метод возвращает <see langword="null"/>.
 /// </para>
 /// </remarks>
 public static class RsiCalculator
@@ -24,8 +24,8 @@ public static class RsiCalculator
     /// По умолчанию используется значение <c>14</c>.
     /// </param>
     /// <returns>
-    /// Значение RSI в диапазоне <c>[0; 100]</c>.
-    /// Возвращает <c>50</c>, если данных недостаточно для расчёта.
+    /// Значение RSI в диапазоне <c>[0; 100]</c>, либо <see langword="null"/>,
+    /// если данных недостаточно для расчёта (<c>closes.Length &lt; period + 1</c>).
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Выбрасывается, если <paramref name="closes"/> равен <see langword="null"/>.
@@ -33,7 +33,7 @@ public static class RsiCalculator
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.
     /// </exception>
-    public static decimal Compute(decimal[] closes, int period = 14)
+    public static decimal? Compute(decimal[] closes, int period = 14)
     {
         ArgumentNullException.ThrowIfNull(closes);
 
@@ -44,7 +44,7 @@ public static class RsiCalculator
 
         if (closes.Length < period + 1)
         {
-            return 50m;
+            return null;
         }
 
         var gains = new decimal[closes.Length - 1];

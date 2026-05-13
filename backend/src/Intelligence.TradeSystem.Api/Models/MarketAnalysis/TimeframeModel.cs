@@ -9,7 +9,7 @@ public sealed record TimeframeModel
     public decimal Ema20 { get; init; }
     public decimal Ema50 { get; init; }
     public decimal Ema200 { get; init; }
-    public decimal Rsi14 { get; init; }
+    public decimal? Rsi14 { get; init; }
     public decimal Atr14 { get; init; }
     public decimal VolumeSma20 { get; init; }
     public decimal VolumeRatio { get; init; }
