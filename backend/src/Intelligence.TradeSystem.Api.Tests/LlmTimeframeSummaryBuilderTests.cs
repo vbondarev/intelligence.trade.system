@@ -210,8 +210,8 @@ public sealed class LlmTimeframeSummaryBuilderTests
         bool        rsiOversold       = false,
         decimal     trendStrengthScore = 0.6m,
         decimal     volumeRatio       = 1.1m,
-        decimal     distanceToSupport = 0.6m,
-        decimal     distanceToResist  = 0.3m) =>
+        decimal?    distanceToSupport = 0.6m,
+        decimal?    distanceToResist  = 0.3m) =>
         new()
         {
             Timeframe             = "1h",

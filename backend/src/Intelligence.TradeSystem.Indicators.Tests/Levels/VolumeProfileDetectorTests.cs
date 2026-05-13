@@ -8,27 +8,27 @@ namespace Intelligence.TradeSystem.Indicators.Tests.Levels;
 public sealed class VolumeProfileDetectorTests
 {
     [Fact]
-    public void Returns_All_Zeros_When_Empty_Array()
+    public void Returns_All_Nulls_When_Empty_Array()
     {
         var result = VolumeProfileDetector.Detect([]);
 
-        result.Support1.Should().Be(0m);
-        result.Support2.Should().Be(0m);
-        result.Resistance1.Should().Be(0m);
-        result.Resistance2.Should().Be(0m);
+        result.Support1.Should().BeNull();
+        result.Support2.Should().BeNull();
+        result.Resistance1.Should().BeNull();
+        result.Resistance2.Should().BeNull();
     }
 
     [Fact]
     public void Returns_Identical_Levels_When_Range_Is_Zero()
     {
-        // Все OHLC одинаковы → range == 0 → все уровни равны цене
+        // Все OHLC одинаковы → range == 0 → уровни не определяются (null)
         var kline  = KlineFactory.Create(open: 100m, high: 100m, low: 100m, close: 100m);
         var result = VolumeProfileDetector.Detect([kline]);
 
-        result.Support1.Should().Be(100m);
-        result.Support2.Should().Be(100m);
-        result.Resistance1.Should().Be(100m);
-        result.Resistance2.Should().Be(100m);
+        result.Support1.Should().BeNull();
+        result.Support2.Should().BeNull();
+        result.Resistance1.Should().BeNull();
+        result.Resistance2.Should().BeNull();
     }
 
     [Fact]
@@ -38,11 +38,11 @@ public sealed class VolumeProfileDetectorTests
         var result      = VolumeProfileDetector.Detect(klines);
         var currentPrice = klines[^1].Close;
 
-        if (result.Support1 > 0m)
-            result.Support1.Should().BeLessThan(currentPrice);
+        if (result.Support1 is { } s1a)
+            s1a.Should().BeLessThan(currentPrice);
 
-        if (result.Support2 > 0m)
-            result.Support2.Should().BeLessThan(currentPrice);
+        if (result.Support2 is { } s2a)
+            s2a.Should().BeLessThan(currentPrice);
     }
 
     [Fact]
@@ -52,11 +52,11 @@ public sealed class VolumeProfileDetectorTests
         var result       = VolumeProfileDetector.Detect(klines);
         var currentPrice = klines[^1].Close;
 
-        if (result.Resistance1 > 0m)
-            result.Resistance1.Should().BeGreaterThan(currentPrice);
+        if (result.Resistance1 is { } r1a)
+            r1a.Should().BeGreaterThan(currentPrice);
 
-        if (result.Resistance2 > 0m)
-            result.Resistance2.Should().BeGreaterThan(currentPrice);
+        if (result.Resistance2 is { } r2a)
+            r2a.Should().BeGreaterThan(currentPrice);
     }
 
     [Fact]
@@ -65,8 +65,8 @@ public sealed class VolumeProfileDetectorTests
         var klines = KlineFactory.CreateSeries(50).ToArray();
         var result = VolumeProfileDetector.Detect(klines);
 
-        if (result.Support1 > 0m && result.Support2 > 0m)
-            result.Support1.Should().BeGreaterThan(result.Support2);
+        if (result.Support1 is { } s1 && result.Support2 is { } s2)
+            s1.Should().BeGreaterThan(s2);
     }
 
     [Fact]
@@ -75,8 +75,8 @@ public sealed class VolumeProfileDetectorTests
         var klines = KlineFactory.CreateSeries(50).ToArray();
         var result = VolumeProfileDetector.Detect(klines);
 
-        if (result.Resistance1 > 0m && result.Resistance2 > 0m)
-            result.Resistance1.Should().BeLessThan(result.Resistance2);
+        if (result.Resistance1 is { } r1 && result.Resistance2 is { } r2)
+            r1.Should().BeLessThan(r2);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class VolumeProfileDetectorTests
     // ── Zero-volume profile ──────────────────────────────────────────────────
 
     [Fact]
-    public void Returns_All_Zeros_When_All_Volumes_Are_Zero()
+    public void Returns_All_Nulls_When_All_Volumes_Are_Zero()
     {
         // Ценовой диапазон существует, но весь объём равен 0 → профиль пуст → уровней нет.
         // Детектор не должен генерировать искусственные уровни из пустого профиля.
@@ -133,10 +133,10 @@ public sealed class VolumeProfileDetectorTests
 
         var result = VolumeProfileDetector.Detect(klines);
 
-        result.Support1.Should().Be(0m);
-        result.Support2.Should().Be(0m);
-        result.Resistance1.Should().Be(0m);
-        result.Resistance2.Should().Be(0m);
+        result.Support1.Should().BeNull();
+        result.Support2.Should().BeNull();
+        result.Resistance1.Should().BeNull();
+        result.Resistance2.Should().BeNull();
     }
 
     // ── Determinism ──────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ public sealed class VolumeProfileDetectorTests
 
         result.Support1.Should().BeInRange(20m, 31m,
             because: "центр HVN-кластера должен попасть в диапазон зоны 20–30");
-        result.Support2.Should().Be(0m,
+        result.Support2.Should().BeNull(
             because: "соседние бакеты одной HVN-зоны должны объединяться в один кластер, не в два");
     }
 
@@ -321,8 +321,8 @@ public sealed class VolumeProfileDetectorTests
 
         result.Support1.Should().BeInRange(40m, 51m,
             because: "единственная HVN-зона снизу должна быть определена как Support1");
-        result.Support2.Should().Be(0m,
-            because: "при наличии одного нижнего кластера Support2 должен оставаться 0");
+        result.Support2.Should().BeNull(
+            because: "при наличии одного нижнего кластера Support2 должен быть null");
     }
 
     [Fact]
@@ -349,8 +349,8 @@ public sealed class VolumeProfileDetectorTests
 
         result.Resistance1.Should().BeInRange(140m, 151m,
             because: "единственная HVN-зона сверху должна быть определена как Resistance1");
-        result.Resistance2.Should().Be(0m,
-            because: "при наличии одного верхнего кластера Resistance2 должен оставаться 0");
+        result.Resistance2.Should().BeNull(
+            because: "при наличии одного верхнего кластера Resistance2 должен быть null");
     }
 
     // ── Anti-merge regression ─────────────────────────────────────────────────
@@ -391,7 +391,7 @@ public sealed class VolumeProfileDetectorTests
             because: "Zone B (40–50) ближе к текущей цене → должна стать Support1");
         result.Support2.Should().BeInRange(20m, 31m,
             because: "Zone A (20–30) дальше от текущей цены → должна стать Support2");
-        result.Support2.Should().BeGreaterThan(0m,
+        result.Support2.Should().NotBeNull(
             because: "две раздельные HVN-зоны не должны быть склеены в один кластер");
     }
 
@@ -432,7 +432,7 @@ public sealed class VolumeProfileDetectorTests
         result.Support1.Should().BeInRange(20m, 31m,
             because: "доминирующая high-volume зона должна быть выбрана как Support1, а не шумовой бакет");
         // Ни один шумовой бакет (начинаются с ≥ 60) не образовал второй кластер
-        result.Support2.Should().Be(0m,
+        result.Support2.Should().BeNull(
             because: "шумовые бакеты не преодолевают HVN-порог → единственный support кластер");
     }
 }

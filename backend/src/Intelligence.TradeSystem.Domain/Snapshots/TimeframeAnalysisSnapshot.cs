@@ -63,17 +63,17 @@ public sealed record TimeframeAnalysisSnapshot
     /// <summary>Направление рыночного тренда, определённое для данного таймфрейма.</summary>
     public MarketTrend Trend { get; init; }
 
-    /// <summary>Ближайший значимый уровень поддержки (первый снизу от текущей цены).</summary>
-    public decimal Support1 { get; init; }
+    /// <summary>Ближайший значимый уровень поддержки (первый снизу от текущей цены). <c>null</c> — не обнаружен.</summary>
+    public decimal? Support1 { get; init; }
 
-    /// <summary>Второй значимый уровень поддержки (глубже первого).</summary>
-    public decimal Support2 { get; init; }
+    /// <summary>Второй значимый уровень поддержки (глубже первого). <c>null</c> — не обнаружен.</summary>
+    public decimal? Support2 { get; init; }
 
-    /// <summary>Ближайший значимый уровень сопротивления (первый сверху от текущей цены).</summary>
-    public decimal Resistance1 { get; init; }
+    /// <summary>Ближайший значимый уровень сопротивления (первый сверху от текущей цены). <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance1 { get; init; }
 
-    /// <summary>Второй значимый уровень сопротивления (выше первого).</summary>
-    public decimal Resistance2 { get; init; }
+    /// <summary>Второй значимый уровень сопротивления (выше первого). <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance2 { get; init; }
 
     /// <summary><c>true</c>, если цена закрытия последней свечи выше EMA 20.</summary>
     public bool IsAboveEma20 { get; init; }
@@ -110,13 +110,13 @@ public sealed record TimeframeAnalysisSnapshot
 
     /// <summary>
     /// Расстояние от текущей цены до <see cref="Support1"/> в процентах.
-    /// Помогает оценить риск при позиционировании у поддержки.
+    /// <c>null</c> — если <see cref="Support1"/> не обнаружен.
     /// </summary>
-    public decimal DistanceToSupport1Pct { get; init; }
+    public decimal? DistanceToSupport1Pct { get; init; }
 
     /// <summary>
     /// Расстояние от текущей цены до <see cref="Resistance1"/> в процентах.
-    /// Помогает оценить потенциал движения к сопротивлению.
+    /// <c>null</c> — если <see cref="Resistance1"/> не обнаружен.
     /// </summary>
-    public decimal DistanceToResistance1Pct { get; init; }
+    public decimal? DistanceToResistance1Pct { get; init; }
 }

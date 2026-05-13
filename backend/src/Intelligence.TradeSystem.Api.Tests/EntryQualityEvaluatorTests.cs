@@ -85,10 +85,10 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_NoSupport_Returns_Poor()
     {
-        var result = EvaluateBullish(confirmed: true, support1: 0m, distS: 0.5m);
+        var result = EvaluateBullish(confirmed: true, support1: null, distS: 0.5m);
 
         result.Should().Be(EntryQuality.Poor,
-            because: "support1 == 0 → Poor");
+            because: "support1 == null → Poor");
     }
 
     [Fact]
@@ -154,10 +154,10 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_NoResistance_Returns_Poor()
     {
-        var result = EvaluateBearish(confirmed: true, resistance1: 0m, distR: 0.3m);
+        var result = EvaluateBearish(confirmed: true, resistance1: null, distR: 0.3m);
 
         result.Should().Be(EntryQuality.Poor,
-            because: "resistance1 == 0 → Poor");
+            because: "resistance1 == null → Poor");
     }
 
     [Fact]
@@ -207,21 +207,21 @@ public sealed class EntryQualityEvaluatorTests
     // ─── Consistency: Good невозможен без уровня ─────────────────────────────
 
     [Fact]
-    public void Good_Is_Impossible_When_Bullish_Support1_Is_Zero()
+    public void Good_Is_Impossible_When_Bullish_Support1_Is_Null()
     {
-        var result = EvaluateBullish(confirmed: true, support1: 0m, distS: 0.5m);
+        var result = EvaluateBullish(confirmed: true, support1: null, distS: 0.5m);
 
         result.Should().NotBe(EntryQuality.Good,
-            because: "support1 == 0 → Poor; Good impossible without level");
+            because: "support1 == null → Poor; Good impossible without level");
     }
 
     [Fact]
-    public void Good_Is_Impossible_When_Bearish_Resistance1_Is_Zero()
+    public void Good_Is_Impossible_When_Bearish_Resistance1_Is_Null()
     {
-        var result = EvaluateBearish(confirmed: true, resistance1: 0m, distR: 0.5m);
+        var result = EvaluateBearish(confirmed: true, resistance1: null, distR: 0.5m);
 
         result.Should().NotBe(EntryQuality.Good,
-            because: "resistance1 == 0 → Poor; Good impossible without level");
+            because: "resistance1 == null → Poor; Good impossible without level");
     }
 
     // ─── Consistency: Good невозможен при overbought/oversold ────────────────
@@ -267,14 +267,14 @@ public sealed class EntryQualityEvaluatorTests
 
     /// <summary>Bullish-ориентированный вызов: resistance1/distR/oversold фиксированы.</summary>
     private static EntryQuality EvaluateBullish(
-        bool confirmed, decimal support1, decimal distS, bool overbought = false)
+        bool confirmed, decimal? support1, decimal? distS, bool overbought = false)
         => EntryQualityEvaluator.Evaluate(TimeframeBias.Bullish, confirmed,
             support1, distS, overbought,
             resistance1: 110m, distanceToResistance1Pct: 0.3m, rsiOversold: false);
 
     /// <summary>Bearish-ориентированный вызов: support1/distS/overbought фиксированы.</summary>
     private static EntryQuality EvaluateBearish(
-        bool confirmed, decimal resistance1, decimal distR, bool oversold = false)
+        bool confirmed, decimal? resistance1, decimal? distR, bool oversold = false)
         => EntryQualityEvaluator.Evaluate(TimeframeBias.Bearish, confirmed,
             support1: 99m, distanceToSupport1Pct: 0.5m, rsiOverbought: false,
             resistance1, distR, oversold);
@@ -282,8 +282,8 @@ public sealed class EntryQualityEvaluatorTests
     /// <summary>Полный вызов со всеми параметрами.</summary>
     private static EntryQuality Evaluate(
         TimeframeBias bias, bool confirmed,
-        decimal support1, decimal distS, bool overbought,
-        decimal resistance1, decimal distR, bool oversold)
+        decimal? support1, decimal? distS, bool overbought,
+        decimal? resistance1, decimal? distR, bool oversold)
         => EntryQualityEvaluator.Evaluate(bias, confirmed,
             support1, distS, overbought,
             resistance1, distR, oversold);

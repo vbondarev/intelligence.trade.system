@@ -162,9 +162,9 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     // ─── нулевые уровни → Meta отсутствует в JSON ────────────────────────────
 
     [Fact]
-    public async Task Support1Meta_Is_Absent_From_Json_When_Support1_Is_Zero()
+    public async Task Support1Meta_Is_Absent_From_Json_When_Support1_Is_Null()
     {
-        var snapshot = CreateSnapshotWithZeroLevels();
+        var snapshot = CreateSnapshotWithNullLevels();
         using var client   = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
@@ -172,13 +172,13 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         var m15 = json.RootElement.GetProperty("m15");
 
         m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
-            because: "support1==0 → support1Meta must not appear in JSON");
+            because: "support1==null → support1Meta must not appear in JSON");
         m15.TryGetProperty("support2Meta", out _).Should().BeFalse(
-            because: "support2==0 → support2Meta must not appear in JSON");
+            because: "support2==null → support2Meta must not appear in JSON");
         m15.TryGetProperty("resistance1Meta", out _).Should().BeFalse(
-            because: "resistance1==0 → resistance1Meta must not appear in JSON");
+            because: "resistance1==null → resistance1Meta must not appear in JSON");
         m15.TryGetProperty("resistance2Meta", out _).Should().BeFalse(
-            because: "resistance2==0 → resistance2Meta must not appear in JSON");
+            because: "resistance2==null → resistance2Meta must not appear in JSON");
     }
 
     // ─── Strength в диапазоне [0, 1] ─────────────────────────────────────────
@@ -268,27 +268,27 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
             assertion(tf);
     }
 
-    /// <summary>Снапшот с нулевыми уровнями — имитирует ситуацию, когда детектор не нашёл уровней.</summary>
-    private static MarketAnalysisSnapshot CreateSnapshotWithZeroLevels()
+    /// <summary>Снапшот с null-уровнями — имитирует ситуацию, когда детектор не нашёл уровней.</summary>
+    private static MarketAnalysisSnapshot CreateSnapshotWithNullLevels()
     {
         var baseSnapshot = ApiSnapshotTestData.CreateSnapshot();
 
-        var zeroTimeframe = baseSnapshot.M15 with
+        var nullTimeframe = baseSnapshot.M15 with
         {
-            Support1    = 0m,
-            Support2    = 0m,
-            Resistance1 = 0m,
-            Resistance2 = 0m,
-            DistanceToSupport1Pct    = 0m,
-            DistanceToResistance1Pct = 0m,
+            Support1    = null,
+            Support2    = null,
+            Resistance1 = null,
+            Resistance2 = null,
+            DistanceToSupport1Pct    = null,
+            DistanceToResistance1Pct = null,
         };
 
         return baseSnapshot with
         {
-            M15 = zeroTimeframe,
-            H1  = zeroTimeframe with { Timeframe = "1h" },
-            H4  = zeroTimeframe with { Timeframe = "4h" },
-            D1  = zeroTimeframe with { Timeframe = "1d" },
+            M15 = nullTimeframe,
+            H1  = nullTimeframe with { Timeframe = "1h" },
+            H4  = nullTimeframe with { Timeframe = "4h" },
+            D1  = nullTimeframe with { Timeframe = "1d" },
         };
     }
 }

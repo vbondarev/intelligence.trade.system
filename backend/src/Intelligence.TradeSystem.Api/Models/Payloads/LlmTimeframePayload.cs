@@ -22,12 +22,18 @@ public sealed record LlmTimeframePayload
     public required decimal Rsi14 { get; init; }
     public required decimal Atr14 { get; init; }
     public required decimal VolumeRatio { get; init; }
-    public required decimal Support1 { get; init; }
-    public required decimal Support2 { get; init; }
-    public required decimal Resistance1 { get; init; }
-    public required decimal Resistance2 { get; init; }
-    public required decimal DistanceToSupport1Pct { get; init; }
-    public required decimal DistanceToResistance1Pct { get; init; }
+    /// <summary>Ближайший уровень поддержки. <c>null</c> — не обнаружен.</summary>
+    public decimal? Support1 { get; init; }
+    /// <summary>Второй уровень поддержки. <c>null</c> — не обнаружен.</summary>
+    public decimal? Support2 { get; init; }
+    /// <summary>Ближайший уровень сопротивления. <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance1 { get; init; }
+    /// <summary>Второй уровень сопротивления. <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance2 { get; init; }
+    /// <summary>Расстояние до <c>support1</c> в процентах. <c>null</c> — если уровень не обнаружен.</summary>
+    public decimal? DistanceToSupport1Pct { get; init; }
+    /// <summary>Расстояние до <c>resistance1</c> в процентах. <c>null</c> — если уровень не обнаружен.</summary>
+    public decimal? DistanceToResistance1Pct { get; init; }
 
     /// <summary>
     /// Метаданные ближайшего уровня поддержки.

@@ -201,9 +201,9 @@ internal static class LlmPayloadMapperExtensions
             Resistance2               = s.Resistance2,
             DistanceToSupport1Pct     = s.DistanceToSupport1Pct,
             DistanceToResistance1Pct  = s.DistanceToResistance1Pct,
-            Support1Meta              = BuildLevelMeta(s.Support1, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
+            Support1Meta              = BuildLevelMeta(s.Support1, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct ?? -1m),
             Support2Meta              = BuildLevelMeta(s.Support2, lastClose, isSupport: true),
-            Resistance1Meta           = BuildLevelMeta(s.Resistance1, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
+            Resistance1Meta           = BuildLevelMeta(s.Resistance1, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct ?? -1m),
             Resistance2Meta           = BuildLevelMeta(s.Resistance2, lastClose, isSupport: false),
             IsAboveEma20              = s.IsAboveEma20,
             IsAboveEma50              = s.IsAboveEma50,
@@ -225,15 +225,15 @@ internal static class LlmPayloadMapperExtensions
 
     /// <summary>
     /// Строит метаданные ценового уровня поддержки или сопротивления.
-    /// Возвращает <c>null</c>, если уровень равен нулю (не обнаружен).
+    /// Возвращает <c>null</c>, если уровень равен <c>null</c> (не обнаружен).
     /// </summary>
     private static LlmLevelMetaPayload? BuildLevelMeta(
-        decimal levelPrice,
-        decimal lastClose,
-        bool    isSupport,
-        decimal distancePct = -1m)
+        decimal? levelPrice,
+        decimal  lastClose,
+        bool     isSupport,
+        decimal  distancePct = -1m)
     {
-        if (levelPrice == 0m)
+        if (levelPrice is not { } price)
             return null;
 
         decimal? distance = null;
@@ -245,8 +245,8 @@ internal static class LlmPayloadMapperExtensions
         else if (lastClose > 0m)
         {
             distance = isSupport
-                ? Math.Round((lastClose - levelPrice) / lastClose * 100m, 4)
-                : Math.Round((levelPrice - lastClose) / lastClose * 100m, 4);
+                ? Math.Round((lastClose - price) / lastClose * 100m, 4)
+                : Math.Round((price - lastClose) / lastClose * 100m, 4);
 
             if (distance < 0m)
                 distance = null;
@@ -254,7 +254,7 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmLevelMetaPayload
         {
-            Price       = levelPrice,
+            Price       = price,
             Strength    = LevelStrengthV1,
             Source      = LevelSourceV1,
             DistancePct = distance,

@@ -15,10 +15,14 @@ public sealed record TimeframeModel
     public decimal VolumeRatio { get; init; }
     public decimal TrendStrengthScore { get; init; }
     public required string Trend { get; init; }
-    public decimal Support1 { get; init; }
-    public decimal Support2 { get; init; }
-    public decimal Resistance1 { get; init; }
-    public decimal Resistance2 { get; init; }
+    /// <summary>Ближайший уровень поддержки. <c>null</c> — не обнаружен.</summary>
+    public decimal? Support1 { get; init; }
+    /// <summary>Второй уровень поддержки. <c>null</c> — не обнаружен.</summary>
+    public decimal? Support2 { get; init; }
+    /// <summary>Ближайший уровень сопротивления. <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance1 { get; init; }
+    /// <summary>Второй уровень сопротивления. <c>null</c> — не обнаружен.</summary>
+    public decimal? Resistance2 { get; init; }
     public bool IsAboveEma20 { get; init; }
     public bool IsAboveEma50 { get; init; }
     public bool IsAboveEma200 { get; init; }
@@ -27,6 +31,8 @@ public sealed record TimeframeModel
     public bool RsiOverbought { get; init; }
     public bool RsiOversold { get; init; }
     public decimal CandleRangePct { get; init; }
-    public decimal DistanceToSupport1Pct { get; init; }
-    public decimal DistanceToResistance1Pct { get; init; }
+    /// <summary>Расстояние до <c>support1</c> в процентах. <c>null</c> — если уровень не обнаружен.</summary>
+    public decimal? DistanceToSupport1Pct { get; init; }
+    /// <summary>Расстояние до <c>resistance1</c> в процентах. <c>null</c> — если уровень не обнаружен.</summary>
+    public decimal? DistanceToResistance1Pct { get; init; }
 }
