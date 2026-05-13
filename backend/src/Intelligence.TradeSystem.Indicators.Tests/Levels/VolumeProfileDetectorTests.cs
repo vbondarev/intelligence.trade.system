@@ -19,7 +19,7 @@ public sealed class VolumeProfileDetectorTests
     }
 
     [Fact]
-    public void Returns_Identical_Levels_When_Range_Is_Zero()
+    public void Returns_All_Nulls_When_Range_Is_Zero()
     {
         // Все OHLC одинаковы → range == 0 → уровни не определяются (null)
         var kline  = KlineFactory.Create(open: 100m, high: 100m, low: 100m, close: 100m);

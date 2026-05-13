@@ -201,9 +201,9 @@ internal static class LlmPayloadMapperExtensions
             Resistance2               = s.Resistance2,
             DistanceToSupport1Pct     = s.DistanceToSupport1Pct,
             DistanceToResistance1Pct  = s.DistanceToResistance1Pct,
-            Support1Meta              = BuildLevelMeta(s.Support1, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct ?? -1m),
+            Support1Meta              = BuildLevelMeta(s.Support1, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
             Support2Meta              = BuildLevelMeta(s.Support2, lastClose, isSupport: true),
-            Resistance1Meta           = BuildLevelMeta(s.Resistance1, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct ?? -1m),
+            Resistance1Meta           = BuildLevelMeta(s.Resistance1, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
             Resistance2Meta           = BuildLevelMeta(s.Resistance2, lastClose, isSupport: false),
             IsAboveEma20              = s.IsAboveEma20,
             IsAboveEma50              = s.IsAboveEma50,
@@ -231,16 +231,16 @@ internal static class LlmPayloadMapperExtensions
         decimal? levelPrice,
         decimal  lastClose,
         bool     isSupport,
-        decimal  distancePct = -1m)
+        decimal? distancePct = null)
     {
         if (levelPrice is not { } price)
             return null;
 
         decimal? distance = null;
 
-        if (distancePct >= 0m)
+        if (distancePct is { } providedDistance)
         {
-            distance = distancePct;
+            distance = providedDistance;
         }
         else if (lastClose > 0m)
         {
