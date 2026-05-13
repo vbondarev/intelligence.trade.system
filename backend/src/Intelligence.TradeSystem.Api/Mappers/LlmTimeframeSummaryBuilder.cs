@@ -35,7 +35,7 @@ internal static class LlmTimeframeSummaryBuilder
         var trendStrengthLabel = ComputeTrendStrengthLabel(s.Trend, s.TrendStrengthScore);
         var bias               = ComputeBias(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment);
         var isTrendConfirmed   = ComputeIsTrendConfirmed(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment, s.IsAboveEma200);
-        var momentumState      = ComputeMomentumState(bias, isTrendConfirmed, s.Rsi14, s.RsiOverbought, s.RsiOversold);
+        var momentumState      = ComputeMomentumState(bias, isTrendConfirmed, s.Rsi14, s.RsiOverbought, s.RsiOversold, s.Rsi14IsReliable);
         var entryQuality       = ComputeEntryQuality(bias, isTrendConfirmed, s);
         var riskFlags          = ComputeRiskFlags(s);
 
@@ -97,16 +97,17 @@ internal static class LlmTimeframeSummaryBuilder
     /// Neutral bias: всегда Neutral.
     /// </summary>
     private static MomentumState ComputeMomentumState(
-        TimeframeBias bias, bool isTrendConfirmed, decimal? rsi14, bool rsiOverbought, bool rsiOversold) =>
+        TimeframeBias bias, bool isTrendConfirmed, decimal? rsi14,
+        bool rsiOverbought, bool rsiOversold, bool rsi14IsReliable) =>
         bias switch
         {
-            TimeframeBias.Bullish when rsiOverbought || rsi14 > 70m                     => MomentumState.Overextended,
-            TimeframeBias.Bullish when isTrendConfirmed && rsi14 >= 55m && rsi14 <= 70m => MomentumState.Healthy,
-            TimeframeBias.Bullish                                                        => MomentumState.Weak,
+            TimeframeBias.Bullish when rsi14IsReliable && (rsiOverbought || rsi14 > 70m)                   => MomentumState.Overextended,
+            TimeframeBias.Bullish when rsi14IsReliable && isTrendConfirmed && rsi14 >= 55m && rsi14 <= 70m => MomentumState.Healthy,
+            TimeframeBias.Bullish                                                                            => MomentumState.Weak,
 
-            TimeframeBias.Bearish when rsiOversold || rsi14 < 30m                       => MomentumState.Overextended,
-            TimeframeBias.Bearish when isTrendConfirmed && rsi14 >= 30m && rsi14 <= 45m => MomentumState.Healthy,
-            TimeframeBias.Bearish                                                        => MomentumState.Weak,
+            TimeframeBias.Bearish when rsi14IsReliable && (rsiOversold || rsi14 < 30m)                     => MomentumState.Overextended,
+            TimeframeBias.Bearish when rsi14IsReliable && isTrendConfirmed && rsi14 >= 30m && rsi14 <= 45m => MomentumState.Healthy,
+            TimeframeBias.Bearish                                                                            => MomentumState.Weak,
 
             _ => MomentumState.Neutral,
         };
@@ -125,17 +126,10 @@ internal static class LlmTimeframeSummaryBuilder
     private static List<string> ComputeRiskFlags(TimeframeAnalysisSnapshot s)
     {
         var flags = new List<string>();
-        if (s.RsiOverbought)                                        flags.Add("RsiOverbought");
-        if (s.RsiOversold)                                          flags.Add("RsiOversold");
+        if (s.Rsi14IsReliable && s.RsiOverbought)                                        flags.Add("RsiOverbought");
+        if (s.Rsi14IsReliable && s.RsiOversold)                                          flags.Add("RsiOversold");
         if (s.TrendStrengthScore < TrendStrengthLabelMapper.ModerateThreshold) flags.Add("WeakTrend");
-        if (s.VolumeRatio < 1.0m)                                   flags.Add("LowVolume");
+        if (s.VolumeRatio < 1.0m)                                               flags.Add("LowVolume");
         return flags;
     }
 }
-
-
-
-
-
-
-

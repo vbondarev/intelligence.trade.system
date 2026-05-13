@@ -205,7 +205,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
         bool        emaBullish        = false,
         bool        emaBearish        = false,
         bool        isAboveEma200     = true,
-        decimal     rsi14             = 55m,
+        decimal?     rsi14             = 55m,
         bool        rsiOverbought     = false,
         bool        rsiOversold       = false,
         decimal     trendStrengthScore = 0.6m,
@@ -226,6 +226,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             Ema50               = 101m,
             Ema200              = 98m,
             Rsi14               = rsi14,
+            Rsi14IsReliable     = true,
             Atr14               = 2m,
             VolumeSma20         = 900m,
             VolumeRatio         = volumeRatio,
@@ -247,11 +248,3 @@ public sealed class LlmTimeframeSummaryBuilderTests
             DistanceToResistance1Pct = distanceToResist,
         };
 }
-
-
-
-
-
-
-
-

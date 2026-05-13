@@ -385,6 +385,7 @@ public sealed class SnapshotTextFormatterTests
             Ema50 = 64850m,
             Ema200 = 64000m,
             Rsi14 = 55m,
+            Rsi14IsReliable = true,
             Atr14 = 180m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.1m,
@@ -424,5 +425,3 @@ public sealed class SnapshotTextFormatterTests
         }
     }
 }
-
-

@@ -52,8 +52,8 @@ public static class MarketRegimePolicy
             return MarketRegimes.Volatile;
         }
 
-        var rsiExtreme = h1.RsiOverbought || h1.RsiOversold ||
-                         h4.RsiOverbought || h4.RsiOversold;
+        var rsiExtreme = (h1.Rsi14IsReliable && (h1.RsiOverbought || h1.RsiOversold)) ||
+                         (h4.Rsi14IsReliable && (h4.RsiOverbought || h4.RsiOversold));
 
         var bothSideways = h1.Trend == MarketTrend.Sideways &&
                            h4.Trend == MarketTrend.Sideways;

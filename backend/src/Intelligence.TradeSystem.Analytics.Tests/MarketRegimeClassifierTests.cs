@@ -197,6 +197,20 @@ public sealed class MarketRegimeClassifierTests
         second.Should().Be(first);
     }
 
+    [Fact]
+    public void Returns_Neutral_Not_MeanReversion_When_RsiOverbought_But_Rsi14IsReliable_False()
+    {
+        // RsiOverbought=true, но Rsi14IsReliable=false → RSI-сигнал не должен активировать MeanReversion
+        var snapshot = CreateSnapshot(
+            h1: CreateTimeframe("1h") with { RsiOverbought = true, Rsi14IsReliable = false },
+            h4: CreateTimeframe("4h"));
+
+        var result = _classifier.Classify(snapshot);
+
+        result.Should().Be(MarketRegimes.Neutral,
+            because: "RsiOverbought без Rsi14IsReliable не должен активировать MeanReversion");
+    }
+
     private static MarketAnalysisSnapshot CreateSnapshot(
         TimeframeAnalysisSnapshot? h1 = null,
         TimeframeAnalysisSnapshot? h4 = null) =>
@@ -304,6 +318,7 @@ public sealed class MarketRegimeClassifierTests
             Ema50 = 64850m,
             Ema200 = 64000m,
             Rsi14 = 55m,
+            Rsi14IsReliable = true,
             Atr14 = 180m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.10m,
@@ -321,4 +336,3 @@ public sealed class MarketRegimeClassifierTests
             DistanceToResistance1Pct = 0.3077m,
         };
 }
-

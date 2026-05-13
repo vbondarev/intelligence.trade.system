@@ -185,6 +185,7 @@ internal static class ApiSnapshotTestData
             Ema50 = 64850m,
             Ema200 = 64000m,
             Rsi14 = rsi14,
+            Rsi14IsReliable = true,
             Atr14 = 180m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.1m,
@@ -207,5 +208,3 @@ internal static class ApiSnapshotTestData
         };
     }
 }
-
-

@@ -10,6 +10,8 @@ public sealed record TimeframeModel
     public decimal Ema50 { get; init; }
     public decimal Ema200 { get; init; }
     public decimal? Rsi14 { get; init; }
+    /// <summary><c>true</c> — RSI рассчитан на основе достаточного количества свечей.</summary>
+    public bool Rsi14IsReliable { get; init; }
     public decimal Atr14 { get; init; }
     public decimal VolumeSma20 { get; init; }
     public decimal VolumeRatio { get; init; }

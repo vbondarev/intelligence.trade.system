@@ -193,6 +193,7 @@ internal static class LlmPayloadMapperExtensions
             Ema50                     = s.Ema50,
             Ema200                    = s.Ema200,
             Rsi14                     = s.Rsi14,
+            Rsi14IsReliable           = s.Rsi14IsReliable,
             Atr14                     = s.Atr14,
             VolumeRatio               = s.VolumeRatio,
             Support1                  = s.Support1,
@@ -315,9 +316,3 @@ internal static class LlmPayloadMapperExtensions
             LiquidationPrice  = s.LiquidationPrice,
         };
 }
-
-
-
-
-
-

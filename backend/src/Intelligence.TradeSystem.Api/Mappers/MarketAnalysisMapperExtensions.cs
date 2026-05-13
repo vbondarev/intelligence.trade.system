@@ -132,6 +132,7 @@ internal static class MarketAnalysisMapperExtensions
             Ema50 = snapshot.Ema50,
             Ema200 = snapshot.Ema200,
             Rsi14 = snapshot.Rsi14,
+            Rsi14IsReliable = snapshot.Rsi14IsReliable,
             Atr14 = snapshot.Atr14,
             VolumeSma20 = snapshot.VolumeSma20,
             VolumeRatio = snapshot.VolumeRatio,

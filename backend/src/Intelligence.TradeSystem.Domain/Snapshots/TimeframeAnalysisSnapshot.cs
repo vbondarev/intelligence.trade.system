@@ -40,6 +40,14 @@ public sealed record TimeframeAnalysisSnapshot
     public decimal? Rsi14 { get; init; }
 
     /// <summary>
+    /// <c>true</c>, если для данного таймфрейма было достаточно свечей для корректного расчёта RSI 14.
+    /// <c>false</c> означает, что <see cref="Rsi14"/> равен <c>null</c>,
+    /// а <see cref="RsiOverbought"/> и <see cref="RsiOversold"/> принудительно выставлены в <c>false</c>.
+    /// Потребители должны проверять это поле перед интерпретацией RSI-сигналов.
+    /// </summary>
+    public bool Rsi14IsReliable { get; init; }
+
+    /// <summary>
     /// Средний истинный диапазон за 14 периодов (ATR 14).
     /// Характеризует текущую волатильность инструмента в единицах цены.
     /// </summary>

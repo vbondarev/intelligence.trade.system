@@ -98,6 +98,7 @@ public static class TimeframeSnapshotAssembler
             Ema50    = ema50,
             Ema200   = ema200,
             Rsi14    = rsi14,
+            Rsi14IsReliable = rsi14.HasValue,
             Atr14    = atr14,
             VolumeSma20  = volSma20,
             VolumeRatio  = volumeRatio,
