@@ -254,36 +254,25 @@ public sealed class AtrCalculatorTests
 
     // ── Array length mismatch ────────────────────────────────────────────────
 
-    [Fact]
-    public void Uses_Minimum_Array_Length_When_Arrays_Have_Different_Lengths()
+    public static TheoryData<decimal[], decimal[], decimal[]> MismatchedLengthCases => new()
     {
-        // highs.Length=3, lows.Length=2, closes.Length=3 → count=2 → 1 TR значение
-        // TR[0]: max(|110-100|=10, |110-90|=20, |100-90|=10) = 20
-        // 1 TR < period=14 → simple average → 20
-        decimal[] highs  = [100m, 110m, 120m];
-        decimal[] lows   = [ 90m, 100m];          // короче остальных
-        decimal[] closes = [ 90m, 105m, 115m];
+        // highs длиннее lows и closes
+        { [100m, 110m, 120m], [90m, 100m], [90m, 105m] },
+        // lows длиннее highs и closes
+        { [100m, 110m], [90m, 100m, 110m], [90m, 105m] },
+        // closes длиннее highs и lows
+        { [100m, 110m], [90m, 100m], [90m, 105m, 115m] },
+    };
 
-        var result = AtrCalculator.Compute(highs, lows, closes);
-
-        result.Should().BeApproximately(20m, precision: 0.0001m);
-    }
-
-    [Fact]
-    public void Ignores_Extra_Elements_Beyond_Minimum_Common_Length()
+    [Theory]
+    [MemberData(nameof(MismatchedLengthCases))]
+    public void Throws_ArgumentException_When_Input_Array_Lengths_Differ(decimal[] highs, decimal[] lows, decimal[] closes)
     {
-        // lows.Length=3 → count=3 → элементы highs[3]=1000 и closes[3]=2000 не используются.
-        // Если бы реализация ошибочно их учла, TR >> 100 и ATR был бы несравнимо больше 17.5.
-        //
-        // TR[0] = max(|110-100|=10, |110-90|=20, |100-90|=10) = 20
-        // TR[1] = max(|120-110|=10, |120-105|=15, |110-105|=5) = 15
-        // 2 TR < period=14 → simple average = (20+15)/2 = 17.5
-        decimal[] highs  = [100m, 110m, 120m, 1000m];  // 1000 — «яд»: не должен участвовать в расчёте
-        decimal[] lows   = [ 90m, 100m, 110m];           // кратчайший массив: длина 3
-        decimal[] closes = [ 90m, 105m, 115m, 2000m];   // 2000 — «яд»: не должен участвовать в расчёте
+        var act = () => AtrCalculator.Compute(highs, lows, closes, period: 14);
 
-        var result = AtrCalculator.Compute(highs, lows, closes);
-
-        result.Should().BeApproximately(17.5m, precision: 0.0001m);
+        act
+            .Should()
+            .Throw<ArgumentException>()
+            .WithMessage("*same length*");
     }
 }

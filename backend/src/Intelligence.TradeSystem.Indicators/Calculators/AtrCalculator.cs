@@ -50,6 +50,15 @@ public static class AtrCalculator
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Выбрасывается, если длины массивов <paramref name="highs"/>, <paramref name="lows"/>
+    /// и <paramref name="closes"/> не совпадают.
+    /// <para>
+    /// Метод намеренно применяет fail-fast политику: рассинхронизация OHLC-массивов
+    /// означает баг в pipeline сборки данных и не должна скрываться молчаливой обрезкой.
+    /// Входные массивы обязаны иметь одинаковую длину — они представляют поля одних и тех же свечей.
+    /// </para>
+    /// </exception>
     public static decimal Compute(decimal[] highs, decimal[] lows, decimal[] closes, int period = 14)
     {
         ArgumentNullException.ThrowIfNull(highs);
@@ -61,7 +70,12 @@ public static class AtrCalculator
             throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be greater than zero.");
         }
 
-        var count = Math.Min(highs.Length, Math.Min(lows.Length, closes.Length));
+        if (highs.Length != lows.Length || highs.Length != closes.Length)
+        {
+            throw new ArgumentException("Highs, lows and closes arrays must have the same length.");
+        }
+
+        var count = highs.Length;
 
         if (count < 2)
         {
