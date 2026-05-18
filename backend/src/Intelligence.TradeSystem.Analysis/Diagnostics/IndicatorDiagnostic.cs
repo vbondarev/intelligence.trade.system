@@ -40,4 +40,3 @@ public sealed record IndicatorDiagnostic
     /// </summary>
     public required string Message { get; init; }
 }
-

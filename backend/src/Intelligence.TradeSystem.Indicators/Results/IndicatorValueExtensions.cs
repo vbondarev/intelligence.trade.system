@@ -6,24 +6,6 @@
 public static class IndicatorValueExtensions
 {
     /// <summary>
-    /// Возвращает числовое значение индикатора или <c>0m</c>, если значение недоступно.
-    /// </summary>
-    /// <remarks>
-    /// Предназначен исключительно дл�� legacy-совместимости там, где старый контракт
-    /// требует <c>decimal</c>. Для новых контрактов предпочтительнее использовать
-    /// <see cref="OrNull"/> или <see cref="RequireValue"/>.
-    /// </remarks>
-    /// <param name="value">Результат расчёта индикатора.</param>
-    /// <returns>Числовое значение или <c>0m</c> при <see cref="IndicatorValue.Value"/> == <see langword="null"/>.</returns>
-    /// <exception cref="ArgumentNullException">Выбрасывается, если <paramref name="value"/> равен <see langword="null"/>.</exception>
-    public static decimal OrZero(this IndicatorValue value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-
-        return value.Value ?? 0m;
-    }
-
-    /// <summary>
     /// Возвращает числовое значение индикатора или <see langword="null"/>, если значение недоступно.
     /// </summary>
     /// <remarks>

@@ -5,40 +5,6 @@ namespace Intelligence.TradeSystem.Indicators.Tests.Results;
 
 public sealed class IndicatorValueExtensionsTests
 {
-    // ── OrZero ────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void OrZero_Returns_Value_When_Value_Is_Available()
-    {
-        var value = IndicatorValue.Available(42m);
-
-        value.OrZero().Should().Be(42m);
-    }
-
-    [Fact]
-    public void OrZero_Returns_Value_When_Value_Is_Fallback()
-    {
-        var value = IndicatorValue.Fallback(12m, IndicatorValueReason.PartialWindow);
-
-        value.OrZero().Should().Be(12m);
-    }
-
-    [Fact]
-    public void OrZero_Returns_Zero_When_Value_Is_Unavailable()
-    {
-        var value = IndicatorValue.Unavailable(IndicatorValueReason.InsufficientData);
-
-        value.OrZero().Should().Be(0m);
-    }
-
-    [Fact]
-    public void OrZero_Throws_ArgumentNullException_When_Value_Is_Null()
-    {
-        var act = () => ((IndicatorValue)null!).OrZero();
-
-        act.Should().Throw<ArgumentNullException>();
-    }
-
     // ── OrNull ────────────────────────────────────────────────────────────────
 
     [Fact]
