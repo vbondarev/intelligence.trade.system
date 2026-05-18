@@ -154,7 +154,7 @@ internal static class ApiSnapshotTestData
         bool? overrideIsAboveEma200 = null,
         bool? overrideEmaBullish = null,
         bool? overrideEmaBearish = null,
-        decimal? overrideRsi14 = null,
+        decimal? overrideRsi14 = 55m,
         bool? overrideRsiOverbought = null,
         bool? overrideRsiOversold = null)
     {
@@ -163,7 +163,8 @@ internal static class ApiSnapshotTestData
         var isAboveEma200  = overrideIsAboveEma200 ?? (trend != MarketTrend.Bearish);
         var emaBullish     = overrideEmaBullish     ?? (trend == MarketTrend.Bullish);
         var emaBearish     = overrideEmaBearish     ?? (trend == MarketTrend.Bearish);
-        var rsi14          = overrideRsi14          ?? 55m;
+        // overrideRsi14 = null explicitly means "RSI unavailable"; default 55m = available.
+        decimal? rsi14     = overrideRsi14;
         var rsiOverbought  = overrideRsiOverbought  ?? false;
         var rsiOversold    = overrideRsiOversold    ?? false;
 
@@ -185,7 +186,7 @@ internal static class ApiSnapshotTestData
             Ema50 = 64850m,
             Ema200 = 64000m,
             Rsi14 = rsi14,
-            Rsi14IsReliable = true,
+            Rsi14IsReliable = rsi14.HasValue,
             Atr14 = 180m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.1m,
@@ -202,6 +203,12 @@ internal static class ApiSnapshotTestData
             EmaBearishAlignment = emaBearish,
             RsiOverbought = rsiOverbought,
             RsiOversold = rsiOversold,
+            EmaIsReliable         = true,
+            EmaHasFallback        = false,
+            AtrIsReliable         = true,
+            AtrIsFallback         = false,
+            VolumeRatioIsReliable  = true,
+            VolumeRatioIsFallback  = false,
             CandleRangePct = 0.5385m,
             DistanceToSupport1Pct = 0.6154m,
             DistanceToResistance1Pct = 0.3077m,

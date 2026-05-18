@@ -46,6 +46,14 @@ internal static class LlmPayloadMapperExtensions
             Tags            = [.. snapshot.Tags],
             Portfolio       = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
             AggregatedContext = null,
+            IndicatorDiagnostics = [.. snapshot.IndicatorDiagnostics.Select(d => new LlmIndicatorDiagnosticPayload
+            {
+                Timeframe  = d.Timeframe,
+                Indicator  = d.Indicator,
+                Reason     = d.Reason,
+                IsFallback = d.IsFallback,
+                Message    = d.Message,
+            })],
         };
     }
 

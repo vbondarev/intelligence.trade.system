@@ -16,14 +16,14 @@ public sealed record LlmTimeframePayload
     /// <summary>Метка силы тренда.</summary>
     public required string TrendStrengthLabel { get; init; }
 
-    public required decimal Ema20 { get; init; }
-    public required decimal Ema50 { get; init; }
-    public required decimal Ema200 { get; init; }
+    public decimal? Ema20 { get; init; }
+    public decimal? Ema50 { get; init; }
+    public decimal? Ema200 { get; init; }
     public decimal? Rsi14 { get; init; }
     /// <summary><c>true</c> — RSI рассчитан на основе достаточного количества свечей.</summary>
     public bool Rsi14IsReliable { get; init; }
-    public required decimal Atr14 { get; init; }
-    public required decimal VolumeRatio { get; init; }
+    public decimal? Atr14 { get; init; }
+    public decimal? VolumeRatio { get; init; }
     /// <summary>Ближайший уровень поддержки. <c>null</c> — не обнаружен.</summary>
     public decimal? Support1 { get; init; }
     /// <summary>Второй уровень поддержки. <c>null</c> — не обнаружен.</summary>

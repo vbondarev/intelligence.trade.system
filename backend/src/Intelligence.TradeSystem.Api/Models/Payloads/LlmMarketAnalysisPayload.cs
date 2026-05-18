@@ -60,6 +60,13 @@ public sealed record LlmMarketAnalysisPayload
     public required IReadOnlyList<string> Tags { get; init; }
 
     /// <summary>
+    /// Диагностические записи для индикаторов всех таймфреймов.
+    /// Пустой список (<c>[]</c>) означает, что все индикаторы рассчитаны полноценно.
+    /// Непустой список объясняет, почему значение индикатора <c>null</c> или fallback.
+    /// </summary>
+    public IReadOnlyList<LlmIndicatorDiagnosticPayload> IndicatorDiagnostics { get; init; } = [];
+
+    /// <summary>
     /// Данные портфеля. Присутствует только если <c>includePortfolio=true</c>.
     /// Если секция запрошена, но данные недоступны — <c>isAvailable: false</c>.
     /// </summary>

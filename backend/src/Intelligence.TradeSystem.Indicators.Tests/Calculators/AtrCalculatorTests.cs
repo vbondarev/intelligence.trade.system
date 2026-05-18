@@ -1,5 +1,6 @@
 ﻿using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Calculators;
+using Intelligence.TradeSystem.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Calculators;
 
@@ -49,34 +50,43 @@ public sealed class AtrCalculatorTests
     // ── Insufficient data (< 2 candles) ─────────────────────────────────────
 
     [Fact]
-    public void Returns_Zero_When_Arrays_Are_Empty()
+    public void Returns_Unavailable_When_Arrays_Are_Empty()
     {
         var result = AtrCalculator.Compute([], [], []);
 
-        result.Should().Be(0m);
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
     }
 
     [Fact]
-    public void Returns_Zero_When_Single_Candle()
+    public void Returns_Unavailable_When_Single_Candle()
     {
         var result = AtrCalculator.Compute([100m], [90m], [95m]);
 
-        result.Should().Be(0m);
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
     }
 
     // ── True Range calculation ───────────────────────────────────────────────
 
     [Fact]
-    public void Returns_Zero_For_Flat_Candles()
+    public void Returns_Available_Zero_For_Flat_Candles()
     {
-        // H = L = PrevClose → все три компоненты TR равны 0
-        decimal[] highs  = [100m, 100m, 100m, 100m];
-        decimal[] lows   = [100m, 100m, 100m, 100m];
-        decimal[] closes = [100m, 100m, 100m, 100m];
+        // H = L = PrevClose → все три компоненты TR равны 0.
+        // Нужно 15 свечей, чтобы получить 14 TR >= period=14 → Available (не Fallback).
+        decimal[] highs  = Enumerable.Repeat(100m, 15).ToArray();
+        decimal[] lows   = Enumerable.Repeat(100m, 15).ToArray();
+        decimal[] closes = Enumerable.Repeat(100m, 15).ToArray();
 
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().Be(0m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Value.Should().Be(0m);
     }
 
     [Fact]
@@ -89,7 +99,8 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().BeApproximately(20m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeApproximately(20m, precision: 0.0001m);
     }
 
     [Fact]
@@ -103,7 +114,8 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().BeApproximately(30m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeApproximately(30m, precision: 0.0001m);
     }
 
     [Fact]
@@ -117,7 +129,8 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().BeApproximately(30m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeApproximately(30m, precision: 0.0001m);
     }
 
     [Fact]
@@ -133,25 +146,29 @@ public sealed class AtrCalculatorTests
         // TR = max(|90-110|=20, |90-100|=10, |110-100|=10) = 20 — совпадает с H=110, L=90
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().BeApproximately(20m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeApproximately(20m, precision: 0.0001m);
     }
 
     // ── Averaging behaviour ──────────────────────────────────────────────────
 
     [Fact]
-    public void Returns_Simple_Average_When_Count_Less_Than_Period()
+    public void Returns_Fallback_Average_When_TrueRanges_Count_Less_Than_Period()
     {
-        // 3 свечи, period=14 → доступно 2 TR-значения → simple average
+        // 3 свечи → 2 True Range, period = 14 → partial window
         // TR[0] = max(|110-100|=10, |110-95|=15, |100-95|=5) = 15
         // TR[1] = max(|120-110|=10, |120-105|=15, |110-105|=5) = 15
-        // Average = (15 + 15) / 2 = 15
+        // Average = 15
         decimal[] highs  = [100m, 110m, 120m];
         decimal[] lows   = [ 90m, 100m, 110m];
         decimal[] closes = [ 95m, 105m, 115m];
 
         var result = AtrCalculator.Compute(highs, lows, closes);
 
-        result.Should().BeApproximately(15m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeTrue();
+        result.Reason.Should().Be(IndicatorValueReason.PartialWindow);
+        result.Value.Should().BeApproximately(15m, precision: 0.0001m);
     }
 
     [Fact]
@@ -172,7 +189,9 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes, period: 2);
 
-        result.Should().BeApproximately(4.25m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Value.Should().BeApproximately(4.25m, precision: 0.0001m);
     }
 
     [Fact]
@@ -191,8 +210,9 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes, period: 14);
 
-        result.Should().BeGreaterThan(10m);  // выше базового ATR
-        result.Should().BeLessThan(50m);     // но ниже спайка (сглаживание работает)
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeGreaterThan(10m);  // выше базового ATR
+        result.Value.Should().BeLessThan(50m);     // но ниже спайка (сглаживание работает)
     }
 
     [Fact]
@@ -209,7 +229,10 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
 
-        result.Should().BeApproximately(20m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
+        result.Value.Should().BeApproximately(20m, precision: 0.0001m);
     }
 
     [Fact]
@@ -233,7 +256,10 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
 
-        result.Should().BeApproximately(17m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
+        result.Value.Should().BeApproximately(17m, precision: 0.0001m);
     }
 
     [Fact]
@@ -249,7 +275,9 @@ public sealed class AtrCalculatorTests
 
         var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
 
-        result.Should().BeApproximately(10m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Value.Should().BeApproximately(10m, precision: 0.0001m);
     }
 
     // ── Array length mismatch ────────────────────────────────────────────────
@@ -274,5 +302,56 @@ public sealed class AtrCalculatorTests
             .Should()
             .Throw<ArgumentException>()
             .WithMessage("*same length*");
+    }
+
+    // ── Exact period ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Returns_Available_Atr_When_TrueRanges_Count_Equals_Period()
+    {
+        // TR = [10, 20, 30], period = 3 → seed = 20, Wilder loop = 0 steps
+        decimal[] highs  = [110m, 110m, 130m, 160m];
+        decimal[] lows   = [100m, 100m, 110m, 130m];
+        decimal[] closes = [100m, 110m, 130m, 160m];
+
+        var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
+
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
+        result.Value.Should().BeApproximately(20m, precision: 0.0001m);
+    }
+
+    // ── Full Wilder ATR ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void Returns_Available_Atr_For_Known_Wilder_Series()
+    {
+        // 6 свечей, period=3 → ATR = 17 (из существующего regression-теста)
+        decimal[] highs  = [109m, 109m, 113m, 117m, 130m, 147m];
+        decimal[] lows   = [100m, 100m, 104m, 108m, 112m, 120m];
+        decimal[] closes = [100m, 104m, 108m, 112m, 120m, 133m];
+
+        var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
+
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
+        result.Value.Should().BeApproximately(17m, precision: 0.0001m);
+    }
+
+    // ── Invariant ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Returns_NonNegative_Value_When_Available()
+    {
+        decimal[] highs  = [109m, 109m, 113m, 117m, 130m, 147m];
+        decimal[] lows   = [100m, 100m, 104m, 108m, 112m, 120m];
+        decimal[] closes = [100m, 104m, 108m, 112m, 120m, 133m];
+
+        var result = AtrCalculator.Compute(highs, lows, closes, period: 3);
+
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeGreaterThanOrEqualTo(0m);
     }
 }

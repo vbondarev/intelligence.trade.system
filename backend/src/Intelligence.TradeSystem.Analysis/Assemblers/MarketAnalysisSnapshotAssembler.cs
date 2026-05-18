@@ -77,6 +77,18 @@ public static class MarketAnalysisSnapshotAssembler
         var tags = MarketTagsBuilder.Build(derivatives, orderBook, tradeFlow, sentiment);
 
         // 4. Assemble
+        // Aggregate indicator diagnostics from all four timeframes in stable order.
+        var allDiagnostics = new List<IndicatorDiagnosticSnapshot>(
+            m15.IndicatorDiagnostics.Count +
+            h1.IndicatorDiagnostics.Count  +
+            h4.IndicatorDiagnostics.Count  +
+            d1.IndicatorDiagnostics.Count);
+
+        allDiagnostics.AddRange(m15.IndicatorDiagnostics);
+        allDiagnostics.AddRange(h1.IndicatorDiagnostics);
+        allDiagnostics.AddRange(h4.IndicatorDiagnostics);
+        allDiagnostics.AddRange(d1.IndicatorDiagnostics);
+
         return new MarketAnalysisSnapshot
         {
             Exchange      = exchange,
@@ -97,7 +109,8 @@ public static class MarketAnalysisSnapshotAssembler
             Sentiment = sentiment,
             Portfolio = portfolio,
 
-            Tags = tags,
+            Tags                 = tags,
+            IndicatorDiagnostics = allDiagnostics,
         };
     }
 }

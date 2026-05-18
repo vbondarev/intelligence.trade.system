@@ -181,7 +181,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     [Fact]
     public void Build_LowVolumeRatio_AddsLowVolumeRiskFlag()
     {
-        var s = MakeSnapshot(trend: MarketTrend.Bullish, trendStrengthScore: 0.6m, volumeRatio: 0.8m);
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, trendStrengthScore: 0.6m, volumeRatio: 0.4m);
         var r = LlmTimeframeSummaryBuilder.Build(s);
 
         r.RiskFlags.Should().Contain("LowVolume");
@@ -211,7 +211,15 @@ public sealed class LlmTimeframeSummaryBuilderTests
         decimal     trendStrengthScore = 0.6m,
         decimal     volumeRatio       = 1.1m,
         decimal?    distanceToSupport = 0.6m,
-        decimal?    distanceToResist  = 0.3m) =>
+        decimal?    distanceToResist  = 0.3m,
+        // Indicator availability / fallback
+        bool        rsi14IsReliable        = true,
+        bool        emaIsReliable          = true,
+        bool        emaHasFallback         = false,
+        bool        atrIsReliable          = true,
+        bool        atrIsFallback          = false,
+        bool        volumeRatioIsReliable  = true,
+        bool        volumeRatioIsFallback  = false) =>
         new()
         {
             Timeframe             = "1h",
@@ -226,7 +234,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             Ema50               = 101m,
             Ema200              = 98m,
             Rsi14               = rsi14,
-            Rsi14IsReliable     = true,
+            Rsi14IsReliable     = rsi14IsReliable,
             Atr14               = 2m,
             VolumeSma20         = 900m,
             VolumeRatio         = volumeRatio,
@@ -243,8 +251,236 @@ public sealed class LlmTimeframeSummaryBuilderTests
             EmaBearishAlignment = emaBearish,
             RsiOverbought       = rsiOverbought,
             RsiOversold         = rsiOversold,
+            EmaIsReliable         = emaIsReliable,
+            EmaHasFallback        = emaHasFallback,
+            AtrIsReliable         = atrIsReliable,
+            AtrIsFallback         = atrIsFallback,
+            VolumeRatioIsReliable  = volumeRatioIsReliable,
+            VolumeRatioIsFallback  = volumeRatioIsFallback,
             CandleRangePct      = 0.06m,
             DistanceToSupport1Pct    = distanceToSupport,
             DistanceToResistance1Pct = distanceToResist,
         };
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Step 11: Nullable / unavailable indicator scenarios
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ─── 13.1: EMA unavailable ───────────────────────────────────────────────
+
+    [Fact]
+    public void Build_EmaUnavailable_NeutralSummaryAndIndicatorUnavailableFlag()
+    {
+        // When EMA unavailable the assembler sets Trend=Unknown; we replicate that here.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Unknown,
+            trendStrengthScore: 0m,
+            emaIsReliable: false,
+            emaHasFallback: false,
+            emaBullish: false, emaBearish: false);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.IsTrendConfirmed.Should().BeFalse();
+        r.MomentumState.Should().Be(MomentumState.Neutral);
+        r.EntryQuality.Should().Be(EntryQuality.Poor);
+        r.RiskFlags.Should().Contain("IndicatorUnavailable");
+    }
+
+    // ─── 13.2: RSI unavailable — must not become oversold ────────────────────
+
+    [Fact]
+    public void Build_RsiUnavailable_NoOversoldOrOverboughtFlags_EntryQualityNotGood()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            rsi14: null, rsi14IsReliable: false,
+            rsiOversold: false, rsiOverbought: false,
+            trendStrengthScore: 0.85m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.RiskFlags.Should().NotContain("RsiOversold",   because: "RSI unavailable must not produce RsiOversold");
+        r.RiskFlags.Should().NotContain("RsiOverbought", because: "RSI unavailable must not produce RsiOverbought");
+        r.RiskFlags.Should().Contain("RsiUnavailable");
+        r.RiskFlags.Should().Contain("IndicatorUnavailable");
+        r.EntryQuality.Should().Be(EntryQuality.Poor,
+            because: "RSI unavailable caps entryQuality at Poor");
+    }
+
+    // ─── 13.3: ATR unavailable ───────────────────────────────────────────────
+
+    [Fact]
+    public void Build_AtrUnavailable_AddsAtrUnavailableFlagAndCapsEntryQuality()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m,
+            atrIsReliable: false);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.RiskFlags.Should().Contain("AtrUnavailable");
+        r.RiskFlags.Should().Contain("IndicatorUnavailable");
+        r.EntryQuality.Should().Be(EntryQuality.Poor,
+            because: "ATR unavailable caps entryQuality at Poor");
+    }
+
+    // ─── 13.4: VolumeRatio unavailable — no fake LowVolume ───────────────────
+
+    [Fact]
+    public void Build_VolumeRatioUnavailable_NoLowVolumeFlag_AddsVolumeDataUnavailable()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, trendStrengthScore: 0.6m,
+            volumeRatio: 0m,           // zero because unavailable
+            volumeRatioIsReliable: false);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.RiskFlags.Should().NotContain("LowVolume",
+            because: "VolumeRatio=0 from unavailable source must not trigger LowVolume");
+        r.RiskFlags.Should().Contain("VolumeDataUnavailable");
+        r.RiskFlags.Should().Contain("IndicatorUnavailable");
+    }
+
+    // ─── 13.5: VolumeRatio fallback — VolumeDataFallback + conditional LowVolume
+
+    [Fact]
+    public void Build_VolumeRatioFallback_Low_AddsBothVolumeDataFallbackAndLowVolume()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, trendStrengthScore: 0.6m,
+            volumeRatio: 0.3m,
+            volumeRatioIsReliable: true, volumeRatioIsFallback: true);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.RiskFlags.Should().Contain("VolumeDataFallback");
+        r.RiskFlags.Should().Contain("LowVolume",
+            because: "fallback VolumeRatio < 0.5 still triggers LowVolume");
+        r.RiskFlags.Should().Contain("IndicatorFallback");
+    }
+
+    [Fact]
+    public void Build_VolumeRatioFallback_High_OnlyVolumeDataFallbackFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, trendStrengthScore: 0.6m,
+            volumeRatio: 0.8m,
+            volumeRatioIsReliable: true, volumeRatioIsFallback: true);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.RiskFlags.Should().Contain("VolumeDataFallback");
+        r.RiskFlags.Should().NotContain("LowVolume",
+            because: "fallback VolumeRatio 0.8 >= 0.5, no LowVolume");
+    }
+
+    // ─── 13.6: Strong bullish but RSI unavailable ─────────────────────────────
+
+    [Fact]
+    public void Build_BullishConfirmed_RsiUnavailable_MomentumNotHealthy_EntryNotGood()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: null, rsi14IsReliable: false,
+            trendStrengthScore: 0.85m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.Bias.Should().Be(TimeframeBias.Bullish,
+            because: "EMA alignment + Bullish trend → Bullish bias even without RSI");
+        r.IsTrendConfirmed.Should().BeTrue(
+            because: "EMA available and trend confirmed — RSI is not required for confirmation");
+        r.MomentumState.Should().NotBe(MomentumState.Healthy,
+            because: "RSI unavailable → Healthy momentum cannot be confirmed");
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "RSI unavailable caps entryQuality at Poor");
+        r.RiskFlags.Should().Contain("RsiUnavailable");
+    }
+
+    // ─── 13.7: Normal fully available bullish ────────────────────────────────
+
+    [Fact]
+    public void Build_FullyAvailable_Bullish_SummaryConsistent()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m,
+            distanceToSupport: 0.5m,
+            rsi14IsReliable: true, emaIsReliable: true, atrIsReliable: true, volumeRatioIsReliable: true);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.Bias.Should().Be(TimeframeBias.Bullish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.MomentumState.Should().Be(MomentumState.Healthy);
+        r.EntryQuality.Should().Be(EntryQuality.Good,
+            because: "all indicators available, confirmed bullish, RSI healthy, price near support");
+        r.RiskFlags.Should().NotContain("IndicatorUnavailable");
+        r.RiskFlags.Should().NotContain("RsiUnavailable");
+        r.RiskFlags.Should().NotContain("AtrUnavailable");
+        r.RiskFlags.Should().NotContain("VolumeDataUnavailable");
+    }
+
+    // ─── 13.8: Normal fully available bearish ────────────────────────────────
+
+    [Fact]
+    public void Build_FullyAvailable_Bearish_SummaryConsistent()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            rsi14: 38m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m,
+            distanceToResist: 0.5m,
+            rsi14IsReliable: true, emaIsReliable: true, atrIsReliable: true, volumeRatioIsReliable: true);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.Bias.Should().Be(TimeframeBias.Bearish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.MomentumState.Should().Be(MomentumState.Healthy);
+        r.EntryQuality.Should().Be(EntryQuality.Good,
+            because: "all indicators available, confirmed bearish, RSI healthy, price near resistance");
+        r.RiskFlags.Should().NotContain("IndicatorUnavailable");
+    }
+
+    // ─── 14: Integration — RSI unavailable + EMA200 fallback + ATR unavailable
+
+    [Fact]
+    public void Build_Integration_RsiUnavailable_Ema200Fallback_AtrUnavailable_SafeSummary()
+    {
+        // EMA200 is fallback but still has a value → Trend can still be determined.
+        // RSI and ATR are unavailable.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: null, rsi14IsReliable: false,
+            trendStrengthScore: 0.82m,
+            emaIsReliable: true, emaHasFallback: true,  // EMA200 fallback
+            atrIsReliable: false,
+            volumeRatioIsReliable: true, volumeRatio: 1.0m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        // No false oversold/overbought
+        r.RiskFlags.Should().NotContain("RsiOversold",  because: "RSI unavailable must not produce RsiOversold");
+        r.RiskFlags.Should().NotContain("RsiOverbought");
+
+        // Specific indicator flags present
+        r.RiskFlags.Should().Contain("RsiUnavailable");
+        r.RiskFlags.Should().Contain("AtrUnavailable");
+        r.RiskFlags.Should().Contain("IndicatorUnavailable");
+        r.RiskFlags.Should().Contain("IndicatorFallback", because: "EMA200 is fallback");
+
+        // EntryQuality capped — multiple unavailable indicators
+        r.EntryQuality.Should().Be(EntryQuality.Poor,
+            because: "RSI and ATR unavailable → entry quality capped at Poor");
+
+        // Momentum not Healthy without RSI confirmation
+        r.MomentumState.Should().NotBe(MomentumState.Healthy,
+            because: "RSI unavailable prevents Healthy momentum");
+    }
 }

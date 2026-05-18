@@ -1,7 +1,9 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Calculators;
+﻿using Intelligence.TradeSystem.Indicators.Results;
+
+namespace Intelligence.TradeSystem.Indicators.Calculators;
 
 /// <summary>
-/// Предоставляет методы для расчёта RSI (Relative Strength Index).
+/// Предоставляет метод для расчёта RSI (Relative Strength Index).
 /// </summary>
 /// <remarks>
 /// В данной реализации используется классический RSI по методу Уайлдера:
@@ -10,13 +12,14 @@
 /// после чего применяется сглаживание Уайлдера.
 /// <para>
 /// Если данных недостаточно для полного расчёта (<c>closes.Length &lt; period + 1</c>),
-/// метод возвращает <see langword="null"/>.
+/// метод возвращает <see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.InsufficientData"/>.
+/// RSI не использует fallback при нехватке данных.
 /// </para>
 /// </remarks>
 public static class RsiCalculator
 {
     /// <summary>
-    /// Вычисляет значение RSI в диапазоне от 0 до 100.
+    /// Вычисляет RSI и возвращает структурированный результат <see cref="IndicatorValue"/>.
     /// </summary>
     /// <param name="closes">Последовательность цен закрытия.</param>
     /// <param name="period">
@@ -24,8 +27,12 @@ public static class RsiCalculator
     /// По умолчанию используется значение <c>14</c>.
     /// </param>
     /// <returns>
-    /// Значение RSI в диапазоне <c>[0; 100]</c>, либо <see langword="null"/>,
-    /// если данных недостаточно для расчёта (<c>closes.Length &lt; period + 1</c>).
+    /// <see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.EmptyInput"/>, если массив пуст.
+    /// <see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.InsufficientData"/>, если данных меньше <c>period + 1</c>.
+    /// <see cref="IndicatorValue.Available"/> со значением <c>50m</c> для flat market (avgGain == 0 и avgLoss == 0).
+    /// <see cref="IndicatorValue.Available"/> со значением <c>100m</c> при только росте (avgLoss == 0, avgGain &gt; 0).
+    /// <see cref="IndicatorValue.Available"/> со значением <c>0m</c> при только падении (avgGain == 0, avgLoss &gt; 0).
+    /// <see cref="IndicatorValue.Available"/> с RSI-значением при полноценном расчёте.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Выбрасывается, если <paramref name="closes"/> равен <see langword="null"/>.
@@ -33,7 +40,7 @@ public static class RsiCalculator
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.
     /// </exception>
-    public static decimal? Compute(decimal[] closes, int period = 14)
+    public static IndicatorValue Compute(decimal[] closes, int period = 14)
     {
         ArgumentNullException.ThrowIfNull(closes);
 
@@ -42,9 +49,14 @@ public static class RsiCalculator
             throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be greater than zero.");
         }
 
+        if (closes.Length == 0)
+        {
+            return IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
+        }
+
         if (closes.Length < period + 1)
         {
-            return null;
+            return IndicatorValue.Unavailable(IndicatorValueReason.InsufficientData);
         }
 
         var gains = new decimal[closes.Length - 1];
@@ -68,10 +80,10 @@ public static class RsiCalculator
 
         if (avgLoss == 0m)
         {
-            return avgGain == 0m ? 50m : 100m;
+            return IndicatorValue.Available(avgGain == 0m ? 50m : 100m);
         }
 
         var rs = avgGain / avgLoss;
-        return 100m - 100m / (1m + rs);
+        return IndicatorValue.Available(100m - 100m / (1m + rs));
     }
 }

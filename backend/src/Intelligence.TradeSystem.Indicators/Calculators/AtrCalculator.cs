@@ -1,7 +1,9 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Calculators;
+﻿using Intelligence.TradeSystem.Indicators.Results;
+
+namespace Intelligence.TradeSystem.Indicators.Calculators;
 
 /// <summary>
-/// Предоставляет методы для расчёта индикатора ATR (Average True Range).
+/// Предоставляет метод для расчёта индикатора ATR (Average True Range).
 /// </summary>
 /// <remarks>
 /// ATR — это индикатор волатильности, показывающий средний истинный диапазон цены
@@ -19,33 +21,30 @@
 /// </item>
 /// </list>
 /// <para>
-/// Если данных недостаточно для полного периода, метод возвращает среднее по доступным
+/// Если данных недостаточно для полного периода, метод возвращает <see cref="IndicatorValue.Fallback"/> со средним по доступным
 /// значениям <c>True Range</c>.
 /// </para>
 /// </remarks>
 public static class AtrCalculator
 {
     /// <summary>
-    /// Вычисляет ATR (Average True Range) по последовательностям High, Low и Close.
+    /// Вычисляет ATR (Average True Range) и возвращает структурированный результат <see cref="IndicatorValue"/>.
     /// </summary>
     /// <param name="highs">Массив максимальных цен свечей.</param>
     /// <param name="lows">Массив минимальных цен свечей.</param>
     /// <param name="closes">Массив цен закрытия свечей.</param>
     /// <param name="period">
-    /// Период расчёта ATR. Должен быть больше нуля.
-    /// По умолчанию используется значение <c>14</c>.
+    /// Период расчёта ATR. Должен быть больше нуля. По умолчанию <c>14</c>.
     /// </param>
     /// <returns>
-    /// Значение ATR.
-    /// <para>
-    /// Возвращает <c>0</c>, если данных меньше двух свечей.
-    /// Если данных недостаточно для полного периода, возвращает среднее по доступным
-    /// значениям <c>True Range</c>.
-    /// </para>
+    /// <list type="bullet">
+    /// <item><description><see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.InsufficientData"/> при количестве свечей меньше двух.</description></item>
+    /// <item><description><see cref="IndicatorValue.Fallback"/> с причиной <see cref="IndicatorValueReason.PartialWindow"/> при количестве True Range меньше <paramref name="period"/>; значение равно среднему по доступным True Range.</description></item>
+    /// <item><description><see cref="IndicatorValue.Available"/> при полноценном ATR по формуле Уайлдера.</description></item>
+    /// </list>
     /// </returns>
     /// <exception cref="ArgumentNullException">
-    /// Выбрасывается, если один из массивов <paramref name="highs"/>, <paramref name="lows"/>
-    /// или <paramref name="closes"/> равен <see langword="null"/>.
+    /// Выбрасывается, если один из массивов равен <see langword="null"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.
@@ -59,7 +58,7 @@ public static class AtrCalculator
     /// Входные массивы обязаны иметь одинаковую длину — они представляют поля одних и тех же свечей.
     /// </para>
     /// </exception>
-    public static decimal Compute(decimal[] highs, decimal[] lows, decimal[] closes, int period = 14)
+    public static IndicatorValue Compute(decimal[] highs, decimal[] lows, decimal[] closes, int period = 14)
     {
         ArgumentNullException.ThrowIfNull(highs);
         ArgumentNullException.ThrowIfNull(lows);
@@ -79,7 +78,7 @@ public static class AtrCalculator
 
         if (count < 2)
         {
-            return 0m;
+            return IndicatorValue.Unavailable(IndicatorValueReason.InsufficientData);
         }
 
         var trueRanges = new decimal[count - 1];
@@ -95,7 +94,7 @@ public static class AtrCalculator
 
         if (trueRanges.Length < period)
         {
-            return trueRanges.Average();
+            return IndicatorValue.Fallback(trueRanges.Average(), IndicatorValueReason.PartialWindow);
         }
 
         // Seed: SMA первых period значений TR
@@ -107,6 +106,6 @@ public static class AtrCalculator
             atr = ((atr * (period - 1)) + trueRanges[i]) / period;
         }
 
-        return atr;
+        return IndicatorValue.Available(atr);
     }
 }

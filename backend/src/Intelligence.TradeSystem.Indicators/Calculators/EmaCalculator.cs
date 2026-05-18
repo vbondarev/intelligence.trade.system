@@ -1,7 +1,9 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Calculators;
+﻿using Intelligence.TradeSystem.Indicators.Results;
+
+namespace Intelligence.TradeSystem.Indicators.Calculators;
 
 /// <summary>
-/// Предоставляет методы для расчёта EMA (Exponential Moving Average).
+/// Предоставляет метод для расчёта EMA (Exponential Moving Average).
 /// </summary>
 /// <remarks>
 /// В данной реализации EMA инициализируется через SMA первых <c>period</c> значений,
@@ -15,14 +17,14 @@
 public static class EmaCalculator
 {
     /// <summary>
-    /// Вычисляет EMA на последнем элементе массива.
+    /// Вычисляет EMA и возвращает структурированный результат <see cref="IndicatorValue"/>.
     /// </summary>
     /// <param name="values">Последовательность значений, например цен закрытия.</param>
     /// <param name="period">Период EMA. Должен быть больше нуля.</param>
     /// <returns>
-    /// Значение EMA для последнего элемента массива.
-    /// Возвращает <c>0</c>, если массив пуст.
-    /// Если данных меньше периода, возвращает среднее по доступным значениям.
+    /// <see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.EmptyInput"/>, если массив пуст.
+    /// <see cref="IndicatorValue.Fallback"/> с причиной <see cref="IndicatorValueReason.PartialWindow"/>, если данных меньше периода.
+    /// <see cref="IndicatorValue.Available"/> при seed-расчёте (count == period) или полноценном EMA-расчёте (count &gt; period).
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Выбрасывается, если <paramref name="values"/> равен <see langword="null"/>.
@@ -30,7 +32,7 @@ public static class EmaCalculator
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.
     /// </exception>
-    public static decimal Compute(decimal[] values, int period)
+    public static IndicatorValue Compute(decimal[] values, int period)
     {
         ArgumentNullException.ThrowIfNull(values);
 
@@ -41,16 +43,15 @@ public static class EmaCalculator
 
         if (values.Length == 0)
         {
-            return 0m;
+            return IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
         }
 
         if (values.Length < period)
         {
-            return values.Average();
+            return IndicatorValue.Fallback(values.Average(), IndicatorValueReason.PartialWindow);
         }
 
         var k = 2m / (period + 1m);
-
         var ema = values[..period].Average();
 
         for (var i = period; i < values.Length; i++)
@@ -58,6 +59,6 @@ public static class EmaCalculator
             ema = values[i] * k + ema * (1m - k);
         }
 
-        return ema;
+        return IndicatorValue.Available(ema);
     }
 }
