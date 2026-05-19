@@ -86,5 +86,3 @@ public static class IndicatorValueExtensions
         return value.IsFallback || !value.IsAvailable;
     }
 }
-
-

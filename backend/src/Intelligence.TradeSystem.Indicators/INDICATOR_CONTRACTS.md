@@ -78,18 +78,12 @@ IndicatorValue.Unavailable(IndicatorValueReason reason)
 ## IndicatorValueExtensions
 
 ```csharp
-OrZero()
 OrNull()
 RequireValue()
 HasUsableValue()
 ShouldReportDiagnostic()
 ```
 
-### `OrZero()`
-
-- **For legacy compatibility only.**
-- Do not use in new snapshot/API/LLM contracts.
-- Maps unavailable indicator values to `0m`, which can hide missing data.
 
 ### `OrNull()`
 

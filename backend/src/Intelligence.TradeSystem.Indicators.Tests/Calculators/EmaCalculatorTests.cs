@@ -76,21 +76,6 @@ public sealed class EmaCalculatorTests
     }
 
     [Fact]
-    public void Returns_Available_Ema_For_Known_Series()
-    {
-        // period=3 → k = 2/(3+1) = 0.5
-        // seed = (10+20+30)/3 = 20
-        // i=3: EMA = 40×0.5 + 20×0.5 = 30
-        // i=4: EMA = 50×0.5 + 30×0.5 = 40
-        var result = EmaCalculator.Compute([10m, 20m, 30m, 40m, 50m], period: 3);
-
-        result.Value.Should().Be(40m);
-        result.IsAvailable.Should().BeTrue();
-        result.IsFallback.Should().BeFalse();
-        result.Reason.Should().Be(IndicatorValueReason.None);
-    }
-
-    [Fact]
     public void Returns_Available_Last_Value_When_Period_Is_One()
     {
         // period=1 → k=1 → EMA вырождается в последнее значение
@@ -100,42 +85,6 @@ public sealed class EmaCalculatorTests
         result.IsAvailable.Should().BeTrue();
         result.IsFallback.Should().BeFalse();
         result.Reason.Should().Be(IndicatorValueReason.None);
-    }
-
-    [Fact]
-    public void Gives_More_Weight_To_Recent_Values_In_Rising_Series()
-    {
-        // Серия: 15 значений = 10 (flat), затем резкий скачок до 100.
-        // EMA реагирует быстрее SMA: EMA > SMA того же периода после скачка.
-        var values = Enumerable.Repeat(10m, 15).Append(100m).ToArray();
-        var period = 5;
-
-        var ema = EmaCalculator.Compute(values, period).RequireValue();
-        var sma = SmaCalculator.Compute(values, period).RequireValue();
-
-        ema.Should().BeGreaterThan(sma);
-    }
-
-    [Fact]
-    public void Converges_To_Constant_For_Flat_Series()
-    {
-        var values = Enumerable.Repeat(50m, 30).ToArray();
-
-        var result = EmaCalculator.Compute(values, period: 10);
-
-        result.Value.Should().BeApproximately(50m, precision: 0.0001m);
-        result.IsAvailable.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Converges_To_Constant_For_Flat_Series_With_Different_Period()
-    {
-        var values = Enumerable.Repeat(75m, 20).ToArray();
-
-        var result = EmaCalculator.Compute(values, period: 3);
-
-        result.Value.Should().BeApproximately(75m, precision: 0.0001m);
-        result.IsAvailable.Should().BeTrue();
     }
 
     // ── Smoothing formula ────────────────────────────────────────────────────
@@ -153,6 +102,8 @@ public sealed class EmaCalculatorTests
 
         result.Value.Should().BeApproximately(40m, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
@@ -172,6 +123,36 @@ public sealed class EmaCalculatorTests
     }
 
     [Fact]
+    public void Returns_Available_Ema_For_Extended_Deterministic_Series()
+    {
+        // 12 значений с колебательным паттерном, period=3 → k = 0.5
+        // Seed = (20+40+60)/3 = 40 → ... → i=11: 51.09375
+        decimal[] values = [20m, 40m, 60m, 80m, 60m, 40m, 20m, 40m, 60m, 80m, 60m, 40m];
+
+        var result = EmaCalculator.Compute(values, period: 3);
+
+        result.Value.Should().BeApproximately(51.09375m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+    }
+
+    // ── EMA vs SMA behavioral ────────────────────────────────────────────────
+
+    [Fact]
+    public void Gives_More_Weight_To_Recent_Values_In_Rising_Series()
+    {
+        // Серия: 15 значений = 10 (flat), затем резкий скачок до 100.
+        // EMA реагирует быстрее SMA: EMA > SMA того же периода после скачка.
+        var values = Enumerable.Repeat(10m, 15).Append(100m).ToArray();
+        var period = 5;
+
+        var ema = EmaCalculator.Compute(values, period).RequireValue();
+        var sma = SmaCalculator.Compute(values, period).RequireValue();
+
+        ema.Should().BeGreaterThan(sma);
+    }
+
+    [Fact]
     public void Reacts_Faster_Than_Sma_In_Falling_Series()
     {
         var values = Enumerable.Repeat(100m, 15).Append(10m).ToArray();
@@ -186,7 +167,7 @@ public sealed class EmaCalculatorTests
     [Fact]
     public void Returns_Exact_Ema_After_Sharp_Impulse()
     {
-        // 15×10m + 100m, period=5 → EMA = 40
+        // 15×10m + 100m, period=5 → EMA ≈ 40
         var values = Enumerable.Repeat(10m, 15).Append(100m).ToArray();
 
         var result = EmaCalculator.Compute(values, period: 5);
@@ -195,30 +176,20 @@ public sealed class EmaCalculatorTests
         result.IsAvailable.Should().BeTrue();
     }
 
-    [Fact]
-    public void Returns_Available_Ema_For_Extended_Deterministic_Series()
-    {
-        // 12 значений с колебательным паттерном, period=3 → k = 0.5
-        // Seed = (20+40+60)/3 = 40 → ... → i=11: 51.09375
-        decimal[] values = [20m, 40m, 60m, 80m, 60m, 40m, 20m, 40m, 60m, 80m, 60m, 40m];
-
-        var result = EmaCalculator.Compute(values, period: 3);
-
-        result.Value.Should().BeApproximately(51.09375m, precision: 0.0001m);
-        result.IsAvailable.Should().BeTrue();
-        result.IsFallback.Should().BeFalse();
-    }
-
     // ── Flat series invariant ─────────────────────────────────────────────────
 
-    [Fact]
-    public void Returns_Available_Constant_For_Flat_Series()
+    [Theory]
+    [InlineData(50,  30, 10)]  // 30 значений × 50m,  period=10
+    [InlineData(75,  20,  3)]  // 20 значений × 75m,  period=3
+    [InlineData(100, 15,  5)]  // 15 значений × 100m, period=5
+    public void Returns_Available_Constant_For_Flat_Series(decimal constant, int count, int period)
     {
-        var values = Enumerable.Repeat(50m, 30).ToArray();
+        // Для flat-серии EMA инициализируется через SMA константы и остаётся константой на всех шагах.
+        var values = Enumerable.Repeat(constant, count).ToArray();
 
-        var result = EmaCalculator.Compute(values, period: 10);
+        var result = EmaCalculator.Compute(values, period);
 
-        result.Value.Should().Be(50m);
+        result.Value.Should().BeApproximately(constant, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
         result.IsFallback.Should().BeFalse();
         result.Reason.Should().Be(IndicatorValueReason.None);

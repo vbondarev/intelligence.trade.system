@@ -16,6 +16,14 @@ public sealed class IndicatorValueExtensionsTests
     }
 
     [Fact]
+    public void OrNull_Returns_Value_When_Value_Is_Fallback()
+    {
+        var value = IndicatorValue.Fallback(33m, IndicatorValueReason.PartialWindow);
+
+        value.OrNull().Should().Be(33m);
+    }
+
+    [Fact]
     public void OrNull_Returns_Null_When_Value_Is_Unavailable()
     {
         var value = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
@@ -135,4 +143,3 @@ public sealed class IndicatorValueExtensionsTests
         act.Should().Throw<ArgumentNullException>();
     }
 }
-

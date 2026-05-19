@@ -54,6 +54,17 @@ public sealed class IndicatorValueTests
     }
 
     [Fact]
+    public void Available_Returns_NonFallback_And_Unavailable_Returns_NonFallback()
+    {
+        // Оба состояния — Available и Unavailable — должны иметь IsFallback = false.
+        var available  = IndicatorValue.Available(1m);
+        var unavailable = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
+
+        available.IsFallback.Should().BeFalse();
+        unavailable.IsFallback.Should().BeFalse();
+    }
+
+    [Fact]
     public void Unavailable_Throws_ArgumentException_When_Reason_Is_None()
     {
         var act = () => IndicatorValue.Unavailable(IndicatorValueReason.None);
