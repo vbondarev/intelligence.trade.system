@@ -119,6 +119,214 @@ public sealed class VolumeProfileDetectorTests
             because: "высокообъёмная ценовая зона (45–55) должна быть определена как уровень поддержки");
     }
 
+    // ── Price-side invariants (strict, unconditional) ────────────────────────
+
+    /// <summary>
+    /// Детерминированный сценарий: две HVN-зоны ниже текущей цены.
+    /// Обе поддержки гарантированно обнаружены → утверждения безусловные.
+    /// </summary>
+    [Fact]
+    public void Support1_Is_Strictly_Below_Current_Price_When_Detected()
+    {
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var zoneA = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var zoneB = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = zoneA.Concat(zoneB).Append(anchor).ToArray();
+        var currentPrice = klines[^1].Close;
+
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().NotBeNull(because: "две HVN-зоны ниже цены гарантируют наличие Support1");
+        result.Support1!.Price.Should().BeLessThan(currentPrice,
+            because: "Support1 обязан быть ниже текущей цены");
+    }
+
+    /// <summary>
+    /// Детерминированный сценарий: две HVN-зоны ниже текущей цены.
+    /// Support2 гарантированно обнаружен → утверждение безусловное.
+    /// </summary>
+    [Fact]
+    public void Support2_Is_Strictly_Below_Current_Price_When_Detected()
+    {
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var zoneA = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var zoneB = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = zoneA.Concat(zoneB).Append(anchor).ToArray();
+        var currentPrice = klines[^1].Close;
+
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support2.Should().NotBeNull(because: "две HVN-зоны ниже цены гарантируют наличие Support2");
+        result.Support2!.Price.Should().BeLessThan(currentPrice,
+            because: "Support2 обязан быть ниже текущей цены");
+    }
+
+    /// <summary>
+    /// Детерминированный сценарий: две HVN-зоны выше текущей цены.
+    /// Resistance1 гарантированно обнаружен → утверждение безусловное.
+    /// </summary>
+    [Fact]
+    public void Resistance1_Is_Strictly_Above_Current_Price_When_Detected()
+    {
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var zoneC = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 114m, high: 120m, low: 110m, close: 116m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var zoneD = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 144m, high: 150m, low: 140m, close: 146m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = zoneC.Concat(zoneD).Append(anchor).ToArray();
+        var currentPrice = klines[^1].Close;
+
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Resistance1.Should().NotBeNull(because: "две HVN-зоны выше цены гарантируют наличие Resistance1");
+        result.Resistance1!.Price.Should().BeGreaterThan(currentPrice,
+            because: "Resistance1 обязан быть выше текущей цены");
+    }
+
+    /// <summary>
+    /// Детерминированный сценарий: две HVN-зоны выше текущей цены.
+    /// Resistance2 гарантированно обнаружен → утверждение безусловное.
+    /// </summary>
+    [Fact]
+    public void Resistance2_Is_Strictly_Above_Current_Price_When_Detected()
+    {
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var zoneC = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 114m, high: 120m, low: 110m, close: 116m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var zoneD = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 144m, high: 150m, low: 140m, close: 146m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = zoneC.Concat(zoneD).Append(anchor).ToArray();
+        var currentPrice = klines[^1].Close;
+
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Resistance2.Should().NotBeNull(because: "две HVN-зоны выше цены гарантируют наличие Resistance2");
+        result.Resistance2!.Price.Should().BeGreaterThan(currentPrice,
+            because: "Resistance2 обязан быть выше текущей цены");
+    }
+
+    // ── Absent level is null, never zero ─────────────────────────────────────
+
+    [Fact]
+    public void Absent_Support2_Is_Null_Not_Zero()
+    {
+        // Одна HVN-зона снизу → Support1 найдена, Support2 отсутствует.
+        // Контракт: отсутствующий уровень возвращается как null, а не как объект с Price=0.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var singleSupport = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = singleSupport.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().NotBeNull(because: "единственная HVN-зона снизу образует Support1");
+        result.Support2.Should().BeNull(
+            because: "отсутствующий второй уровень поддержки должен быть null, а не объектом с Price=0");
+    }
+
+    [Fact]
+    public void Absent_Resistance2_Is_Null_Not_Zero()
+    {
+        // Одна HVN-зона сверху → Resistance1 найдена, Resistance2 отсутствует.
+        // Контракт: отсутствующий уровень возвращается как null, а не как объект с Price=0.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var singleResistance = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 144m, high: 150m, low: 140m, close: 146m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = singleResistance.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Resistance1.Should().NotBeNull(because: "единственная HVN-зона сверху образует Resistance1");
+        result.Resistance2.Should().BeNull(
+            because: "отсутствующий второй уровень сопротивления должен быть null, а не объектом с Price=0");
+    }
+
+    [Fact]
+    public void All_Levels_Absent_Returns_All_Null_Not_Zero()
+    {
+        // Нет ни одной HVN-зоны (объём 0) → все четыре уровня null.
+        // Проверяет, что нулевой объём не порождает фиктивных уровней с Price=0.
+        var klines = new[]
+        {
+            KlineFactory.Create(open: 90m, high: 110m, low: 80m, close: 100m, volume: 0m),
+        };
+
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().BeNull(because: "без HVN-зон Support1 должен быть null, не 0");
+        result.Support2.Should().BeNull(because: "без HVN-зон Support2 должен быть null, не 0");
+        result.Resistance1.Should().BeNull(because: "без HVN-зон Resistance1 должен быть null, не 0");
+        result.Resistance2.Should().BeNull(because: "без HVN-зон Resistance2 должен быть null, не 0");
+    }
+
     // ── Guard-clause coverage ────────────────────────────────────────────────
 
     [Fact]

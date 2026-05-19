@@ -26,4 +26,3 @@ public enum LevelStrengthLabel
     /// <summary>Сила уровня недоступна: источник не поддерживает оценку.</summary>
     Unavailable = 4,
 }
-

@@ -84,7 +84,6 @@ HasUsableValue()
 ShouldReportDiagnostic()
 ```
 
-
 ### `OrNull()`
 
 - **Preferred method for nullable contracts.**

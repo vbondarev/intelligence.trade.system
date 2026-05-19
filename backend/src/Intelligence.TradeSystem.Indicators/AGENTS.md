@@ -68,4 +68,3 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 - `null` means the level was not detected.
 - Do not use `0m` to represent missing support/resistance.
 - `VolumeProfileDetector` is a simplified volume profile implementation unless explicitly replaced with a more precise volume-at-price model.
-

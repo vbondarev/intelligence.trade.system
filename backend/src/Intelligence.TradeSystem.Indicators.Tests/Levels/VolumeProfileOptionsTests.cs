@@ -114,5 +114,3 @@ public sealed class VolumeProfileOptionsTests
             .WithParameterName("hvnThresholdRatio");
     }
 }
-
-
