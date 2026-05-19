@@ -6,8 +6,13 @@
 public enum LevelSource
 {
     /// <summary>
-    /// Уровень определён через анализ профиля объёма (Volume Profile / HVN-кластер).
+    /// Уровень определён через упрощённый анализ профиля объёма (Simplified Volume Profile / HVN-кластер).
+    /// <para>
+    /// Алгоритм равномерно распределяет объём свечи по диапазону Low–High
+    /// и <strong>не является</strong> точным Volume-at-Price.
+    /// </para>
     /// </summary>
-    VolumeProfile = 0,
+    SimplifiedVolumeProfile = 0,
 }
+
 

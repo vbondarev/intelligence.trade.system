@@ -173,14 +173,14 @@ public static class VolumeProfileDetector
         {
             if (isFallback)
             {
-                clusters.Add(new LevelInfo(price, 0m, LevelSource.VolumeProfile, 0m));
+                clusters.Add(new LevelInfo(price, 0m, LevelSource.SimplifiedVolumeProfile, 0m));
             }
             else
             {
                 var strength = maxClusterVolume > 0m
                     ? Math.Round(clusterVolume / maxClusterVolume, 4)
                     : 0m;
-                clusters.Add(new LevelInfo(price, strength, LevelSource.VolumeProfile, clusterVolume));
+                clusters.Add(new LevelInfo(price, strength, LevelSource.SimplifiedVolumeProfile, clusterVolume));
             }
         }
 

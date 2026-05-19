@@ -18,7 +18,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// - ненулевой уровень → соответствующий *Meta присутствует в JSON
 /// - нулевой уровень → *Meta отсутствует в JSON
 /// - Price совпадает с плоским полем
-/// - Source = "volume-profile" (единственный детектор V1)
+/// - Source = "simplified-volume-profile" (единственный детектор V1)
 /// - Strength = 0.7 ∈ [0, 1]
 /// - DistancePct совпадает с distanceToSupport1Pct / distanceToResistance1Pct для уровней 1
 /// </summary>
@@ -66,8 +66,8 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
 
         AssertAllTimeframes(result!, tf =>
         {
-            tf.Support1Meta!.Source.Should().Be("volume-profile",
-                because: $"{tf.Timeframe}: only VolumeProfileDetector is used in V1");
+            tf.Support1Meta!.Source.Should().Be("simplified-volume-profile",
+                because: $"{tf.Timeframe}: only SimplifiedVolumeProfile detector is used in V1");
         });
     }
 

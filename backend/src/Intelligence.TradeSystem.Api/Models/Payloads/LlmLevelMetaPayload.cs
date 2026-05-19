@@ -28,7 +28,9 @@ public sealed record LlmLevelMetaPayload
 
     /// <summary>
     /// Тип детектора, обнаружившего уровень.
-    /// Допустимые значения V1: <c>volume-profile</c>, <c>swing</c>, <c>pivot</c>, <c>liquidity</c>, <c>composite</c>.
+    /// Допустимые значения V1: <c>simplified-volume-profile</c>, <c>swing</c>, <c>pivot</c>, <c>liquidity</c>, <c>composite</c>.
+    /// <c>simplified-volume-profile</c> означает, что объём равномерно распределяется по диапазону Low–High
+    /// и <strong>не является</strong> точным Volume-at-Price.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Source { get; init; }
