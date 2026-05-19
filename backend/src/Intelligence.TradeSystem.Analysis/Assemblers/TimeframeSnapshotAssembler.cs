@@ -5,6 +5,7 @@ using Intelligence.TradeSystem.Indicators.Calculators;
 using Intelligence.TradeSystem.Indicators.Levels;
 using Intelligence.TradeSystem.Indicators.Results;
 using Intelligence.TradeSystem.Indicators.Trend;
+using Intelligence.TradeSystem.Indicators.Validation;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
@@ -41,7 +42,17 @@ public static class TimeframeSnapshotAssembler
             throw new ArgumentException("Klines collection is empty.", nameof(klines));
         }
 
-        var sorted = klines.OrderBy(k => k.StartTime).ToArray();
+        // 1a. Validate — filter out dirty candles; violations → IndicatorDiagnostics.
+        var validKlines = KlineValidator.FilterValid(klines, out var violations);
+
+        if (validKlines.Count == 0)
+        {
+            throw new ArgumentException(
+                "All klines in the collection failed validation. No valid data to assemble a snapshot.",
+                nameof(klines));
+        }
+
+        var sorted = validKlines.OrderBy(k => k.StartTime).ToArray();
 
         // 2. Project
         var closes  = Array.ConvertAll(sorted, k => k.Close);
@@ -59,6 +70,19 @@ public static class TimeframeSnapshotAssembler
 
         // 3a. Diagnostics — собираем в порядке индикаторов (стабильный порядок).
         var indicatorDiagnostics = new List<IndicatorDiagnostic>();
+
+        // Prepend kline-level violations so consumers see data quality issues first.
+        foreach (var violation in violations)
+        {
+            indicatorDiagnostics.Add(new IndicatorDiagnostic
+            {
+                Timeframe  = timeframe,
+                Indicator  = "kline",
+                Reason     = IndicatorValueReason.InvalidInput,
+                IsFallback = false,
+                Message    = $"{timeframe}.kline[{violation.KlineIndex}] invalid: {violation.ViolationReason}",
+            });
+        }
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema20",      ema20Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema50",      ema50Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema200",     ema200Value);

@@ -388,4 +388,67 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.RsiOverbought.Should().BeFalse(because: "null RSI must not trigger overbought");
         result.Snapshot.RsiOversold.Should().BeFalse(because: "null RSI must not trigger oversold");
     }
+
+    // ───── KlineValidator integration ─────
+
+    [Fact]
+    public void Invalid_Kline_Is_Excluded_And_Diagnostic_Is_Emitted()
+    {
+        // Prepare: 10 valid candles + 1 invalid (High < Low) at position 5.
+        var klines = KlineFactory.CreateSeries(count: 10).ToList();
+        klines[5] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m);
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Snapshot.IndicatorDiagnostics
+            .Should().Contain(d =>
+                d.Indicator == "kline" &&
+                d.Reason == "InvalidInput" &&
+                d.IsFallback == false &&
+                d.Message.Contains("kline[5]"),
+                because: "the invalid candle at index 5 must produce a kline diagnostic");
+    }
+
+    [Fact]
+    public void All_Valid_Klines_Produce_No_Kline_Diagnostics()
+    {
+        var klines = KlineFactory.CreateSeries(count: 50);
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Snapshot.IndicatorDiagnostics
+            .Should().NotContain(d => d.Indicator == "kline",
+                because: "no validation violations were present");
+    }
+
+    [Fact]
+    public void All_Invalid_Klines_Throws_ArgumentException()
+    {
+        var klines = new[]
+        {
+            KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m),
+            KlineFactory.Create(open: 100m, high: 80m, low: 95m, close: 95m),
+        };
+
+        var act = () => TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithParameterName("klines")
+            .WithMessage("*All klines*failed validation*");
+    }
+
+    [Fact]
+    public void Negative_Volume_Kline_Is_Excluded_And_Diagnostic_Contains_Volume()
+    {
+        var klines = KlineFactory.CreateSeries(count: 10).ToList();
+        klines[0] = KlineFactory.Create(open: 100m, high: 105m, low: 95m, close: 100m, volume: -1m);
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "4h");
+
+        result.Snapshot.IndicatorDiagnostics
+            .Should().Contain(d =>
+                d.Indicator == "kline" && d.Message.Contains("Volume"),
+                because: "negative volume violates OHLCV invariant");
+    }
 }
