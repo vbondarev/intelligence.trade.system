@@ -4,6 +4,9 @@ namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
 internal static class ApiSnapshotTestData
 {
+    /// <summary>Значение Support1Strength, используемое в тестовых снапшотах.</summary>
+    public const decimal Support1StrengthValue = 0.9m;
+
     public static MarketAnalysisSnapshot CreateSnapshot() => CreateSnapshot(MarketTrend.Bullish);
 
     /// <summary>
@@ -193,9 +196,13 @@ internal static class ApiSnapshotTestData
             TrendStrengthScore = 0.4m,
             Trend = trend,
             Support1 = 64600m,
+            Support1Strength = Support1StrengthValue,
             Support2 = 64250m,
+            Support2Strength = 0.75m,
             Resistance1 = 65200m,
+            Resistance1Strength = 0.85m,
             Resistance2 = 65650m,
+            Resistance2Strength = 0.6m,
             IsAboveEma20 = true,
             IsAboveEma50 = true,
             IsAboveEma200 = isAboveEma200,

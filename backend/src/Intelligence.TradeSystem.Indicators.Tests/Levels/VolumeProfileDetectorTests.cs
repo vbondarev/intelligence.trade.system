@@ -561,4 +561,87 @@ public sealed class VolumeProfileDetectorTests
         result.Support2.Should().BeNull(
             because: "шумовые бакеты не преодолевают HVN-порог → единственный support кластер");
     }
+
+    // ── LevelStrength contracts ───────────────────────────────────────────────
+
+    [Fact]
+    public void Dominant_Single_Cluster_Has_Strength_1()
+    {
+        // Единственный кластер — доминирующий → normalization by maxClusterVolume → Strength = 1.0.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var strongZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 98m, high: 105m, low: 95m, close: 100m,
+            volume: 1m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = strongZone.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().NotBeNull(because: "доминирующая зона должна образовать Support1");
+        result.Support1!.Strength.Should().Be(1.0m,
+            because: "единственный кластер является доминирующим → Strength = 1.0");
+    }
+
+    [Fact]
+    public void Weaker_Cluster_Has_Lower_Strength_Than_Dominant_Cluster()
+    {
+        // Две зоны с разным объёмом: Zone A (1 000 000) > Zone B (500 000).
+        // После нормализации: Zone A → Strength = 1.0, Zone B → Strength < 1.0.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var dominantZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var weakerZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 500_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 98m, high: 105m, low: 95m, close: 100m,
+            volume: 1m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = dominantZone.Concat(weakerZone).Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines, new VolumeProfileOptions(hvnThresholdRatio: 0.4m));
+
+        result.Support1.Should().NotBeNull(because: "Zone B ближе к цене → Support1");
+        result.Support2.Should().NotBeNull(because: "Zone A дальше → Support2");
+
+        // Zone A (доминирующая, 1M) дальше от текущей цены → Support2
+        result.Support2!.Strength.Should().Be(1.0m,
+            because: "доминирующая Zone A должна иметь Strength = 1.0");
+
+        // Zone B (слабее, 500K) ближе → Support1
+        result.Support1!.Strength.Should().BeInRange(0.4m, 0.99m,
+            because: "Zone B (500K = 50% от 1M) должна иметь Strength < 1.0");
+
+        result.Support1.Strength.Should().BeLessThan(result.Support2.Strength,
+            because: "слабый кластер должен иметь меньшую силу, чем доминирующий");
+    }
+
+    [Fact]
+    public void Strength_Is_Always_In_Range_0_To_1()
+    {
+        // Инвариант: Strength ∈ [0, 1] для любого обнаруженного уровня.
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        foreach (var level in new[] { result.Support1, result.Support2, result.Resistance1, result.Resistance2 })
+        {
+            if (level is { } l)
+            {
+                l.Strength.Should().BeInRange(0m, 1m,
+                    because: "Strength должен быть в диапазоне [0, 1] после нормализации по maxClusterVolume");
+            }
+        }
+    }
 }

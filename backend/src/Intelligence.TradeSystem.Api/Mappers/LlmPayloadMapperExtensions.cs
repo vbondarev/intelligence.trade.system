@@ -182,8 +182,7 @@ internal static class LlmPayloadMapperExtensions
 
     // ─── Timeframe ──────────────────────────────────────────────────────────
 
-    private const decimal LevelStrengthV1 = 0.7m;
-    private const string  LevelSourceV1   = "volume-profile";
+    private const string LevelSourceV1 = "volume-profile";
 
     private static LlmTimeframePayload BuildTimeframe(TimeframeAnalysisSnapshot s)
     {
@@ -210,10 +209,10 @@ internal static class LlmPayloadMapperExtensions
             Resistance2               = s.Resistance2,
             DistanceToSupport1Pct     = s.DistanceToSupport1Pct,
             DistanceToResistance1Pct  = s.DistanceToResistance1Pct,
-            Support1Meta              = BuildLevelMeta(s.Support1, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
-            Support2Meta              = BuildLevelMeta(s.Support2, lastClose, isSupport: true),
-            Resistance1Meta           = BuildLevelMeta(s.Resistance1, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
-            Resistance2Meta           = BuildLevelMeta(s.Resistance2, lastClose, isSupport: false),
+            Support1Meta              = BuildLevelMeta(s.Support1, s.Support1Strength, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
+            Support2Meta              = BuildLevelMeta(s.Support2, s.Support2Strength, lastClose, isSupport: true),
+            Resistance1Meta           = BuildLevelMeta(s.Resistance1, s.Resistance1Strength, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
+            Resistance2Meta           = BuildLevelMeta(s.Resistance2, s.Resistance2Strength, lastClose, isSupport: false),
             IsAboveEma20              = s.IsAboveEma20,
             IsAboveEma50              = s.IsAboveEma50,
             IsAboveEma200             = s.IsAboveEma200,
@@ -238,6 +237,7 @@ internal static class LlmPayloadMapperExtensions
     /// </summary>
     private static LlmLevelMetaPayload? BuildLevelMeta(
         decimal? levelPrice,
+        decimal? strength,
         decimal  lastClose,
         bool     isSupport,
         decimal? distancePct = null)
@@ -263,10 +263,11 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmLevelMetaPayload
         {
-            Price       = price,
-            Strength    = LevelStrengthV1,
-            Source      = LevelSourceV1,
-            DistancePct = distance,
+            Price         = price,
+            Strength      = strength,
+            StrengthLabel = LevelStrengthLabelMapper.Map(strength).ToString(),
+            Source        = LevelSourceV1,
+            DistancePct   = distance,
         };
     }
 

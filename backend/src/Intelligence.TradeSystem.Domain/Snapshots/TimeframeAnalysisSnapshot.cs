@@ -81,14 +81,39 @@ public sealed record TimeframeAnalysisSnapshot
     /// <summary>Ближайший значимый уровень поддержки (первый снизу от текущей цены). <c>null</c> — не обнаружен.</summary>
     public decimal? Support1 { get; init; }
 
+    /// <summary>
+    /// Нормализованная сила уровня <see cref="Support1"/> в диапазоне [0, 1].
+    /// Вычисляется как <c>clusterVolume / maxClusterVolume</c> профиля.
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Support1Strength { get; init; }
+
     /// <summary>Второй значимый уровень поддержки (глубже первого). <c>null</c> — не обнаружен.</summary>
     public decimal? Support2 { get; init; }
+
+    /// <summary>
+    /// Нормализованная сила уровня <see cref="Support2"/> в диапазоне [0, 1].
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Support2Strength { get; init; }
 
     /// <summary>Ближайший значимый уровень сопротивления (первый сверху от текущей цены). <c>null</c> — не обнаружен.</summary>
     public decimal? Resistance1 { get; init; }
 
+    /// <summary>
+    /// Нормализованная сила уровня <see cref="Resistance1"/> в диапазоне [0, 1].
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Resistance1Strength { get; init; }
+
     /// <summary>Второй значимый уровень сопротивления (выше первого). <c>null</c> — не обнаружен.</summary>
     public decimal? Resistance2 { get; init; }
+
+    /// <summary>
+    /// Нормализованная сила уровня <see cref="Resistance2"/> в диапазоне [0, 1].
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Resistance2Strength { get; init; }
 
     /// <summary><c>true</c>, если цена закрытия последней свечи выше EMA 20.</summary>
     public bool IsAboveEma20 { get; init; }

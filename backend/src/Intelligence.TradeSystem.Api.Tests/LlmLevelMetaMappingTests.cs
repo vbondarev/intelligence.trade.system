@@ -72,14 +72,27 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
-    public async Task Support1Meta_Strength_Is_0_7()
+    public async Task Support1Meta_Strength_Matches_Snapshot_Support1Strength()
     {
         var result = await GetPayloadAsync();
 
         AssertAllTimeframes(result!, tf =>
         {
-            tf.Support1Meta!.Strength.Should().Be(0.7m,
-                because: $"{tf.Timeframe}: V1 constant — all HVN clusters passed HvnThresholdRatio=0.7");
+            tf.Support1Meta!.Strength.Should().Be(ApiSnapshotTestData.Support1StrengthValue,
+                because: $"{tf.Timeframe}: support1Meta.strength must equal snapshot.Support1Strength");
+        });
+    }
+
+    [Fact]
+    public async Task Support1Meta_StrengthLabel_Matches_Expected_Label()
+    {
+        var result = await GetPayloadAsync();
+
+        AssertAllTimeframes(result!, tf =>
+        {
+            // Support1Strength = 0.9 → Strong
+            tf.Support1Meta!.StrengthLabel.Should().Be("Strong",
+                because: $"{tf.Timeframe}: Support1Strength=0.9 >= 0.70 → label must be Strong");
         });
     }
 
@@ -179,6 +192,37 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
             because: "resistance1==null → resistance1Meta must not appear in JSON");
         m15.TryGetProperty("resistance2Meta", out _).Should().BeFalse(
             because: "resistance2==null → resistance2Meta must not appear in JSON");
+    }
+
+    // ─── StrengthLabel присутствует и содержит допустимое значение ───────────
+
+    [Theory]
+    [InlineData("support1Meta")]
+    [InlineData("support2Meta")]
+    [InlineData("resistance1Meta")]
+    [InlineData("resistance2Meta")]
+    public async Task LevelMeta_StrengthLabel_Is_Valid_Enum_Value(string metaField)
+    {
+        var validLabels = new[] { "Strong", "Moderate", "Weak", "Unavailable" };
+        var result = await GetPayloadAsync();
+
+        foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
+        {
+            var meta = metaField switch
+            {
+                "support1Meta"    => tf.Support1Meta,
+                "support2Meta"    => tf.Support2Meta,
+                "resistance1Meta" => tf.Resistance1Meta,
+                "resistance2Meta" => tf.Resistance2Meta,
+                _                 => null,
+            };
+
+            if (meta?.StrengthLabel is { } label)
+            {
+                validLabels.Should().Contain(label,
+                    because: $"{tf.Timeframe}.{metaField}: strengthLabel must be one of {string.Join(", ", validLabels)}");
+            }
+        }
     }
 
     // ─── Strength в диапазоне [0, 1] ─────────────────────────────────────────

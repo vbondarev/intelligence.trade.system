@@ -20,6 +20,13 @@ public sealed record LlmLevelMetaPayload
     public decimal? Strength { get; init; }
 
     /// <summary>
+    /// Текстовая метка силы уровня, производная от <see cref="Strength"/>.
+    /// Допустимые значения V1: <c>Strong</c>, <c>Moderate</c>, <c>Weak</c>, <c>Unavailable</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StrengthLabel { get; init; }
+
+    /// <summary>
     /// Тип детектора, обнаружившего уровень.
     /// Допустимые значения V1: <c>volume-profile</c>, <c>swing</c>, <c>pivot</c>, <c>liquidity</c>, <c>composite</c>.
     /// </summary>

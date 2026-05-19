@@ -86,7 +86,7 @@ public static class VolumeProfileDetector
         var threshold = maxVolume * hvnThresholdRatio;
         var currentPrice = klines[^1].Close;
 
-        var hvnClusters = BuildClusters(volumes, minPrice, bucketSize, threshold, maxVolume);
+        var hvnClusters = BuildClusters(volumes, minPrice, bucketSize, threshold);
 
         var supports = hvnClusters
             .Where(x => x.Price < currentPrice)
@@ -121,10 +121,10 @@ public static class VolumeProfileDetector
         decimal[] volumes,
         decimal minPrice,
         decimal bucketSize,
-        decimal threshold,
-        decimal maxVolume)
+        decimal threshold)
     {
-        var clusters = new List<LevelInfo>();
+        // First pass: collect raw cluster data (volume-weighted price centre + total cluster volume).
+        var raw = new List<(decimal Price, decimal ClusterVolume, bool IsFallback)>();
         var i = 0;
 
         while (i < volumes.Length)
@@ -151,14 +151,36 @@ public static class VolumeProfileDetector
 
             if (weightedVolumeSum > 0m)
             {
-                var clusterCenter = weightedPriceSum / weightedVolumeSum;
-                var strength = maxVolume > 0m ? Math.Round(weightedVolumeSum / maxVolume, 4) : 0m;
-                clusters.Add(new LevelInfo(clusterCenter, strength, LevelSource.VolumeProfile, weightedVolumeSum));
+                raw.Add((weightedPriceSum / weightedVolumeSum, weightedVolumeSum, false));
             }
             else
             {
                 var fallbackMid = minPrice + ((start + end + 1) / 2m) * bucketSize;
-                clusters.Add(new LevelInfo(fallbackMid, 0m, LevelSource.VolumeProfile, 0m));
+                raw.Add((fallbackMid, 0m, true));
+            }
+        }
+
+        if (raw.Count == 0)
+            return [];
+
+        // Second pass: normalize strength by the largest cluster volume so that the
+        // dominant cluster always receives Strength = 1.0 and all others are relative to it.
+        // This guarantees Strength ∈ [0, 1] regardless of how many buckets a cluster spans.
+        var maxClusterVolume = raw.Max(c => c.ClusterVolume);
+
+        var clusters = new List<LevelInfo>(raw.Count);
+        foreach (var (price, clusterVolume, isFallback) in raw)
+        {
+            if (isFallback)
+            {
+                clusters.Add(new LevelInfo(price, 0m, LevelSource.VolumeProfile, 0m));
+            }
+            else
+            {
+                var strength = maxClusterVolume > 0m
+                    ? Math.Round(clusterVolume / maxClusterVolume, 4)
+                    : 0m;
+                clusters.Add(new LevelInfo(price, strength, LevelSource.VolumeProfile, clusterVolume));
             }
         }
 
