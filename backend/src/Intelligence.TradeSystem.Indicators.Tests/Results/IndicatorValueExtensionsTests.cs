@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Results;
@@ -104,10 +104,7 @@ public sealed class IndicatorValueExtensionsTests
     }
 
     [Fact]
-    public void HasUsableValue_Returns_False_When_Value_Is_Null()
-    {
-        ((IndicatorValue?)null).HasUsableValue().Should().BeFalse();
-    }
+    public void HasUsableValue_Returns_False_When_Value_Is_Null() => ((IndicatorValue?)null).HasUsableValue().Should().BeFalse();
 
     // ── ShouldReportDiagnostic ────────────────────────────────────────────────
 

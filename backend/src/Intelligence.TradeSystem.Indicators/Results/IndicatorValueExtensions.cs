@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Results;
+namespace Intelligence.TradeSystem.Indicators.Results;
 
 /// <summary>
 /// Extension methods для централизованного извлечения значений из <see cref="IndicatorValue"/>.
@@ -60,10 +60,7 @@ public static class IndicatorValueExtensions
     /// <see langword="true"/>, если <see cref="IndicatorValue.IsAvailable"/> == <see langword="true"/>
     /// и <see cref="IndicatorValue.Value"/> имеет значение; иначе <see langword="false"/>.
     /// </returns>
-    public static bool HasUsableValue(this IndicatorValue? value)
-    {
-        return value is { IsAvailable: true } && value.Value.HasValue;
-    }
+    public static bool HasUsableValue(this IndicatorValue? value) => value is { IsAvailable: true } && value.Value.HasValue;
 
     /// <summary>
     /// Возвращает <see langword="true"/>, если значение индикатора требует отражения в диагностике или предупреждениях.

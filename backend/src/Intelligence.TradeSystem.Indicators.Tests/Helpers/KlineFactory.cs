@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Helpers;
 
@@ -14,11 +14,11 @@ public static class KlineFactory
 
     /// <summary>Создаёт одиночную свечу с явными параметрами.</summary>
     public static Kline Create(
-        decimal open     = 100m,
-        decimal high     = 105m,
-        decimal low      = 95m,
-        decimal close    = 100m,
-        decimal volume   = 1_000m,
+        decimal open = 100m,
+        decimal high = 105m,
+        decimal low = 95m,
+        decimal close = 100m,
+        decimal volume = 1_000m,
         decimal turnover = 100_000m,
         DateTime? startTime = null) =>
         new(DefaultSymbol,
@@ -39,23 +39,23 @@ public static class KlineFactory
         SeriesTrend trend = SeriesTrend.Flat,
         decimal startPrice = 100m)
     {
-        var klines    = new List<Kline>(count);
-        var baseTime  = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines = new List<Kline>(count);
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var prevClose = startPrice;
 
         for (var i = 0; i < count; i++)
         {
-            decimal step = trend switch
+            var step = trend switch
             {
                 SeriesTrend.Bullish => 0.5m,
                 SeriesTrend.Bearish => -0.5m,
-                _                   => i % 2 == 0 ? 0.1m : -0.1m
+                _ => i % 2 == 0 ? 0.1m : -0.1m
             };
 
-            var open  = prevClose;
+            var open = prevClose;
             var close = prevClose + step;
-            var high  = Math.Max(open, close) + 2m;
-            var low   = Math.Min(open, close) - 1m;
+            var high = Math.Max(open, close) + 2m;
+            var low = Math.Min(open, close) - 1m;
 
             klines.Add(new Kline(
                 DefaultSymbol,
@@ -66,7 +66,7 @@ public static class KlineFactory
                 high,
                 low,
                 close,
-                Volume:   1_000m + i,
+                Volume: 1_000m + i,
                 Turnover: (1_000m + i) * Math.Abs(close)));
 
             prevClose = close;

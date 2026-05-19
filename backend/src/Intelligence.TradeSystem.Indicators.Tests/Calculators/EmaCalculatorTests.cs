@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Calculators;
 using Intelligence.TradeSystem.Indicators.Results;
 
@@ -62,6 +62,7 @@ public sealed class EmaCalculatorTests
         result.Value.Should().BeApproximately(42m, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
         result.IsFallback.Should().BeTrue();
+        result.Reason.Should().Be(IndicatorValueReason.PartialWindow);
     }
 
     [Fact]
@@ -120,6 +121,8 @@ public sealed class EmaCalculatorTests
 
         result.Value.Should().BeApproximately(35.4m, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
@@ -179,9 +182,9 @@ public sealed class EmaCalculatorTests
     // ── Flat series invariant ─────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(50,  30, 10)]  // 30 значений × 50m,  period=10
-    [InlineData(75,  20,  3)]  // 20 значений × 75m,  period=3
-    [InlineData(100, 15,  5)]  // 15 значений × 100m, period=5
+    [InlineData(50, 30, 10)]  // 30 значений × 50m,  period=10
+    [InlineData(75, 20, 3)]  // 20 значений × 75m,  period=3
+    [InlineData(100, 15, 5)]  // 15 значений × 100m, period=5
     public void Returns_Available_Constant_For_Flat_Series(decimal constant, int count, int period)
     {
         // Для flat-серии EMA инициализируется через SMA константы и остаётся константой на всех шагах.

@@ -119,11 +119,11 @@ public static class TimeframeSnapshotAssembler
             : 0m;
 
         var distToSupport1 = levels.Support1 is { } s1 && lastClose > 0m
-            ? Math.Round((lastClose - s1) / lastClose * 100m, 4)
+            ? Math.Round((lastClose - s1.Price) / lastClose * 100m, 4)
             : (decimal?)null;
 
         var distToResistance1 = levels.Resistance1 is { } r1 && lastClose > 0m
-            ? Math.Round((r1 - lastClose) / lastClose * 100m, 4)
+            ? Math.Round((r1.Price - lastClose) / lastClose * 100m, 4)
             : (decimal?)null;
 
         // RSI-флаги считаются только при наличии реального значения (Rsi14IsReliable).
@@ -181,10 +181,10 @@ public static class TimeframeSnapshotAssembler
             TrendStrengthScore = strengthScore,
             Trend              = trend,
 
-            Support1    = levels.Support1,
-            Support2    = levels.Support2,
-            Resistance1 = levels.Resistance1,
-            Resistance2 = levels.Resistance2,
+            Support1    = levels.Support1?.Price,
+            Support2    = levels.Support2?.Price,
+            Resistance1 = levels.Resistance1?.Price,
+            Resistance2 = levels.Resistance2?.Price,
 
             IsAboveEma20  = isAboveEma20,
             IsAboveEma50  = isAboveEma50,

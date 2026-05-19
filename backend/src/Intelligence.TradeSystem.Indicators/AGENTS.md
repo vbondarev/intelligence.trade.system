@@ -42,7 +42,6 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 ## When changing code here
 - If you change a calculator return contract, update any dependent assembler expectations in `Intelligence.TradeSystem.Analysis/Assemblers` as well as `Intelligence.TradeSystem.Indicators.Tests`.
 - If you change `TrendClassifier` or `VolumeProfileDetector`, review downstream snapshot fields that surface trend/levels in `Domain/Snapshots` and API payloads.
-- Legacy `AtrCalculator.Compute(...)` may return `0m` for compatibility when `ComputeValue(...)` is unavailable — do not remove this behavior without updating all callers.
 
 ## Scalar indicator API
 

@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Indicators.Levels;
 using Intelligence.TradeSystem.Indicators.Tests.Helpers;
@@ -22,7 +22,7 @@ public sealed class VolumeProfileDetectorTests
     public void Returns_All_Nulls_When_Range_Is_Zero()
     {
         // Все OHLC одинаковы → range == 0 → уровни не определяются (null)
-        var kline  = KlineFactory.Create(open: 100m, high: 100m, low: 100m, close: 100m);
+        var kline = KlineFactory.Create(open: 100m, high: 100m, low: 100m, close: 100m);
         var result = VolumeProfileDetector.Detect([kline]);
 
         result.Support1.Should().BeNull();
@@ -34,29 +34,37 @@ public sealed class VolumeProfileDetectorTests
     [Fact]
     public void Support_Levels_Are_Below_Current_Price()
     {
-        var klines      = KlineFactory.CreateSeries(50).ToArray();
-        var result      = VolumeProfileDetector.Detect(klines);
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
         var currentPrice = klines[^1].Close;
 
         if (result.Support1 is { } s1a)
-            s1a.Should().BeLessThan(currentPrice);
+        {
+            s1a.Price.Should().BeLessThan(currentPrice);
+        }
 
         if (result.Support2 is { } s2a)
-            s2a.Should().BeLessThan(currentPrice);
+        {
+            s2a.Price.Should().BeLessThan(currentPrice);
+        }
     }
 
     [Fact]
     public void Resistance_Levels_Are_Above_Current_Price()
     {
-        var klines       = KlineFactory.CreateSeries(50).ToArray();
-        var result       = VolumeProfileDetector.Detect(klines);
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
         var currentPrice = klines[^1].Close;
 
         if (result.Resistance1 is { } r1a)
-            r1a.Should().BeGreaterThan(currentPrice);
+        {
+            r1a.Price.Should().BeGreaterThan(currentPrice);
+        }
 
         if (result.Resistance2 is { } r2a)
-            r2a.Should().BeGreaterThan(currentPrice);
+        {
+            r2a.Price.Should().BeGreaterThan(currentPrice);
+        }
     }
 
     [Fact]
@@ -66,7 +74,9 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         if (result.Support1 is { } s1 && result.Support2 is { } s2)
-            s1.Should().BeGreaterThan(s2);
+        {
+            s1.Price.Should().BeGreaterThan(s2.Price);
+        }
     }
 
     [Fact]
@@ -76,7 +86,9 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         if (result.Resistance1 is { } r1 && result.Resistance2 is { } r2)
-            r1.Should().BeLessThan(r2);
+        {
+            r1.Price.Should().BeLessThan(r2.Price);
+        }
     }
 
     [Fact]
@@ -100,8 +112,8 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // Support1 или Support2 должна попасть в высокообъёмную зону [45, 55]
-        var isInHighVolumeZone = (result.Support1 >= 45m && result.Support1 <= 55m)
-                              || (result.Support2 >= 45m && result.Support2 <= 55m);
+        var isInHighVolumeZone = (result.Support1 is { } s1hv && s1hv.Price >= 45m && s1hv.Price <= 55m)
+                              || (result.Support2 is { } s2hv && s2hv.Price >= 45m && s2hv.Price <= 55m);
 
         isInHighVolumeZone.Should().BeTrue(
             because: "высокообъёмная ценовая зона (45–55) должна быть определена как уровень поддержки");
@@ -148,7 +160,7 @@ public sealed class VolumeProfileDetectorTests
         // повторный вызов на одних и тех же данных обязан давать идентичный результат.
         var klines = KlineFactory.CreateSeries(30).ToArray();
 
-        var first  = VolumeProfileDetector.Detect(klines);
+        var first = VolumeProfileDetector.Detect(klines);
         var second = VolumeProfileDetector.Detect(klines);
 
         second.Should().Be(first);
@@ -182,7 +194,7 @@ public sealed class VolumeProfileDetectorTests
         var klines = highVolumeZone.Append(anchor).ToArray();
         var result = VolumeProfileDetector.Detect(klines);
 
-        result.Support1.Should().BeInRange(20m, 31m,
+        result.Support1!.Price.Should().BeInRange(20m, 31m,
             because: "центр HVN-кластера должен попасть в диапазон зоны 20–30");
         result.Support2.Should().BeNull(
             because: "соседние бакеты одной HVN-зоны должны объединяться в один кластер, не в два");
@@ -200,13 +212,13 @@ public sealed class VolumeProfileDetectorTests
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         Kline[] MakeZone(decimal mid, int hourOffset) =>
-            Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
-                open:  mid - 2m, high: mid + 5m, low: mid - 5m, close: mid,
+            [.. Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+                open: mid - 2m, high: mid + 5m, low: mid - 5m, close: mid,
                 volume: 1_000_000m,
-                startTime: baseTime.AddHours(hourOffset + i))).ToArray();
+                startTime: baseTime.AddHours(hourOffset + i)))];
 
-        var klines = MakeZone(mid: 85m, hourOffset:  0)   // ближняя  (~80–90)
-            .Concat(MakeZone(mid: 55m, hourOffset:  5))   // средняя  (~50–60)
+        var klines = MakeZone(mid: 85m, hourOffset: 0)   // ближняя  (~80–90)
+            .Concat(MakeZone(mid: 55m, hourOffset: 5))   // средняя  (~50–60)
             .Concat(MakeZone(mid: 25m, hourOffset: 10))   // дальняя  (~20–30)
             .Append(KlineFactory.Create(
                 open: 99m, high: 102m, low: 98m, close: 100m,
@@ -217,14 +229,14 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // S1 = ближайшая зона ≈ 85; границы совпадают с физическим диапазоном зоны [80, 90]
-        result.Support1.Should().BeInRange(80m, 90m,
+        result.Support1!.Price.Should().BeInRange(80m, 90m,
             because: "Support1 должна быть ближайшей к цене поддержкой (~85)");
         // S2 = вторая по близости ≈ 55; границы совпадают с физическим диапазоном зоны [50, 60]
-        result.Support2.Should().BeInRange(50m, 60m,
+        result.Support2!.Price.Should().BeInRange(50m, 60m,
             because: "Support2 должна быть второй по близости поддержкой (~55)");
         // Дальняя зона (~25) не должна попасть ни в один слот
-        result.Support1.Should().BeGreaterThan(35m);
-        result.Support2.Should().BeGreaterThan(35m);
+        result.Support1.Price.Should().BeGreaterThan(35m);
+        result.Support2.Price.Should().BeGreaterThan(35m);
     }
 
     [Fact]
@@ -237,13 +249,13 @@ public sealed class VolumeProfileDetectorTests
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         Kline[] MakeZone(decimal mid, int hourOffset) =>
-            Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
-                open:  mid - 2m, high: mid + 5m, low: mid - 5m, close: mid,
+            [.. Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+                open: mid - 2m, high: mid + 5m, low: mid - 5m, close: mid,
                 volume: 1_000_000m,
-                startTime: baseTime.AddHours(hourOffset + i))).ToArray();
+                startTime: baseTime.AddHours(hourOffset + i)))];
 
-        var klines = MakeZone(mid: 115m, hourOffset:  0)   // ближняя  (~110–120)
-            .Concat(MakeZone(mid: 145m, hourOffset:  5))   // средняя  (~140–150)
+        var klines = MakeZone(mid: 115m, hourOffset: 0)   // ближняя  (~110–120)
+            .Concat(MakeZone(mid: 145m, hourOffset: 5))   // средняя  (~140–150)
             .Concat(MakeZone(mid: 175m, hourOffset: 10))   // дальняя  (~170–180)
             .Append(KlineFactory.Create(
                 open: 99m, high: 102m, low: 98m, close: 100m,
@@ -254,14 +266,14 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // R1 = ближайшая зона ≈ 115; границы совпадают с физическим диапазоном зоны [110, 120]
-        result.Resistance1.Should().BeInRange(110m, 120m,
+        result.Resistance1!.Price.Should().BeInRange(110m, 120m,
             because: "Resistance1 должна быть ближайшим к цене сопротивлением (~115)");
         // R2 = вторая по близости ≈ 145; границы совпадают с физическим диапазоном зоны [140, 150]
-        result.Resistance2.Should().BeInRange(140m, 150m,
+        result.Resistance2!.Price.Should().BeInRange(140m, 150m,
             because: "Resistance2 должна быть вторым по близости сопротивлением (~145)");
         // Дальняя зона (~175) не должна попасть ни в один слот
-        result.Resistance1.Should().BeLessThan(135m);
-        result.Resistance2.Should().BeLessThan(165m);
+        result.Resistance1.Price.Should().BeLessThan(135m);
+        result.Resistance2.Price.Should().BeLessThan(165m);
     }
 
     // ── Symmetry: upper HVN → resistance ────────────────────────────────────
@@ -288,8 +300,8 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // Resistance1 или Resistance2 должна попасть в высокообъёмную зону [145, 155]
-        var isInHighVolumeZone = (result.Resistance1 >= 145m && result.Resistance1 <= 155m)
-                              || (result.Resistance2 >= 145m && result.Resistance2 <= 155m);
+        var isInHighVolumeZone = (result.Resistance1 is { } r1hv && r1hv.Price >= 145m && r1hv.Price <= 155m)
+                              || (result.Resistance2 is { } r2hv && r2hv.Price >= 145m && r2hv.Price <= 155m);
 
         isInHighVolumeZone.Should().BeTrue(
             because: "высокообъёмная ценовая зона (145–155) должна быть определена как уровень сопротивления");
@@ -319,7 +331,7 @@ public sealed class VolumeProfileDetectorTests
         var klines = supportZone.Append(anchor).ToArray();
         var result = VolumeProfileDetector.Detect(klines);
 
-        result.Support1.Should().BeInRange(40m, 51m,
+        result.Support1!.Price.Should().BeInRange(40m, 51m,
             because: "единственная HVN-зона снизу должна быть определена как Support1");
         result.Support2.Should().BeNull(
             because: "при наличии одного нижнего кластера Support2 должен быть null");
@@ -347,7 +359,7 @@ public sealed class VolumeProfileDetectorTests
         var klines = resistanceZone.Append(anchor).ToArray();
         var result = VolumeProfileDetector.Detect(klines);
 
-        result.Resistance1.Should().BeInRange(140m, 151m,
+        result.Resistance1!.Price.Should().BeInRange(140m, 151m,
             because: "единственная HVN-зона сверху должна быть определена как Resistance1");
         result.Resistance2.Should().BeNull(
             because: "при наличии одного верхнего кластера Resistance2 должен быть null");
@@ -387,12 +399,126 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // Zone B ближе к 150 → Support1; Zone A дальше → Support2
-        result.Support1.Should().BeInRange(40m, 51m,
+        result.Support1!.Price.Should().BeInRange(40m, 51m,
             because: "Zone B (40–50) ближе к текущей цене → должна стать Support1");
-        result.Support2.Should().BeInRange(20m, 31m,
+        result.Support2!.Price.Should().BeInRange(20m, 31m,
             because: "Zone A (20–30) дальше от текущей цены → должна стать Support2");
         result.Support2.Should().NotBeNull(
             because: "две раздельные HVN-зоны не должны быть склеены в один кластер");
+    }
+
+    // ── VolumeProfileOptions integration ─────────────────────────────────────
+
+    [Fact]
+    public void Null_Options_Uses_Default_And_Produces_Same_Result_As_Explicit_Default()
+    {
+        // Вызов без options и с явным Default должен давать идентичный результат.
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+
+        var withNull = VolumeProfileDetector.Detect(klines, options: null);
+        var withDefault = VolumeProfileDetector.Detect(klines, VolumeProfileOptions.Default);
+
+        withNull.Should().Be(withDefault);
+    }
+
+    [Fact]
+    public void Custom_Options_With_Default_Values_Produces_Same_Result_As_Default()
+    {
+        // Явно созданные options со стандартными значениями дают тот же результат, что Default.
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var customOptions = new VolumeProfileOptions(bucketCount: 100, hvnThresholdRatio: 0.7m);
+
+        var withDefault = VolumeProfileDetector.Detect(klines, VolumeProfileOptions.Default);
+        var withCustom = VolumeProfileDetector.Detect(klines, customOptions);
+
+        withCustom.Should().Be(withDefault);
+    }
+
+    [Fact]
+    public void Lower_HvnThresholdRatio_Detects_More_Levels()
+    {
+        // Снижение порога HVN включает больше бакетов → больше кластеров → больше уровней.
+        //
+        // Структура данных:
+        //   Зона A (20–30): объём 1 000 000 — это максимум (100%).
+        //   Зона B (40–50): объём 600 000 — 60% от максимума.
+        //   Якорная свеча (close=100): объём 1 (незначительный, только для задания текущей цены).
+        //
+        //   ratio=0.5: Zone B (60%) >= 50% → два кластера поддержки.
+        //   ratio=0.9: Zone B (60%) <  90% → только Zone A (100%) квалифицируется → один кластер.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var zoneA = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var zoneB = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 600_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        // Якорная свеча: объём = 1, чтобы не создавать конкурирующих HVN-бакетов.
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 1m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = zoneA.Concat(zoneB).Append(anchor).ToArray();
+
+        // ratio=0.5: Zone B (60%) >= 50% → Support1 и Support2 заполнены
+        var looseOptions = new VolumeProfileOptions(hvnThresholdRatio: 0.5m);
+        var looseResult = VolumeProfileDetector.Detect(klines, looseOptions);
+
+        // ratio=0.9: Zone B (60%) < 90% → только Zone A образует кластер → Support2 = null
+        var strictOptions = new VolumeProfileOptions(hvnThresholdRatio: 0.9m);
+        var strictResult = VolumeProfileDetector.Detect(klines, strictOptions);
+
+        looseResult.Support1.Should().NotBeNull(
+            because: "при пороге 0.5 Zone A (100%) образует Support1");
+        looseResult.Support2.Should().NotBeNull(
+            because: "при пороге 0.5 Zone B (60%) >= порог → образует второй кластер поддержки");
+
+        strictResult.Support1.Should().NotBeNull(
+            because: "при пороге 0.9 Zone A (100%) всё равно преодолевает порог");
+        strictResult.Support2.Should().BeNull(
+            because: "при пороге 0.9 Zone B (60%) < порог → не образует кластер → Support2 = null");
+    }
+
+    [Fact]
+    public void Custom_BucketCount_Does_Not_Change_Level_Direction()
+    {
+        // Кастомное количество бакетов меняет точность, но не нарушает инвариант:
+        // support < currentPrice, resistance > currentPrice.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var lowZone = Enumerable.Range(0, 10).Select(i => KlineFactory.Create(
+            open: 50m, high: 55m, low: 45m, close: 52m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var highZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 100m, high: 105m, low: 95m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(10 + i))).ToArray();
+
+        var klines = lowZone.Concat(highZone).ToArray();
+        var currentPrice = klines[^1].Close;
+
+        var options = new VolumeProfileOptions(bucketCount: 50);
+        var result = VolumeProfileDetector.Detect(klines, options);
+
+        if (result.Support1 is { } s1)
+        {
+            s1.Price.Should().BeLessThan(currentPrice,
+                because: "support уровень должен быть ниже текущей цены независимо от bucketCount");
+        }
+
+        if (result.Resistance1 is { } r1)
+        {
+            r1.Price.Should().BeGreaterThan(currentPrice,
+                because: "resistance уровень должен быть выше текущей цены независимо от bucketCount");
+        }
     }
 
     // ── Signal vs noise ───────────────────────────────────────────────────────
@@ -409,8 +535,8 @@ public sealed class VolumeProfileDetectorTests
         // 25 шумовых свечей равномерно распределены по диапазону 60–160 (объём 10 каждая).
         // Максимум шума на бакет ≈ 5 единиц — несравнимо ниже HVN-порога (~250 000).
         var noiseCandles = Enumerable.Range(0, 25).Select(i => KlineFactory.Create(
-            open:  62m + i * 4m, high: 65m + i * 4m,
-            low:   60m + i * 4m, close: 63m + i * 4m,
+            open: 62m + i * 4m, high: 65m + i * 4m,
+            low: 60m + i * 4m, close: 63m + i * 4m,
             volume: 10m,
             startTime: baseTime.AddHours(i))).ToArray();
 
@@ -429,7 +555,7 @@ public sealed class VolumeProfileDetectorTests
         var result = VolumeProfileDetector.Detect(klines);
 
         // Доминирующая зона (20–30) должна стать Support1
-        result.Support1.Should().BeInRange(20m, 31m,
+        result.Support1!.Price.Should().BeInRange(20m, 31m,
             because: "доминирующая high-volume зона должна быть выбрана как Support1, а не шумовой бакет");
         // Ни один шумовой бакет (начинаются с ≥ 60) не образовал второй кластер
         result.Support2.Should().BeNull(

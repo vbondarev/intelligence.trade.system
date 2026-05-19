@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Calculators;
 using Intelligence.TradeSystem.Indicators.Results;
 
@@ -97,6 +97,7 @@ public sealed class SmaCalculatorTests
         result.Value.Should().BeApproximately(42m, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
         result.IsFallback.Should().BeTrue();
+        result.Reason.Should().Be(IndicatorValueReason.PartialWindow);
     }
 
     [Fact]
@@ -108,6 +109,31 @@ public sealed class SmaCalculatorTests
         result.Value.Should().BeApproximately(0m, precision: 0.0001m);
         result.IsAvailable.Should().BeTrue();
         result.IsFallback.Should().BeFalse();
+    }
+
+    // ── Invariant: flat series always equals the constant ────────────────────
+
+    public static TheoryData<double, int, int> FlatSeriesCases => new()
+    {
+        {  50.0, 30, 10 },  // 30 значений × 50,  period=10
+        {  75.0, 20,  3 },  // 20 значений × 75,  period=3
+        { 100.0, 15,  5 },  // 15 значений × 100, period=5
+        {   1.0,  1,  1 },  // граничный: 1 элемент, period=1 → exact-period Available
+    };
+
+    [Theory]
+    [MemberData(nameof(FlatSeriesCases))]
+    public void Returns_Available_Constant_For_Flat_Series(double constantD, int count, int period)
+    {
+        // SMA flat series: каждое скользящее окно состоит из одного и того же значения,
+        // поэтому результат обязан точно совпадать с константой, а не быть приближённым.
+        var constant = (decimal)constantD;
+        var values = Enumerable.Repeat(constant, count).ToArray();
+
+        var result = SmaCalculator.Compute(values, period);
+
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeApproximately(constant, precision: 0.0001m);
     }
 
     // ── Window-selection regression ──────────────────────────────────────────

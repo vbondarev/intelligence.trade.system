@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Calculators;
 using Intelligence.TradeSystem.Indicators.Results;
 
@@ -46,6 +46,18 @@ public sealed class RsiCalculatorTests
     public void Returns_Unavailable_InsufficientData_When_Data_Is_Insufficient()
     {
         var result = RsiCalculator.Compute([100m, 101m, 102m], period: 14);
+
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
+    }
+
+    [Fact]
+    public void Returns_Unavailable_InsufficientData_When_Single_Element()
+    {
+        // Один элемент: closes.Length(1) < period+1(15) → InsufficientData (не EmptyInput).
+        var result = RsiCalculator.Compute([100m], period: 14);
 
         result.Value.Should().BeNull();
         result.IsAvailable.Should().BeFalse();
@@ -126,6 +138,37 @@ public sealed class RsiCalculatorTests
 
         result.IsAvailable.Should().BeTrue();
         result.Value.Should().BeLessThan(30m);
+    }
+
+    // ── Invariant: RSI always in [0, 100] when available ─────────────────────
+
+    public static TheoryData<decimal[]> AvailableRsiSeries => new()
+    {
+        // Строго растущая серия
+        Enumerable.Range(0, 30).Select(i => 100m + i * 3m).ToArray(),
+        // Строго падающая серия
+        Enumerable.Range(0, 30).Select(i => 200m - i * 3m).ToArray(),
+        // Плоская серия
+        Enumerable.Repeat(100m, 30).ToArray(),
+        // Чередование роста и падения
+        Enumerable.Range(0, 30).Select(i => i % 2 == 0 ? 100m : 110m).ToArray(),
+        // Сильный спайк вверх в конце
+        Enumerable.Repeat(100m, 25).Append(10000m).ToArray(),
+        // Сильный спайк вниз в конце
+        Enumerable.Repeat(100m, 25).Append(0.01m).ToArray(),
+        // Минимально необходимая длина: period+1 при period=14
+        Enumerable.Range(0, 15).Select(i => 100m + i).ToArray(),
+    };
+
+    [Theory]
+    [MemberData(nameof(AvailableRsiSeries))]
+    public void Rsi_Is_Always_In_Range_0_To_100_When_Available(decimal[] closes)
+    {
+        var result = RsiCalculator.Compute(closes);
+
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeInRange(0m, 100m,
+            because: "RSI is mathematically bounded to [0, 100] by definition");
     }
 
     // ── Formula regression ───────────────────────────────────────────────────

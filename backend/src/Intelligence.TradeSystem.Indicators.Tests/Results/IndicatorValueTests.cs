@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Results;
@@ -57,7 +57,7 @@ public sealed class IndicatorValueTests
     public void Available_Returns_NonFallback_And_Unavailable_Returns_NonFallback()
     {
         // Оба состояния — Available и Unavailable — должны иметь IsFallback = false.
-        var available  = IndicatorValue.Available(1m);
+        var available = IndicatorValue.Available(1m);
         var unavailable = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
 
         available.IsFallback.Should().BeFalse();

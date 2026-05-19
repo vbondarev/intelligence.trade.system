@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Levels;
+namespace Intelligence.TradeSystem.Indicators.Levels;
 
 /// <summary>
 /// Четыре ключевых ценовых уровня, определённых через Volume Profile:
@@ -6,8 +6,8 @@
 /// <c>null</c> означает, что уровень не был обнаружен.
 /// </summary>
 public sealed record LevelSet(
-    decimal? Support1,
-    decimal? Support2,
-    decimal? Resistance1,
-    decimal? Resistance2
+    LevelInfo? Support1,
+    LevelInfo? Support2,
+    LevelInfo? Resistance1,
+    LevelInfo? Resistance2
 );

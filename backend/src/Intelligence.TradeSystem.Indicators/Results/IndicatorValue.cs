@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Results;
+namespace Intelligence.TradeSystem.Indicators.Results;
 
 /// <summary>
 /// Представляет результат расчёта scalar-индикатора (SMA, EMA, RSI, ATR и аналогичных).
@@ -53,10 +53,10 @@ public sealed record IndicatorValue
     /// </returns>
     public static IndicatorValue Available(decimal value) => new()
     {
-        Value       = value,
+        Value = value,
         IsAvailable = true,
-        IsFallback  = false,
-        Reason      = IndicatorValueReason.None,
+        IsFallback = false,
+        Reason = IndicatorValueReason.None,
     };
 
     /// <summary>
@@ -86,10 +86,10 @@ public sealed record IndicatorValue
 
         return new()
         {
-            Value       = value,
+            Value = value,
             IsAvailable = true,
-            IsFallback  = true,
-            Reason      = reason,
+            IsFallback = true,
+            Reason = reason,
         };
     }
 
@@ -119,10 +119,10 @@ public sealed record IndicatorValue
 
         return new()
         {
-            Value       = null,
+            Value = null,
             IsAvailable = false,
-            IsFallback  = false,
-            Reason      = reason,
+            IsFallback = false,
+            Reason = reason,
         };
     }
 }

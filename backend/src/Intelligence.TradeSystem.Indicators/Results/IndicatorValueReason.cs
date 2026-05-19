@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Results;
+namespace Intelligence.TradeSystem.Indicators.Results;
 
 /// <summary>
 /// Описывает причину, по которой значение индикатора является fallback или недоступным.
