@@ -3,8 +3,8 @@
     <File Path="../compose.yaml" />
     <File Path="../../Plan.md" />
     <File Path="../../README.md" />
-    <File Path="../.editorconfig" />
     <File Path="../.gitignore" />
+    <File Path=".editorconfig" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Build.targets" />
     <File Path="Directory.Packages.props" />

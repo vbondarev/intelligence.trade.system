@@ -76,6 +76,14 @@ public static class KlineValidator
     /// <returns>
     /// Список валидных свечей. Может быть пустым, если все свечи невалидны.
     /// </returns>
+    /// <remarks>
+    /// <para>
+    /// Этот метод выполняет только фильтрацию и сбор нарушений.
+    /// Политика деградации после фильтрации (проверка последней свечи, порог % невалидных,
+    /// минимальное количество оставшихся данных) намеренно вынесена в вызывающий слой
+    /// (<c>TimeframeSnapshotAssembler</c>), а не реализована здесь.
+    /// </para>
+    /// </remarks>
     public static IReadOnlyList<Kline> FilterValid(
         IReadOnlyList<Kline> klines,
         out IReadOnlyList<KlineValidationResult> violations)

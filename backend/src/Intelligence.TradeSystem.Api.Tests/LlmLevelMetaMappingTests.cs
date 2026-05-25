@@ -279,6 +279,65 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         });
     }
 
+    // ─── ClusterVolume присутствует и корректен ──────────────────────────────
+
+    [Fact]
+    public async Task Support1Meta_ClusterVolume_Matches_Snapshot()
+    {
+        var result = await GetPayloadAsync();
+
+        AssertAllTimeframes(result!, tf =>
+        {
+            tf.Support1Meta!.ClusterVolume.Should().Be(ApiSnapshotTestData.Support1ClusterVolumeValue,
+                because: $"{tf.Timeframe}: support1Meta.clusterVolume must equal snapshot.Support1ClusterVolume");
+        });
+    }
+
+    [Fact]
+    public async Task LevelMeta_ClusterVolume_Is_Absent_From_Json_When_Level_Is_Null()
+    {
+        var snapshot = CreateSnapshotWithNullLevels();
+        using var client   = CreateClientWithSnapshot(snapshot);
+        using var response = await client.GetAsync(Url);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var m15 = json.RootElement.GetProperty("m15");
+
+        // clusterVolume must not appear when the level itself is absent
+        m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
+            because: "support1==null → support1Meta (and its clusterVolume) must not appear in JSON");
+    }
+
+    [Theory]
+    [InlineData("support1Meta")]
+    [InlineData("support2Meta")]
+    [InlineData("resistance1Meta")]
+    [InlineData("resistance2Meta")]
+    public async Task LevelMeta_ClusterVolume_Is_Positive_When_Level_Is_Present(string metaField)
+    {
+        var result = await GetPayloadAsync();
+
+        foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
+        {
+            var meta = metaField switch
+            {
+                "support1Meta"    => tf.Support1Meta,
+                "support2Meta"    => tf.Support2Meta,
+                "resistance1Meta" => tf.Resistance1Meta,
+                "resistance2Meta" => tf.Resistance2Meta,
+                _                 => null,
+            };
+
+            if (meta is not null)
+            {
+                meta.ClusterVolume.Should().HaveValue(
+                    because: $"{tf.Timeframe}.{metaField}: clusterVolume must be present when level is detected");
+                meta.ClusterVolume!.Value.Should().BePositive(
+                    because: $"{tf.Timeframe}.{metaField}: cluster volume must be > 0");
+            }
+        }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync()

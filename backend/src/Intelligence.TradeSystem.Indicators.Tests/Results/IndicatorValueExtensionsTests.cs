@@ -133,6 +133,14 @@ public sealed class IndicatorValueExtensionsTests
     }
 
     [Fact]
+    public void ShouldReportDiagnostic_Returns_True_When_Value_Is_Unavailable_With_EmptyInput()
+    {
+        var value = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
+
+        value.ShouldReportDiagnostic().Should().BeTrue();
+    }
+
+    [Fact]
     public void ShouldReportDiagnostic_Throws_ArgumentNullException_When_Value_Is_Null()
     {
         var act = () => ((IndicatorValue)null!).ShouldReportDiagnostic();

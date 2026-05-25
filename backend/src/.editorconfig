@@ -152,7 +152,7 @@ generated_code = true
 
 # ─── Test projects ────────────────────────────────────────────────────────────
 # Два паттерна: файлы в подпапках тестового проекта И файлы прямо в его корне
-[{src/**Tests*/**/*.cs,src/**Tests*/*.cs}]
+[{**Tests*/**/*.cs,**Tests*/*.cs}]
 # Метод_Должен_Делать_Что_Когда_Условие — общепринятое соглашение именования тестов
 dotnet_naming_rule.members_must_be_pascal.severity        = none
 dotnet_naming_rule.local_vars_must_be_camel.severity      = none

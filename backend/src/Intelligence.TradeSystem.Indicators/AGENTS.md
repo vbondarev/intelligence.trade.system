@@ -32,7 +32,7 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 - `RsiCalculator` uses Wilder smoothing, returns `Unavailable(InsufficientData)` when `closes.Length < period + 1`, and keeps the neutral/edge-case behavior `all flat -> 50`, `only gains -> 100`, `only losses -> 0`. RSI does **not** use fallback for insufficient data.
 - `AtrCalculator.Compute(...)` requires `highs`, `lows`, and `closes` arrays to have the same length and throws `ArgumentException` when lengths differ. Returns `Unavailable(InsufficientData)` when fewer than two candles are available, and `Fallback(average TR, PartialWindow)` when True Range count is less than `period`.
 - `TrendClassifier` requires strict alignment for directed trends (`EMA20 > EMA50 > EMA200` with price above `EMA200`, or the bearish mirror). Directed trends start at `0.80` strength, can gain at most `0.20` from `volumeRatio`, and sideways scores must stay `<= 0.49`.
-- `VolumeProfileDetector` uses a fixed 100-bucket profile, merges adjacent strong HVN buckets into clusters, and returns the two closest supports/resistances relative to `klines[^1].Close`.
+- `VolumeProfileDetector.Detect(klines, options?)` merges adjacent strong HVN buckets into clusters and returns the two closest supports/resistances relative to `klines[^1].Close`. Parameters are supplied via `VolumeProfileOptions` (defaults: `BucketCount = 100`, `HvnThresholdRatio = 0.70`); pass `null` to use `VolumeProfileOptions.Default`.
 
 ## Testing patterns to follow
 - Indicator tests are highly contract-oriented: preserve boundary cases, exact fallback values, and deterministic output.
@@ -64,7 +64,8 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 
 ## Level / Volume Profile contracts
 
-- `VolumeProfileDetector` returns nullable levels.
-- `null` means the level was not detected.
-- Do not use `0m` to represent missing support/resistance.
-- `VolumeProfileDetector` is a simplified volume profile implementation unless explicitly replaced with a more precise volume-at-price model.
+- `VolumeProfileDetector.Detect(Kline[] klines, VolumeProfileOptions? options = null)` returns a `LevelSet` with four nullable `LevelInfo?` fields: `Support1`, `Support2`, `Resistance1`, `Resistance2`.
+- `null` in any `LevelInfo?` field means the level was not detected — it does **not** mean `0`.
+- Do not use `0m` to represent a missing support or resistance level.
+- Parameters are configured through `VolumeProfileOptions`. Defaults: `BucketCount = 100`, `HvnThresholdRatio = 0.70`. Pass `null` to use `VolumeProfileOptions.Default`.
+- `VolumeProfileDetector` is a simplified volume profile implementation (not a precise Volume-at-Price model) unless explicitly replaced.

@@ -57,6 +57,40 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Message.Should().Contain("InsufficientData");
     }
 
+    [Fact]
+    public void Create_Returns_Diagnostic_When_Value_Is_Unavailable_With_EmptyInput_Reason()
+    {
+        var value = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
+
+        var result = IndicatorDiagnosticFactory.Create("15m", "ema20", value);
+
+        result.Should().NotBeNull();
+        result!.Timeframe.Should().Be("15m");
+        result.Indicator.Should().Be("ema20");
+        result.Reason.Should().Be(IndicatorValueReason.EmptyInput);
+        result.IsFallback.Should().BeFalse();
+        result.Message.Should().Contain("unavailable");
+        result.Message.Should().Contain("15m.ema20");
+        result.Message.Should().Contain("EmptyInput");
+    }
+
+    [Fact]
+    public void Create_Returns_Diagnostic_When_Value_Is_Unavailable_With_InvalidInput_Reason()
+    {
+        var value = IndicatorValue.Unavailable(IndicatorValueReason.InvalidInput);
+
+        var result = IndicatorDiagnosticFactory.Create("4h", "volumeRatio", value);
+
+        result.Should().NotBeNull();
+        result!.Timeframe.Should().Be("4h");
+        result.Indicator.Should().Be("volumeRatio");
+        result.Reason.Should().Be(IndicatorValueReason.InvalidInput);
+        result.IsFallback.Should().BeFalse();
+        result.Message.Should().Contain("unavailable");
+        result.Message.Should().Contain("4h.volumeRatio");
+        result.Message.Should().Contain("InvalidInput");
+    }
+
     // ── Message format ────────────────────────────────────────────────────────
 
     [Fact]

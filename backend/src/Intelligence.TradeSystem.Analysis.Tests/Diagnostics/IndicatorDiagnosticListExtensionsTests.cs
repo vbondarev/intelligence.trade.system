@@ -50,6 +50,20 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         diagnostics[0].IsFallback.Should().BeFalse();
     }
 
+    [Fact]
+    public void AddIfNeeded_Adds_Entry_For_Unavailable_With_EmptyInput_Reason()
+    {
+        var diagnostics = new List<IndicatorDiagnostic>();
+        var value = IndicatorValue.Unavailable(IndicatorValueReason.EmptyInput);
+
+        diagnostics.AddIfNeeded("15m", "ema20", value);
+
+        diagnostics.Should().HaveCount(1);
+        diagnostics[0].Indicator.Should().Be("ema20");
+        diagnostics[0].Reason.Should().Be(IndicatorValueReason.EmptyInput);
+        diagnostics[0].IsFallback.Should().BeFalse();
+    }
+
     // ── Multiple calls accumulate ─────────────────────────────────────────────
 
     [Fact]

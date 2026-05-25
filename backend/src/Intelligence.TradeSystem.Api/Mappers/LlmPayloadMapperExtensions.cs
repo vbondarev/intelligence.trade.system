@@ -209,10 +209,10 @@ internal static class LlmPayloadMapperExtensions
             Resistance2               = s.Resistance2,
             DistanceToSupport1Pct     = s.DistanceToSupport1Pct,
             DistanceToResistance1Pct  = s.DistanceToResistance1Pct,
-            Support1Meta              = BuildLevelMeta(s.Support1, s.Support1Strength, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
-            Support2Meta              = BuildLevelMeta(s.Support2, s.Support2Strength, lastClose, isSupport: true),
-            Resistance1Meta           = BuildLevelMeta(s.Resistance1, s.Resistance1Strength, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
-            Resistance2Meta           = BuildLevelMeta(s.Resistance2, s.Resistance2Strength, lastClose, isSupport: false),
+            Support1Meta              = BuildLevelMeta(s.Support1, s.Support1Strength, s.Support1ClusterVolume, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
+            Support2Meta              = BuildLevelMeta(s.Support2, s.Support2Strength, s.Support2ClusterVolume, lastClose, isSupport: true),
+            Resistance1Meta           = BuildLevelMeta(s.Resistance1, s.Resistance1Strength, s.Resistance1ClusterVolume, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
+            Resistance2Meta           = BuildLevelMeta(s.Resistance2, s.Resistance2Strength, s.Resistance2ClusterVolume, lastClose, isSupport: false),
             IsAboveEma20              = s.IsAboveEma20,
             IsAboveEma50              = s.IsAboveEma50,
             IsAboveEma200             = s.IsAboveEma200,
@@ -238,6 +238,7 @@ internal static class LlmPayloadMapperExtensions
     private static LlmLevelMetaPayload? BuildLevelMeta(
         decimal? levelPrice,
         decimal? strength,
+        decimal? clusterVolume,
         decimal  lastClose,
         bool     isSupport,
         decimal? distancePct = null)
@@ -268,6 +269,7 @@ internal static class LlmPayloadMapperExtensions
             StrengthLabel = LevelStrengthLabelMapper.Map(strength).ToString(),
             Source        = LevelSourceV1,
             DistancePct   = distance,
+            ClusterVolume = clusterVolume,
         };
     }
 

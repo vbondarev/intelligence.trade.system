@@ -261,6 +261,139 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
                                  && d.GetProperty("isFallback").GetBoolean() == false);
     }
 
+    // ─── Golden: VolumeRatio unavailable serializes as null + diagnostic ────────
+
+    [Fact]
+    public async Task LlmPayload_Sets_VolumeRatio_To_Null_And_Adds_Diagnostic_When_Unavailable()
+    {
+        // VolumeRatio = null (e.g. VolumeSma20 == 0 → division by zero → InvalidInput).
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        snapshot = snapshot with
+        {
+            M15 = snapshot.M15 with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            H1  = snapshot.H1  with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            H4  = snapshot.H4  with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            D1  = snapshot.D1  with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            IndicatorDiagnostics =
+            [
+                new IndicatorDiagnosticSnapshot
+                {
+                    Timeframe  = "15m",
+                    Indicator  = "volumeRatio",
+                    Reason     = "InvalidInput",
+                    IsFallback = false,
+                    Message    = "15m.volumeRatio unavailable: InvalidInput.",
+                },
+            ],
+        };
+
+        var service = MockService(snapshot);
+        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        // volumeRatio must be null, not 0.
+        var volumeRatio = json.RootElement.GetProperty("m15").GetProperty("volumeRatio");
+        volumeRatio.ValueKind.Should().Be(JsonValueKind.Null,
+            because: "unavailable VolumeRatio must serialize as null, not 0");
+
+        // Diagnostic present with correct reason.
+        var diag = json.RootElement.GetProperty("indicatorDiagnostics").EnumerateArray()
+            .FirstOrDefault(d => d.GetProperty("indicator").GetString() == "volumeRatio");
+        diag.ValueKind.Should().NotBe(JsonValueKind.Undefined,
+            because: "volumeRatio diagnostic must appear in indicatorDiagnostics");
+        diag.GetProperty("reason").GetString().Should().Be("InvalidInput");
+        diag.GetProperty("isFallback").GetBoolean().Should().BeFalse();
+    }
+
+    // ─── Golden: level not found → flat support1 = null in JSON ──────────────
+
+    [Fact]
+    public async Task LlmPayload_Sets_Support1_To_Null_In_Json_When_Level_Not_Found()
+    {
+        // Flat support1 field must serialize as null when the level is absent — not as 0.
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        snapshot = snapshot with
+        {
+            M15 = snapshot.M15 with
+            {
+                Support1    = null,
+                Support2    = null,
+                Resistance1 = null,
+                Resistance2 = null,
+                DistanceToSupport1Pct    = null,
+                DistanceToResistance1Pct = null,
+            },
+        };
+
+        var service = MockService(snapshot);
+        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var m15 = json.RootElement.GetProperty("m15");
+
+        // Flat level fields must be null.
+        m15.GetProperty("support1").ValueKind.Should().Be(JsonValueKind.Null,
+            because: "absent support1 level must be null in JSON, not 0");
+        m15.GetProperty("support2").ValueKind.Should().Be(JsonValueKind.Null,
+            because: "absent support2 level must be null in JSON, not 0");
+        m15.GetProperty("resistance1").ValueKind.Should().Be(JsonValueKind.Null,
+            because: "absent resistance1 level must be null in JSON, not 0");
+        m15.GetProperty("resistance2").ValueKind.Should().Be(JsonValueKind.Null,
+            because: "absent resistance2 level must be null in JSON, not 0");
+
+        // Meta fields must be absent entirely (JsonIgnore(WhenWritingNull)).
+        m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
+            because: "absent level must not produce a meta object in JSON");
+    }
+
+    // ─── Golden: level found → JSON meta contains all four fields ────────────
+
+    [Fact]
+    public async Task LlmPayload_Level_Meta_Contains_All_Fields_In_Json_When_Level_Found()
+    {
+        // Verify that when a level is detected, the full meta object (price/strength/source/clusterVolume)
+        // is present in the raw JSON wire format — not just in the typed C# object.
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+
+        var service = MockService(snapshot);
+        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var meta = json.RootElement.GetProperty("m15").GetProperty("support1Meta");
+
+        // price — numeric, matches flat support1.
+        meta.GetProperty("price").ValueKind.Should().Be(JsonValueKind.Number,
+            because: "support1Meta.price must be a number in JSON");
+        meta.GetProperty("price").GetDecimal().Should().Be(
+            json.RootElement.GetProperty("m15").GetProperty("support1").GetDecimal(),
+            because: "meta.price must match flat support1 field");
+
+        // strength — numeric, in [0, 1].
+        meta.GetProperty("strength").ValueKind.Should().Be(JsonValueKind.Number,
+            because: "support1Meta.strength must be a number in JSON");
+        meta.GetProperty("strength").GetDecimal().Should().BeInRange(0m, 1m);
+
+        // source — string, simplified-volume-profile.
+        meta.GetProperty("source").GetString().Should().Be("simplified-volume-profile",
+            because: "only SimplifiedVolumeProfile detector is used in V1");
+
+        // clusterVolume — numeric, > 0.
+        meta.GetProperty("clusterVolume").ValueKind.Should().Be(JsonValueKind.Number,
+            because: "support1Meta.clusterVolume must be serialized as a number in JSON");
+        meta.GetProperty("clusterVolume").GetDecimal().Should().BePositive(
+            because: "clusterVolume of a detected level must be > 0");
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static Mock<IMarketAnalysisService> MockService(MarketAnalysisSnapshot snapshot)

@@ -2,6 +2,7 @@
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Indicators.Results;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
@@ -167,6 +168,16 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Snapshot.VolumeRatio.Should().BeNull(
             because: "VolumeSma20 = 0 → division impossible → VolumeRatio is null, not fake-zero");
+        result.Snapshot.VolumeRatioIsReliable.Should().BeFalse();
+
+        // A diagnostic must explain why VolumeRatio is absent.
+        var diag = result.Snapshot.IndicatorDiagnostics
+            .Should().ContainSingle(d => d.Indicator == "volumeRatio").Subject;
+        diag.Timeframe.Should().Be("1h");
+        diag.Reason.Should().Be(IndicatorValueReason.InvalidInput.ToString(),
+            because: "VolumeSma20 is available (= 0) but division by zero is impossible → InvalidInput");
+        diag.IsFallback.Should().BeFalse();
+        diag.Message.Should().Contain("volumeRatio").And.Contain("unavailable");
     }
 
     // ── Insufficient data scenarios ───────────────────────────────────────────
@@ -450,5 +461,193 @@ public sealed class TimeframeSnapshotAssemblerTests
             .Should().Contain(d =>
                 d.Indicator == "kline" && d.Message.Contains("Volume"),
                 because: "negative volume violates OHLCV invariant");
+    }
+
+    // ── Degradation policy diagnostics ───────────────────────────────────────
+
+    [Fact]
+    public void Diagnostic_LastKlineFiltered_When_Newest_Candle_Is_Invalid()
+    {
+        // Arrange: 5 valid candles + 1 invalid candle with the LATEST StartTime.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines   = KlineFactory.CreateSeries(count: 5).ToList();
+        // Inject an invalid candle (High < Low) with StartTime beyond all valid candles.
+        klines.Add(KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
+            startTime: baseTime.AddHours(100)));
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        var diag = result.Diagnostics
+            .Should().Contain(d => d.Indicator == "kline.lastFiltered",
+                because: "the newest candle by StartTime was invalid and filtered out")
+            .Subject;
+        diag.Timeframe.Should().Be("1h");
+        diag.IsFallback.Should().BeFalse();
+        diag.Reason.Should().Be(IndicatorValueReason.InvalidInput);
+        diag.Message.Should().Contain("most recent candle");
+    }
+
+    [Fact]
+    public void No_LastKlineFiltered_Diagnostic_When_All_Klines_Are_Valid()
+    {
+        var klines = KlineFactory.CreateSeries(count: 50);
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Diagnostics
+            .Should().NotContain(d => d.Indicator == "kline.lastFiltered",
+                because: "no candles were filtered");
+    }
+
+    [Fact]
+    public void No_LastKlineFiltered_Diagnostic_When_Invalid_Candle_Is_Not_The_Most_Recent()
+    {
+        // Invalid candle at position 2 (not the last by time — series goes 0h..9h, invalid at 2h).
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
+            startTime: baseTime.AddHours(2));
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Diagnostics
+            .Should().NotContain(d => d.Indicator == "kline.lastFiltered",
+                because: "the filtered candle is not the most recent one");
+    }
+
+    [Fact]
+    public void Diagnostic_HighViolationRate_When_More_Than_20_Percent_Are_Invalid()
+    {
+        // 10 candles, 3 invalid = 30% > 20% threshold.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        klines[1] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1));
+        klines[3] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(3));
+        klines[5] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(5));
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
+
+        var diag = result.Diagnostics
+            .Should().Contain(d => d.Indicator == "kline.highViolationRate",
+                because: "3/10 = 30% of candles failed — exceeds the 20% threshold")
+            .Subject;
+        diag.Reason.Should().Be(IndicatorValueReason.InvalidInput);
+        diag.IsFallback.Should().BeFalse();
+        diag.Message.Should().Contain("3/10");
+    }
+
+    [Fact]
+    public void No_HighViolationRate_Diagnostic_When_Below_Threshold()
+    {
+        // 10 candles, 1 invalid = 10% <= 20% threshold → no highViolationRate diagnostic.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2));
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Diagnostics
+            .Should().NotContain(d => d.Indicator == "kline.highViolationRate",
+                because: "only 1/10 = 10% of candles failed, which is below the 20% threshold");
+    }
+
+    [Fact]
+    public void Diagnostic_InsufficientData_When_Only_One_Valid_Kline_Remains()
+    {
+        // 4 invalid + 1 valid = 1 usable candle < KlineMinimumUsableCount (2).
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines = new List<Intelligence.TradeSystem.Domain.Kline>
+        {
+            KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime),
+            KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1)),
+            KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2)),
+            KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(3)),
+            KlineFactory.Create(open: 100m, high: 105m, low: 95m, close: 100m, startTime: baseTime.AddHours(4)),
+        };
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "4h");
+
+        var diag = result.Diagnostics
+            .Should().Contain(d => d.Indicator == "kline.insufficientData",
+                because: "only 1 valid candle remains after filtering, below minimum usable count of 2")
+            .Subject;
+        diag.Reason.Should().Be(IndicatorValueReason.InsufficientData);
+        diag.IsFallback.Should().BeFalse();
+        diag.Message.Should().Contain("1 valid candle(s)");
+    }
+
+    [Fact]
+    public void No_InsufficientData_Diagnostic_When_Two_Or_More_Valid_Klines_Remain()
+    {
+        var klines = KlineFactory.CreateSeries(count: 5);
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+
+        result.Diagnostics
+            .Should().NotContain(d => d.Indicator == "kline.insufficientData",
+                because: "5 valid candles is sufficient");
+    }
+
+    // ── Level meta — Strength and ClusterVolume propagation ──────────────────
+
+    [Fact]
+    public void Support1_Strength_And_ClusterVolume_Are_Populated_When_Level_Is_Detected()
+    {
+        // 250 свечей достаточно для работы VolumeProfileDetector
+        var klines = KlineFactory.CreateSeries(count: 250);
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+        var snap   = result.Snapshot;
+
+        // Если уровень обнаружен — Strength и ClusterVolume должны быть заполнены
+        if (snap.Support1 is not null)
+        {
+            snap.Support1Strength.Should().HaveValue(
+                because: "Support1 is detected → Strength must be populated by the assembler");
+            snap.Support1Strength!.Value.Should().BeInRange(0m, 1m,
+                because: "Strength is normalised to [0, 1]");
+            snap.Support1ClusterVolume.Should().HaveValue(
+                because: "Support1 is detected → ClusterVolume must be populated by the assembler");
+            snap.Support1ClusterVolume!.Value.Should().BePositive(
+                because: "ClusterVolume of a detected level must be > 0");
+        }
+
+        if (snap.Resistance1 is not null)
+        {
+            snap.Resistance1Strength.Should().HaveValue(
+                because: "Resistance1 is detected → Strength must be populated by the assembler");
+            snap.Resistance1ClusterVolume.Should().HaveValue(
+                because: "Resistance1 is detected → ClusterVolume must be populated by the assembler");
+        }
+    }
+
+    [Fact]
+    public void Support1_Strength_And_ClusterVolume_Are_Null_When_Level_Is_Not_Detected()
+    {
+        // Одна свеча — объёмный профиль не найдёт уровней из-за нехватки данных
+        var klines = KlineFactory.CreateSeries(count: 1);
+
+        // Assembler выбрасывает исключение при validKlines < 2 — проверяем это отдельно;
+        // здесь нас интересует поведение когда уровни не обнаружены.
+        // Создаём минимально достаточный набор свечей с одинаковыми ценами — профиль не выдаст поддержку/сопротивление
+        // относительно Close, поэтому проверяем консистентность: если Price == null, то Strength == null.
+        var klines200 = KlineFactory.CreateSeries(count: 200);
+        var result    = TimeframeSnapshotAssembler.Assemble(klines200, timeframe: "1h");
+        var snap      = result.Snapshot;
+
+        if (snap.Support1 is null)
+        {
+            snap.Support1Strength.Should().BeNull(
+                because: "Support1 not detected → Strength must also be null");
+            snap.Support1ClusterVolume.Should().BeNull(
+                because: "Support1 not detected → ClusterVolume must also be null");
+        }
+
+        if (snap.Resistance1 is null)
+        {
+            snap.Resistance1Strength.Should().BeNull(
+                because: "Resistance1 not detected → Strength must also be null");
+            snap.Resistance1ClusterVolume.Should().BeNull(
+                because: "Resistance1 not detected → ClusterVolume must also be null");
+        }
     }
 }

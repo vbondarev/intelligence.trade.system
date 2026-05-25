@@ -448,6 +448,91 @@ public sealed class LlmTimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("IndicatorUnavailable");
     }
 
+    // ─── 13.9: EMA fallback alone caps EntryQuality at Fair ─────────────────
+
+    [Fact]
+    public void Build_EmaFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
+    {
+        // Все критические индикаторы доступны, но EMA рассчитаны по partial window (fallback).
+        // ApplyIndicatorCap должен не допустить Good — только Fair.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, rsi14IsReliable: true,
+            trendStrengthScore: 0.85m,
+            distanceToSupport: 0.5m,
+            emaIsReliable: true, emaHasFallback: true,   // EMA partial window
+            atrIsReliable: true, atrIsFallback: false,
+            volumeRatioIsReliable: true, volumeRatioIsFallback: false,
+            volumeRatio: 1.2m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().Be(EntryQuality.Fair,
+            because: "EMA fallback caps entryQuality at Fair — Good is not allowed when EMA uses partial window");
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "ApplyIndicatorCap must block Good when EmaHasFallback=true");
+        r.RiskFlags.Should().Contain("IndicatorFallback",
+            because: "EMA fallback must produce IndicatorFallback risk flag");
+    }
+
+    // ─── 13.10: ATR fallback alone caps EntryQuality at Fair ─────────────────
+
+    [Fact]
+    public void Build_AtrFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
+    {
+        // Все критические индикаторы доступны, ATR рассчитан по partial window (fallback).
+        // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → cap at Fair.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, rsi14IsReliable: true,
+            trendStrengthScore: 0.85m,
+            distanceToSupport: 0.5m,
+            emaIsReliable: true, emaHasFallback: false,
+            atrIsReliable: true, atrIsFallback: true,    // ATR partial window
+            volumeRatioIsReliable: true, volumeRatioIsFallback: false,
+            volumeRatio: 1.2m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().Be(EntryQuality.Fair,
+            because: "ATR fallback caps entryQuality at Fair — Good is not allowed when AtrIsFallback=true");
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "ApplyIndicatorCap must block Good when AtrIsFallback=true");
+        r.RiskFlags.Should().Contain("AtrFallback",
+            because: "ATR fallback must produce AtrFallback risk flag");
+        r.RiskFlags.Should().Contain("IndicatorFallback",
+            because: "any fallback indicator must produce IndicatorFallback risk flag");
+    }
+
+    // ─── 13.11: VolumeRatio fallback does NOT affect EntryQuality ────────────
+
+    [Fact]
+    public void Build_VolumeRatioFallback_Does_Not_Affect_EntryQuality()
+    {
+        // Намеренное решение дизайна: VolumeRatioFallback — вспомогательный сигнал,
+        // не является ограничивающим фактором для entryQuality.
+        // При всех остальных доступных индикаторах Good должен оставаться возможным.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, rsi14IsReliable: true,
+            trendStrengthScore: 0.85m,
+            distanceToSupport: 0.5m,
+            emaIsReliable: true, emaHasFallback: false,
+            atrIsReliable: true, atrIsFallback: false,
+            volumeRatioIsReliable: true, volumeRatioIsFallback: true,  // fallback, but high ratio
+            volumeRatio: 1.2m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good,
+            because: "VolumeRatioFallback must not cap entryQuality — volume is an auxiliary signal only");
+        r.RiskFlags.Should().Contain("VolumeDataFallback",
+            because: "fallback volume still produces VolumeDataFallback risk flag");
+        r.RiskFlags.Should().Contain("IndicatorFallback");
+        r.RiskFlags.Should().NotContain("LowVolume",
+            because: "volumeRatio=1.2 >= 0.5 threshold, no LowVolume flag");
+    }
+
     // ─── 14: Integration — RSI unavailable + EMA200 fallback + ATR unavailable
 
     [Fact]

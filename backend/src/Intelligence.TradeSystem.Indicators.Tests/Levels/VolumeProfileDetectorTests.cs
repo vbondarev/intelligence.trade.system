@@ -852,4 +852,156 @@ public sealed class VolumeProfileDetectorTests
             }
         }
     }
+
+    // ── Source invariant ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void All_Detected_Levels_Have_Source_SimplifiedVolumeProfile()
+    {
+        // Инвариант: все обнаруженные уровни имеют Source = SimplifiedVolumeProfile.
+        // Проверяет, что детектор не смешивает источники и не оставляет поле неинициализированным.
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        foreach (var level in new[] { result.Support1, result.Support2, result.Resistance1, result.Resistance2 })
+        {
+            if (level is { } l)
+            {
+                l.Source.Should().Be(LevelSource.SimplifiedVolumeProfile,
+                    because: "VolumeProfileDetector всегда выдаёт уровни с Source = SimplifiedVolumeProfile");
+            }
+        }
+    }
+
+    [Fact]
+    public void Support1_Source_Is_SimplifiedVolumeProfile_When_Detected()
+    {
+        // Детерминированный сценарий: одна HVN-зона ниже текущей цены.
+        // Support1 гарантированно обнаружен → безусловная проверка Source.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var supportZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = supportZone.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().NotBeNull(because: "одна HVN-зона снизу гарантирует Support1");
+        result.Support1!.Source.Should().Be(LevelSource.SimplifiedVolumeProfile,
+            because: "VolumeProfileDetector обязан устанавливать Source = SimplifiedVolumeProfile");
+    }
+
+    [Fact]
+    public void Resistance1_Source_Is_SimplifiedVolumeProfile_When_Detected()
+    {
+        // Зеркальный детерминированный сценарий: одна HVN-зона выше текущей цены.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var resistanceZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 144m, high: 150m, low: 140m, close: 146m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = resistanceZone.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Resistance1.Should().NotBeNull(because: "одна HVN-зона сверху гарантирует Resistance1");
+        result.Resistance1!.Source.Should().Be(LevelSource.SimplifiedVolumeProfile,
+            because: "VolumeProfileDetector обязан устанавливать Source = SimplifiedVolumeProfile");
+    }
+
+    // ── ClusterVolume invariant ───────────────────────────────────────────────
+
+    [Fact]
+    public void All_Detected_Levels_Have_Positive_ClusterVolume()
+    {
+        // Инвариант: ClusterVolume > 0 для каждого обнаруженного уровня (при ненулевом объёме свечей).
+        // Гарантирует, что детектор не порождает уровней с фантомным нулевым объёмом кластера.
+        var klines = KlineFactory.CreateSeries(50).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        foreach (var level in new[] { result.Support1, result.Support2, result.Resistance1, result.Resistance2 })
+        {
+            if (level is { } l)
+            {
+                l.ClusterVolume.Should().BePositive(
+                    because: "обнаруженный уровень из ненулевого профиля обязан иметь ClusterVolume > 0");
+            }
+        }
+    }
+
+    [Fact]
+    public void Support1_ClusterVolume_Is_Positive_When_Detected()
+    {
+        // Детерминированный сценарий: одна HVN-зона снизу (объём 1 000 000).
+        // Support1 гарантированно обнаружен → безусловная проверка ClusterVolume.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var supportZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 99m, high: 102m, low: 98m, close: 100m,
+            volume: 10m,
+            startTime: baseTime.AddHours(5));
+
+        var klines = supportZone.Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines);
+
+        result.Support1.Should().NotBeNull(because: "одна HVN-зона снизу гарантирует Support1");
+        result.Support1!.ClusterVolume.Should().BePositive(
+            because: "кластер из свечей с объёмом 1 000 000 обязан иметь ClusterVolume > 0");
+    }
+
+    [Fact]
+    public void Dominant_Cluster_Has_Higher_ClusterVolume_Than_Weaker_Cluster()
+    {
+        // Zone A (1M) — доминирующая, дальше от цены → Support2.
+        // Zone B (500K) — слабее, ближе к цене → Support1.
+        // ClusterVolume должен отражать реальный объём: Support2.ClusterVolume > Support1.ClusterVolume.
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var dominantZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 24m, high: 30m, low: 20m, close: 26m,
+            volume: 1_000_000m,
+            startTime: baseTime.AddHours(i))).ToArray();
+
+        var weakerZone = Enumerable.Range(0, 5).Select(i => KlineFactory.Create(
+            open: 44m, high: 50m, low: 40m, close: 46m,
+            volume: 500_000m,
+            startTime: baseTime.AddHours(5 + i))).ToArray();
+
+        var anchor = KlineFactory.Create(
+            open: 98m, high: 105m, low: 95m, close: 100m,
+            volume: 1m,
+            startTime: baseTime.AddHours(10));
+
+        var klines = dominantZone.Concat(weakerZone).Append(anchor).ToArray();
+        var result = VolumeProfileDetector.Detect(klines, new VolumeProfileOptions(hvnThresholdRatio: 0.4m));
+
+        result.Support1.Should().NotBeNull(because: "Zone B ближе к цене → Support1");
+        result.Support2.Should().NotBeNull(because: "Zone A дальше → Support2");
+
+        result.Support1!.ClusterVolume.Should().BePositive(
+            because: "Zone B (500K) должна иметь положительный ClusterVolume");
+        result.Support2!.ClusterVolume.Should().BePositive(
+            because: "Zone A (1M) должна иметь положительный ClusterVolume");
+
+        result.Support2.ClusterVolume.Should().BeGreaterThan(result.Support1.ClusterVolume,
+            because: "доминирующая Zone A (1M) должна иметь больший ClusterVolume, чем Zone B (500K)");
+    }
 }

@@ -155,12 +155,13 @@ public sealed class IndicatorPipelineIntegrationTests
     public void Pipeline_Produces_No_Diagnostics_When_All_Indicators_Fully_Available()
     {
         // 250 candles → EMA20/50/200, RSI14, ATR14, VolumeSma20 all fully available.
+        // KlineFactory produces candles with non-zero volume → VolumeRatio is also computable.
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var s = result.Snapshot;
 
         s.IndicatorDiagnostics.Should().BeEmpty(
-            because: "250 candles is sufficient for all indicators — no diagnostics expected");
+            because: "250 candles with non-zero volume is sufficient for all indicators — no diagnostics expected");
 
         // All indicator values are non-null.
         s.Ema20.Should().NotBeNull();
@@ -169,9 +170,11 @@ public sealed class IndicatorPipelineIntegrationTests
         s.Rsi14.Should().NotBeNull();
         s.Atr14.Should().NotBeNull();
         s.VolumeSma20.Should().NotBeNull();
+        s.VolumeRatio.Should().NotBeNull(because: "non-zero volumes → VolumeRatio is computable");
         s.Rsi14IsReliable.Should().BeTrue();
         s.EmaIsReliable.Should().BeTrue();
         s.AtrIsReliable.Should().BeTrue();
+        s.VolumeRatioIsReliable.Should().BeTrue();
     }
 
     // ─── Scenario 8: Diagnostics stable order ────────────────────────────────
@@ -181,18 +184,49 @@ public sealed class IndicatorPipelineIntegrationTests
     {
         // 10 candles → ema20/50 may be partial or available, ema200 partial,
         // rsi14 unavailable, atr14 available, volumeSma20 partial.
+        // Volumes are non-zero → volumeRatio IS computable (no volumeRatio diagnostic).
         var klines = KlineFactory.CreateSeries(count: 10);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
         // Extract indicator names in the order they appear.
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
-        // Expected stable order (whitelist from assembler): ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20
-        var expectedOrder = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20" };
+        // Expected stable order: ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20 → volumeRatio.
+        // volumeRatio appears only when VolumeRatio is null; in this scenario it is computable → not present.
+        var expectedOrder = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20", "volumeRatio" };
         var presentInOrder = expectedOrder.Where(indicatorOrder.Contains).ToList();
 
         indicatorOrder.Should().ContainInOrder(presentInOrder,
             because: "indicator diagnostics must be emitted in the canonical stable order");
+    }
+
+    // ─── Scenario 8b: volumeRatio diagnostic comes after volumeSma20 ─────────
+
+    [Fact]
+    public void Pipeline_VolumeRatio_Diagnostic_Comes_After_VolumeSma20_In_Stable_Order()
+    {
+        // All volumes = 0 → VolumeSma20 = Available(0) → VolumeRatio = null → volumeRatio diagnostic emitted.
+        // VolumeSma20 is Available(0) → no volumeSma20 diagnostic.
+        // Stable order must place volumeRatio after volumeSma20 (even when volumeSma20 diagnostic is absent).
+        var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var klines = Enumerable.Range(0, 25)
+            .Select(i => KlineFactory.Create(volume: 0m, startTime: baseTime.AddHours(i)))
+            .ToList();
+
+        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+        var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
+
+        // volumeRatio must be present and must appear after any earlier indicators.
+        indicatorOrder.Should().Contain("volumeRatio");
+        indicatorOrder.Should().NotContain("volumeSma20",
+            because: "VolumeSma20 = Available(0) → not a fallback → no volumeSma20 diagnostic");
+
+        // No other indicator (ema/rsi/atr) appears after volumeRatio.
+        var volumeRatioIdx = indicatorOrder.IndexOf("volumeRatio");
+        var laterIndicators = indicatorOrder.Skip(volumeRatioIdx + 1).ToList();
+        var priorIndicators = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20" };
+        laterIndicators.Should().NotContain(priorIndicators,
+            because: "volumeRatio must be the last diagnostic in stable order");
     }
 
     // ─── Scenario 9: Assembler diagnostic count across multiple timeframes ───
@@ -223,7 +257,7 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "diagnostics are aggregated in timeframe order: 15m → 1h → 4h → 1d");
     }
 
-    // ─── Scenario 10: VolumeRatio is null when VolumeSma20 is unavailable ────
+    // ─── Scenario 10: VolumeRatio diagnostic when VolumeSma20 is zero ────────
 
     [Fact]
     public void Pipeline_VolumeRatio_Is_Null_When_All_Candle_Volumes_Are_Zero()
@@ -234,10 +268,19 @@ public sealed class IndicatorPipelineIntegrationTests
             .ToList();
 
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+        var s = result.Snapshot;
 
-        result.Snapshot.VolumeRatio.Should().BeNull(
+        s.VolumeRatio.Should().BeNull(
             because: "VolumeSma20 = 0 → VolumeRatio cannot be computed → null, not fake-zero");
-        result.Snapshot.VolumeRatioIsReliable.Should().BeFalse();
+        s.VolumeRatioIsReliable.Should().BeFalse();
+
+        // Diagnostic must explain why VolumeRatio is absent.
+        var diag = s.IndicatorDiagnostics.Should().ContainSingle(d => d.Indicator == "volumeRatio").Subject;
+        diag.Timeframe.Should().Be("1h");
+        diag.Reason.Should().Be(IndicatorValueReason.InvalidInput.ToString(),
+            because: "VolumeSma20 is Available(0) — division by zero is the cause, not missing data");
+        diag.IsFallback.Should().BeFalse();
+        diag.Message.Should().Contain("volumeRatio").And.Contain("unavailable");
     }
 
     private static readonly string[] TimeframeOrder = ["15m", "1h", "1d"];

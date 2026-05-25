@@ -88,6 +88,12 @@ public sealed record TimeframeAnalysisSnapshot
     /// </summary>
     public decimal? Support1Strength { get; init; }
 
+    /// <summary>
+    /// Суммарный объём бакетов HVN-кластера, лежащего в основе <see cref="Support1"/>.
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Support1ClusterVolume { get; init; }
+
     /// <summary>Второй значимый уровень поддержки (глубже первого). <c>null</c> — не обнаружен.</summary>
     public decimal? Support2 { get; init; }
 
@@ -96,6 +102,12 @@ public sealed record TimeframeAnalysisSnapshot
     /// <c>null</c> — уровень не обнаружен.
     /// </summary>
     public decimal? Support2Strength { get; init; }
+
+    /// <summary>
+    /// Суммарный объём бакетов HVN-кластера, лежащего в основе <see cref="Support2"/>.
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Support2ClusterVolume { get; init; }
 
     /// <summary>Ближайший значимый уровень сопротивления (первый сверху от текущей цены). <c>null</c> — не обнаружен.</summary>
     public decimal? Resistance1 { get; init; }
@@ -106,6 +118,12 @@ public sealed record TimeframeAnalysisSnapshot
     /// </summary>
     public decimal? Resistance1Strength { get; init; }
 
+    /// <summary>
+    /// Суммарный объём бакетов HVN-кластера, лежащего в основе <see cref="Resistance1"/>.
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Resistance1ClusterVolume { get; init; }
+
     /// <summary>Второй значимый уровень сопротивления (выше первого). <c>null</c> — не обнаружен.</summary>
     public decimal? Resistance2 { get; init; }
 
@@ -114,6 +132,12 @@ public sealed record TimeframeAnalysisSnapshot
     /// <c>null</c> — уровень не обнаружен.
     /// </summary>
     public decimal? Resistance2Strength { get; init; }
+
+    /// <summary>
+    /// Суммарный объём бакетов HVN-кластера, лежащего в основе <see cref="Resistance2"/>.
+    /// <c>null</c> — уровень не обнаружен.
+    /// </summary>
+    public decimal? Resistance2ClusterVolume { get; init; }
 
     /// <summary><c>true</c>, если цена закрытия последней свечи выше EMA 20.</summary>
     public bool IsAboveEma20 { get; init; }

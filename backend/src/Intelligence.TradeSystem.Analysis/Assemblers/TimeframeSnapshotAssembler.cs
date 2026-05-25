@@ -83,6 +83,57 @@ public static class TimeframeSnapshotAssembler
                 Message    = $"{timeframe}.kline[{violation.KlineIndex}] invalid: {violation.ViolationReason}",
             });
         }
+
+        // Degradation policy — emit additional diagnostics for structurally significant data issues.
+
+        // 1. Last candle by time was filtered out — the most recent market data is absent.
+        var originalLatest = klines.Max(k => k.StartTime);
+        var validLatest    = validKlines.Max(k => k.StartTime);
+        if (originalLatest > validLatest)
+        {
+            indicatorDiagnostics.Add(new IndicatorDiagnostic
+            {
+                Timeframe  = timeframe,
+                Indicator  = "kline.lastFiltered",
+                Reason     = IndicatorValueReason.InvalidInput,
+                IsFallback = false,
+                Message    = $"{timeframe}: the most recent candle (StartTime={originalLatest:O}) failed validation " +
+                             $"and was excluded. Snapshot reflects data up to {validLatest:O}.",
+            });
+        }
+
+        // 2. High violation rate — more than KlineHighViolationRateThreshold of input klines were invalid.
+        if (violations.Count > 0 &&
+            violations.Count / (decimal)klines.Count > AnalysisThresholds.KlineHighViolationRateThreshold)
+        {
+            indicatorDiagnostics.Add(new IndicatorDiagnostic
+            {
+                Timeframe  = timeframe,
+                Indicator  = "kline.highViolationRate",
+                Reason     = IndicatorValueReason.InvalidInput,
+                IsFallback = false,
+                Message    = $"{timeframe}: {violations.Count}/{klines.Count} candles failed validation " +
+                             $"({violations.Count * 100 / klines.Count}%), " +
+                             $"exceeding the {AnalysisThresholds.KlineHighViolationRateThreshold * 100m:0}% threshold.",
+            });
+        }
+
+        // 3. Insufficient usable data — valid set is smaller than KlineMinimumUsableCount.
+        //    validKlines.Count == 0 already throws above; this handles the 1-candle edge case.
+        if (validKlines.Count < AnalysisThresholds.KlineMinimumUsableCount)
+        {
+            indicatorDiagnostics.Add(new IndicatorDiagnostic
+            {
+                Timeframe  = timeframe,
+                Indicator  = "kline.insufficientData",
+                Reason     = IndicatorValueReason.InsufficientData,
+                IsFallback = false,
+                Message    = $"{timeframe}: only {validKlines.Count} valid candle(s) remain after filtering " +
+                             $"(minimum usable: {AnalysisThresholds.KlineMinimumUsableCount}). " +
+                             "Indicator quality is severely degraded.",
+            });
+        }
+
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema20",      ema20Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema50",      ema50Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "ema200",     ema200Value);
@@ -107,6 +158,27 @@ public static class TimeframeSnapshotAssembler
         decimal? volumeRatio = volSma20Value.HasUsableValue() && volSma20Value.RequireValue() > 0m
             ? Math.Round(lastVolume / volSma20Value.RequireValue(), 4)
             : null;
+
+        // volumeRatio diagnostic — emit only when ratio could not be computed.
+        // Two cases:
+        //   InvalidInput     — SMA is available but == 0 (all volumes are zero); no existing diagnostic covers this.
+        //   InsufficientData — SMA itself is unavailable (volumeSma20 diagnostic already exists, but we
+        //                      still name the derived indicator explicitly for consumer clarity).
+        if (volumeRatio is null)
+        {
+            var volumeRatioReason = volSma20Value.HasUsableValue()
+                ? IndicatorValueReason.InvalidInput
+                : IndicatorValueReason.InsufficientData;
+
+            indicatorDiagnostics.Add(new IndicatorDiagnostic
+            {
+                Timeframe  = timeframe,
+                Indicator  = "volumeRatio",
+                Reason     = volumeRatioReason,
+                IsFallback = false,
+                Message    = $"{timeframe}.volumeRatio unavailable: {volumeRatioReason}.",
+            });
+        }
 
         // 4. Support / Resistance via Volume Profile
         var levels = VolumeProfileDetector.Detect(sorted);
@@ -205,10 +277,18 @@ public static class TimeframeSnapshotAssembler
             TrendStrengthScore = strengthScore,
             Trend              = trend,
 
-            Support1    = levels.Support1?.Price,
-            Support2    = levels.Support2?.Price,
-            Resistance1 = levels.Resistance1?.Price,
-            Resistance2 = levels.Resistance2?.Price,
+            Support1              = levels.Support1?.Price,
+            Support1Strength      = levels.Support1?.Strength,
+            Support1ClusterVolume = levels.Support1?.ClusterVolume,
+            Support2              = levels.Support2?.Price,
+            Support2Strength      = levels.Support2?.Strength,
+            Support2ClusterVolume = levels.Support2?.ClusterVolume,
+            Resistance1              = levels.Resistance1?.Price,
+            Resistance1Strength      = levels.Resistance1?.Strength,
+            Resistance1ClusterVolume = levels.Resistance1?.ClusterVolume,
+            Resistance2              = levels.Resistance2?.Price,
+            Resistance2Strength      = levels.Resistance2?.Strength,
+            Resistance2ClusterVolume = levels.Resistance2?.ClusterVolume,
 
             IsAboveEma20  = isAboveEma20,
             IsAboveEma50  = isAboveEma50,

@@ -41,5 +41,13 @@ public sealed record LlmLevelMetaPayload
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? DistancePct { get; init; }
+
+    /// <summary>
+    /// Суммарный объём бакетов HVN-кластера, образующего данный уровень.
+    /// Абсолютное значение зависит от единиц объёма инструмента.
+    /// <c>null</c> — детектор не предоставляет данные о кластерном объёме.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? ClusterVolume { get; init; }
 }
 

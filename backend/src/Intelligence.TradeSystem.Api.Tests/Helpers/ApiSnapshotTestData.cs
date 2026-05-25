@@ -7,6 +7,9 @@ internal static class ApiSnapshotTestData
     /// <summary>Значение Support1Strength, используемое в тестовых снапшотах.</summary>
     public const decimal Support1StrengthValue = 0.9m;
 
+    /// <summary>Значение Support1ClusterVolume, используемое в тестовых снапшотах.</summary>
+    public const decimal Support1ClusterVolumeValue = 52000m;
+
     public static MarketAnalysisSnapshot CreateSnapshot() => CreateSnapshot(MarketTrend.Bullish);
 
     /// <summary>
@@ -197,12 +200,16 @@ internal static class ApiSnapshotTestData
             Trend = trend,
             Support1 = 64600m,
             Support1Strength = Support1StrengthValue,
+            Support1ClusterVolume = Support1ClusterVolumeValue,
             Support2 = 64250m,
             Support2Strength = 0.75m,
+            Support2ClusterVolume = 38000m,
             Resistance1 = 65200m,
             Resistance1Strength = 0.85m,
+            Resistance1ClusterVolume = 47000m,
             Resistance2 = 65650m,
             Resistance2Strength = 0.6m,
+            Resistance2ClusterVolume = 29000m,
             IsAboveEma20 = true,
             IsAboveEma50 = true,
             IsAboveEma200 = isAboveEma200,

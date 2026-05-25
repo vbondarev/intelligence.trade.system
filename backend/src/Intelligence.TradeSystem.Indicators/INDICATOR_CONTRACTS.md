@@ -169,17 +169,153 @@ All calculators expect inputs in **chronological order (oldest → newest)**.
 
 ## Level indicators
 
-`VolumeProfileDetector` returns nullable levels and does **not** use `IndicatorValue`.
+`VolumeProfileDetector` returns a `LevelSet` and does **not** use `IndicatorValue`.
 
-- `null` means the level was not detected — it does **not** mean `0`.
-- Never substitute `0m` for a missing support or resistance level.
-- `VolumeProfileDetector` is a simplified volume profile implementation (V1): fixed 100-bucket profile, adjacent strong HVN buckets merged into clusters, two closest support/resistance levels returned relative to the last close.
+> **Production status:** `VolumeProfileDetector` is the active, production-enabled level detector.
+> It uses a simplified Volume Profile algorithm (kline volume distributed uniformly across the `Low–High` range) and is **not** a precise Volume-at-Price model.
+> The wire value of the `source` field in the LLM payload is always `"simplified-volume-profile"` (kebab-case string constant).
+> This limitation is communicated to LLM consumers via the `source` field and the `strengthLabel` field.
+> Replace this detector only when a full VAP implementation is introduced; update `LevelSource` and the `LevelSourceV1` constant in `LlmPayloadMapperExtensions` together.
 
-**Example payload:**
+---
+
+### VolumeProfileOptions
+
+Configuration for `VolumeProfileDetector.Detect(...)`. Pass `null` to use `VolumeProfileOptions.Default`.
+
+```csharp
+public sealed class VolumeProfileOptions
+{
+    public static readonly VolumeProfileOptions Default = new();
+
+    public int BucketCount { get; }           // default: 100
+    public decimal HvnThresholdRatio { get; } // default: 0.70
+
+    public VolumeProfileOptions(int bucketCount = 100, decimal hvnThresholdRatio = 0.70m);
+}
+```
+
+| Parameter | Default | Constraint | Meaning |
+|---|---|---|---|
+| `BucketCount` | `100` | Must be `> 0` | Number of equal-width price buckets that divide `[min(Low), max(High)]` |
+| `HvnThresholdRatio` | `0.70` | Must be in `(0, 1]` | Fraction of the maximum bucket volume above which a bucket is considered a High Volume Node (HVN) |
+
+---
+
+### LevelSet
+
+The return type of `VolumeProfileDetector.Detect(...)`.
+
+```csharp
+public sealed record LevelSet(
+    LevelInfo? Support1,
+    LevelInfo? Support2,
+    LevelInfo? Resistance1,
+    LevelInfo? Resistance2
+);
+```
+
+| Field | Meaning |
+|---|---|
+| `Support1` | Nearest detected support below `klines[^1].Close`, or `null` if not found |
+| `Support2` | Second nearest support below current price, or `null` |
+| `Resistance1` | Nearest detected resistance above current price, or `null` |
+| `Resistance2` | Second nearest resistance above current price, or `null` |
+
+- **`null` means the level was not detected** — it does **not** mean `0`.
+- Never substitute `0m` for a `null` level.
+
+---
+
+### LevelInfo
+
+Each non-null level is a `LevelInfo` record with four fields.
+
+```csharp
+public sealed record LevelInfo(
+    decimal Price,
+    decimal Strength,
+    LevelSource Source,
+    decimal ClusterVolume
+);
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `Price` | `decimal` | Volume-weighted centroid of the HVN cluster (price at the centre of mass of the merged buckets) |
+| `Strength` | `decimal` | Relative strength of the level in the range `[0, 1]`; see formula below |
+| `Source` | `LevelSource` | How the level was detected; currently always `LevelSource.SimplifiedVolumeProfile`; serialized in LLM payload as `"simplified-volume-profile"` (kebab-case) |
+| `ClusterVolume` | `decimal` | Total volume of all buckets that make up the cluster |
+
+**`Strength` formula:**
+
+```
+Strength = Math.Round(ClusterVolume / maxClusterVolume, 4)
+```
+
+Where `maxClusterVolume` is the total volume of the largest HVN cluster in the current profile.
+
+- `Strength = 1.0` → the cluster has the highest volume in the profile.
+- `Strength < 1.0` → the cluster is weaker relative to the dominant cluster.
+- `Strength = 0.0` → fallback only (cluster volume sum was `0`). Never use `0` as a proxy for "level not found" — use `null` on `LevelSet` fields instead.
+
+---
+
+### LevelSource
+
+```csharp
+public enum LevelSource
+{
+    SimplifiedVolumeProfile = 0
+}
+```
+
+`SimplifiedVolumeProfile` means the level was detected by the simplified Volume Profile algorithm: kline volume is distributed uniformly across the `Low–High` range. This is **not** a precise Volume-at-Price model.
+
+---
+
+### Rules
+
+- `VolumeProfileDetector` is a simplified volume profile implementation. Do not assume it is a precise VAP model unless explicitly replaced.
+- A detected level is always a full `LevelInfo` object — never a plain `decimal`.
+- `null` on a `LevelSet` field means the level was not found; there is no fallback numeric substitute.
+- `VolumeProfileDetector` does not produce `IndicatorDiagnostics`; missing levels are expressed as `null` fields on `LevelSet`.
+
+---
+
+### Example
+
+**C# snapshot shape:**
+```csharp
+LevelSet levels = new(
+    Support1: null,
+    Support2: null,
+    Resistance1: new LevelInfo(80751.47m, 1.0000m, LevelSource.SimplifiedVolumeProfile, 524830.5m),
+    Resistance2: new LevelInfo(81200.00m, 0.7312m, LevelSource.SimplifiedVolumeProfile, 383401.2m)
+);
+```
+
+**Corresponding LLM payload shape:**
 ```json
 {
   "support1": null,
-  "resistance1": 80751.47
+  "support2": null,
+  "resistance1": {
+    "price": 80751.47,
+    "strength": 1.0000,
+    "strengthLabel": "Strong",
+    "source": "simplified-volume-profile",
+    "distancePct": 0.42,
+    "clusterVolume": 524830.5
+  },
+  "resistance2": {
+    "price": 81200.00,
+    "strength": 0.7312,
+    "strengthLabel": "Moderate",
+    "source": "simplified-volume-profile",
+    "distancePct": 0.91,
+    "clusterVolume": 383401.2
+  }
 }
 ```
 
