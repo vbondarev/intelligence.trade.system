@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
+// ReSharper disable once RedundantUsingDirective (needed for MarketRegimes constant)
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -24,23 +25,46 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// </summary>
 internal static class LlmTimeframeSummaryBuilder
 {
-    private const decimal TrendStrengthStrongThreshold = 0.80m;
-    private const decimal TrendStrengthModerateThreshold = 0.50m;
-
     /// <summary>Порог объёма: VolumeRatio ниже этого значения → <c>LowVolume</c>.</summary>
     private const decimal LowVolumeThreshold = 0.5m;
 
     /// <summary>
     /// Строит согласованный summary для снапшота таймфрейма.
     /// </summary>
-    public static LlmTimeframeSummaryResult Build(TimeframeAnalysisSnapshot s)
+    /// <param name="s">Снапшот таймфрейма.</param>
+    /// <param name="snapshotIsFresh">
+    /// <c>true</c>, если снапшот актуален (все секции моложе порогов).
+    /// Передаётся из <c>LlmSnapshotHealthPayload.IsFresh</c>.
+    /// По умолчанию <c>true</c> — не ограничивает quality.
+    /// </param>
+    /// <param name="marketRegime">
+    /// Текущий рыночный режим (<see cref="MarketRegimes"/>).
+    /// Передаётся из <c>SentimentSnapshot.MarketRegime</c>.
+    /// По умолчанию <see cref="MarketRegimes.Trending"/> — не ограничивает quality.
+    /// </param>
+    /// <param name="higherTfOppositeLevel">
+    /// Ближайший противоположный уровень со старшего таймфрейма.
+    /// Для Bullish — resistance; для Bearish — support.
+    /// <c>null</c> — нет уровня на старших ТФ; качество не ограничивается этим источником.
+    /// </param>
+    public static LlmTimeframeSummaryResult Build(
+        TimeframeAnalysisSnapshot s,
+        bool snapshotIsFresh = true,
+        string marketRegime = MarketRegimes.Trending,
+        NearestOppositeLevel? higherTfOppositeLevel = null)
     {
         var trendStrengthLabel = ComputeTrendStrengthLabel(s.Trend, s.TrendStrengthScore);
         var bias = ComputeBias(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment);
         var isTrendConfirmed = ComputeIsTrendConfirmed(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment, s.IsAboveEma200);
         var momentumState = ComputeMomentumState(bias, isTrendConfirmed, s.Rsi14, s.RsiOverbought, s.RsiOversold, s.Rsi14IsReliable);
-        var entryQuality = ComputeEntryQuality(bias, isTrendConfirmed, s);
-        var riskFlags = ComputeRiskFlags(s);
+
+        // Pre-compute entry level and nearest opposite level for quality + risk flags
+        var entryLevelStrength = ResolveEntryLevelStrength(bias, s);
+        var (oppDistancePct, oppStrength, isOppFromHigherTf) = ResolveNearestOppositeLevel(bias, s, higherTfOppositeLevel);
+
+        var entryQuality = ComputeEntryQuality(bias, isTrendConfirmed, s, snapshotIsFresh, marketRegime,
+            entryLevelStrength, oppDistancePct, oppStrength);
+        var riskFlags = ComputeRiskFlags(s, bias, entryLevelStrength, oppDistancePct, isOppFromHigherTf);
 
         return new LlmTimeframeSummaryResult
         {
@@ -118,12 +142,17 @@ internal static class LlmTimeframeSummaryBuilder
     // ─── Step 5: EntryQuality ────────────────────────────────────────────────
 
     private static EntryQuality ComputeEntryQuality(
-        TimeframeBias bias, bool isTrendConfirmed, TimeframeAnalysisSnapshot s)
+        TimeframeBias bias, bool isTrendConfirmed, TimeframeAnalysisSnapshot s,
+        bool snapshotIsFresh, string marketRegime,
+        decimal? entryLevelStrength, decimal? oppDistancePct, decimal? oppStrength)
     {
         var raw = EntryQualityEvaluator.Evaluate(
             bias, isTrendConfirmed,
             s.Support1, s.DistanceToSupport1Pct, s.RsiOverbought,
-            s.Resistance1, s.DistanceToResistance1Pct, s.RsiOversold);
+            s.Resistance1, s.DistanceToResistance1Pct, s.RsiOversold,
+            s.VolumeRatio, s.IsAboveEma20, s.IsAboveEma50,
+            snapshotIsFresh, marketRegime,
+            entryLevelStrength, oppDistancePct, oppStrength);
 
         return ApplyIndicatorCap(s, raw);
     }
@@ -148,7 +177,12 @@ internal static class LlmTimeframeSummaryBuilder
 
     // ─── Step 6: RiskFlags ───────────────────────────────────────────────────
 
-    private static List<string> ComputeRiskFlags(TimeframeAnalysisSnapshot s)
+    private static List<string> ComputeRiskFlags(
+        TimeframeAnalysisSnapshot s,
+        TimeframeBias bias,
+        decimal? entryLevelStrength,
+        decimal? oppDistancePct,
+        bool isOppFromHigherTf)
     {
         var flags = new List<string>();
 
@@ -182,13 +216,27 @@ internal static class LlmTimeframeSummaryBuilder
         else if (s.VolumeRatio.GetValueOrDefault() < LowVolumeThreshold)
             flags.Add("LowVolume");
 
+        // ── Opposite level proximity ─────────────────────────────────────────
+        if (oppDistancePct < EntryQualityEvaluator.NearOppositeThreshold)
+        {
+            if (bias == TimeframeBias.Bullish)
+                flags.Add(isOppFromHigherTf ? "NearHigherTimeframeResistance" : "NearResistance");
+            else if (bias == TimeframeBias.Bearish)
+                flags.Add(isOppFromHigherTf ? "NearHigherTimeframeSupport" : "NearSupport");
+        }
+
+        // ── Weak entry level ─────────────────────────────────────────────────
+        if (bias != TimeframeBias.Neutral &&
+            EntryQualityEvaluator.ClassifyStrength(entryLevelStrength)
+                is LevelStrengthCategory.Weak or LevelStrengthCategory.Unknown)
+            flags.Add("WeakEntryLevel");
+
         // ── General IndicatorUnavailable ─────────────────────────────────────
-        // Добавляется, если EMA недоступны или уже добавлены RsiUnavailable/AtrUnavailable.
         var anyUnavailable = !s.EmaIsReliable || !s.Rsi14IsReliable || !s.AtrIsReliable || !s.VolumeRatioIsReliable;
         if (anyUnavailable && !flags.Contains("IndicatorUnavailable"))
             flags.Add("IndicatorUnavailable");
 
-        // ── General IndicatorFallback ────────────────────────────────────────
+        // ── General IndicatorFallback ───────────────────────────────���────────
         var anyFallback = s.EmaHasFallback || s.AtrIsFallback || s.VolumeRatioIsFallback;
         if (anyFallback && !flags.Contains("IndicatorFallback"))
             flags.Add("IndicatorFallback");
@@ -198,5 +246,44 @@ internal static class LlmTimeframeSummaryBuilder
             flags.Add("WeakTrend");
 
         return flags;
+    }
+
+    // ─── Entry level / opposite level resolution ─────────────────────────────
+
+    /// <summary>
+    /// Возвращает нормализованную силу уровня входа для данного bias.
+    /// Bullish → сила Support1; Bearish → сила Resistance1; Neutral → null.
+    /// </summary>
+    private static decimal? ResolveEntryLevelStrength(TimeframeBias bias, TimeframeAnalysisSnapshot s) =>
+        bias switch
+        {
+            TimeframeBias.Bullish => s.Support1Strength,
+            TimeframeBias.Bearish => s.Resistance1Strength,
+            _ => null,
+        };
+
+    /// <summary>
+    /// Возвращает ближайший противоположный уровень (текущий ТФ vs старший ТФ).
+    /// Для Bullish — ближайший resistance; для Bearish — ближайший support.
+    /// </summary>
+    private static (decimal? dist, decimal? strength, bool isHigherTf) ResolveNearestOppositeLevel(
+        TimeframeBias bias, TimeframeAnalysisSnapshot s, NearestOppositeLevel? higherTf)
+    {
+        // Current TF opposite level
+        var (currentDist, currentStrength) = bias switch
+        {
+            TimeframeBias.Bullish => (s.DistanceToResistance1Pct, s.Resistance1Strength),
+            TimeframeBias.Bearish => (s.DistanceToSupport1Pct, s.Support1Strength),
+            _ => (null, null),
+        };
+
+        if (currentDist is null && higherTf is null) return (null, null, false);
+        if (currentDist is null) return (higherTf!.DistancePct, higherTf.Strength, true);
+        if (higherTf is null) return (currentDist, currentStrength, false);
+
+        // Both available: choose closer
+        return currentDist <= higherTf.DistancePct
+            ? (currentDist, currentStrength, false)
+            : (higherTf.DistancePct, higherTf.Strength, true);
     }
 }

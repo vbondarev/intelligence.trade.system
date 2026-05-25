@@ -38,10 +38,13 @@ internal static class LlmPayloadMapperExtensions
             Derivatives = BuildDerivatives(snapshot.Derivatives),
             OrderBook = BuildOrderBook(snapshot.OrderBook),
             TradeFlow = BuildTradeFlow(snapshot.TradeFlow),
-            M15 = BuildTimeframe(snapshot.M15),
-            H1 = BuildTimeframe(snapshot.H1),
-            H4 = BuildTimeframe(snapshot.H4),
-            D1 = BuildTimeframe(snapshot.D1),
+            M15 = BuildTimeframe(snapshot.M15, health.IsFresh, snapshot.Sentiment.MarketRegime,
+                snapshot.H1, snapshot.H4),
+            H1 = BuildTimeframe(snapshot.H1, health.IsFresh, snapshot.Sentiment.MarketRegime,
+                snapshot.H4, snapshot.D1),
+            H4 = BuildTimeframe(snapshot.H4, health.IsFresh, snapshot.Sentiment.MarketRegime,
+                snapshot.D1),
+            D1 = BuildTimeframe(snapshot.D1, health.IsFresh, snapshot.Sentiment.MarketRegime),
             Sentiment = BuildSentiment(snapshot.Sentiment),
             Tags = [.. snapshot.Tags],
             Portfolio = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
@@ -184,9 +187,13 @@ internal static class LlmPayloadMapperExtensions
 
     private const string LevelSourceV1 = "volume-profile";
 
-    private static LlmTimeframePayload BuildTimeframe(TimeframeAnalysisSnapshot s)
+    private static LlmTimeframePayload BuildTimeframe(
+        TimeframeAnalysisSnapshot s, bool snapshotIsFresh, string marketRegime,
+        params TimeframeAnalysisSnapshot[] higherTfs)
     {
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var bias = PrecomputeBias(s);
+        var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTfs);
+        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
         var lastClose = s.LastCandle.Close;
 
         return new LlmTimeframePayload
@@ -326,4 +333,55 @@ internal static class LlmPayloadMapperExtensions
             Leverage = s.Leverage,
             LiquidationPrice = s.LiquidationPrice,
         };
+
+    // ─── Higher-TF level resolution ─────────────────────────────────────────
+
+    /// <summary>
+    /// Pre-computes bias from snapshot fields using the same deterministic rule as
+    /// <see cref="LlmTimeframeSummaryBuilder"/> so the correct kind of higher-TF
+    /// obstacle level can be selected (resistance for Bullish, support for Bearish)
+    /// before calling Build.
+    /// </summary>
+    private static TimeframeBias PrecomputeBias(TimeframeAnalysisSnapshot s) =>
+        s.Trend switch
+        {
+            MarketTrend.Bullish when s.EmaBullishAlignment => TimeframeBias.Bullish,
+            MarketTrend.Bearish when s.EmaBearishAlignment => TimeframeBias.Bearish,
+            _ => TimeframeBias.Neutral,
+        };
+
+    /// <summary>
+    /// Returns the nearest relevant opposite level from the supplied higher-timeframe
+    /// snapshots that acts as a potential obstacle for the given bias direction.
+    /// <para>
+    /// For <see cref="TimeframeBias.Bullish"/> — nearest Resistance1 above price.<br/>
+    /// For <see cref="TimeframeBias.Bearish"/> — nearest Support1 below price.
+    /// </para>
+    /// Only considers levels with a strictly positive distance, meaning the level is
+    /// actually on the correct side of the current price.
+    /// A null or non-positive distance means the level is absent or already behind the
+    /// price direction → ignored as an obstacle.
+    /// </summary>
+    private static NearestOppositeLevel? ResolveHigherTfOppositeLevel(
+        TimeframeBias bias, TimeframeAnalysisSnapshot[] higherTfs)
+    {
+        if (bias == TimeframeBias.Neutral || higherTfs.Length == 0) return null;
+
+        NearestOppositeLevel? best = null;
+        foreach (var htf in higherTfs)
+        {
+            var (dist, strength) = bias == TimeframeBias.Bullish
+                ? (htf.DistanceToResistance1Pct, htf.Resistance1Strength)
+                : (htf.DistanceToSupport1Pct, htf.Support1Strength);
+
+            // Skip if level is absent or is on the wrong side of the price.
+            if (dist is not > 0m) continue;
+
+            var candidate = new NearestOppositeLevel(dist.Value, strength);
+            if (best is null || dist.Value < best.DistancePct)
+                best = candidate;
+        }
+
+        return best;
+    }
 }

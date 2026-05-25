@@ -35,6 +35,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_BearishFullyConfirmed_AllSummaryFieldsAreConsistent()
     {
         var s = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
             rsi14: 38m, trendStrengthScore: 0.85m);
 
         var r = LlmTimeframeSummaryBuilder.Build(s);
@@ -205,6 +206,8 @@ public sealed class LlmTimeframeSummaryBuilderTests
         bool emaBullish = false,
         bool emaBearish = false,
         bool isAboveEma200 = true,
+        bool isAboveEma20 = true,
+        bool isAboveEma50 = true,
         decimal? rsi14 = 55m,
         bool rsiOverbought = false,
         bool rsiOversold = false,
@@ -212,6 +215,9 @@ public sealed class LlmTimeframeSummaryBuilderTests
         decimal volumeRatio = 1.1m,
         decimal? distanceToSupport = 0.6m,
         decimal? distanceToResist = 0.3m,
+        // Level strengths (default Strong — не ограничивает Good)
+        decimal? support1Strength = 0.8m,
+        decimal? resistance1Strength = 0.8m,
         // Indicator availability / fallback
         bool rsi14IsReliable = true,
         bool emaIsReliable = true,
@@ -245,11 +251,13 @@ public sealed class LlmTimeframeSummaryBuilderTests
             TrendStrengthScore = trendStrengthScore,
             Trend = trend,
             Support1 = 99m,
+            Support1Strength = support1Strength,
             Support2 = 97m,
             Resistance1 = 106m,
+            Resistance1Strength = resistance1Strength,
             Resistance2 = 108m,
-            IsAboveEma20 = true,
-            IsAboveEma50 = true,
+            IsAboveEma20 = isAboveEma20,
+            IsAboveEma50 = isAboveEma50,
             IsAboveEma200 = isAboveEma200,
             EmaBullishAlignment = emaBullish,
             EmaBearishAlignment = emaBearish,
@@ -437,6 +445,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         var s = MakeSnapshot(
             trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
             rsi14: 38m, trendStrengthScore: 0.85m,
             volumeRatio: 1.2m,
             distanceToResist: 0.5m,
@@ -571,5 +580,174 @@ public sealed class LlmTimeframeSummaryBuilderTests
         // Momentum not Healthy without RSI confirmation
         r.MomentumState.Should().NotBe(MomentumState.Healthy,
             because: "RSI unavailable prevents Healthy momentum");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Higher TF opposite level + entry level strength scenarios
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ─── 14.1: Bullish �� higher TF resistance very close → Poor ─────────────
+
+    [Fact]
+    public void Build_Bullish_HigherTfResistanceVeryClose_Returns_Poor_And_Flag()
+    {
+        // m15-like: current TF has no resistance, but higher TF resistance at 0.05%
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.05m, Strength: 0.85m);
+        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+
+        r.EntryQuality.Should().Be(EntryQuality.Poor,
+            because: "higher TF strong resistance < 0.15% → Poor");
+        r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    // ─── 14.2: Bullish — higher TF resistance near (0.25%) → not Good ────────
+
+    [Fact]
+    public void Build_Bullish_HigherTfResistanceNear_Returns_AtMostFair_And_Flag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.85m);
+        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "higher TF resistance < 0.30% → Good forbidden");
+        r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    // ─── 14.3: Bearish — higher TF support very close → Poor ────────────────
+
+    [Fact]
+    public void Build_Bearish_HigherTfSupportVeryClose_Returns_Poor_And_Flag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m,
+            distanceToSupport: null, support1Strength: null);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.05m, Strength: 0.85m);
+        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+
+        r.EntryQuality.Should().Be(EntryQuality.Poor,
+            because: "higher TF strong support < 0.15% → Poor");
+        r.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
+    }
+
+    // ─── 14.4: Bearish — higher TF support near (0.25%) → not Good ──────��───
+
+    [Fact]
+    public void Build_Bearish_HigherTfSupportNear_Returns_AtMostFair_And_Flag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m,
+            distanceToSupport: null, support1Strength: null);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.85m);
+        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "higher TF support < 0.30% → Good forbidden");
+        r.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
+    }
+
+    // ─── 14.5: WeakEntryLevel risk flag ──────────────────────────────────────
+
+    [Fact]
+    public void Build_Bullish_WeakSupport_AddsWeakEntryLevelFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.20m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "Weak support (0.20 ≤ 0.35) → not above Fair");
+        r.RiskFlags.Should().Contain("WeakEntryLevel");
+    }
+
+    [Fact]
+    public void Build_Bearish_WeakResistance_AddsWeakEntryLevelFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0.5m, resistance1Strength: 0.20m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "Weak resistance (0.20 ≤ 0.35) → not above Fair");
+        r.RiskFlags.Should().Contain("WeakEntryLevel");
+    }
+
+    // ─── 14.6: Regression — Good still reachable without obstacles ───────────
+
+    [Fact]
+    public void Build_Bullish_StrongSupport_NoOppLevel_Returns_Good()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good,
+            because: "strong support + no resistance obstacle → Good reachable");
+        r.RiskFlags.Should().NotContain("WeakEntryLevel");
+    }
+
+    [Fact]
+    public void Build_Bearish_StrongResistance_NoOppLevel_Returns_Good()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m,
+            distanceToSupport: null, support1Strength: null);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good,
+            because: "strong resistance + no support obstacle → Good reachable");
+        r.RiskFlags.Should().NotContain("WeakEntryLevel");
+    }
+
+    // ─── 14.7: NearResistance flag (same TF) ─────────────────────────────────
+
+    [Fact]
+    public void Build_Bullish_SameTfResistanceNear_AddsNearResistanceFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: 0.20m, resistance1Strength: 0.85m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "same-TF resistance < 0.30% → Good forbidden");
+        r.RiskFlags.Should().Contain("NearResistance");
     }
 }
