@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Helpers;
 
@@ -25,4 +25,3 @@ public static class TradeFactory
             quantity,
             price);
 }
-

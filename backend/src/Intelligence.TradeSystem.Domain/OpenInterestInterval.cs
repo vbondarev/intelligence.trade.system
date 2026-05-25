@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Временной интервал агрегации открытого интереса.
@@ -25,4 +25,3 @@ public enum OpenInterestInterval
     /// <summary>1 день.</summary>
     OneDay
 }
-

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Метка перекоса ликвидности, вычисленная из соотношения объёмов bid/ask Top20.
@@ -14,4 +14,3 @@ public enum LiquiditySkewLabel
     /// <summary>Преобладает ликвидность сверху (ask heavy): ratio &lt;= 0.85.</summary>
     UpperLiquidityHeavy = 3,
 }
-

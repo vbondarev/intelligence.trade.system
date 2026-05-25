@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Contracts;
+namespace Intelligence.TradeSystem.Api.Contracts;
 
 /// <summary>
 /// Ответ API для проверки доступности и готовности сервиса.
@@ -11,4 +11,3 @@ public sealed record HealthResponse
     /// <summary>Текущий итоговый статус проверки состояния сервиса.</summary>
     public required string Status { get; init; }
 }
-

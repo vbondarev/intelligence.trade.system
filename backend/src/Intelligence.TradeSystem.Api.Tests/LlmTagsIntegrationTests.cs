@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -20,7 +20,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     private const string Url =
         "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
 
-    private static readonly IReadOnlyList<string> V1Whitelist =
+    private static readonly IReadOnlyList<string> _v1Whitelist =
     [
         "trending", "neutral",
         "positive-funding", "negative-funding",
@@ -40,7 +40,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Are_Present_In_Response_Json()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -52,7 +52,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Count_Does_Not_Exceed_MaxTags()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -64,7 +64,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Contain_No_Duplicates()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -75,14 +75,14 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Contain_Only_V1_Whitelist_Values()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
 
         foreach (var tag in tags)
         {
-            V1Whitelist.Should().Contain(tag,
+            _v1Whitelist.Should().Contain(tag,
                 because: $"тег '{tag}' отсутствует в V1 whitelist");
         }
     }
@@ -92,7 +92,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Contain_Trending_When_MarketRegime_Is_Trending()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -103,7 +103,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Contain_PositiveFunding_When_FundingRate_Is_Positive()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -115,8 +115,8 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     public async Task Tags_Are_Deterministic_For_Same_Snapshot()
     {
         var snapshot = BuildKnownSnapshot();
-        using var client1   = CreateClientWithSnapshot(snapshot);
-        using var client2   = CreateClientWithSnapshot(snapshot);
+        using var client1 = CreateClientWithSnapshot(snapshot);
+        using var client2 = CreateClientWithSnapshot(snapshot);
 
         var tags1 = ParseTags(await (await client1.GetAsync(Url)).Content.ReadAsStringAsync());
         var tags2 = ParseTags(await (await client2.GetAsync(Url)).Content.ReadAsStringAsync());
@@ -135,7 +135,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
         {
             Tags = ["positive-funding"],
         };
-        using var client   = CreateClientWithSnapshot(snapshot);
+        using var client = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -151,7 +151,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Never_Contain_Both_Trending_And_Neutral()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -163,7 +163,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task Tags_Never_Contain_Both_BidPressure_And_AskPressure()
     {
-        using var client   = CreateClientWithSnapshot(BuildKnownSnapshot());
+        using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
@@ -185,10 +185,10 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
         return snapshot with
         {
             Derivatives = snapshot.Derivatives with { FundingRate = 0.0001m },
-            OrderBook   = snapshot.OrderBook   with { ImbalanceTop5 = 0m },   // нет давления
-            TradeFlow   = snapshot.TradeFlow   with
+            OrderBook = snapshot.OrderBook with { ImbalanceTop5 = 0m },   // нет давления
+            TradeFlow = snapshot.TradeFlow with
             {
-                HasAggressiveBuyPressure  = false,
+                HasAggressiveBuyPressure = false,
                 HasAggressiveSellPressure = false,
             },
             Sentiment = snapshot.Sentiment with { MarketRegime = "Trending" },
@@ -211,13 +211,11 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
 
     private static List<string> ParseTags(string json)
     {
-        using var doc  = JsonDocument.Parse(json);
-        var tagsElem   = doc.RootElement.GetProperty("tags");
+        using var doc = JsonDocument.Parse(json);
+        var tagsElem = doc.RootElement.GetProperty("tags");
 
         return tagsElem.EnumerateArray()
             .Select(e => e.GetString()!)
             .ToList();
     }
 }
-
-

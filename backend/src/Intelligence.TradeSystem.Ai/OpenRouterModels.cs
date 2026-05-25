@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace Intelligence.TradeSystem.Ai;
 
@@ -49,4 +49,3 @@ internal sealed class OpenRouterErrorDto
     [JsonPropertyName("message")]
     public string? Message { get; init; }
 }
-

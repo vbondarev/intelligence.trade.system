@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Снимок динамики соотношения лонг/шорт позиций за скользящее временное окно.
@@ -64,4 +64,3 @@ public sealed record LongShortRatioSnapshot
     /// </summary>
     public bool IsExtremelyShort { get; init; }
 }
-

@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -27,6 +27,3 @@ public sealed class StartupExtensionsTests
         analysisService.Should().BeOfType<MarketAnalysisService>();
     }
 }
-
-
-

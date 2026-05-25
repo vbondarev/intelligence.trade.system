@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Mappers;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
@@ -201,64 +201,68 @@ public sealed class LlmTimeframeSummaryBuilderTests
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static TimeframeAnalysisSnapshot MakeSnapshot(
-        MarketTrend trend             = MarketTrend.Bullish,
-        bool        emaBullish        = false,
-        bool        emaBearish        = false,
-        bool        isAboveEma200     = true,
-        decimal?     rsi14             = 55m,
-        bool        rsiOverbought     = false,
-        bool        rsiOversold       = false,
-        decimal     trendStrengthScore = 0.6m,
-        decimal     volumeRatio       = 1.1m,
-        decimal?    distanceToSupport = 0.6m,
-        decimal?    distanceToResist  = 0.3m,
+        MarketTrend trend = MarketTrend.Bullish,
+        bool emaBullish = false,
+        bool emaBearish = false,
+        bool isAboveEma200 = true,
+        decimal? rsi14 = 55m,
+        bool rsiOverbought = false,
+        bool rsiOversold = false,
+        decimal trendStrengthScore = 0.6m,
+        decimal volumeRatio = 1.1m,
+        decimal? distanceToSupport = 0.6m,
+        decimal? distanceToResist = 0.3m,
         // Indicator availability / fallback
-        bool        rsi14IsReliable        = true,
-        bool        emaIsReliable          = true,
-        bool        emaHasFallback         = false,
-        bool        atrIsReliable          = true,
-        bool        atrIsFallback          = false,
-        bool        volumeRatioIsReliable  = true,
-        bool        volumeRatioIsFallback  = false) =>
+        bool rsi14IsReliable = true,
+        bool emaIsReliable = true,
+        bool emaHasFallback = false,
+        bool atrIsReliable = true,
+        bool atrIsFallback = false,
+        bool volumeRatioIsReliable = true,
+        bool volumeRatioIsFallback = false) =>
         new()
         {
-            Timeframe             = "1h",
+            Timeframe = "1h",
             LastCandleOpenTimeUtc = DateTimeOffset.UtcNow,
-            LastCandle            = new CandleSnapshot
+            LastCandle = new CandleSnapshot
             {
                 OpenTimeUtc = DateTimeOffset.UtcNow,
-                Open = 100m, High = 105m, Low = 99m, Close = 104m,
-                Volume = 1000m, Turnover = 104000m,
+                Open = 100m,
+                High = 105m,
+                Low = 99m,
+                Close = 104m,
+                Volume = 1000m,
+                Turnover = 104000m,
             },
-            Ema20               = 102m,
-            Ema50               = 101m,
-            Ema200              = 98m,
-            Rsi14               = rsi14,
-            Rsi14IsReliable     = rsi14IsReliable,
-            Atr14               = 2m,
-            VolumeSma20         = 900m,
-            VolumeRatio         = volumeRatio,
-            TrendStrengthScore  = trendStrengthScore,
-            Trend               = trend,
-            Support1            = 99m,
-            Support2            = 97m,
-            Resistance1         = 106m,
-            Resistance2         = 108m,
-            IsAboveEma20        = true,
-            IsAboveEma50        = true,
-            IsAboveEma200       = isAboveEma200,
+            Ema20 = 102m,
+            Ema50 = 101m,
+            Ema200 = 98m,
+            Rsi14 = rsi14,
+            Rsi14IsReliable = rsi14IsReliable,
+            Atr14 = 2m,
+            VolumeSma20 = 900m,
+            VolumeRatio = volumeRatio,
+            TrendStrengthScore = trendStrengthScore,
+            Trend = trend,
+            Support1 = 99m,
+            Support2 = 97m,
+            Resistance1 = 106m,
+            Resistance2 = 108m,
+            IsAboveEma20 = true,
+            IsAboveEma50 = true,
+            IsAboveEma200 = isAboveEma200,
             EmaBullishAlignment = emaBullish,
             EmaBearishAlignment = emaBearish,
-            RsiOverbought       = rsiOverbought,
-            RsiOversold         = rsiOversold,
-            EmaIsReliable         = emaIsReliable,
-            EmaHasFallback        = emaHasFallback,
-            AtrIsReliable         = atrIsReliable,
-            AtrIsFallback         = atrIsFallback,
-            VolumeRatioIsReliable  = volumeRatioIsReliable,
-            VolumeRatioIsFallback  = volumeRatioIsFallback,
-            CandleRangePct      = 0.06m,
-            DistanceToSupport1Pct    = distanceToSupport,
+            RsiOverbought = rsiOverbought,
+            RsiOversold = rsiOversold,
+            EmaIsReliable = emaIsReliable,
+            EmaHasFallback = emaHasFallback,
+            AtrIsReliable = atrIsReliable,
+            AtrIsFallback = atrIsFallback,
+            VolumeRatioIsReliable = volumeRatioIsReliable,
+            VolumeRatioIsFallback = volumeRatioIsFallback,
+            CandleRangePct = 0.06m,
+            DistanceToSupport1Pct = distanceToSupport,
             DistanceToResistance1Pct = distanceToResist,
         };
 
@@ -301,7 +305,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
 
         var r = LlmTimeframeSummaryBuilder.Build(s);
 
-        r.RiskFlags.Should().NotContain("RsiOversold",   because: "RSI unavailable must not produce RsiOversold");
+        r.RiskFlags.Should().NotContain("RsiOversold", because: "RSI unavailable must not produce RsiOversold");
         r.RiskFlags.Should().NotContain("RsiOverbought", because: "RSI unavailable must not produce RsiOverbought");
         r.RiskFlags.Should().Contain("RsiUnavailable");
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
@@ -551,7 +555,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
         var r = LlmTimeframeSummaryBuilder.Build(s);
 
         // No false oversold/overbought
-        r.RiskFlags.Should().NotContain("RsiOversold",  because: "RSI unavailable must not produce RsiOversold");
+        r.RiskFlags.Should().NotContain("RsiOversold", because: "RSI unavailable must not produce RsiOversold");
         r.RiskFlags.Should().NotContain("RsiOverbought");
 
         // Specific indicator flags present

@@ -36,5 +36,3 @@ public sealed class ConfigurableMarketAnalysisService : IMarketAnalysisService
         return Task.FromResult(snapshot);
     }
 }
-
-

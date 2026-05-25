@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.Extensions.Options;
@@ -50,9 +50,9 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
 
         // timeframe секции
         AddSection("m15", reference, reference, thresholds.M15MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
-        AddSection("h1",  reference, reference, thresholds.H1MaxAge,  requiredSections, sectionAges, warnings, ref isFresh);
-        AddSection("h4",  reference, reference, thresholds.H4MaxAge,  requiredSections, sectionAges, warnings, ref isFresh);
-        AddSection("d1",  reference, reference, thresholds.D1MaxAge,  requiredSections, sectionAges, warnings, ref isFresh);
+        AddSection("h1", reference, reference, thresholds.H1MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
+        AddSection("h4", reference, reference, thresholds.H4MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
+        AddSection("d1", reference, reference, thresholds.D1MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
 
         // Spread validation warnings (добавляются маппером — но health-evaluator может добавить заранее)
         CheckOrderBookSpread(snapshot.OrderBook, warnings);
@@ -60,22 +60,22 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
         // Мягкие предупреждения интерпретации — не влияют на isFresh/isPartial
         var softWarnings = SnapshotHealthWarningsBuilder.Build(snapshot, new SnapshotHealthWarningsContext
         {
-            Mode                    = mode,
-            IncludePortfolio        = includePortfolio,
+            Mode = mode,
+            IncludePortfolio = includePortfolio,
             IncludeAggregatedContext = includeAggregatedContext,
-            SectionAgesMs           = sectionAges,
-            Thresholds              = thresholds,
+            SectionAgesMs = sectionAges,
+            Thresholds = thresholds,
             StalenessProximityFactor = _options.StalenessProximityFactor,
         });
         warnings.AddRange(softWarnings);
 
         return new LlmSnapshotHealthPayload
         {
-            IsFresh          = isFresh,
-            IsPartial        = false,  // Этап 1: все секции required в domain-модели
-            Warnings         = warnings,
-            MissingSections  = [],     // Этап 1: partial snapshot не поддерживается
-            SectionAgesMs    = sectionAges,
+            IsFresh = isFresh,
+            IsPartial = false,  // Этап 1: все секции required в domain-модели
+            Warnings = warnings,
+            MissingSections = [],     // Этап 1: partial snapshot не поддерживается
+            SectionAgesMs = sectionAges,
         };
     }
 
@@ -114,13 +114,9 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
 
     private static HashSet<string> GetRequiredSections(AnalysisMode mode) => mode switch
     {
-        AnalysisMode.Intraday  => new HashSet<string>(StringComparer.Ordinal) { "price", "orderBook", "tradeFlow", "derivatives", "m15", "h1", "h4" },
-        AnalysisMode.Swing     => new HashSet<string>(StringComparer.Ordinal) { "price", "derivatives", "h1", "h4", "d1" },
+        AnalysisMode.Intraday => new HashSet<string>(StringComparer.Ordinal) { "price", "orderBook", "tradeFlow", "derivatives", "m15", "h1", "h4" },
+        AnalysisMode.Swing => new HashSet<string>(StringComparer.Ordinal) { "price", "derivatives", "h1", "h4", "d1" },
         AnalysisMode.Portfolio => new HashSet<string>(StringComparer.Ordinal) { "price", "derivatives", "h4", "d1" },
-        _                      => new HashSet<string>(StringComparer.Ordinal) { "price", "orderBook", "tradeFlow", "derivatives", "m15", "h1", "h4" },
+        _ => new HashSet<string>(StringComparer.Ordinal) { "price", "orderBook", "tradeFlow", "derivatives", "m15", "h1", "h4" },
     };
 }
-
-
-
-

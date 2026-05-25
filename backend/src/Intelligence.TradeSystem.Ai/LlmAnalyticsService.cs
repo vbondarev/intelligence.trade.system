@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Analytics;
+using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Ai;
@@ -52,4 +52,3 @@ public sealed class LlmAnalyticsService : ILlmAnalyticsService
         return response;
     }
 }
-

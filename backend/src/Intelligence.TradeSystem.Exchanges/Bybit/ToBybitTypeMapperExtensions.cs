@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitCategory = Bybit.Net.Enums.Category;
 using BybitDataPeriod = Bybit.Net.Enums.DataPeriod;
@@ -40,33 +40,33 @@ internal static class ToBybitTypeMapperExtensions
     public static BybitOpenInterestInterval ToBybitOpenInterestInterval(this OpenInterestInterval interval) =>
         interval switch
         {
-            OpenInterestInterval.FiveMinutes    => BybitOpenInterestInterval.FiveMinutes,
+            OpenInterestInterval.FiveMinutes => BybitOpenInterestInterval.FiveMinutes,
             OpenInterestInterval.FifteenMinutes => BybitOpenInterestInterval.FifteenMinutes,
-            OpenInterestInterval.ThirtyMinutes  => BybitOpenInterestInterval.ThirtyMinutes,
-            OpenInterestInterval.OneHour        => BybitOpenInterestInterval.OneHour,
-            OpenInterestInterval.FourHours      => BybitOpenInterestInterval.FourHours,
-            OpenInterestInterval.OneDay         => BybitOpenInterestInterval.OneDay,
+            OpenInterestInterval.ThirtyMinutes => BybitOpenInterestInterval.ThirtyMinutes,
+            OpenInterestInterval.OneHour => BybitOpenInterestInterval.OneHour,
+            OpenInterestInterval.FourHours => BybitOpenInterestInterval.FourHours,
+            OpenInterestInterval.OneDay => BybitOpenInterestInterval.OneDay,
             _ => throw new ArgumentOutOfRangeException(nameof(interval), interval, null)
         };
 
     public static BybitDataPeriod ToBybitDataPeriod(this LongShortRatioPeriod period) =>
         period switch
         {
-            LongShortRatioPeriod.FiveMinutes    => BybitDataPeriod.FiveMinutes,
+            LongShortRatioPeriod.FiveMinutes => BybitDataPeriod.FiveMinutes,
             LongShortRatioPeriod.FifteenMinutes => BybitDataPeriod.FifteenMinutes,
-            LongShortRatioPeriod.ThirtyMinutes  => BybitDataPeriod.ThirtyMinutes,
-            LongShortRatioPeriod.OneHour        => BybitDataPeriod.OneHour,
-            LongShortRatioPeriod.FourHours      => BybitDataPeriod.FourHours,
-            LongShortRatioPeriod.OneDay         => BybitDataPeriod.OneDay,
+            LongShortRatioPeriod.ThirtyMinutes => BybitDataPeriod.ThirtyMinutes,
+            LongShortRatioPeriod.OneHour => BybitDataPeriod.OneHour,
+            LongShortRatioPeriod.FourHours => BybitDataPeriod.FourHours,
+            LongShortRatioPeriod.OneDay => BybitDataPeriod.OneDay,
             _ => throw new ArgumentOutOfRangeException(nameof(period), period, null)
         };
 
     public static BybitAccountType ToBybitAccountType(this AccountType accountType) =>
         accountType switch
         {
-            AccountType.Unified  => BybitAccountType.Unified,
+            AccountType.Unified => BybitAccountType.Unified,
             AccountType.Contract => BybitAccountType.Contract,
-            AccountType.Spot     => BybitAccountType.Spot,
+            AccountType.Spot => BybitAccountType.Spot,
             _ => throw new ArgumentOutOfRangeException(nameof(accountType), accountType, null)
         };
 }

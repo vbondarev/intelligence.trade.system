@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Ai;
+using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Application;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,4 +33,3 @@ internal static class WebApplicationFactoryExtensions
             }))
         .CreateClient();
 }
-

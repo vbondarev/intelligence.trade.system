@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Канонические строковые обозначения рыночных режимов, используемые в аналитических снапшотах.
@@ -17,4 +17,3 @@ public static class MarketRegimes
     /// <summary>Нейтральный режим без выраженного доминирующего сценария.</summary>
     public const string Neutral = "Neutral";
 }
-

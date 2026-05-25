@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Xunit;
@@ -139,4 +139,3 @@ public sealed class PriceSnapshotAssemblerTests
         result.SpreadPct.Should().Be(2m);
     }
 }
-

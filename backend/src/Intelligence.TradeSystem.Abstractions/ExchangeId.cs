@@ -10,4 +10,3 @@ public enum ExchangeId
     /// </summary>
     Bybit = 1,
 }
-

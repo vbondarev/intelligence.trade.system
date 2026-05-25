@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -80,8 +80,8 @@ public static class MarketAnalysisSnapshotAssembler
         // Aggregate indicator diagnostics from all four timeframes in stable order.
         var allDiagnostics = new List<IndicatorDiagnosticSnapshot>(
             m15.IndicatorDiagnostics.Count +
-            h1.IndicatorDiagnostics.Count  +
-            h4.IndicatorDiagnostics.Count  +
+            h1.IndicatorDiagnostics.Count +
+            h4.IndicatorDiagnostics.Count +
             d1.IndicatorDiagnostics.Count);
 
         allDiagnostics.AddRange(m15.IndicatorDiagnostics);
@@ -91,25 +91,25 @@ public static class MarketAnalysisSnapshotAssembler
 
         return new MarketAnalysisSnapshot
         {
-            Exchange      = exchange,
-            Symbol        = symbol,
-            Category      = categoryString,
+            Exchange = exchange,
+            Symbol = symbol,
+            Category = categoryString,
             CapturedAtUtc = DateTimeOffset.UtcNow,
 
-            Price       = price,
+            Price = price,
             Derivatives = derivatives,
-            OrderBook   = orderBook,
-            TradeFlow   = tradeFlow,
+            OrderBook = orderBook,
+            TradeFlow = tradeFlow,
 
             M15 = m15,
-            H1  = h1,
-            H4  = h4,
-            D1  = d1,
+            H1 = h1,
+            H4 = h4,
+            D1 = d1,
 
             Sentiment = sentiment,
             Portfolio = portfolio,
 
-            Tags                 = tags,
+            Tags = tags,
             IndicatorDiagnostics = allDiagnostics,
         };
     }

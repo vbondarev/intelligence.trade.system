@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Поток сделок за скользящее временное окно.</summary>
 public sealed record LlmTradeFlowPayload

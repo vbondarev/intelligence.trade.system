@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Сырой снимок стакана заявок торгового инструмента — данные с биржи без агрегации.
@@ -31,4 +31,3 @@ public sealed record OrderBook(
     /// </summary>
     public IReadOnlyList<OrderBookEntry> Asks { get; init; } = Asks;
 }
-

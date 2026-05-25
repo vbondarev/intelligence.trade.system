@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -43,15 +43,15 @@ public static class OrderBookSnapshotAssembler
         var midPrice = (orderBook.Bids[0].Price + orderBook.Asks[0].Price) / 2m;
 
         // 2. Aggregate volumes top 5 / 10 / 20
-        var bidTop5  = VolumeSum(orderBook.Bids, 5);
+        var bidTop5 = VolumeSum(orderBook.Bids, 5);
         var bidTop10 = VolumeSum(orderBook.Bids, 10);
         var bidTop20 = VolumeSum(orderBook.Bids, 20);
 
-        var askTop5  = VolumeSum(orderBook.Asks, 5);
+        var askTop5 = VolumeSum(orderBook.Asks, 5);
         var askTop10 = VolumeSum(orderBook.Asks, 10);
         var askTop20 = VolumeSum(orderBook.Asks, 20);
 
-        var imbalanceTop5  = Imbalance(bidTop5,  askTop5);
+        var imbalanceTop5 = Imbalance(bidTop5, askTop5);
         var imbalanceTop10 = Imbalance(bidTop10, askTop10);
         var imbalanceTop20 = Imbalance(bidTop20, askTop20);
 
@@ -76,14 +76,14 @@ public static class OrderBookSnapshotAssembler
             BestBidPrice = orderBook.Bids[0].Price,
             BestAskPrice = orderBook.Asks[0].Price,
 
-            TotalBidVolumeTop5  = bidTop5,
-            TotalAskVolumeTop5  = askTop5,
+            TotalBidVolumeTop5 = bidTop5,
+            TotalAskVolumeTop5 = askTop5,
             TotalBidVolumeTop10 = bidTop10,
             TotalAskVolumeTop10 = askTop10,
             TotalBidVolumeTop20 = bidTop20,
             TotalAskVolumeTop20 = askTop20,
 
-            ImbalanceTop5  = imbalanceTop5,
+            ImbalanceTop5 = imbalanceTop5,
             ImbalanceTop10 = imbalanceTop10,
             ImbalanceTop20 = imbalanceTop20,
 
@@ -118,8 +118,8 @@ public static class OrderBookSnapshotAssembler
             .Where(e => e.Size > threshold)
             .Select(e => new LiquidityWall
             {
-                Price                = e.Price,
-                Size                 = e.Size,
+                Price = e.Price,
+                Size = e.Size,
                 DistancePctFromMarket = midPrice > 0m
                     ? Math.Round(Math.Abs(e.Price - midPrice) / midPrice * 100m, 4)
                     : 0m,
@@ -127,4 +127,3 @@ public static class OrderBookSnapshotAssembler
             .ToList();
     }
 }
-

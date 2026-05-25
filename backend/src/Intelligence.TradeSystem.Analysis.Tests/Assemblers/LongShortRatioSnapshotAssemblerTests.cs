@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
@@ -130,4 +130,3 @@ public sealed class LongShortRatioSnapshotAssemblerTests
         result.IsExtremelyShort.Should().BeTrue();
     }
 }
-

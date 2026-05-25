@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Diagnostics;
 using Intelligence.TradeSystem.Indicators.Results;
 using Xunit;
@@ -70,13 +70,13 @@ public sealed class IndicatorDiagnosticListExtensionsTests
     public void AddIfNeeded_Accumulates_Multiple_Entries()
     {
         var diagnostics = new List<IndicatorDiagnostic>();
-        var available  = IndicatorValue.Available(100m);
-        var fallback   = IndicatorValue.Fallback(50m, IndicatorValueReason.PartialWindow);
+        var available = IndicatorValue.Available(100m);
+        var fallback = IndicatorValue.Fallback(50m, IndicatorValueReason.PartialWindow);
         var unavailable = IndicatorValue.Unavailable(IndicatorValueReason.InsufficientData);
 
-        diagnostics.AddIfNeeded("1h", "ema20",  available);
+        diagnostics.AddIfNeeded("1h", "ema20", available);
         diagnostics.AddIfNeeded("1h", "ema200", fallback);
-        diagnostics.AddIfNeeded("1h", "rsi14",  unavailable);
+        diagnostics.AddIfNeeded("1h", "rsi14", unavailable);
 
         diagnostics.Should().HaveCount(2);
         diagnostics[0].Indicator.Should().Be("ema200");
@@ -108,4 +108,3 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         act.Should().Throw<ArgumentNullException>();
     }
 }
-

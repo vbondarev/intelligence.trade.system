@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Tests.Helpers;
+namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
 internal sealed class ProblemDetailsDto
 {
@@ -8,5 +8,3 @@ internal sealed class ProblemDetailsDto
 
     public string? Detail { get; init; }
 }
-
-

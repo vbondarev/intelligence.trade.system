@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai;
+namespace Intelligence.TradeSystem.Ai;
 
 /// <summary>
 /// Тонкий контракт клиента OpenRouter поверх normalized chat prompt payload.
@@ -16,4 +16,3 @@ public interface IOpenRouterClient
     /// <exception cref="OperationCanceledException">Если операция была отменена через <paramref name="cancellationToken"/>.</exception>
     Task<string> CompleteChatAsync(PromptBuildResult prompt, CancellationToken cancellationToken = default);
 }
-

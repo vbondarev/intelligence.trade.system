@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
@@ -8,10 +8,10 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// </summary>
 internal static class LlmPayloadMapperExtensions
 {
-    private const string SchemaVersion          = "1.0";
+    private const string SchemaVersion = "1.0";
     private const decimal PressureLabelThreshold = 0.15m;
     private const decimal LiquiditySkewThreshold = 0.15m;  // ±15% → ratio >=1.15 or <=0.85
-    private const int     SpreadPctDecimalPlaces  = 4;
+    private const int SpreadPctDecimalPlaces = 4;
 
     /// <summary>
     /// Преобразует снапшот в LLM-оптимизированный payload.
@@ -27,24 +27,24 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmMarketAnalysisPayload
         {
-            SchemaVersion   = SchemaVersion,
-            Exchange        = snapshot.Exchange,
-            Symbol          = snapshot.Symbol,
-            Category        = snapshot.Category,
-            CapturedAtUtc   = snapshot.CapturedAtUtc,
+            SchemaVersion = SchemaVersion,
+            Exchange = snapshot.Exchange,
+            Symbol = snapshot.Symbol,
+            Category = snapshot.Category,
+            CapturedAtUtc = snapshot.CapturedAtUtc,
             AnalysisContext = BuildAnalysisContext(mode, includePortfolio),
-            SnapshotHealth  = health,
-            Price           = BuildPrice(snapshot.Price),
-            Derivatives     = BuildDerivatives(snapshot.Derivatives),
-            OrderBook       = BuildOrderBook(snapshot.OrderBook),
-            TradeFlow       = BuildTradeFlow(snapshot.TradeFlow),
-            M15             = BuildTimeframe(snapshot.M15),
-            H1              = BuildTimeframe(snapshot.H1),
-            H4              = BuildTimeframe(snapshot.H4),
-            D1              = BuildTimeframe(snapshot.D1),
-            Sentiment       = BuildSentiment(snapshot.Sentiment),
-            Tags            = [.. snapshot.Tags],
-            Portfolio       = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
+            SnapshotHealth = health,
+            Price = BuildPrice(snapshot.Price),
+            Derivatives = BuildDerivatives(snapshot.Derivatives),
+            OrderBook = BuildOrderBook(snapshot.OrderBook),
+            TradeFlow = BuildTradeFlow(snapshot.TradeFlow),
+            M15 = BuildTimeframe(snapshot.M15),
+            H1 = BuildTimeframe(snapshot.H1),
+            H4 = BuildTimeframe(snapshot.H4),
+            D1 = BuildTimeframe(snapshot.D1),
+            Sentiment = BuildSentiment(snapshot.Sentiment),
+            Tags = [.. snapshot.Tags],
+            Portfolio = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
             AggregatedContext = null,
             IndicatorDiagnostics = [.. snapshot.IndicatorDiagnostics.Select(d => new LlmIndicatorDiagnosticPayload
             {
@@ -62,8 +62,8 @@ internal static class LlmPayloadMapperExtensions
     private static LlmAnalysisContextPayload BuildAnalysisContext(AnalysisMode mode, bool includePortfolio) =>
         new()
         {
-            AnalysisMode         = mode.ToString(),
-            PrimaryTimeframes    = AnalysisModeDefaults.GetPrimaryTimeframes(mode),
+            AnalysisMode = mode.ToString(),
+            PrimaryTimeframes = AnalysisModeDefaults.GetPrimaryTimeframes(mode),
             UsesPortfolioContext = includePortfolio,
             UsesAggregatedContext = false,
         };
@@ -73,15 +73,15 @@ internal static class LlmPayloadMapperExtensions
     private static LlmPricePayload BuildPrice(PriceSnapshot s) =>
         new()
         {
-            LastPrice          = s.LastPrice,
-            MarkPrice          = s.MarkPrice,
-            IndexPrice         = s.IndexPrice,
-            SpreadAbs          = s.SpreadAbs,
-            SpreadPct          = s.SpreadPct,
-            Price24hChangePct  = s.Price24hChangePct,
-            High24h            = s.High24h,
-            Low24h             = s.Low24h,
-            Volume24h          = s.Volume24h,
+            LastPrice = s.LastPrice,
+            MarkPrice = s.MarkPrice,
+            IndexPrice = s.IndexPrice,
+            SpreadAbs = s.SpreadAbs,
+            SpreadPct = s.SpreadPct,
+            Price24hChangePct = s.Price24hChangePct,
+            High24h = s.High24h,
+            Low24h = s.Low24h,
+            Volume24h = s.Volume24h,
         };
 
     // ─── Derivatives ────────────────────────────────────────────────────────
@@ -89,16 +89,16 @@ internal static class LlmPayloadMapperExtensions
     private static LlmDerivativesPayload BuildDerivatives(DerivativesSnapshot s) =>
         new()
         {
-            FundingRate              = s.FundingRate,
-            FundingRateAvg24h        = s.FundingRateAvg24h,
-            NextFundingTimeUtc       = s.NextFundingTimeUtc,
-            OpenInterest             = s.OpenInterest,
-            OpenInterestValue        = s.OpenInterestValue,
-            OpenInterestChange1hPct  = s.OpenInterestChange1hPct,
-            OpenInterestChange4hPct  = s.OpenInterestChange4hPct,
-            LongRatio                = s.LongRatio,
-            ShortRatio               = s.ShortRatio,
-            PremiumVsIndexPct        = s.PremiumVsIndexPct,
+            FundingRate = s.FundingRate,
+            FundingRateAvg24h = s.FundingRateAvg24h,
+            NextFundingTimeUtc = s.NextFundingTimeUtc,
+            OpenInterest = s.OpenInterest,
+            OpenInterestValue = s.OpenInterestValue,
+            OpenInterestChange1hPct = s.OpenInterestChange1hPct,
+            OpenInterestChange4hPct = s.OpenInterestChange4hPct,
+            LongRatio = s.LongRatio,
+            ShortRatio = s.ShortRatio,
+            PremiumVsIndexPct = s.PremiumVsIndexPct,
         };
 
     // ─── OrderBook ──────────────────────────────────────────────────────────
@@ -109,24 +109,24 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmOrderBookPayload
         {
-            CapturedAtUtc        = s.CapturedAtUtc,
-            BestBidPrice         = s.BestBidPrice,
-            BestAskPrice         = s.BestAskPrice,
-            SpreadAbs            = spreadAbs,
-            SpreadPct            = spreadPct,
-            TotalBidVolumeTop5   = s.TotalBidVolumeTop5,
-            TotalAskVolumeTop5   = s.TotalAskVolumeTop5,
-            TotalBidVolumeTop10  = s.TotalBidVolumeTop10,
-            TotalAskVolumeTop10  = s.TotalAskVolumeTop10,
-            TotalBidVolumeTop20  = s.TotalBidVolumeTop20,
-            TotalAskVolumeTop20  = s.TotalAskVolumeTop20,
-            ImbalanceTop5        = s.ImbalanceTop5,
-            ImbalanceTop10       = s.ImbalanceTop10,
-            ImbalanceTop20       = s.ImbalanceTop20,
-            BidWalls             = [.. s.BidWalls.Select(w => new LlmLiquidityWallPayload { Price = w.Price, Size = w.Size, DistancePctFromMarket = w.DistancePctFromMarket })],
-            AskWalls             = [.. s.AskWalls.Select(w => new LlmLiquidityWallPayload { Price = w.Price, Size = w.Size, DistancePctFromMarket = w.DistancePctFromMarket })],
-            PressureLabel        = ComputePressureLabel(s.ImbalanceTop10).ToString(),
-            LiquiditySkewLabel   = ComputeLiquiditySkewLabel(s.TotalBidVolumeTop20, s.TotalAskVolumeTop20).ToString(),
+            CapturedAtUtc = s.CapturedAtUtc,
+            BestBidPrice = s.BestBidPrice,
+            BestAskPrice = s.BestAskPrice,
+            SpreadAbs = spreadAbs,
+            SpreadPct = spreadPct,
+            TotalBidVolumeTop5 = s.TotalBidVolumeTop5,
+            TotalAskVolumeTop5 = s.TotalAskVolumeTop5,
+            TotalBidVolumeTop10 = s.TotalBidVolumeTop10,
+            TotalAskVolumeTop10 = s.TotalAskVolumeTop10,
+            TotalBidVolumeTop20 = s.TotalBidVolumeTop20,
+            TotalAskVolumeTop20 = s.TotalAskVolumeTop20,
+            ImbalanceTop5 = s.ImbalanceTop5,
+            ImbalanceTop10 = s.ImbalanceTop10,
+            ImbalanceTop20 = s.ImbalanceTop20,
+            BidWalls = [.. s.BidWalls.Select(w => new LlmLiquidityWallPayload { Price = w.Price, Size = w.Size, DistancePctFromMarket = w.DistancePctFromMarket })],
+            AskWalls = [.. s.AskWalls.Select(w => new LlmLiquidityWallPayload { Price = w.Price, Size = w.Size, DistancePctFromMarket = w.DistancePctFromMarket })],
+            PressureLabel = ComputePressureLabel(s.ImbalanceTop10).ToString(),
+            LiquiditySkewLabel = ComputeLiquiditySkewLabel(s.TotalBidVolumeTop20, s.TotalAskVolumeTop20).ToString(),
         };
     }
 
@@ -136,7 +136,7 @@ internal static class LlmPayloadMapperExtensions
             return (0m, 0m);
 
         var spreadAbs = ask - bid;
-        var midPrice  = (ask + bid) / 2m;
+        var midPrice = (ask + bid) / 2m;
         var spreadPct = midPrice == 0 ? 0m : Math.Round(spreadAbs / midPrice * 100m, SpreadPctDecimalPlaces);
 
         return (spreadAbs, spreadPct);
@@ -144,7 +144,7 @@ internal static class LlmPayloadMapperExtensions
 
     private static PressureLabel ComputePressureLabel(decimal imbalanceTop10)
     {
-        if (imbalanceTop10 > PressureLabelThreshold)  return PressureLabel.BidDominant;
+        if (imbalanceTop10 > PressureLabelThreshold) return PressureLabel.BidDominant;
         if (imbalanceTop10 < -PressureLabelThreshold) return PressureLabel.AskDominant;
         return PressureLabel.Balanced;
     }
@@ -152,8 +152,8 @@ internal static class LlmPayloadMapperExtensions
     private static LiquiditySkewLabel ComputeLiquiditySkewLabel(decimal bidVolTop20, decimal askVolTop20)
     {
         if (bidVolTop20 == 0 && askVolTop20 == 0) return LiquiditySkewLabel.Balanced;
-        if (askVolTop20 == 0 && bidVolTop20 > 0)  return LiquiditySkewLabel.LowerLiquidityHeavy;
-        if (bidVolTop20 == 0 && askVolTop20 > 0)  return LiquiditySkewLabel.UpperLiquidityHeavy;
+        if (askVolTop20 == 0 && bidVolTop20 > 0) return LiquiditySkewLabel.LowerLiquidityHeavy;
+        if (bidVolTop20 == 0 && askVolTop20 > 0) return LiquiditySkewLabel.UpperLiquidityHeavy;
 
         var ratio = bidVolTop20 / askVolTop20;
         if (ratio >= 1m + LiquiditySkewThreshold) return LiquiditySkewLabel.LowerLiquidityHeavy;
@@ -166,18 +166,18 @@ internal static class LlmPayloadMapperExtensions
     private static LlmTradeFlowPayload BuildTradeFlow(TradeFlowSnapshot s) =>
         new()
         {
-            WindowStartUtc             = s.WindowStartUtc,
-            WindowEndUtc               = s.WindowEndUtc,
-            BuyVolume                  = s.BuyVolume,
-            SellVolume                 = s.SellVolume,
-            DeltaVolume                = s.DeltaVolume,
-            DeltaPct                   = s.DeltaPct,
-            BuyTrades                  = s.BuyTrades,
-            SellTrades                 = s.SellTrades,
-            AvgTradeSize               = s.AvgTradeSize,
-            MaxTradeSize               = s.MaxTradeSize,
-            HasAggressiveBuyPressure   = s.HasAggressiveBuyPressure,
-            HasAggressiveSellPressure  = s.HasAggressiveSellPressure,
+            WindowStartUtc = s.WindowStartUtc,
+            WindowEndUtc = s.WindowEndUtc,
+            BuyVolume = s.BuyVolume,
+            SellVolume = s.SellVolume,
+            DeltaVolume = s.DeltaVolume,
+            DeltaPct = s.DeltaPct,
+            BuyTrades = s.BuyTrades,
+            SellTrades = s.SellTrades,
+            AvgTradeSize = s.AvgTradeSize,
+            MaxTradeSize = s.MaxTradeSize,
+            HasAggressiveBuyPressure = s.HasAggressiveBuyPressure,
+            HasAggressiveSellPressure = s.HasAggressiveSellPressure,
         };
 
     // ─── Timeframe ──────────────────────────────────────────────────────────
@@ -186,47 +186,47 @@ internal static class LlmPayloadMapperExtensions
 
     private static LlmTimeframePayload BuildTimeframe(TimeframeAnalysisSnapshot s)
     {
-        var r         = LlmTimeframeSummaryBuilder.Build(s);
+        var r = LlmTimeframeSummaryBuilder.Build(s);
         var lastClose = s.LastCandle.Close;
 
         return new LlmTimeframePayload
         {
-            Timeframe                 = s.Timeframe,
-            Trend                     = s.Trend.ToString(),
-            TrendCode                 = MapTrendCode(s.Trend),
-            TrendStrengthScore        = s.TrendStrengthScore,
-            TrendStrengthLabel        = r.TrendStrengthLabel.ToString(),
-            Ema20                     = s.Ema20,
-            Ema50                     = s.Ema50,
-            Ema200                    = s.Ema200,
-            Rsi14                     = s.Rsi14,
-            Rsi14IsReliable           = s.Rsi14IsReliable,
-            Atr14                     = s.Atr14,
-            VolumeRatio               = s.VolumeRatio,
-            Support1                  = s.Support1,
-            Support2                  = s.Support2,
-            Resistance1               = s.Resistance1,
-            Resistance2               = s.Resistance2,
-            DistanceToSupport1Pct     = s.DistanceToSupport1Pct,
-            DistanceToResistance1Pct  = s.DistanceToResistance1Pct,
-            Support1Meta              = BuildLevelMeta(s.Support1, s.Support1Strength, s.Support1ClusterVolume, lastClose, isSupport: true,  distancePct: s.DistanceToSupport1Pct),
-            Support2Meta              = BuildLevelMeta(s.Support2, s.Support2Strength, s.Support2ClusterVolume, lastClose, isSupport: true),
-            Resistance1Meta           = BuildLevelMeta(s.Resistance1, s.Resistance1Strength, s.Resistance1ClusterVolume, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
-            Resistance2Meta           = BuildLevelMeta(s.Resistance2, s.Resistance2Strength, s.Resistance2ClusterVolume, lastClose, isSupport: false),
-            IsAboveEma20              = s.IsAboveEma20,
-            IsAboveEma50              = s.IsAboveEma50,
-            IsAboveEma200             = s.IsAboveEma200,
-            EmaBullishAlignment       = s.EmaBullishAlignment,
-            EmaBearishAlignment       = s.EmaBearishAlignment,
-            RsiOverbought             = s.RsiOverbought,
-            RsiOversold               = s.RsiOversold,
+            Timeframe = s.Timeframe,
+            Trend = s.Trend.ToString(),
+            TrendCode = MapTrendCode(s.Trend),
+            TrendStrengthScore = s.TrendStrengthScore,
+            TrendStrengthLabel = r.TrendStrengthLabel.ToString(),
+            Ema20 = s.Ema20,
+            Ema50 = s.Ema50,
+            Ema200 = s.Ema200,
+            Rsi14 = s.Rsi14,
+            Rsi14IsReliable = s.Rsi14IsReliable,
+            Atr14 = s.Atr14,
+            VolumeRatio = s.VolumeRatio,
+            Support1 = s.Support1,
+            Support2 = s.Support2,
+            Resistance1 = s.Resistance1,
+            Resistance2 = s.Resistance2,
+            DistanceToSupport1Pct = s.DistanceToSupport1Pct,
+            DistanceToResistance1Pct = s.DistanceToResistance1Pct,
+            Support1Meta = BuildLevelMeta(s.Support1, s.Support1Strength, s.Support1ClusterVolume, lastClose, isSupport: true, distancePct: s.DistanceToSupport1Pct),
+            Support2Meta = BuildLevelMeta(s.Support2, s.Support2Strength, s.Support2ClusterVolume, lastClose, isSupport: true),
+            Resistance1Meta = BuildLevelMeta(s.Resistance1, s.Resistance1Strength, s.Resistance1ClusterVolume, lastClose, isSupport: false, distancePct: s.DistanceToResistance1Pct),
+            Resistance2Meta = BuildLevelMeta(s.Resistance2, s.Resistance2Strength, s.Resistance2ClusterVolume, lastClose, isSupport: false),
+            IsAboveEma20 = s.IsAboveEma20,
+            IsAboveEma50 = s.IsAboveEma50,
+            IsAboveEma200 = s.IsAboveEma200,
+            EmaBullishAlignment = s.EmaBullishAlignment,
+            EmaBearishAlignment = s.EmaBearishAlignment,
+            RsiOverbought = s.RsiOverbought,
+            RsiOversold = s.RsiOversold,
             Summary = new LlmTimeframeSummaryPayload
             {
-                Bias             = r.Bias.ToString(),
+                Bias = r.Bias.ToString(),
                 IsTrendConfirmed = r.IsTrendConfirmed,
-                MomentumState    = r.MomentumState.ToString(),
-                EntryQuality     = r.EntryQuality.ToString(),
-                RiskFlags        = [.. r.RiskFlags],
+                MomentumState = r.MomentumState.ToString(),
+                EntryQuality = r.EntryQuality.ToString(),
+                RiskFlags = [.. r.RiskFlags],
             },
         };
     }
@@ -239,8 +239,8 @@ internal static class LlmPayloadMapperExtensions
         decimal? levelPrice,
         decimal? strength,
         decimal? clusterVolume,
-        decimal  lastClose,
-        bool     isSupport,
+        decimal lastClose,
+        bool isSupport,
         decimal? distancePct = null)
     {
         if (levelPrice is not { } price)
@@ -264,11 +264,11 @@ internal static class LlmPayloadMapperExtensions
 
         return new LlmLevelMetaPayload
         {
-            Price         = price,
-            Strength      = strength,
+            Price = price,
+            Strength = strength,
             StrengthLabel = LevelStrengthLabelMapper.Map(strength).ToString(),
-            Source        = LevelSourceV1,
-            DistancePct   = distance,
+            Source = LevelSourceV1,
+            DistancePct = distance,
             ClusterVolume = clusterVolume,
         };
     }
@@ -284,11 +284,11 @@ internal static class LlmPayloadMapperExtensions
     private static LlmSentimentPayload BuildSentiment(SentimentSnapshot s) =>
         new()
         {
-            LongShortBiasScore        = s.LongShortBiasScore,
-            FundingBiasScore          = s.FundingBiasScore,
-            OrderBookPressureScore    = s.OrderBookPressureScore,
-            TradeFlowPressureScore    = s.TradeFlowPressureScore,
-            MarketRegime              = s.MarketRegime,
+            LongShortBiasScore = s.LongShortBiasScore,
+            FundingBiasScore = s.FundingBiasScore,
+            OrderBookPressureScore = s.OrderBookPressureScore,
+            TradeFlowPressureScore = s.TradeFlowPressureScore,
+            MarketRegime = s.MarketRegime,
         };
 
     // ─── Portfolio ──────────────────────────────────────────────────────────
@@ -299,31 +299,31 @@ internal static class LlmPayloadMapperExtensions
         {
             return new LlmPortfolioPayload
             {
-                IsAvailable           = false,
-                TotalEquityUsd        = 0m,
+                IsAvailable = false,
+                TotalEquityUsd = 0m,
                 TotalUnrealizedPnlUsd = 0m,
-                OpenPositions         = [],
+                OpenPositions = [],
             };
         }
 
         return new LlmPortfolioPayload
         {
-            IsAvailable            = true,
-            TotalEquityUsd         = s.TotalEquityUsd,
-            TotalUnrealizedPnlUsd  = s.TotalUnrealizedPnlUsd,
-            OpenPositions          = [.. s.OpenPositions.Select(BuildOpenPosition)],
+            IsAvailable = true,
+            TotalEquityUsd = s.TotalEquityUsd,
+            TotalUnrealizedPnlUsd = s.TotalUnrealizedPnlUsd,
+            OpenPositions = [.. s.OpenPositions.Select(BuildOpenPosition)],
         };
     }
 
     private static LlmOpenPositionPayload BuildOpenPosition(OpenPositionSnapshot s) =>
         new()
         {
-            Symbol            = s.Symbol,
-            Side              = s.Side switch { PositionSide.Long => "Long", PositionSide.Short => "Short", _ => s.Side.ToString() },
-            Size              = s.Size,
-            AvgPrice          = s.AvgPrice,
-            UnrealizedPnlPct  = s.UnrealizedPnlPct,
-            Leverage          = s.Leverage,
-            LiquidationPrice  = s.LiquidationPrice,
+            Symbol = s.Symbol,
+            Side = s.Side switch { PositionSide.Long => "Long", PositionSide.Short => "Short", _ => s.Side.ToString() },
+            Size = s.Size,
+            AvgPrice = s.AvgPrice,
+            UnrealizedPnlPct = s.UnrealizedPnlPct,
+            Leverage = s.Leverage,
+            LiquidationPrice = s.LiquidationPrice,
         };
 }

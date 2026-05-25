@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -45,37 +45,36 @@ public static class LongShortRatioSnapshotAssembler
             throw new ArgumentException("Long/short ratio entries list must not be empty.", nameof(entries));
 
         // 2. Sort descending (newest first); current = first
-        var sorted  = entries.OrderByDescending(e => e.Timestamp).ToList();
+        var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
         // 3. Averages over entire window
-        var avgBuyRatio  = sorted.Average(e => e.BuyRatio);
+        var avgBuyRatio = sorted.Average(e => e.BuyRatio);
         var avgSellRatio = sorted.Average(e => e.SellRatio);
 
         // 4. Flags
-        var isLongDominant  = current.BuyRatio > 0.5m;
-        var isExtremelyLong  = current.BuyRatio >  ExtremeLongThreshold;
+        var isLongDominant = current.BuyRatio > 0.5m;
+        var isExtremelyLong = current.BuyRatio > ExtremeLongThreshold;
         var isExtremelyShort = current.BuyRatio < (1m - ExtremeLongThreshold);
 
         // 5. Assemble
         return new LongShortRatioSnapshot
         {
-            Symbol   = current.Symbol,
+            Symbol = current.Symbol,
             Category = current.Category,
-            Period   = period,
+            Period = period,
 
             WindowStartUtc = sorted[^1].Timestamp,
-            WindowEndUtc   = current.Timestamp,
+            WindowEndUtc = current.Timestamp,
 
-            CurrentBuyRatio  = current.BuyRatio,
+            CurrentBuyRatio = current.BuyRatio,
             CurrentSellRatio = current.SellRatio,
-            AvgBuyRatio      = avgBuyRatio,
-            AvgSellRatio     = avgSellRatio,
+            AvgBuyRatio = avgBuyRatio,
+            AvgSellRatio = avgSellRatio,
 
-            IsLongDominant  = isLongDominant,
-            IsExtremelyLong  = isExtremelyLong,
+            IsLongDominant = isLongDominant,
+            IsExtremelyLong = isExtremelyLong,
             IsExtremelyShort = isExtremelyShort,
         };
     }
 }
-

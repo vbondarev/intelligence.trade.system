@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai.Tests;
+namespace Intelligence.TradeSystem.Ai.Tests;
 
 internal sealed class TestHttpMessageHandler(
     Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
@@ -10,4 +10,3 @@ internal sealed class TestHttpMessageHandler(
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         _handler(request, cancellationToken);
 }
-

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai;
+namespace Intelligence.TradeSystem.Ai;
 
 /// <summary>
 /// Одно сообщение в ordered prompt payload, подготавливаемом для chat-oriented LLM provider.
@@ -31,4 +31,3 @@ public sealed record PromptMessage
     /// <summary>Текстовое содержимое сообщения.</summary>
     public string Content { get; }
 }
-

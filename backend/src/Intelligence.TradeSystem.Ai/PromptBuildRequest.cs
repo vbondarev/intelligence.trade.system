@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Analytics;
+using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Ai;
@@ -42,4 +42,3 @@ public sealed record PromptBuildRequest
     /// </summary>
     public AnalyticsOutput? AnalyticsOutput { get; }
 }
-

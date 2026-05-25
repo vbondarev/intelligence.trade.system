@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -20,5 +20,3 @@ internal static class ProblemDetailsAssertions
         problem.Detail.Should().Contain(detailFragment);
     }
 }
-
-

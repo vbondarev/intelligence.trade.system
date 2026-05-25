@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
@@ -166,13 +166,13 @@ internal static class ApiSnapshotTestData
     {
         // Семантически корректные дефолты:
         // Bearish-тренд → цена ниже EMA200; Bullish/Sideways/Unknown → выше.
-        var isAboveEma200  = overrideIsAboveEma200 ?? (trend != MarketTrend.Bearish);
-        var emaBullish     = overrideEmaBullish     ?? (trend == MarketTrend.Bullish);
-        var emaBearish     = overrideEmaBearish     ?? (trend == MarketTrend.Bearish);
+        var isAboveEma200 = overrideIsAboveEma200 ?? (trend != MarketTrend.Bearish);
+        var emaBullish = overrideEmaBullish ?? (trend == MarketTrend.Bullish);
+        var emaBearish = overrideEmaBearish ?? (trend == MarketTrend.Bearish);
         // overrideRsi14 = null explicitly means "RSI unavailable"; default 55m = available.
-        decimal? rsi14     = overrideRsi14;
-        var rsiOverbought  = overrideRsiOverbought  ?? false;
-        var rsiOversold    = overrideRsiOversold    ?? false;
+        decimal? rsi14 = overrideRsi14;
+        var rsiOverbought = overrideRsiOverbought ?? false;
+        var rsiOversold = overrideRsiOversold ?? false;
 
         return new TimeframeAnalysisSnapshot
         {
@@ -217,12 +217,12 @@ internal static class ApiSnapshotTestData
             EmaBearishAlignment = emaBearish,
             RsiOverbought = rsiOverbought,
             RsiOversold = rsiOversold,
-            EmaIsReliable         = true,
-            EmaHasFallback        = false,
-            AtrIsReliable         = true,
-            AtrIsFallback         = false,
-            VolumeRatioIsReliable  = true,
-            VolumeRatioIsFallback  = false,
+            EmaIsReliable = true,
+            EmaHasFallback = false,
+            AtrIsReliable = true,
+            AtrIsFallback = false,
+            VolumeRatioIsReliable = true,
+            VolumeRatioIsFallback = false,
             CandleRangePct = 0.5385m,
             DistanceToSupport1Pct = 0.6154m,
             DistanceToResistance1Pct = 0.3077m,

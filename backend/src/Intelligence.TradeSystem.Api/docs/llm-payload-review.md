@@ -186,18 +186,3 @@ Side = s.Side.ToString(),
 | LOW-2 | 🟡 | Низкий | Технический долг | `SchemaVersion` без стратегии версионирования |
 | LOW-3 | ✅ | — | Производительность тестов | `WithWebHostBuilder` в каждом тесте `LlmMomentumStateMappingTests` |
 | NEW-3 | 🟡 | Низкий | Качество кода | Избыточный switch в `BuildOpenPosition.Side` |
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

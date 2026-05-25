@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Временной период агрегации соотношения лонг/шорт позиций.
@@ -25,4 +25,3 @@ public enum LongShortRatioPeriod
     /// <summary>1 день.</summary>
     OneDay
 }
-

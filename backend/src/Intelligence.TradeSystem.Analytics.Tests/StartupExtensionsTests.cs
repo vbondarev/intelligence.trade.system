@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Analytics.Tests;
 
@@ -55,4 +55,3 @@ public sealed class StartupExtensionsTests
     }
 
 }
-

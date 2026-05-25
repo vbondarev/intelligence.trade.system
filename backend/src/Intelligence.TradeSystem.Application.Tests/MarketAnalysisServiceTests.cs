@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -284,5 +284,3 @@ public sealed class MarketAnalysisServiceTests
             new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 4, 2, 12, 0, 0, TimeSpan.Zero));
 }
-
-

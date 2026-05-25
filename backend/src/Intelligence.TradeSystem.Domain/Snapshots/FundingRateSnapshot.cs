@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Снимок истории ставки финансирования за скользящее временное окно.
@@ -62,4 +62,3 @@ public sealed record FundingRateSnapshot
     /// </summary>
     public bool IsExtremeBearish { get; init; }
 }
-

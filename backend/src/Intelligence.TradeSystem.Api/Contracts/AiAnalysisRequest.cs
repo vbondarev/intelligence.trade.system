@@ -28,4 +28,3 @@ public sealed record AiAnalysisRequest
     /// </summary>
     public string? UserQuery { get; init; }
 }
-

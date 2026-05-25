@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
@@ -128,7 +128,7 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "EMA20 == EMA50 == EMA200 (same seed price) cannot produce bearish alignment");
 
         // IsAbove flags reflect real comparison, not fake-zero.
-        var expectedAbove20  = s.Ema20.HasValue  && s.LastCandle.Close > s.Ema20.Value;
+        var expectedAbove20 = s.Ema20.HasValue && s.LastCandle.Close > s.Ema20.Value;
         var expectedAbove200 = s.Ema200.HasValue && s.LastCandle.Close > s.Ema200.Value;
         s.IsAboveEma20.Should().Be(expectedAbove20);
         s.IsAboveEma200.Should().Be(expectedAbove200);
@@ -235,10 +235,10 @@ public sealed class IndicatorPipelineIntegrationTests
     public void MarketAnalysisSnapshotAssembler_Aggregates_Diagnostics_From_All_Timeframes()
     {
         // Build snapshots with different data amounts to trigger different diagnostics.
-        var m15 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 5),  "15m").Snapshot;
-        var h1  = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 10), "1h").Snapshot;
-        var h4  = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 250), "4h").Snapshot;
-        var d1  = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 50),  "1d").Snapshot;
+        var m15 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 5), "15m").Snapshot;
+        var h1 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 10), "1h").Snapshot;
+        var h4 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 250), "4h").Snapshot;
+        var d1 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 50), "1d").Snapshot;
 
         // Build a market snapshot (minimal required data for non-timeframe fields).
         var (_, allDiags) = BuildMinimalMarketSnapshot(m15, h1, h4, d1);
@@ -252,7 +252,7 @@ public sealed class IndicatorPipelineIntegrationTests
 
         // Order: 15m first, then 1h, 4h, 1d.
         var timeframes = allDiags.Select(d => d.Timeframe).Distinct().ToList();
-        var orderedExpected = TimeframeOrder.Where(tf => timeframes.Contains(tf)).ToList();
+        var orderedExpected = _timeframeOrder.Where(tf => timeframes.Contains(tf)).ToList();
         timeframes.Should().ContainInOrder(orderedExpected,
             because: "diagnostics are aggregated in timeframe order: 15m → 1h → 4h → 1d");
     }
@@ -283,7 +283,7 @@ public sealed class IndicatorPipelineIntegrationTests
         diag.Message.Should().Contain("volumeRatio").And.Contain("unavailable");
     }
 
-    private static readonly string[] TimeframeOrder = ["15m", "1h", "1d"];
+    private static readonly string[] _timeframeOrder = ["15m", "1h", "1d"];
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -300,12 +300,12 @@ public sealed class IndicatorPipelineIntegrationTests
     {
         var snapshot = MarketAnalysisSnapshotAssembler.Assemble(
             exchange: "Bybit",
-            symbol:   "BTCUSDT",
+            symbol: "BTCUSDT",
             category: MarketCategory.Linear,
-            price:    TestSnapshotFactory.CreatePrice(),
+            price: TestSnapshotFactory.CreatePrice(),
             derivatives: TestSnapshotFactory.CreateDerivatives(),
-            orderBook:   TestSnapshotFactory.CreateOrderBook(),
-            tradeFlow:   TestSnapshotFactory.CreateTradeFlow(),
+            orderBook: TestSnapshotFactory.CreateOrderBook(),
+            tradeFlow: TestSnapshotFactory.CreateTradeFlow(),
             m15: m15, h1: h1, h4: h4, d1: d1,
             sentiment: TestSnapshotFactory.CreateSentiment(),
             portfolio: TestSnapshotFactory.CreatePortfolio());
@@ -313,4 +313,3 @@ public sealed class IndicatorPipelineIntegrationTests
         return (snapshot, snapshot.IndicatorDiagnostics);
     }
 }
-

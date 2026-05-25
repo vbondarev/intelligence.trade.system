@@ -1,11 +1,11 @@
-﻿using Intelligence.TradeSystem.Ai;
-using Intelligence.TradeSystem.Application;
-using Intelligence.TradeSystem.Analytics;
-using Intelligence.TradeSystem.Exchanges;
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Intelligence.TradeSystem.Ai;
+using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Services;
+using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Exchanges;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api;
@@ -39,7 +39,7 @@ public partial class Program
                         return new BadRequestObjectResult(new ProblemDetails
                         {
                             Status = StatusCodes.Status400BadRequest,
-                            Title  = "Request validation failed.",
+                            Title = "Request validation failed.",
                             Detail = detail,
                         });
                     }

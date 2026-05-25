@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -13,7 +13,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 public sealed class SnapshotHealthWarningsBuilderTests
 {
     // ─── Intraday thresholds: OB=2s=2000ms, TF=5s=5000ms, Der=30s=30000ms ──
-    private static readonly SectionFreshnessOptions IntradayThresholds =
+    private static readonly SectionFreshnessOptions _intradayThresholds =
         SnapshotFreshnessOptions.Default.Intraday;
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -26,11 +26,11 @@ public sealed class SnapshotHealthWarningsBuilderTests
         decimal stalenessProximityFactor = 0.8m) =>
         new()
         {
-            Mode                     = mode,
-            IncludePortfolio         = includePortfolio,
+            Mode = mode,
+            IncludePortfolio = includePortfolio,
             IncludeAggregatedContext = includeAggregatedContext,
-            SectionAgesMs            = sectionAgesMs ?? [],
-            Thresholds               = IntradayThresholds,
+            SectionAgesMs = sectionAgesMs ?? [],
+            Thresholds = _intradayThresholds,
             StalenessProximityFactor = stalenessProximityFactor,
         };
 
@@ -104,12 +104,12 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         // При factor=0.9: порог = 1800ms; age=1700ms < 1800ms → НЕТ warning
         // При factor=0.8: порог = 1600ms; age=1700ms >= 1600ms → ЕСТЬ warning
-        var ctxLoose  = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1700 }, stalenessProximityFactor: 0.9m);
+        var ctxLoose = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1700 }, stalenessProximityFactor: 0.9m);
         var ctxNormal = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1700 }, stalenessProximityFactor: 0.8m);
 
-        var resultLoose  = new List<string>();
+        var resultLoose = new List<string>();
         var resultNormal = new List<string>();
-        SnapshotHealthWarningsBuilder.AddNearStalenessWarnings(ctxLoose,  resultLoose);
+        SnapshotHealthWarningsBuilder.AddNearStalenessWarnings(ctxLoose, resultLoose);
         SnapshotHealthWarningsBuilder.AddNearStalenessWarnings(ctxNormal, resultNormal);
 
         resultLoose.Should().NotContain("orderBook is near staleness threshold",
@@ -153,8 +153,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
         var snapshot = DefaultSnapshot() with
         {
             M15 = lowTf,
-            H1  = lowTf with { Timeframe = "1h" },
-            H4  = lowTf with { Timeframe = "4h" },
+            H1 = lowTf with { Timeframe = "1h" },
+            H4 = lowTf with { Timeframe = "4h" },
         };
         var result = new List<string>();
 
@@ -170,8 +170,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var sentiment = DefaultSnapshot().Sentiment with
         {
-            OrderBookPressureScore  = 0.2m,
-            TradeFlowPressureScore  = -0.2m,
+            OrderBookPressureScore = 0.2m,
+            TradeFlowPressureScore = -0.2m,
         };
         var result = new List<string>();
 
@@ -185,8 +185,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var sentiment = DefaultSnapshot().Sentiment with
         {
-            OrderBookPressureScore  = -0.15m,
-            TradeFlowPressureScore  = 0.10m,
+            OrderBookPressureScore = -0.15m,
+            TradeFlowPressureScore = 0.10m,
         };
         var result = new List<string>();
 
@@ -200,8 +200,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var sentiment = DefaultSnapshot().Sentiment with
         {
-            OrderBookPressureScore  = 0.05m,
-            TradeFlowPressureScore  = 0.04m,
+            OrderBookPressureScore = 0.05m,
+            TradeFlowPressureScore = 0.04m,
         };
         var result = new List<string>();
 
@@ -274,8 +274,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var farTf = DefaultSnapshot().M15 with
         {
-            Trend                  = MarketTrend.Bullish,
-            DistanceToSupport1Pct  = 2.0m,  // > 1.5
+            Trend = MarketTrend.Bullish,
+            DistanceToSupport1Pct = 2.0m,  // > 1.5
         };
         var snapshot = DefaultSnapshot() with { M15 = farTf };
         var result = new List<string>();
@@ -290,8 +290,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var farTf = DefaultSnapshot().M15 with
         {
-            Trend                     = MarketTrend.Bearish,
-            DistanceToResistance1Pct  = 1.8m,  // > 1.5
+            Trend = MarketTrend.Bearish,
+            DistanceToResistance1Pct = 1.8m,  // > 1.5
         };
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bearish) with { M15 = farTf };
         var result = new List<string>();
@@ -318,13 +318,13 @@ public sealed class SnapshotHealthWarningsBuilderTests
     {
         var farTf = DefaultSnapshot().M15 with
         {
-            Trend                 = MarketTrend.Bullish,
+            Trend = MarketTrend.Bullish,
             DistanceToSupport1Pct = 3.0m,
         };
         var snapshot = DefaultSnapshot() with
         {
             M15 = farTf,
-            H1  = farTf with { Timeframe = "1h" },
+            H1 = farTf with { Timeframe = "1h" },
         };
         var result = new List<string>();
 
@@ -338,7 +338,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void Context_Warning_When_Portfolio_Not_Included()
     {
-        var ctx    = BuildCtx(includePortfolio: false);
+        var ctx = BuildCtx(includePortfolio: false);
         var result = new List<string>();
 
         SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
@@ -349,7 +349,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void Context_No_Warning_When_Portfolio_Included()
     {
-        var ctx    = BuildCtx(includePortfolio: true);
+        var ctx = BuildCtx(includePortfolio: true);
         var result = new List<string>();
 
         SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
@@ -360,7 +360,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void Context_Warning_When_AggregatedContext_Not_Included()
     {
-        var ctx    = BuildCtx(includeAggregatedContext: false);
+        var ctx = BuildCtx(includeAggregatedContext: false);
         var result = new List<string>();
 
         SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
@@ -382,20 +382,20 @@ public sealed class SnapshotHealthWarningsBuilderTests
         // - context: portfolio + aggregated не включены
         var lowFarTf = DefaultSnapshot().M15 with
         {
-            VolumeRatio           = 0.2m,
-            Trend                 = MarketTrend.Bullish,
+            VolumeRatio = 0.2m,
+            Trend = MarketTrend.Bullish,
             DistanceToSupport1Pct = 2.5m,
         };
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish) with
         {
             M15 = lowFarTf,
-            H1  = lowFarTf with { Timeframe = "1h" },
-            H4  = lowFarTf with { Timeframe = "4h" },
+            H1 = lowFarTf with { Timeframe = "1h" },
+            H4 = lowFarTf with { Timeframe = "4h" },
             Sentiment = DefaultSnapshot().Sentiment with
             {
                 OrderBookPressureScore = 0.2m,
                 TradeFlowPressureScore = -0.2m,
-                MarketRegime           = "Neutral",
+                MarketRegime = "Neutral",
             },
         };
 
@@ -404,8 +404,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
             includeAggregatedContext: false,
             sectionAgesMs: new()
             {
-                ["orderBook"]   = 1800,  // 90% от 2000ms
-                ["tradeFlow"]   = 4500,  // 90% от 5000ms
+                ["orderBook"] = 1800,  // 90% от 2000ms
+                ["tradeFlow"] = 4500,  // 90% от 5000ms
                 ["derivatives"] = 27000, // 90% от 30000ms
             });
 
@@ -426,8 +426,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
             includeAggregatedContext: true,
             sectionAgesMs: new()
             {
-                ["orderBook"]   = 100,
-                ["tradeFlow"]   = 100,
+                ["orderBook"] = 100,
+                ["tradeFlow"] = 100,
                 ["derivatives"] = 100,
             });
 
@@ -444,8 +444,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
         var snapshot = DefaultSnapshot() with
         {
             M15 = lowTf,
-            H1  = lowTf with { Timeframe = "1h" },
-            H4  = lowTf with { Timeframe = "4h" },
+            H1 = lowTf with { Timeframe = "1h" },
+            H4 = lowTf with { Timeframe = "4h" },
         };
         var ctx = BuildCtx(includePortfolio: true);
 
@@ -455,5 +455,3 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Count(w => w == "low volume on primary timeframes").Should().Be(1);
     }
 }
-
-

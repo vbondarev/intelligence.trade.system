@@ -47,13 +47,13 @@ internal static class EntryQualityEvaluator
     /// </summary>
     public static EntryQuality Evaluate(
         TimeframeBias bias,
-        bool          isTrendConfirmed,
-        decimal?      support1,
-        decimal?      distanceToSupport1Pct,
-        bool          rsiOverbought,
-        decimal?      resistance1,
-        decimal?      distanceToResistance1Pct,
-        bool          rsiOversold)
+        bool isTrendConfirmed,
+        decimal? support1,
+        decimal? distanceToSupport1Pct,
+        bool rsiOverbought,
+        decimal? resistance1,
+        decimal? distanceToResistance1Pct,
+        bool rsiOversold)
     {
         if (bias == TimeframeBias.Neutral) return EntryQuality.Poor;
 
@@ -67,16 +67,16 @@ internal static class EntryQualityEvaluator
     // ─── Bullish ─────────────────────────────────────────────────────────────
 
     private static EntryQuality EvaluateBullish(
-        bool     isTrendConfirmed,
+        bool isTrendConfirmed,
         decimal? support1,
         decimal? distToSupport1,
-        bool     rsiOverbought)
+        bool rsiOverbought)
     {
         // Poor: нет уровня, дистанция отсутствует/нулевая, слишком далеко или RSI перекуплен
-        if (support1 is null)                                            return EntryQuality.Poor;
-        if (rsiOverbought)                                               return EntryQuality.Poor;
-        if (distToSupport1 is not { } dist || dist == 0m)               return EntryQuality.Poor;
-        if (dist > FairMaxDistance)                                      return EntryQuality.Poor;
+        if (support1 is null) return EntryQuality.Poor;
+        if (rsiOverbought) return EntryQuality.Poor;
+        if (distToSupport1 is not { } dist || dist == 0m) return EntryQuality.Poor;
+        if (dist > FairMaxDistance) return EntryQuality.Poor;
 
         // Good: подтверждённый тренд + цена близко к support
         if (isTrendConfirmed && dist <= GoodMaxDistance)
@@ -89,16 +89,16 @@ internal static class EntryQualityEvaluator
     // ─── Bearish ─────────────────────────────────────────────────────────────
 
     private static EntryQuality EvaluateBearish(
-        bool     isTrendConfirmed,
+        bool isTrendConfirmed,
         decimal? resistance1,
         decimal? distToResistance1,
-        bool     rsiOversold)
+        bool rsiOversold)
     {
         // Poor: нет уровня, дистанция отсутствует/нулевая, слишком далеко или RSI перепродан
-        if (resistance1 is null)                                         return EntryQuality.Poor;
-        if (rsiOversold)                                                 return EntryQuality.Poor;
-        if (distToResistance1 is not { } dist || dist == 0m)            return EntryQuality.Poor;
-        if (dist > FairMaxDistance)                                      return EntryQuality.Poor;
+        if (resistance1 is null) return EntryQuality.Poor;
+        if (rsiOversold) return EntryQuality.Poor;
+        if (distToResistance1 is not { } dist || dist == 0m) return EntryQuality.Poor;
+        if (dist > FairMaxDistance) return EntryQuality.Poor;
 
         // Good: подтверждённый тренд + цена близко к resistance
         if (isTrendConfirmed && dist <= GoodMaxDistance)
@@ -108,4 +108,3 @@ internal static class EntryQualityEvaluator
         return EntryQuality.Fair;
     }
 }
-

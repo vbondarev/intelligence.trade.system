@@ -47,4 +47,3 @@
 - If you change an endpoint contract, update controller docs, payload/request models, mapper logic, and `Intelligence.TradeSystem.Api.Tests`.
 - If you change payload shape, inspect `LlmPayloadEndpointTests`, `SnapshotHealthWarningsBuilderTests`, and any consumers of `schemaVersion` / `analysisContext`.
 - If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for analytics/application/exchange services.
-

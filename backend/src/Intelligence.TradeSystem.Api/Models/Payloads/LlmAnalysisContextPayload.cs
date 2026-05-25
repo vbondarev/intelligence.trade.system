@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Контекст режима анализа и флагов конфигурации payload.</summary>
 public sealed record LlmAnalysisContextPayload

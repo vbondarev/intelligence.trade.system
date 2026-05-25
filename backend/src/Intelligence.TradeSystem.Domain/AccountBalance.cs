@@ -40,4 +40,3 @@ public sealed record AccountBalance(
     /// </summary>
     public IReadOnlyList<CoinBalance> Coins { get; init; } = Coins;
 }
-

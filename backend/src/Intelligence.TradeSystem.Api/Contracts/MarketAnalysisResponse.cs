@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 namespace Intelligence.TradeSystem.Api.Contracts;
 

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analytics;
 
@@ -16,4 +16,3 @@ public sealed class MarketRegimeClassifier : IMarketRegimeClassifier
         return MarketRegimePolicy.Classify(snapshot.H1, snapshot.H4);
     }
 }
-

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Services;
@@ -29,4 +29,3 @@ internal sealed record SnapshotHealthWarningsContext
     /// </summary>
     public required decimal StalenessProximityFactor { get; init; }
 }
-

@@ -4,8 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Contracts;
-using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
+using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
@@ -334,5 +334,3 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
 }
-
-

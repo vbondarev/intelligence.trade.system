@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Levels;
+namespace Intelligence.TradeSystem.Indicators.Levels;
 
 /// <summary>
 /// Описывает обнаруженный ценовой уровень с метаданными о его силе и происхождении.
@@ -23,4 +23,3 @@ public sealed record LevelInfo(
     LevelSource Source,
     decimal ClusterVolume
 );
-

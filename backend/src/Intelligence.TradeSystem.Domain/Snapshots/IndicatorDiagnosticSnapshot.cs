@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Диагностическая запись для одного индикатора одного таймфрейма.
@@ -28,4 +28,3 @@ public sealed record IndicatorDiagnosticSnapshot
     /// <summary>Человекочитаемое сообщение, описывающее проблему.</summary>
     public required string Message { get; init; }
 }
-

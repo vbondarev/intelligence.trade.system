@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Configuration;
 
@@ -22,10 +22,10 @@ public sealed record SnapshotFreshnessOptions
     /// <summary>Возвращает настройки свежести для указанного режима.</summary>
     public SectionFreshnessOptions ForMode(AnalysisMode mode) => mode switch
     {
-        AnalysisMode.Intraday  => Intraday,
-        AnalysisMode.Swing     => Swing,
+        AnalysisMode.Intraday => Intraday,
+        AnalysisMode.Swing => Swing,
         AnalysisMode.Portfolio => Portfolio,
-        _                      => Intraday,
+        _ => Intraday,
     };
 
     /// <summary>
@@ -40,37 +40,37 @@ public sealed record SnapshotFreshnessOptions
     {
         Intraday = new SectionFreshnessOptions
         {
-            PriceMaxAge       = TimeSpan.FromSeconds(2),
+            PriceMaxAge = TimeSpan.FromSeconds(2),
             DerivativesMaxAge = TimeSpan.FromSeconds(30),
-            OrderBookMaxAge   = TimeSpan.FromSeconds(2),
-            TradeFlowMaxAge   = TimeSpan.FromSeconds(5),
-            M15MaxAge         = TimeSpan.FromSeconds(60),
-            H1MaxAge          = TimeSpan.FromSeconds(60),
-            H4MaxAge          = TimeSpan.FromSeconds(60),
-            D1MaxAge          = TimeSpan.FromSeconds(60),
+            OrderBookMaxAge = TimeSpan.FromSeconds(2),
+            TradeFlowMaxAge = TimeSpan.FromSeconds(5),
+            M15MaxAge = TimeSpan.FromSeconds(60),
+            H1MaxAge = TimeSpan.FromSeconds(60),
+            H4MaxAge = TimeSpan.FromSeconds(60),
+            D1MaxAge = TimeSpan.FromSeconds(60),
         },
         Swing = new SectionFreshnessOptions
         {
-            PriceMaxAge       = TimeSpan.FromSeconds(10),
+            PriceMaxAge = TimeSpan.FromSeconds(10),
             DerivativesMaxAge = TimeSpan.FromMinutes(2),
-            OrderBookMaxAge   = TimeSpan.FromSeconds(15),
-            TradeFlowMaxAge   = TimeSpan.FromSeconds(30),
-            M15MaxAge         = TimeSpan.FromMinutes(5),
-            H1MaxAge          = TimeSpan.FromMinutes(5),
-            H4MaxAge          = TimeSpan.FromMinutes(5),
-            D1MaxAge          = TimeSpan.FromMinutes(5),
+            OrderBookMaxAge = TimeSpan.FromSeconds(15),
+            TradeFlowMaxAge = TimeSpan.FromSeconds(30),
+            M15MaxAge = TimeSpan.FromMinutes(5),
+            H1MaxAge = TimeSpan.FromMinutes(5),
+            H4MaxAge = TimeSpan.FromMinutes(5),
+            D1MaxAge = TimeSpan.FromMinutes(5),
         },
         Portfolio = new SectionFreshnessOptions
         {
-            PriceMaxAge       = TimeSpan.FromSeconds(5),
+            PriceMaxAge = TimeSpan.FromSeconds(5),
             DerivativesMaxAge = TimeSpan.FromMinutes(1),
-            OrderBookMaxAge   = TimeSpan.FromSeconds(5),
-            TradeFlowMaxAge   = TimeSpan.FromSeconds(10),
-            M15MaxAge         = TimeSpan.FromMinutes(5),
-            H1MaxAge          = TimeSpan.FromMinutes(5),
-            H4MaxAge          = TimeSpan.FromMinutes(5),
-            D1MaxAge          = TimeSpan.FromMinutes(5),
-            PortfolioMaxAge   = TimeSpan.FromSeconds(30),
+            OrderBookMaxAge = TimeSpan.FromSeconds(5),
+            TradeFlowMaxAge = TimeSpan.FromSeconds(10),
+            M15MaxAge = TimeSpan.FromMinutes(5),
+            H1MaxAge = TimeSpan.FromMinutes(5),
+            H4MaxAge = TimeSpan.FromMinutes(5),
+            D1MaxAge = TimeSpan.FromMinutes(5),
+            PortfolioMaxAge = TimeSpan.FromSeconds(30),
         },
     };
 }

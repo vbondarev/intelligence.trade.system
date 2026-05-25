@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analytics;
 
@@ -17,4 +17,3 @@ public interface IAnalyticsOutputComposer
     /// <exception cref="ArgumentNullException">Если <paramref name="snapshot"/> равен <c>null</c>.</exception>
     AnalyticsOutput Compose(MarketAnalysisSnapshot snapshot);
 }
-

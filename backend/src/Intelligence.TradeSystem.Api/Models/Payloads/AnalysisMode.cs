@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Режим анализа, определяющий набор первичных таймфреймов и пороги свежести секций снапшота.
@@ -14,4 +14,3 @@ public enum AnalysisMode
     /// <summary>Портфельный анализ с позициями. Первичные таймфреймы: 4h, 1d.</summary>
     Portfolio = 3,
 }
-

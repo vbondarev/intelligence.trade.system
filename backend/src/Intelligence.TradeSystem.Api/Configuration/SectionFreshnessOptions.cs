@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Configuration;
+namespace Intelligence.TradeSystem.Api.Configuration;
 
 /// <summary>
 /// Пороги свежести отдельных секций снапшота для одного режима анализа.

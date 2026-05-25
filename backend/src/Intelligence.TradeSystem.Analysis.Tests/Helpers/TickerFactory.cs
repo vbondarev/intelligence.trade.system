@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Helpers;
 
@@ -41,4 +41,3 @@ public static class TickerFactory
             volume24h,
             turnover24h);
 }
-

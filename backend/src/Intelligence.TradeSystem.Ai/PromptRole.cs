@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai;
+namespace Intelligence.TradeSystem.Ai;
 
 /// <summary>
 /// Роль сообщения в chat-oriented prompt payload для LLM provider.
@@ -14,4 +14,3 @@ public enum PromptRole
     /// <summary>Сообщение ассистента, если в будущем понадобится few-shot или continuation-контекст.</summary>
     Assistant = 3
 }
-

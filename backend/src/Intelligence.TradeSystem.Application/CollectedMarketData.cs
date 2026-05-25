@@ -91,4 +91,3 @@ public sealed record CollectedMarketData
     /// </summary>
     public IReadOnlyList<OpenPosition> OpenPositions { get; init; } = [];
 }
-

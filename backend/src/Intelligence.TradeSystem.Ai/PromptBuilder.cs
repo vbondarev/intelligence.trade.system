@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace Intelligence.TradeSystem.Ai;
 
@@ -72,5 +72,3 @@ public sealed class PromptBuilder : IPromptBuilder
         value.Replace("\r\n", LineBreak, StringComparison.Ordinal)
             .Replace("\r", LineBreak, StringComparison.Ordinal);
 }
-
-

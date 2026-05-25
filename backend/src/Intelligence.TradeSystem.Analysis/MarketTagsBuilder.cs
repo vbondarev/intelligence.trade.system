@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis;
 
@@ -25,25 +25,25 @@ internal static class MarketTagsBuilder
     // ─── V1 whitelist — строковые константы тегов ─────────────────────────────
 
     /// <summary>Рыночный режим активного тренда.</summary>
-    public const string TagTrending          = "trending";
+    public const string TagTrending = "trending";
 
     /// <summary>Нейтральный рыночный режим.</summary>
-    public const string TagNeutral           = "neutral";
+    public const string TagNeutral = "neutral";
 
     /// <summary>Ставка финансирования положительная (лонги переплачивают).</summary>
-    public const string TagPositiveFunding   = "positive-funding";
+    public const string TagPositiveFunding = "positive-funding";
 
     /// <summary>Ставка финансирования отрицательная (шорты переплачивают).</summary>
-    public const string TagNegativeFunding   = "negative-funding";
+    public const string TagNegativeFunding = "negative-funding";
 
     /// <summary>Стакан заявок с доминированием bid-стороны.</summary>
-    public const string TagBidPressure       = "bid-pressure";
+    public const string TagBidPressure = "bid-pressure";
 
     /// <summary>Стакан заявок с доминированием ask-стороны.</summary>
-    public const string TagAskPressure       = "ask-pressure";
+    public const string TagAskPressure = "ask-pressure";
 
     /// <summary>Агрессивное давление покупателей в потоке сделок.</summary>
-    public const string TagAggressiveBuying  = "aggressive-buying";
+    public const string TagAggressiveBuying = "aggressive-buying";
 
     /// <summary>Агрессивное давление продавцов в потоке сделок.</summary>
     public const string TagAggressiveSelling = "aggressive-selling";
@@ -68,9 +68,9 @@ internal static class MarketTagsBuilder
     /// </summary>
     public static List<string> Build(
         DerivativesSnapshot derivatives,
-        OrderBookSnapshot   orderBook,
-        TradeFlowSnapshot   tradeFlow,
-        SentimentSnapshot   sentiment)
+        OrderBookSnapshot orderBook,
+        TradeFlowSnapshot tradeFlow,
+        SentimentSnapshot sentiment)
     {
         ArgumentNullException.ThrowIfNull(derivatives);
         ArgumentNullException.ThrowIfNull(orderBook);
@@ -107,29 +107,28 @@ internal static class MarketTagsBuilder
     internal static string? GetRegimeTag(string regime) => regime switch
     {
         "Trending" => TagTrending,
-        "Neutral"  => TagNeutral,
-        _          => null,
+        "Neutral" => TagNeutral,
+        _ => null,
     };
 
     /// <summary>
     /// Rule 4.2: fundingRate &gt; 0 → "positive-funding"; &lt; 0 → "negative-funding"; == 0 → нет тега.
     /// </summary>
     internal static string? GetFundingTag(decimal fundingRate) =>
-        fundingRate > 0m ? TagPositiveFunding  :
-        fundingRate < 0m ? TagNegativeFunding  : null;
+        fundingRate > 0m ? TagPositiveFunding :
+        fundingRate < 0m ? TagNegativeFunding : null;
 
     /// <summary>
     /// Rule 4.3: ImbalanceTop5 &gt; threshold → "bid-pressure"; &lt; -threshold → "ask-pressure".
     /// </summary>
     internal static string? GetPressureTag(decimal imbalanceTop5) =>
-        imbalanceTop5 >  OrderBookPressureThreshold ? TagBidPressure :
+        imbalanceTop5 > OrderBookPressureThreshold ? TagBidPressure :
         imbalanceTop5 < -OrderBookPressureThreshold ? TagAskPressure : null;
 
     /// <summary>
     /// Rule 4.4: buying имеет приоритет над selling при одновременном срабатывании.
     /// </summary>
     internal static string? GetAggressionTag(bool hasBuyPressure, bool hasSellPressure) =>
-        hasBuyPressure  ? TagAggressiveBuying  :
+        hasBuyPressure ? TagAggressiveBuying :
         hasSellPressure ? TagAggressiveSelling : null;
 }
-

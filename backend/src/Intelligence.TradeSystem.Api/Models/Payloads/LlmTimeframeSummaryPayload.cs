@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Детерминированный итоговый анализ таймфрейма.</summary>
 public sealed record LlmTimeframeSummaryPayload

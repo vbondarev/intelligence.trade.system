@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -39,54 +39,53 @@ public static class TradeFlowSnapshotAssembler
             throw new ArgumentException("Trades list must not be empty.", nameof(trades));
 
         // 2. Volumes
-        decimal buyVolume  = 0m;
+        decimal buyVolume = 0m;
         decimal sellVolume = 0m;
 
         foreach (var trade in trades)
         {
             if (trade.Side == TradeSide.Buy)
-                buyVolume  += trade.Quantity;
+                buyVolume += trade.Quantity;
             else
                 sellVolume += trade.Quantity;
         }
 
         var totalVolume = buyVolume + sellVolume;
         var deltaVolume = buyVolume - sellVolume;
-        var deltaPct    = totalVolume == 0m ? 0m : deltaVolume / totalVolume * 100m;
+        var deltaPct = totalVolume == 0m ? 0m : deltaVolume / totalVolume * 100m;
 
         // 3. Counts
         var totalTrades = trades.Count;
-        var buyTrades   = trades.Count(t => t.Side == TradeSide.Buy);
-        var sellTrades  = totalTrades - buyTrades;
+        var buyTrades = trades.Count(t => t.Side == TradeSide.Buy);
+        var sellTrades = totalTrades - buyTrades;
 
         // 4. Signals
         var avgTradeSize = totalVolume / totalTrades;
         var maxTradeSize = trades.Max(t => t.Quantity);
 
-        var hasAggressiveBuyPressure  = deltaPct >  AggressivePressureThresholdPct;
+        var hasAggressiveBuyPressure = deltaPct > AggressivePressureThresholdPct;
         var hasAggressiveSellPressure = deltaPct < -AggressivePressureThresholdPct;
 
         // 5. Assemble
         return new TradeFlowSnapshot
         {
             WindowStartUtc = trades.Min(t => t.Timestamp),
-            WindowEndUtc   = trades.Max(t => t.Timestamp),
+            WindowEndUtc = trades.Max(t => t.Timestamp),
 
-            BuyVolume   = buyVolume,
-            SellVolume  = sellVolume,
+            BuyVolume = buyVolume,
+            SellVolume = sellVolume,
             DeltaVolume = deltaVolume,
-            DeltaPct    = deltaPct,
+            DeltaPct = deltaPct,
 
             TotalTrades = totalTrades,
-            BuyTrades   = buyTrades,
-            SellTrades  = sellTrades,
+            BuyTrades = buyTrades,
+            SellTrades = sellTrades,
 
             AvgTradeSize = avgTradeSize,
             MaxTradeSize = maxTradeSize,
 
-            HasAggressiveBuyPressure  = hasAggressiveBuyPressure,
+            HasAggressiveBuyPressure = hasAggressiveBuyPressure,
             HasAggressiveSellPressure = hasAggressiveSellPressure
         };
     }
 }
-

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Текущее состояние цены торгового инструмента — сырые данные с биржи.
@@ -120,4 +120,3 @@ public sealed record Ticker(
     /// </summary>
     public decimal? OpenInterestValue { get; init; }
 }
-

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Ai.Tests;
 
@@ -25,6 +25,3 @@ public sealed class ILlmAnalyticsServiceContractTests
         parameters[2].Name.Should().Be("cancellationToken");
     }
 }
-
-
-

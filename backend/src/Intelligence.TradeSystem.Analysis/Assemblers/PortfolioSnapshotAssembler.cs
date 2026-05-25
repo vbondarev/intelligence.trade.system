@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -38,10 +38,10 @@ public static class PortfolioSnapshotAssembler
         ArgumentNullException.ThrowIfNull(positions);
 
         // 2. Balance fields — safe fallback to 0 when balance unavailable
-        var totalEquity          = balance?.TotalEquity             ?? 0m;
-        var availableBalance     = balance?.TotalAvailableBalance   ?? 0m;
-        var totalWalletBalance   = balance?.TotalWalletBalance      ?? 0m;
-        var totalUnrealizedPnl   = balance?.TotalPerpUnrealizedPnl  ?? 0m;
+        var totalEquity = balance?.TotalEquity ?? 0m;
+        var availableBalance = balance?.TotalAvailableBalance ?? 0m;
+        var totalWalletBalance = balance?.TotalWalletBalance ?? 0m;
+        var totalUnrealizedPnl = balance?.TotalPerpUnrealizedPnl ?? 0m;
 
         // 3. Map positions — skip any that somehow have non-positive size (defence-in-depth)
         var openPositions = positions
@@ -52,11 +52,11 @@ public static class PortfolioSnapshotAssembler
         // 4. Assemble
         return new PortfolioSnapshot
         {
-            TotalEquityUsd        = totalEquity,
-            AvailableBalanceUsd   = availableBalance,
+            TotalEquityUsd = totalEquity,
+            AvailableBalanceUsd = availableBalance,
             TotalWalletBalanceUsd = totalWalletBalance,
             TotalUnrealizedPnlUsd = totalUnrealizedPnl,
-            OpenPositions         = openPositions,
+            OpenPositions = openPositions,
         };
     }
 
@@ -64,28 +64,27 @@ public static class PortfolioSnapshotAssembler
 
     private static OpenPositionSnapshot MapPosition(OpenPosition p)
     {
-        var positionValueUsd  = p.PositionValue ?? 0m;
-        var unrealizedPnlUsd  = p.UnrealizedPnl ?? 0m;
+        var positionValueUsd = p.PositionValue ?? 0m;
+        var unrealizedPnlUsd = p.UnrealizedPnl ?? 0m;
 
         // UnrealizedPnlPct = (UnrealizedPnl / PositionValue) × 100; safe division
-        var unrealizedPnlPct  = positionValueUsd > 0m
+        var unrealizedPnlPct = positionValueUsd > 0m
             ? Math.Round(unrealizedPnlUsd / positionValueUsd * 100m, 4)
             : 0m;
 
         return new OpenPositionSnapshot
         {
-            Symbol           = p.Symbol,
-            Side             = p.Side,
-            Size             = p.Size,
-            AvgPrice         = p.AvgPrice         ?? 0m,
-            MarkPrice        = p.MarkPrice        ?? 0m,
-            BreakEvenPrice   = p.BreakEvenPrice   ?? 0m,
+            Symbol = p.Symbol,
+            Side = p.Side,
+            Size = p.Size,
+            AvgPrice = p.AvgPrice ?? 0m,
+            MarkPrice = p.MarkPrice ?? 0m,
+            BreakEvenPrice = p.BreakEvenPrice ?? 0m,
             LiquidationPrice = p.LiquidationPrice ?? 0m,
             PositionValueUsd = positionValueUsd,
-            Leverage         = p.Leverage         ?? 0m,
+            Leverage = p.Leverage ?? 0m,
             UnrealizedPnlUsd = unrealizedPnlUsd,
             UnrealizedPnlPct = unrealizedPnlPct,
         };
     }
 }
-

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
 
@@ -88,7 +88,7 @@ public static class SentimentSnapshotAssembler
         // 4. OrderBookPressureScore — weighted average of pre-computed imbalances
         //    All imbalances are in [−1, 1]; weights sum to 1.0 → result stays in [−1, 1].
         var orderBookPressureScore = Math.Round(
-            orderBook.ImbalanceTop5  * ImbalanceWeightTop5  +
+            orderBook.ImbalanceTop5 * ImbalanceWeightTop5 +
             orderBook.ImbalanceTop10 * ImbalanceWeightTop10 +
             orderBook.ImbalanceTop20 * ImbalanceWeightTop20,
             4);
@@ -102,11 +102,11 @@ public static class SentimentSnapshotAssembler
         // 7. Assemble
         return new SentimentSnapshot
         {
-            LongShortBiasScore     = longShortBiasScore,
-            FundingBiasScore       = fundingBiasScore,
+            LongShortBiasScore = longShortBiasScore,
+            FundingBiasScore = fundingBiasScore,
             OrderBookPressureScore = orderBookPressureScore,
             TradeFlowPressureScore = tradeFlowPressureScore,
-            MarketRegime           = marketRegime,
+            MarketRegime = marketRegime,
         };
     }
 
@@ -168,4 +168,3 @@ public static class SentimentSnapshotAssembler
     private static string ClassifyMarketRegime(TimeframeAnalysisSnapshot h1, TimeframeAnalysisSnapshot h4)
         => MarketRegimePolicy.Classify(h1, h4);
 }
-

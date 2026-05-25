@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Возвращает первичные таймфреймы для каждого режима анализа.
@@ -11,10 +11,9 @@ public static class AnalysisModeDefaults
     public static IReadOnlyList<string> GetPrimaryTimeframes(AnalysisMode mode) =>
         mode switch
         {
-            AnalysisMode.Intraday  => ["15m", "1h", "4h"],
-            AnalysisMode.Swing     => ["1h", "4h", "1d"],
+            AnalysisMode.Intraday => ["15m", "1h", "4h"],
+            AnalysisMode.Swing => ["1h", "4h", "1d"],
             AnalysisMode.Portfolio => ["4h", "1d"],
-            _                      => ["15m", "1h", "4h"],
+            _ => ["15m", "1h", "4h"],
         };
 }
-

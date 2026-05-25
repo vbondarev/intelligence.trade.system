@@ -1,4 +1,4 @@
-﻿using Bybit.Net.Clients;
+using Bybit.Net.Clients;
 using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Exchanges.Bybit;
@@ -20,4 +20,3 @@ public static class StartupExtensions
         return services;
     }
 }
-

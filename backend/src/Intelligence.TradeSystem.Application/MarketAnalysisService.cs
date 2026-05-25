@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -134,4 +134,3 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         ArgumentNullException.ThrowIfNull(collectedData.OpenPositions);
     }
 }
-

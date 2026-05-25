@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Abstractions;
 
@@ -49,4 +49,3 @@ public interface IPrivateAccountProvider
         AccountType accountType,
         CancellationToken cancellationToken = default);
 }
-

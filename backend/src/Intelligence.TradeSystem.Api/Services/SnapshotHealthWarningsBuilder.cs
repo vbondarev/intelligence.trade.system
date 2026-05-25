@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Services;
@@ -20,7 +20,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// <summary>Максимальное количество мягких предупреждений в итоговом списке.</summary>
     public const int MaxWarnings = 5;
 
-    private const decimal LowVolumeThreshold    = 0.5m;
+    private const decimal LowVolumeThreshold = 0.5m;
     private const decimal FarFromLevelThreshold = 1.5m;
 
     // ─── Public API ──────────────────────────────────────────────────────────
@@ -36,9 +36,9 @@ internal static class SnapshotHealthWarningsBuilder
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(ctx);
 
-        var dataQuality         = new List<string>();
-        var marketInterpretation= new List<string>();
-        var contextWarnings     = new List<string>();
+        var dataQuality = new List<string>();
+        var marketInterpretation = new List<string>();
+        var contextWarnings = new List<string>();
 
         // Priority 1: data-quality
         AddNearStalenessWarnings(ctx, dataQuality);
@@ -74,8 +74,8 @@ internal static class SnapshotHealthWarningsBuilder
         SnapshotHealthWarningsContext ctx,
         List<string> target)
     {
-        TryAddNearStaleness("orderBook",   ctx.Thresholds.OrderBookMaxAge,   ctx, target);
-        TryAddNearStaleness("tradeFlow",   ctx.Thresholds.TradeFlowMaxAge,   ctx, target);
+        TryAddNearStaleness("orderBook", ctx.Thresholds.OrderBookMaxAge, ctx, target);
+        TryAddNearStaleness("tradeFlow", ctx.Thresholds.TradeFlowMaxAge, ctx, target);
         TryAddNearStaleness("derivatives", ctx.Thresholds.DerivativesMaxAge, ctx, target);
     }
 
@@ -87,7 +87,7 @@ internal static class SnapshotHealthWarningsBuilder
     {
         if (!ctx.SectionAgesMs.TryGetValue(sectionName, out var ageMs)) return;
 
-        var maxAgeMs    = (long)maxAge.TotalMilliseconds;
+        var maxAgeMs = (long)maxAge.TotalMilliseconds;
         var proximityMs = (long)(maxAgeMs * ctx.StalenessProximityFactor);
 
         // Soft warning: возраст в зоне [proximity, maxAge). Уже устаревшие секции
@@ -166,7 +166,7 @@ internal static class SnapshotHealthWarningsBuilder
             {
                 MarketTrend.Bullish => tf.DistanceToSupport1Pct is { } ds && ds > FarFromLevelThreshold,
                 MarketTrend.Bearish => tf.DistanceToResistance1Pct is { } dr && dr > FarFromLevelThreshold,
-                _                   => false,
+                _ => false,
             };
 
             if (isFar)
@@ -205,14 +205,13 @@ internal static class SnapshotHealthWarningsBuilder
             var tf = label switch
             {
                 "15m" => snapshot.M15,
-                "1h"  => snapshot.H1,
-                "4h"  => snapshot.H4,
-                "1d"  => snapshot.D1,
-                _     => null,
+                "1h" => snapshot.H1,
+                "4h" => snapshot.H4,
+                "1d" => snapshot.D1,
+                _ => null,
             };
 
             if (tf is not null) yield return tf;
         }
     }
 }
-

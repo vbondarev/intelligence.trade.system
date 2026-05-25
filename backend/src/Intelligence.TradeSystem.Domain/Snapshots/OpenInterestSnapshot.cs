@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Снимок динамики открытого интереса за скользящее временное окно.
@@ -67,4 +67,3 @@ public sealed record OpenInterestSnapshot
     /// </summary>
     public bool IsDistributing { get; init; }
 }
-

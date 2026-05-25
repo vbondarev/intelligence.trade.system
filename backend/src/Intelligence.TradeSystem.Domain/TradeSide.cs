@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Сторона совершённой сделки — покупатель-агрессор или продавец-агрессор.
@@ -13,4 +13,3 @@ public enum TradeSide
     /// <summary>Сделка инициирована агрессивным продавцом (taker sell).</summary>
     Sell
 }
-

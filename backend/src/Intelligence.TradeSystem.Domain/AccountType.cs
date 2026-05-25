@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Тип торгового аккаунта Bybit.
@@ -21,4 +21,3 @@ public enum AccountType
     /// <summary>Спотовый аккаунт.</summary>
     Spot,
 }
-

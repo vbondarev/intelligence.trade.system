@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Направленное смещение (bias) по таймфрейму, вычисленное на основе тренда и EMA-alignment.
@@ -14,4 +14,3 @@ public enum TimeframeBias
     /// <summary>Нейтральный bias: тренд боковой, неизвестный или конфликтует с EMA-alignment.</summary>
     Neutral = 3,
 }
-

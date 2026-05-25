@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// LLM-оптимизированное представление диагностической записи индикатора.
@@ -26,4 +26,3 @@ public sealed record LlmIndicatorDiagnosticPayload
     /// <summary>Человекочитаемое сообщение, описывающее проблему.</summary>
     public required string Message { get; init; }
 }
-

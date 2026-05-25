@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Одна точка исторического ряда соотношения лонг/шорт позиций — сырые данные с биржи.
@@ -34,4 +34,3 @@ public sealed record LongShortRatioEntry(
     /// </summary>
     public decimal SellRatio { get; init; } = SellRatio;
 }
-

@@ -24,12 +24,12 @@ public sealed class DerivativesSnapshotAssemblerTests
         var nextFundingTime = new DateTimeOffset(2024, 1, 2, 8, 0, 0, TimeSpan.Zero);
         var ticker = TickerFactory.Create()
             with
-            {
-                FundingRate = 0.0008m,
-                NextFundingTimeUtc = nextFundingTime,
-                OpenInterest = 1_500m,
-                OpenInterestValue = 2_250_000m,
-            };
+        {
+            FundingRate = 0.0008m,
+            NextFundingTimeUtc = nextFundingTime,
+            OpenInterest = 1_500m,
+            OpenInterestValue = 2_250_000m,
+        };
 
         var result = DerivativesSnapshotAssembler.Assemble(ticker, fundingRate: null, openInterest: null, longShortRatio: null);
 
@@ -44,12 +44,12 @@ public sealed class DerivativesSnapshotAssemblerTests
     {
         var ticker = TickerFactory.Create()
             with
-            {
-                FundingRate = null,
-                NextFundingTimeUtc = null,
-                OpenInterest = null,
-                OpenInterestValue = null,
-            };
+        {
+            FundingRate = null,
+            NextFundingTimeUtc = null,
+            OpenInterest = null,
+            OpenInterestValue = null,
+        };
 
         var result = DerivativesSnapshotAssembler.Assemble(ticker, fundingRate: null, openInterest: null, longShortRatio: null);
 
@@ -109,9 +109,9 @@ public sealed class DerivativesSnapshotAssemblerTests
     {
         var ticker = TickerFactory.Create()
             with
-            {
-                FundingRate = 0.0003m,
-            };
+        {
+            FundingRate = 0.0003m,
+        };
 
         var fundingRate = new FundingRateSnapshot
         {
@@ -128,9 +128,9 @@ public sealed class DerivativesSnapshotAssemblerTests
     {
         var ticker = TickerFactory.Create()
             with
-            {
-                FundingRate = 0.0004m,
-            };
+        {
+            FundingRate = 0.0004m,
+        };
 
         var result = DerivativesSnapshotAssembler.Assemble(ticker, fundingRate: null, openInterest: null, longShortRatio: null);
 
@@ -142,9 +142,9 @@ public sealed class DerivativesSnapshotAssemblerTests
     {
         var ticker = TickerFactory.Create()
             with
-            {
-                FundingRate = null,
-            };
+        {
+            FundingRate = null,
+        };
 
         var result = DerivativesSnapshotAssembler.Assemble(ticker, fundingRate: null, openInterest: null, longShortRatio: null);
 
@@ -195,12 +195,12 @@ public sealed class DerivativesSnapshotAssemblerTests
         var nextFundingTime = new DateTimeOffset(2024, 1, 2, 8, 0, 0, TimeSpan.Zero);
         var ticker = TickerFactory.Create(markPrice: 105m, indexPrice: 100m)
             with
-            {
-                FundingRate = 0.0005m,
-                NextFundingTimeUtc = nextFundingTime,
-                OpenInterest = 2_000m,
-                OpenInterestValue = 3_000_000m,
-            };
+        {
+            FundingRate = 0.0005m,
+            NextFundingTimeUtc = nextFundingTime,
+            OpenInterest = 2_000m,
+            OpenInterestValue = 3_000_000m,
+        };
 
         var fundingRate = new FundingRateSnapshot
         {
@@ -233,5 +233,3 @@ public sealed class DerivativesSnapshotAssemblerTests
         result.ShortRatio.Should().Be(0.42m);
     }
 }
-
-
