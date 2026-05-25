@@ -173,7 +173,7 @@ All calculators expect inputs in **chronological order (oldest → newest)**.
 
 > **Production status:** `VolumeProfileDetector` is the active, production-enabled level detector.
 > It uses a simplified Volume Profile algorithm (kline volume distributed uniformly across the `Low–High` range) and is **not** a precise Volume-at-Price model.
-> The wire value of the `source` field in the LLM payload is always `"simplified-volume-profile"` (kebab-case string constant).
+> The wire value of the `source` field in the LLM payload is always `"volume-profile"` (kebab-case string constant).
 > This limitation is communicated to LLM consumers via the `source` field and the `strengthLabel` field.
 > Replace this detector only when a full VAP implementation is introduced; update `LevelSource` and the `LevelSourceV1` constant in `LlmPayloadMapperExtensions` together.
 
@@ -304,7 +304,7 @@ LevelSet levels = new(
     "price": 80751.47,
     "strength": 1.0000,
     "strengthLabel": "Strong",
-    "source": "simplified-volume-profile",
+    "source": "volume-profile",
     "distancePct": 0.42,
     "clusterVolume": 524830.5
   },
@@ -312,7 +312,7 @@ LevelSet levels = new(
     "price": 81200.00,
     "strength": 0.7312,
     "strengthLabel": "Moderate",
-    "source": "simplified-volume-profile",
+    "source": "volume-profile",
     "distancePct": 0.91,
     "clusterVolume": 383401.2
   }
@@ -339,7 +339,7 @@ public sealed record IndicatorDiagnostic
 **Rules:**
 - A diagnostic is created when `ShouldReportDiagnostic()` returns `true` (value is fallback or unavailable).
 - A diagnostic is **not** created for fully `Available(...)` values.
-- Diagnostics must be emitted in a **stable order**: by timeframe (`15m → 1h → 4h → 1d`), then by indicator within each timeframe (`ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20`).
+- Diagnostics must be emitted in a **stable order**: by timeframe (`15m → 1h → 4h → 1d`), then by indicator within each timeframe. Within each timeframe the order is: kline-level diagnostics first (`kline`, `kline.lastFiltered`, `kline.highViolationRate`, `kline.insufficientData`), then scalar indicators (`ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20`), then derived indicators (`volumeRatio`).
 - Diagnostics are surfaced in API/LLM payloads and analysis warnings — they must not be silently dropped.
 
 **Message format examples:**

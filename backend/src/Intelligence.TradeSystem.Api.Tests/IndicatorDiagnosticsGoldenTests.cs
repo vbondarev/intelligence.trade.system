@@ -383,8 +383,8 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
             because: "support1Meta.strength must be a number in JSON");
         meta.GetProperty("strength").GetDecimal().Should().BeInRange(0m, 1m);
 
-        // source — string, simplified-volume-profile.
-        meta.GetProperty("source").GetString().Should().Be("simplified-volume-profile",
+        // source — string, volume-profile.
+        meta.GetProperty("source").GetString().Should().Be("volume-profile",
             because: "only SimplifiedVolumeProfile detector is used in V1");
 
         // clusterVolume — numeric, > 0.

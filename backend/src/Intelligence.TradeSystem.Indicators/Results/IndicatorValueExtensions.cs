@@ -11,7 +11,7 @@ public static class IndicatorValueExtensions
     /// <remarks>
     /// Предпочтительный метод для nullable-контрактов: DTO, LLM payload, snapshot contracts.
     /// </remarks>
-    /// <param name="value">Результат расчёта индикат��ра.</param>
+    /// <param name="value">Результат расчёта индикатора.</param>
     /// <returns><see cref="IndicatorValue.Value"/> — может быть <see langword="null"/>.</returns>
     /// <exception cref="ArgumentNullException">Выбрасывается, если <paramref name="value"/> равен <see langword="null"/>.</exception>
     public static decimal? OrNull(this IndicatorValue value)

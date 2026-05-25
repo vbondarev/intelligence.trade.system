@@ -186,8 +186,8 @@ public sealed record TimeframeAnalysisSnapshot
 
     /// <summary>
     /// <c>true</c>, если ATR 14 был рассчитан и имеет достоверное значение.
-    /// <c>false</c> — недостаточно данных (менее двух свечей); <see cref="Atr14"/> равен <c>0</c>.
-    /// Потребители не должны интерпретировать <see cref="Atr14"/> == 0 как «нулевую волатильность».
+    /// <c>false</c> — недостаточно данных (менее двух свечей); <see cref="Atr14"/> равен <c>null</c>.
+    /// Потребители не должны интерпретировать отсутствие ATR как «нулевую волатильность».
     /// </summary>
     public bool AtrIsReliable { get; init; }
 
@@ -200,7 +200,7 @@ public sealed record TimeframeAnalysisSnapshot
     /// <summary>
     /// <c>true</c>, если <see cref="VolumeRatio"/> был рассчитан на основе достоверного
     /// <see cref="VolumeSma20"/> (значение VolumeSma20 доступно и больше нуля).
-    /// <c>false</c> — VolumeSma20 недоступен; <see cref="VolumeRatio"/> равен <c>0</c>
+    /// <c>false</c> — VolumeSma20 недоступен; <see cref="VolumeRatio"/> равен <c>null</c>
     /// и не несёт торгового смысла.
     /// </summary>
     public bool VolumeRatioIsReliable { get; init; }

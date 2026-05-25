@@ -8,7 +8,7 @@
 /// </param>
 /// <param name="Strength">
 /// Относительная сила уровня в диапазоне [0, 1].
-/// Вычисляется как <c>ClusterVolume / maxBucketVolume</c> профиля.
+/// Вычисляется как <c>ClusterVolume / maxClusterVolume</c> профиля.
 /// Значение 1.0 означает, что кластер содержит максимальный объём в профиле.
 /// </param>
 /// <param name="Source">

@@ -17,7 +17,7 @@ public static class IndicatorDiagnosticFactory
     /// <param name="value">Результат расчёта индикатора.</param>
     /// <returns>
     /// <see cref="IndicatorDiagnostic"/>, если <see cref="IndicatorValueExtensions.ShouldReportDiagnostic"/>
-    /// возв��ащает <c>true</c>; иначе <c>null</c>.
+    /// возвращает <c>true</c>; иначе <c>null</c>.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Выбрасывается, если <paramref name="value"/> равен <see langword="null"/>.

@@ -20,7 +20,7 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         diagnostics.Should().BeEmpty();
     }
 
-    // ── Fallback value — one entry added ────────────────────────────���────────
+    // ── Fallback value — one entry added ─────────────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Adds_One_Entry_For_Fallback_Value()

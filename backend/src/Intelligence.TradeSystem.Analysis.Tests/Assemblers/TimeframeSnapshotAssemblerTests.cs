@@ -433,7 +433,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     }
 
     [Fact]
-    public void All_Invalid_Klines_Throws_ArgumentException()
+    public void All_Invalid_Klines_Throws_DataSourceException()
     {
         var klines = new[]
         {
@@ -444,8 +444,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         var act = () => TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
         act.Should()
-            .Throw<ArgumentException>()
-            .WithParameterName("klines")
+            .Throw<DataSourceException>()
             .WithMessage("*All klines*failed validation*");
     }
 

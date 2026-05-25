@@ -182,7 +182,7 @@ internal static class LlmPayloadMapperExtensions
 
     // ─── Timeframe ──────────────────────────────────────────────────────────
 
-    private const string LevelSourceV1 = "simplified-volume-profile";
+    private const string LevelSourceV1 = "volume-profile";
 
     private static LlmTimeframePayload BuildTimeframe(TimeframeAnalysisSnapshot s)
     {

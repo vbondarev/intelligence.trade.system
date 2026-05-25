@@ -34,6 +34,7 @@ public static class TimeframeSnapshotAssembler
     /// <param name="klines">Набор свечей одного символа и одного таймфрейма.</param>
     /// <param name="timeframe">Строковое обозначение таймфрейма: <c>15m</c>, <c>1h</c>, <c>4h</c>, <c>1d</c>.</param>
     /// <exception cref="ArgumentException">Если <paramref name="klines"/> пустой.</exception>
+    /// <exception cref="DataSourceException">Если все свечи не прошли валидацию (проблема качества данных провайдера).</exception>
     public static TimeframeAssemblyResult Assemble(IReadOnlyList<Kline> klines, string timeframe)
     {
         // 1. Normalize
@@ -47,9 +48,8 @@ public static class TimeframeSnapshotAssembler
 
         if (validKlines.Count == 0)
         {
-            throw new ArgumentException(
-                "All klines in the collection failed validation. No valid data to assemble a snapshot.",
-                nameof(klines));
+            throw new DataSourceException(
+                "All klines in the collection failed validation. No valid data to assemble a snapshot.");
         }
 
         var sorted = validKlines.OrderBy(k => k.StartTime).ToArray();
