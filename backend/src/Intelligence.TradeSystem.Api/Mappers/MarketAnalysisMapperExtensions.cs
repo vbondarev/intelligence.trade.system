@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 using Intelligence.TradeSystem.Domain.Snapshots;
 

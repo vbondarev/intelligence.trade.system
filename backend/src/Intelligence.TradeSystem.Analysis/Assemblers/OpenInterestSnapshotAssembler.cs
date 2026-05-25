@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -49,7 +49,7 @@ public static class OpenInterestSnapshotAssembler
         var sorted = entries.OrderBy(e => e.Timestamp).ToList();
         var current = sorted[^1];
 
-        var symbol   = current.Symbol;
+        var symbol = current.Symbol;
         var category = current.Category;
 
         // 3. Changes vs. 1h and 4h ago
@@ -57,26 +57,26 @@ public static class OpenInterestSnapshotAssembler
         var change4hPct = ComputeChangePct(sorted, current, TimeSpan.FromHours(4));
 
         // 4. Peak / Trough
-        var peak   = sorted.Max(e => e.OpenInterest);
+        var peak = sorted.Max(e => e.OpenInterest);
         var trough = sorted.Min(e => e.OpenInterest);
 
         // 5. Trend flags
-        var isAccumulating = change1hPct >  TrendThresholdPct;
+        var isAccumulating = change1hPct > TrendThresholdPct;
         var isDistributing = change1hPct < -TrendThresholdPct;
 
         // 6. Assemble
         return new OpenInterestSnapshot
         {
-            Symbol   = symbol,
+            Symbol = symbol,
             Category = category,
             Interval = interval,
 
             WindowStartUtc = sorted[0].Timestamp,
-            WindowEndUtc   = current.Timestamp,
+            WindowEndUtc = current.Timestamp,
 
             CurrentOpenInterest = current.OpenInterest,
-            PeakOpenInterest    = peak,
-            TroughOpenInterest  = trough,
+            PeakOpenInterest = peak,
+            TroughOpenInterest = trough,
 
             Change1hPct = change1hPct,
             Change4hPct = change4hPct,
@@ -94,7 +94,7 @@ public static class OpenInterestSnapshotAssembler
         TimeSpan lookback)
     {
         var target = current.Timestamp - lookback;
-        var past   = FindClosestTo(sorted, target);
+        var past = FindClosestTo(sorted, target);
 
         if (past is null || past.OpenInterest == 0m)
             return 0m;

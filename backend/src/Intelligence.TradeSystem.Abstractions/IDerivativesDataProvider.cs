@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Abstractions;
 
@@ -86,4 +86,3 @@ public interface IDerivativesDataProvider
         int? limit = 50,
         CancellationToken cancellationToken = default);
 }
-

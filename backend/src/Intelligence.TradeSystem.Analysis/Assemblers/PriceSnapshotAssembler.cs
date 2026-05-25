@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -27,7 +27,7 @@ public static class PriceSnapshotAssembler
 
         // 1. Derived
         var spreadAbs = ticker.AskPrice - ticker.BidPrice;
-        var midPrice  = (ticker.BidPrice + ticker.AskPrice) / 2m;
+        var midPrice = (ticker.BidPrice + ticker.AskPrice) / 2m;
         var spreadPct = midPrice > 0m
             ? Math.Round(spreadAbs / midPrice * 100m, 4)
             : 0m;
@@ -35,24 +35,23 @@ public static class PriceSnapshotAssembler
         // 2. Assemble
         return new PriceSnapshot
         {
-            LastPrice  = ticker.LastPrice,
-            MarkPrice  = ticker.MarkPrice,
+            LastPrice = ticker.LastPrice,
+            MarkPrice = ticker.MarkPrice,
             IndexPrice = ticker.IndexPrice,
 
             BidPrice = ticker.BidPrice,
-            BidSize  = ticker.BidSize,
+            BidSize = ticker.BidSize,
             AskPrice = ticker.AskPrice,
-            AskSize  = ticker.AskSize,
+            AskSize = ticker.AskSize,
 
             SpreadAbs = spreadAbs,
             SpreadPct = spreadPct,
 
             Price24hChangePct = ticker.Price24hChangePct,
-            High24h           = ticker.High24h,
-            Low24h            = ticker.Low24h,
-            Volume24h         = ticker.Volume24h,
-            Turnover24h       = ticker.Turnover24h,
+            High24h = ticker.High24h,
+            Low24h = ticker.Low24h,
+            Volume24h = ticker.Volume24h,
+            Turnover24h = ticker.Turnover24h,
         };
     }
 }
-

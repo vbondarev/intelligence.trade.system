@@ -107,4 +107,3 @@ internal sealed partial class BybitProvider
         AccountType accountType,
         string? error);
 }
-

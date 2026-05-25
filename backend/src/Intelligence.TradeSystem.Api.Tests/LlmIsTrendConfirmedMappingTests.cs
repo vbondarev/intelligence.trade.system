@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Models.Payloads;
@@ -36,7 +36,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     {
         // Bullish + emaBullishAlignment=true (default) + isAboveEma200=true (default)
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeTrue(
@@ -50,7 +50,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bullish, overrideIsAboveEma200: null, overrideEmaBullish: false, overrideEmaBearish: null);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeFalse(
@@ -62,7 +62,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bullish, overrideIsAboveEma200: false, overrideEmaBullish: null, overrideEmaBearish: null);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeFalse(
@@ -76,7 +76,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     {
         // Bearish default: emaBearishAlignment=true, isAboveEma200=false
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bearish);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeTrue(
@@ -90,7 +90,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bearish, overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: false);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeFalse(
@@ -103,7 +103,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
         // emaBearishAlignment=true (default for Bearish), but price is above EMA200 — conflict
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bearish, overrideIsAboveEma200: true, overrideEmaBullish: null, overrideEmaBearish: null);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeFalse(
@@ -118,7 +118,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     public async Task IsTrendConfirmed_False_For_Non_Directional_Trends(MarketTrend trend)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.IsTrendConfirmed.Should().BeFalse(
@@ -135,7 +135,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
     public async Task IsTrendConfirmed_True_Implies_Bias_Is_Not_Neutral(MarketTrend trend)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
         {
@@ -159,7 +159,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(mock.Object);
         using var response = await client.GetAsync(Url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -176,4 +176,3 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
         }
     }
 }
-

@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -344,5 +344,3 @@ public sealed class OpenRouterClientTests
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         });
 }
-
-

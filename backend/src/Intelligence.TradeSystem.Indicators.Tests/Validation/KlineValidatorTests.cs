@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Tests.Helpers;
 using Intelligence.TradeSystem.Indicators.Validation;
 

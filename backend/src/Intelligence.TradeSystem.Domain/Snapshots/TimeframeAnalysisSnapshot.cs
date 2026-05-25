@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Результаты технического анализа для одного таймфрейма.

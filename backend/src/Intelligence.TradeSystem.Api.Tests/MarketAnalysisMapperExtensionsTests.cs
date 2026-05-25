@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 
@@ -50,4 +50,3 @@ public sealed class MarketAnalysisMapperExtensionsTests
         ((object)response.Portfolio.OpenPositions).Should().NotBeSameAs(snapshot.Portfolio.OpenPositions);
     }
 }
-

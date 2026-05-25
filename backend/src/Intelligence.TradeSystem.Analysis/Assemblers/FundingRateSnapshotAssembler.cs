@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -49,41 +49,40 @@ public static class FundingRateSnapshotAssembler
             throw new ArgumentException("Funding rate entries list must not be empty.", nameof(entries));
 
         // 2. Sort descending (newest first); current = first
-        var sorted  = entries.OrderByDescending(e => e.Timestamp).ToList();
+        var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
         // 3. Averages
         var avg24h = sorted.Take(Periods24h).Average(e => e.FundingRate);
-        var avg7d  = sorted.Take(Periods7d).Average(e => e.FundingRate);
+        var avg7d = sorted.Take(Periods7d).Average(e => e.FundingRate);
 
         // 4. Max / Min
         var max = sorted.Max(e => e.FundingRate);
         var min = sorted.Min(e => e.FundingRate);
 
         // 5. Flags
-        var isPositive       = current.FundingRate > 0m;
-        var isExtremeBullish = current.FundingRate >  ExtremeFundingThreshold;
+        var isPositive = current.FundingRate > 0m;
+        var isExtremeBullish = current.FundingRate > ExtremeFundingThreshold;
         var isExtremeBearish = current.FundingRate < -ExtremeFundingThreshold;
 
         // 6. Assemble
         return new FundingRateSnapshot
         {
-            Symbol   = current.Symbol,
+            Symbol = current.Symbol,
             Category = current.Category,
 
             WindowStartUtc = sorted[^1].Timestamp,
-            WindowEndUtc   = current.Timestamp,
+            WindowEndUtc = current.Timestamp,
 
             CurrentRate = current.FundingRate,
-            Avg24hRate  = avg24h,
-            Avg7dRate   = avg7d,
-            MaxRate     = max,
-            MinRate     = min,
+            Avg24hRate = avg24h,
+            Avg7dRate = avg7d,
+            MaxRate = max,
+            MinRate = min,
 
-            IsPositive       = isPositive,
+            IsPositive = isPositive,
             IsExtremeBullish = isExtremeBullish,
             IsExtremeBearish = isExtremeBearish,
         };
     }
 }
-

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Indicators.Results;
+using Intelligence.TradeSystem.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Analysis.Diagnostics;
 
@@ -40,12 +40,11 @@ public static class IndicatorDiagnosticFactory
 
         return new IndicatorDiagnostic
         {
-            Timeframe  = timeframe,
-            Indicator  = indicator,
-            Reason     = value.Reason,
+            Timeframe = timeframe,
+            Indicator = indicator,
+            Reason = value.Reason,
             IsFallback = value.IsFallback,
-            Message    = message,
+            Message = message,
         };
     }
 }
-

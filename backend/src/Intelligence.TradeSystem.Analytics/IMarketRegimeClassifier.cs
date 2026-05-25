@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analytics;
 
@@ -20,4 +20,3 @@ public interface IMarketRegimeClassifier
     /// <exception cref="ArgumentNullException">Если <paramref name="snapshot"/> равен <c>null</c>.</exception>
     string Classify(MarketAnalysisSnapshot snapshot);
 }
-

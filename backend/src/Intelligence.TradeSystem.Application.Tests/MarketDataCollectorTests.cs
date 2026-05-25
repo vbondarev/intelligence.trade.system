@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -259,6 +259,3 @@ public sealed class MarketDataCollectorTests
             DateTimeOffset.UtcNow.AddDays(-1),
             DateTimeOffset.UtcNow);
 }
-
-
-

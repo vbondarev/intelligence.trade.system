@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Application;
@@ -159,4 +159,3 @@ public sealed class MarketDataCollector : IMarketDataCollector
         return symbol.Trim();
     }
 }
-

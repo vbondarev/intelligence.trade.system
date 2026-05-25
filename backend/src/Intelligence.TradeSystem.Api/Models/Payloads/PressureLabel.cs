@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Метка давления стакана заявок, вычисленная из <c>imbalanceTop10</c>.
@@ -15,4 +15,3 @@ public enum PressureLabel
     /// <summary>Доминирование продавцов: <c>imbalanceTop10 &lt; -0.15</c>.</summary>
     AskDominant = 2,
 }
-

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Одна точка исторического ряда открытого интереса — сырые данные с биржи.
@@ -23,4 +23,3 @@ public sealed record OpenInterestEntry(
     /// <summary>Суммарный объём незакрытых контрактов (в базовых единицах/контрактах).</summary>
     public decimal OpenInterest { get; init; } = OpenInterest;
 }
-

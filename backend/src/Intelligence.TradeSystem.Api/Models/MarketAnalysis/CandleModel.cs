@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO последней свечи таймфрейма.</summary>
 public sealed record CandleModel

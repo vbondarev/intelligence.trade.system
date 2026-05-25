@@ -320,6 +320,3 @@ public sealed class AiEndpointTests : IClassFixture<WebApplicationFactory<Progra
             "empty response");
     }
 }
-
-
-

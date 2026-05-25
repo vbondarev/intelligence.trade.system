@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analytics.Tests;

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Analytics;
+using Intelligence.TradeSystem.Analytics;
 using Moq;
 
 namespace Intelligence.TradeSystem.Ai.Tests;
@@ -226,5 +226,3 @@ public sealed class LlmAnalyticsServiceTests
             new Mock<IPromptBuilder>().Object,
             new Mock<IOpenRouterClient>().Object);
 }
-
-

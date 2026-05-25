@@ -1,4 +1,4 @@
-﻿using Bybit.Net.Interfaces.Clients;
+using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.Extensions.Logging;

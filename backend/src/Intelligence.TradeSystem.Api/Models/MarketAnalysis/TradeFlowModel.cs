@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO агрегированного потока сделок.</summary>
 public sealed record TradeFlowModel

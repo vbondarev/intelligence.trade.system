@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Levels;
+namespace Intelligence.TradeSystem.Indicators.Levels;
 
 /// <summary>
 /// Источник, из которого был определён ценовой уровень.
@@ -14,5 +14,3 @@ public enum LevelSource
     /// </summary>
     SimplifiedVolumeProfile = 0,
 }
-
-

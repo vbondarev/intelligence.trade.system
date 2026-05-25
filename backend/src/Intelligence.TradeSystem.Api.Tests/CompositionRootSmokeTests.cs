@@ -32,4 +32,3 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
         serviceProvider.GetRequiredService<IOpenRouterClient>().Should().NotBeNull();
     }
 }
-

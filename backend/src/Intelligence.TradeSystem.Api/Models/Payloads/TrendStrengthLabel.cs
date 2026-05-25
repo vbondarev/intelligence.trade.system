@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Метка силы тренда, вычисленная из <c>trendStrengthScore</c>.
@@ -17,4 +17,3 @@ public enum TrendStrengthLabel
     /// <summary>Тренд неопределён: <c>MarketTrend.Unknown</c>.</summary>
     Undefined = 4,
 }
-

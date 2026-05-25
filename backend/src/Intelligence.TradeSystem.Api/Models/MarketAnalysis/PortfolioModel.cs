@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO состояния счёта и открытых позиций.</summary>
 public sealed record PortfolioModel

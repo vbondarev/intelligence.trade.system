@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Analytics;
+namespace Intelligence.TradeSystem.Analytics;
 
 /// <summary>
 /// Готовый результат аналитического слоя для downstream-потребителей.
@@ -19,4 +19,3 @@ public sealed record AnalyticsOutput
     /// </summary>
     public required string FormattedContext { get; init; }
 }
-

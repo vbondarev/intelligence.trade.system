@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai.Tests;
+namespace Intelligence.TradeSystem.Ai.Tests;
 
 public sealed class PromptBuildResultTests
 {
@@ -45,4 +45,3 @@ public sealed class PromptBuildResultTests
         result.Messages.Should().ContainInOrder(messages);
     }
 }
-

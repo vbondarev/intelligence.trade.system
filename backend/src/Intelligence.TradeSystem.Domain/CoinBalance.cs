@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Баланс отдельной монеты внутри аккаунта Bybit.
@@ -43,4 +43,3 @@ public sealed record CoinBalance(
     /// <summary>Нереализованный PnL по открытым позициям в данной монете.</summary>
     public decimal? UnrealizedPnl { get; init; } = UnrealizedPnl;
 }
-

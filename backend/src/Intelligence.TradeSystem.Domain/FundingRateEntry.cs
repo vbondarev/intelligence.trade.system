@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Одна запись истории ставки финансирования — сырые данные с биржи.
@@ -27,4 +27,3 @@ public sealed record FundingRateEntry(
     /// </summary>
     public decimal FundingRate { get; init; } = FundingRate;
 }
-

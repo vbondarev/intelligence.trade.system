@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai.Tests;
+namespace Intelligence.TradeSystem.Ai.Tests;
 
 public sealed class LlmOptionsTests
 {
@@ -150,4 +150,3 @@ public sealed class LlmOptionsTests
             MaxTokens = 1200,
         };
 }
-

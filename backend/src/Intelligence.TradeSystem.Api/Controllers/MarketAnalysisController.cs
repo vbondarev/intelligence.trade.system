@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
@@ -227,7 +227,9 @@ public sealed class MarketAnalysisController : ControllerBase
     private BadRequestObjectResult BadRequestProblem(string detail) =>
         BadRequest(new ProblemDetails
         {
-            Status = StatusCodes.Status400BadRequest, Title = "Request validation failed.", Detail = detail,
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Request validation failed.",
+            Detail = detail,
         });
 
     private bool TryValidateLlmPayloadRequest(
@@ -348,7 +350,9 @@ public sealed class MarketAnalysisController : ControllerBase
         if (!TryValidateSnapshotRequest(
                 new SnapshotAnalysisRequest
                 {
-                    Exchange = request.Exchange, Symbol = request.Symbol, Category = request.Category,
+                    Exchange = request.Exchange,
+                    Symbol = request.Symbol,
+                    Category = request.Category,
                 },
                 out exchangeId,
                 out symbol,

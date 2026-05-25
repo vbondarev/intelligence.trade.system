@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Качество точки входа, вычисленное детерминированно на основе дистанций и RSI-флагов.
@@ -14,4 +14,3 @@ public enum EntryQuality
     /// <summary>Плохая точка входа: bias нейтральный, цена далеко от уровня или RSI перегрет.</summary>
     Poor = 3,
 }
-

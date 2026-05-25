@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Значимый уровень ликвидности (liquidity wall) — концентрация большого объёма заявок

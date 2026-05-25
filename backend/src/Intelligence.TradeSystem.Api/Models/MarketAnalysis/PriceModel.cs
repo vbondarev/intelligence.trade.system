@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO текущего состояния цены инструмента.</summary>
 public sealed record PriceModel

@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Levels;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Levels;

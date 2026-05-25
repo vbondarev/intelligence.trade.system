@@ -30,7 +30,3 @@ public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }
-
-
-
-

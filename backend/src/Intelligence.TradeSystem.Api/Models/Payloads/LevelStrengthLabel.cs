@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Текстовая метка силы ценового уровня, вычисленная из нормализованного <c>strength</c>.

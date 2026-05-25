@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Analysis;
+namespace Intelligence.TradeSystem.Analysis;
 
 /// <summary>
 /// Общие эвристические пороги, используемые несколькими компонентами слоя Analysis.
@@ -31,4 +31,3 @@ internal static class AnalysisThresholds
     /// </summary>
     internal const int KlineMinimumUsableCount = 2;
 }
-

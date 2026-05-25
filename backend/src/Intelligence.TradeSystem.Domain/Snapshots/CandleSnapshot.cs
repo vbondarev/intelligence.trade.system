@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>OHLCV-данные одной свечи (candlestick).</summary>
 public sealed record CandleSnapshot

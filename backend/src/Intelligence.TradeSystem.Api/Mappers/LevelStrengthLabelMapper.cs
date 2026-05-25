@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -27,7 +27,7 @@ internal static class LevelStrengthLabelMapper
     public static LevelStrengthLabel Map(decimal? strength)
     {
         if (strength is not { } s) return LevelStrengthLabel.Unavailable;
-        if (s >= StrongThreshold)  return LevelStrengthLabel.Strong;
+        if (s >= StrongThreshold) return LevelStrengthLabel.Strong;
         if (s >= ModerateThreshold) return LevelStrengthLabel.Moderate;
         return LevelStrengthLabel.Weak;
     }

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Временной интервал одной свечи (таймфрейм).

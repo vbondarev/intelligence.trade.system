@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Уровень ликвидности (стена) в стакане.</summary>
 public sealed record LlmLiquidityWallPayload

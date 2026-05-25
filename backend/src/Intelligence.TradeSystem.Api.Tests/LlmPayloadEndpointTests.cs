@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -26,9 +26,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_Ok_With_Valid_Payload_For_Default_Mode()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -50,9 +50,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_Correct_SchemaVersion()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -63,9 +63,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_SnapshotHealth_Section()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -81,9 +81,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Timeframes_Contain_TrendCode_And_TrendStrengthLabel_And_Summary()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -106,9 +106,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_OrderBook_Does_Not_Contain_TopBids_Or_TopAsks()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -122,9 +122,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_OrderBook_Contains_Computed_Spread_And_Labels()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -140,9 +140,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_With_Mode_Swing_Sets_Correct_PrimaryTimeframes()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode=Swing");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -156,9 +156,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Without_IncludePortfolio_Portfolio_Key_Is_Absent_From_Json()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -170,9 +170,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_With_IncludePortfolio_True_Returns_Portfolio()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includePortfolio=true");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -187,9 +187,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Trims_Symbol_Before_Calling_Service()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/%20BTCUSDT%20/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -201,9 +201,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_With_IncludePortfolio_True_Returns_IsAvailable_True()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includePortfolio=true");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -218,9 +218,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_AggregatedContext_Key_Is_Always_Absent_From_Json()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -234,9 +234,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Timeframe_TrendCode_Is_1_For_Bullish_Trend()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(); // all timeframes are Bullish
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -250,9 +250,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     {
         // TrendStrengthScore = 0.4 in test data
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -265,7 +265,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_BadRequest_When_Exchange_Is_Missing()
     {
         var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?category=Linear");
 
         await ProblemDetailsAssertions.AssertProblemAsync(response, HttpStatusCode.BadRequest, "Request validation failed.", "exchange");
@@ -276,7 +276,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_BadRequest_When_Category_Is_Missing()
     {
         var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit");
 
         await ProblemDetailsAssertions.AssertProblemAsync(response, HttpStatusCode.BadRequest, "Request validation failed.", "category");
@@ -287,7 +287,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_BadRequest_With_AllowedValues_When_Mode_Is_Invalid()
     {
         var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode=scalping");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -306,7 +306,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     public async Task LlmPayload_Returns_BadRequest_When_IncludeAggregatedContext_Is_True()
     {
         var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includeAggregatedContext=true");
 
         await ProblemDetailsAssertions.AssertProblemAsync(response, HttpStatusCode.BadRequest, "Request validation failed.", "not supported");
@@ -323,7 +323,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Ticker temporarily unavailable."));
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         await ProblemDetailsAssertions.AssertProblemAsync(
@@ -348,4 +348,3 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         return mock;
     }
 }
-

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Снимок одной открытой позиции: параметры входа, текущая оценка и уровни риска.

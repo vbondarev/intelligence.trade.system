@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Единая pure-policy для классификации рыночного режима по агрегированным таймфреймовым снапшотам.
@@ -66,4 +66,3 @@ public static class MarketRegimePolicy
         return MarketRegimes.Neutral;
     }
 }
-

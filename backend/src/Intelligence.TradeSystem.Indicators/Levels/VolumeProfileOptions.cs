@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Levels;
+namespace Intelligence.TradeSystem.Indicators.Levels;
 
 /// <summary>
 /// Параметры алгоритма <see cref="VolumeProfileDetector"/>.

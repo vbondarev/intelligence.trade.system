@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Агрегированные оценки сентимента рынка.</summary>
 public sealed record LlmSentimentPayload

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Abstractions;
 
@@ -79,4 +79,3 @@ public interface IMarketDataProvider
         int limit = 60,
         CancellationToken cancellationToken = default);
 }
-

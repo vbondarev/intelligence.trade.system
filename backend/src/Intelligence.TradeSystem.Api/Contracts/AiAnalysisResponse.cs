@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Contracts;
+namespace Intelligence.TradeSystem.Api.Contracts;
 
 /// <summary>
 /// Ответ API с результатом AI-анализа по указанному инструменту.
@@ -17,4 +17,3 @@ public sealed record AiAnalysisResponse
     /// <summary>Итоговый текстовый вывод AI-сервиса.</summary>
     public required string Analysis { get; init; }
 }
-

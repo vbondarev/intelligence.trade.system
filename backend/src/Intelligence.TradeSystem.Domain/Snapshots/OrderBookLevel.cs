@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>Один ценовой уровень в стакане заявок.</summary>
 public sealed record OrderBookLevel

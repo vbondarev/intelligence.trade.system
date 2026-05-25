@@ -1,4 +1,4 @@
-﻿using Bybit.Net.Interfaces.Clients;
+using Bybit.Net.Interfaces.Clients;
 using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -88,4 +88,3 @@ public sealed class StartupExtensionsTests
         return services;
     }
 }
-

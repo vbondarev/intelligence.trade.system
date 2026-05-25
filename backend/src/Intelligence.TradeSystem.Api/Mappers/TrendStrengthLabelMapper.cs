@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
@@ -37,9 +37,8 @@ internal static class TrendStrengthLabelMapper
     public static TrendStrengthLabel Map(MarketTrend trend, decimal score)
     {
         if (trend == MarketTrend.Unknown) return TrendStrengthLabel.Undefined;
-        if (score >= StrongThreshold)     return TrendStrengthLabel.Strong;
-        if (score >= ModerateThreshold)   return TrendStrengthLabel.Moderate;
+        if (score >= StrongThreshold) return TrendStrengthLabel.Strong;
+        if (score >= ModerateThreshold) return TrendStrengthLabel.Moderate;
         return TrendStrengthLabel.Weak;
     }
 }
-

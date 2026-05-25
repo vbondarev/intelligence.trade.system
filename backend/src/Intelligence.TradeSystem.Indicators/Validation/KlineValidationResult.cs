@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Indicators.Validation;
+namespace Intelligence.TradeSystem.Indicators.Validation;
 
 /// <summary>
 /// Результат проверки одной свечи <see cref="Domain.Kline"/> на корректность рыночных данных.
@@ -30,16 +30,16 @@ public sealed record KlineValidationResult
     /// <summary>Создаёт результат для корректной свечи.</summary>
     public static KlineValidationResult Valid(int index) => new()
     {
-        KlineIndex     = index,
-        IsValid        = true,
+        KlineIndex = index,
+        IsValid = true,
         ViolationReason = null,
     };
 
     /// <summary>Создаёт результат для свечи с нарушением.</summary>
     public static KlineValidationResult Invalid(int index, string reason) => new()
     {
-        KlineIndex      = index,
-        IsValid         = false,
+        KlineIndex = index,
+        IsValid = false,
         ViolationReason = reason,
     };
 }

@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
 /// Состояние моментума таймфрейма, вычисленное на основе bias, подтверждения тренда и RSI.
@@ -28,4 +28,3 @@ public enum MomentumState
     /// </summary>
     Overextended = 3,
 }
-

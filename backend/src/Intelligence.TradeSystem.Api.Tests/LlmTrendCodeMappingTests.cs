@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -28,17 +28,17 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
     // ─── trendCode contract: value per enum ─────────────────────────────────
 
     [Theory]
-    [InlineData(MarketTrend.Unknown,  0, "Unknown")]
-    [InlineData(MarketTrend.Bullish,  1, "Bullish")]
-    [InlineData(MarketTrend.Bearish,  2, "Bearish")]
+    [InlineData(MarketTrend.Unknown, 0, "Unknown")]
+    [InlineData(MarketTrend.Bullish, 1, "Bullish")]
+    [InlineData(MarketTrend.Bearish, 2, "Bearish")]
     [InlineData(MarketTrend.Sideways, 3, "Sideways")]
     public async Task TrendCode_And_TrendLabel_Match_Contract_For_All_Enum_Values(
         MarketTrend trend, int expectedCode, string expectedLabel)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync(
             "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
@@ -68,9 +68,9 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
     public async Task TrendCode_Is_Always_Consistent_With_Trend_Label(MarketTrend trend)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync(
             "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
@@ -80,9 +80,9 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
 
         foreach (var timeframeProp in new[] { "m15", "h1", "h4", "d1" })
         {
-            var tf       = json.RootElement.GetProperty(timeframeProp);
-            var label    = tf.GetProperty("trend").GetString()!;
-            var code     = tf.GetProperty("trendCode").GetInt32();
+            var tf = json.RootElement.GetProperty(timeframeProp);
+            var label = tf.GetProperty("trend").GetString()!;
+            var code = tf.GetProperty("trendCode").GetInt32();
 
             // Roundtrip: parse the label back to enum and cast to int — must equal trendCode.
             var parsedTrend = Enum.Parse<MarketTrend>(label);
@@ -97,9 +97,9 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
     public async Task TrendCode_For_Sideways_Is_3_Not_0()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Sideways);
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync(
             "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
@@ -117,9 +117,9 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
     public async Task TrendCode_For_Bearish_Is_2_Not_Minus1()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bearish);
-        var service  = MockService(snapshot);
+        var service = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync(
             "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
@@ -145,6 +145,3 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFacto
         return mock;
     }
 }
-
-
-

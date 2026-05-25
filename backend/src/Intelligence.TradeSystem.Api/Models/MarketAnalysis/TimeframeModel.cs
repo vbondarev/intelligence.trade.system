@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+namespace Intelligence.TradeSystem.Api.Models.MarketAnalysis;
 
 /// <summary>HTTP DTO технического анализа одного таймфрейма.</summary>
 public sealed record TimeframeModel

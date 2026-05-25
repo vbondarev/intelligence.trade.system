@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain.Snapshots;
+namespace Intelligence.TradeSystem.Domain.Snapshots;
 
 /// <summary>
 /// Агрегированные оценки настроения рынка, синтезированные из нескольких независимых сигналов.

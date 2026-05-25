@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>Состояние стакана заявок (без <c>topBids</c> и <c>topAsks</c>).</summary>
 public sealed record LlmOrderBookPayload

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -33,6 +33,3 @@ internal sealed record LlmTimeframeSummaryResult
     /// <summary>Список активных флагов риска для данного таймфрейма.</summary>
     public required IReadOnlyList<string> RiskFlags { get; init; }
 }
-
-
-

@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Xunit;
@@ -224,10 +224,10 @@ public sealed class MarketTagsBuilderTests
     public void Tags_Order_Is_Regime_Funding_Pressure_Aggression()
     {
         var result = Build(
-            sentiment:   CreateSentiment("Trending"),
+            sentiment: CreateSentiment("Trending"),
             derivatives: CreateDerivatives(0.0005m),
-            orderBook:   CreateOrderBook(0.5m),
-            tradeFlow:   CreateTradeFlow(hasBuy: true));
+            orderBook: CreateOrderBook(0.5m),
+            tradeFlow: CreateTradeFlow(hasBuy: true));
 
         result.Should().Equal(
             MarketTagsBuilder.TagTrending,
@@ -240,10 +240,10 @@ public sealed class MarketTagsBuilderTests
     public void Tags_Order_Is_Stable_For_Bearish_Scenario()
     {
         var result = Build(
-            sentiment:   CreateSentiment("Neutral"),
+            sentiment: CreateSentiment("Neutral"),
             derivatives: CreateDerivatives(-0.0008m),
-            orderBook:   CreateOrderBook(-0.5m),
-            tradeFlow:   CreateTradeFlow(hasSell: true));
+            orderBook: CreateOrderBook(-0.5m),
+            tradeFlow: CreateTradeFlow(hasSell: true));
 
         result.Should().Equal(
             MarketTagsBuilder.TagNeutral,
@@ -259,10 +259,10 @@ public sealed class MarketTagsBuilderTests
     {
         // Все 4 группы срабатывают → ровно MaxTags тегов
         var result = Build(
-            sentiment:   CreateSentiment("Trending"),
+            sentiment: CreateSentiment("Trending"),
             derivatives: CreateDerivatives(0.001m),
-            orderBook:   CreateOrderBook(0.5m),
-            tradeFlow:   CreateTradeFlow(hasBuy: true));
+            orderBook: CreateOrderBook(0.5m),
+            tradeFlow: CreateTradeFlow(hasBuy: true));
 
         result.Count.Should().BeInRange(0, MarketTagsBuilder.MaxTags);
     }
@@ -271,10 +271,10 @@ public sealed class MarketTagsBuilderTests
     public void Tags_Are_Empty_When_No_Conditions_Are_Met()
     {
         var result = Build(
-            sentiment:   CreateSentiment(""),
+            sentiment: CreateSentiment(""),
             derivatives: CreateDerivatives(0m),
-            orderBook:   CreateOrderBook(0m),
-            tradeFlow:   CreateTradeFlow());
+            orderBook: CreateOrderBook(0m),
+            tradeFlow: CreateTradeFlow());
 
         result.Should().BeEmpty();
     }
@@ -283,21 +283,21 @@ public sealed class MarketTagsBuilderTests
 
     private static List<string> Build(
         DerivativesSnapshot? derivatives = null,
-        OrderBookSnapshot?   orderBook   = null,
-        TradeFlowSnapshot?   tradeFlow   = null,
-        SentimentSnapshot?   sentiment   = null) =>
+        OrderBookSnapshot? orderBook = null,
+        TradeFlowSnapshot? tradeFlow = null,
+        SentimentSnapshot? sentiment = null) =>
         MarketTagsBuilder.Build(
             derivatives ?? CreateDerivatives(),
-            orderBook   ?? CreateOrderBook(),
-            tradeFlow   ?? CreateTradeFlow(),
-            sentiment   ?? CreateSentiment());
+            orderBook ?? CreateOrderBook(),
+            tradeFlow ?? CreateTradeFlow(),
+            sentiment ?? CreateSentiment());
 
     private static SentimentSnapshot CreateSentiment(string marketRegime = "") =>
         new()
         {
-            MarketRegime           = marketRegime,
-            LongShortBiasScore     = 0m,
-            FundingBiasScore       = 0m,
+            MarketRegime = marketRegime,
+            LongShortBiasScore = 0m,
+            FundingBiasScore = 0m,
             OrderBookPressureScore = 0m,
             TradeFlowPressureScore = 0m,
         };
@@ -305,13 +305,13 @@ public sealed class MarketTagsBuilderTests
     private static DerivativesSnapshot CreateDerivatives(decimal fundingRate = 0m) =>
         new()
         {
-            FundingRate             = fundingRate,
-            FundingRateAvg24h       = 0m,
-            OpenInterest            = 1_000m,
-            OpenInterestValue       = 100_000m,
-            LongRatio               = 0.5m,
-            ShortRatio              = 0.5m,
-            PremiumVsIndexPct       = 0m,
+            FundingRate = fundingRate,
+            FundingRateAvg24h = 0m,
+            OpenInterest = 1_000m,
+            OpenInterestValue = 100_000m,
+            LongRatio = 0.5m,
+            ShortRatio = 0.5m,
+            PremiumVsIndexPct = 0m,
             OpenInterestChange1hPct = 0m,
             OpenInterestChange4hPct = 0m,
         };
@@ -319,43 +319,41 @@ public sealed class MarketTagsBuilderTests
     private static OrderBookSnapshot CreateOrderBook(decimal imbalanceTop5 = 0m) =>
         new()
         {
-            CapturedAtUtc         = DateTimeOffset.UtcNow,
-            BestBidPrice          = 99.5m,
-            BestAskPrice          = 100.5m,
-            TotalBidVolumeTop5    = 10m,
-            TotalAskVolumeTop5    = 10m,
-            TotalBidVolumeTop10   = 20m,
-            TotalAskVolumeTop10   = 20m,
-            TotalBidVolumeTop20   = 40m,
-            TotalAskVolumeTop20   = 40m,
-            ImbalanceTop5         = imbalanceTop5,
-            ImbalanceTop10        = 0m,
-            ImbalanceTop20        = 0m,
-            TopBids               = [],
-            TopAsks               = [],
-            BidWalls              = [],
-            AskWalls              = [],
+            CapturedAtUtc = DateTimeOffset.UtcNow,
+            BestBidPrice = 99.5m,
+            BestAskPrice = 100.5m,
+            TotalBidVolumeTop5 = 10m,
+            TotalAskVolumeTop5 = 10m,
+            TotalBidVolumeTop10 = 20m,
+            TotalAskVolumeTop10 = 20m,
+            TotalBidVolumeTop20 = 40m,
+            TotalAskVolumeTop20 = 40m,
+            ImbalanceTop5 = imbalanceTop5,
+            ImbalanceTop10 = 0m,
+            ImbalanceTop20 = 0m,
+            TopBids = [],
+            TopAsks = [],
+            BidWalls = [],
+            AskWalls = [],
         };
 
     private static TradeFlowSnapshot CreateTradeFlow(
-        bool hasBuy  = false,
+        bool hasBuy = false,
         bool hasSell = false) =>
         new()
         {
-            WindowStartUtc            = DateTimeOffset.UtcNow.AddMinutes(-15),
-            WindowEndUtc              = DateTimeOffset.UtcNow,
-            BuyVolume                 = 50m,
-            SellVolume                = 50m,
-            DeltaVolume               = 0m,
-            DeltaPct                  = 0m,
-            TotalTrades               = 10,
-            BuyTrades                 = 5,
-            SellTrades                = 5,
-            AvgTradeSize              = 10m,
-            MaxTradeSize              = 25m,
-            HasAggressiveBuyPressure  = hasBuy,
+            WindowStartUtc = DateTimeOffset.UtcNow.AddMinutes(-15),
+            WindowEndUtc = DateTimeOffset.UtcNow,
+            BuyVolume = 50m,
+            SellVolume = 50m,
+            DeltaVolume = 0m,
+            DeltaPct = 0m,
+            TotalTrades = 10,
+            BuyTrades = 5,
+            SellTrades = 5,
+            AvgTradeSize = 10m,
+            MaxTradeSize = 25m,
+            HasAggressiveBuyPressure = hasBuy,
             HasAggressiveSellPressure = hasSell,
         };
 }
-
-

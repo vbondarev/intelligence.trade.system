@@ -288,5 +288,3 @@ public sealed class EntryQualityEvaluatorTests
             support1, distS, overbought,
             resistance1, distR, oversold);
 }
-
-

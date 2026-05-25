@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Analysis.Diagnostics;
+using Intelligence.TradeSystem.Analysis.Diagnostics;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
@@ -19,4 +19,3 @@ public sealed record TimeframeAssemblyResult
     /// </summary>
     public required IReadOnlyList<IndicatorDiagnostic> Diagnostics { get; init; }
 }
-

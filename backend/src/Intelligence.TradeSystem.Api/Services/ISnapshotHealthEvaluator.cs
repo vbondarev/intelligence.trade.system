@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Services;
@@ -21,4 +21,3 @@ public interface ISnapshotHealthEvaluator
         bool includePortfolio,
         bool includeAggregatedContext);
 }
-

@@ -1,4 +1,3 @@
-﻿namespace Intelligence.TradeSystem.Api;
+namespace Intelligence.TradeSystem.Api;
 
 public partial class Program;
-

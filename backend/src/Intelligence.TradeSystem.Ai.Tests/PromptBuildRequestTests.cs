@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai.Tests;
+namespace Intelligence.TradeSystem.Ai.Tests;
 
 public sealed class PromptBuildRequestTests
 {
@@ -14,11 +14,11 @@ public sealed class PromptBuildRequestTests
     [Fact]
     public void Throws_When_UserQuery_Is_Null()
     {
-        const string parameterName = "userQuery";
+        const string ParameterName = "userQuery";
         var action = () => new PromptBuildRequest(PromptTestData.CreateSnapshot(), null!);
 
         action.Should().Throw<ArgumentException>()
-            .WithParameterName(parameterName);
+            .WithParameterName(ParameterName);
     }
 
     [Theory]
@@ -27,11 +27,11 @@ public sealed class PromptBuildRequestTests
     [InlineData("\t")]
     public void Throws_When_UserQuery_Is_Whitespace(string userQuery)
     {
-        const string parameterName = "userQuery";
+        const string ParameterName = "userQuery";
         var action = () => new PromptBuildRequest(PromptTestData.CreateSnapshot(), userQuery);
 
         action.Should().Throw<ArgumentException>()
-            .WithParameterName(parameterName);
+            .WithParameterName(ParameterName);
     }
 
     [Fact]
@@ -55,5 +55,3 @@ public sealed class PromptBuildRequestTests
         request.AnalyticsOutput.Should().BeNull();
     }
 }
-
-

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Application;
 
@@ -20,4 +20,3 @@ public static class StartupExtensions
         return services;
     }
 }
-

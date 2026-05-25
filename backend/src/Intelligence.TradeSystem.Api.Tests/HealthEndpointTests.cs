@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -28,4 +28,3 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }
-

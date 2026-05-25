@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
@@ -50,4 +50,3 @@ public sealed record LlmLevelMetaPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? ClusterVolume { get; init; }
 }
-

@@ -1,10 +1,10 @@
-﻿using Bybit.Net.Objects.Models.V5;
+using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
+using BybitOrderSide = Bybit.Net.Enums.OrderSide;
 using BybitPositionSide = Bybit.Net.Enums.PositionSide;
 using BybitPositionStatus = Bybit.Net.Enums.PositionStatus;
-using BybitOrderSide = Bybit.Net.Enums.OrderSide;
 
 namespace Intelligence.TradeSystem.Exchanges.Bybit;
 
@@ -67,11 +67,11 @@ internal static class ToDomainTypeMapperExtensions
         new(symbol,
             MarketCategory.Spot,
             ticker.LastPrice,
-            MarkPrice:   0m,
-            IndexPrice:  0m,
-            ticker.BestBidPrice    ?? 0m,
+            MarkPrice: 0m,
+            IndexPrice: 0m,
+            ticker.BestBidPrice ?? 0m,
             ticker.BestBidQuantity ?? 0m,
-            ticker.BestAskPrice    ?? 0m,
+            ticker.BestAskPrice ?? 0m,
             ticker.BestAskQuantity ?? 0m,
             ticker.PriceChangePercentag24h,
             ticker.HighPrice24h,
@@ -109,9 +109,9 @@ internal static class ToDomainTypeMapperExtensions
             ticker.LastPrice,
             ticker.MarkPrice,
             ticker.IndexPrice,
-            ticker.BestBidPrice    ?? 0m,
+            ticker.BestBidPrice ?? 0m,
             ticker.BestBidQuantity ?? 0m,
-            ticker.BestAskPrice    ?? 0m,
+            ticker.BestAskPrice ?? 0m,
             ticker.BestAskQuantity ?? 0m,
             ticker.PriceChangePercentage24h,
             ticker.HighPrice24h,
@@ -119,11 +119,11 @@ internal static class ToDomainTypeMapperExtensions
             ticker.Volume24h,
             ticker.Turnover24h)
         {
-            FundingRate        = ticker.FundingRate,
+            FundingRate = ticker.FundingRate,
             NextFundingTimeUtc = ticker.NextFundingTime.HasValue
                 ? new DateTimeOffset(ticker.NextFundingTime.Value, TimeSpan.Zero)
                 : null,
-            OpenInterest      = ticker.OpenInterest,
+            OpenInterest = ticker.OpenInterest,
             OpenInterestValue = ticker.OpenInterestValue,
         };
 
@@ -131,19 +131,19 @@ internal static class ToDomainTypeMapperExtensions
     private static PositionSide MapPositionSide(this BybitPositionSide? side) =>
         side switch
         {
-            BybitPositionSide.Buy  => PositionSide.Long,
+            BybitPositionSide.Buy => PositionSide.Long,
             BybitPositionSide.Sell => PositionSide.Short,
-            _                      => PositionSide.Unknown,
+            _ => PositionSide.Unknown,
         };
 
     private static PositionStatus MapPositionStatus(this BybitPositionStatus? status) =>
         status switch
         {
-            BybitPositionStatus.Normal          => PositionStatus.Normal,
-            BybitPositionStatus.Liquidation     => PositionStatus.Liquidation,
-            BybitPositionStatus.AutoDeleverage  => PositionStatus.AutoDeleverage,
-            BybitPositionStatus.Inactive        => PositionStatus.Inactive,
-            _                                   => PositionStatus.Normal,
+            BybitPositionStatus.Normal => PositionStatus.Normal,
+            BybitPositionStatus.Liquidation => PositionStatus.Liquidation,
+            BybitPositionStatus.AutoDeleverage => PositionStatus.AutoDeleverage,
+            BybitPositionStatus.Inactive => PositionStatus.Inactive,
+            _ => PositionStatus.Normal,
         };
 
     private static AccountType MapAccountType(this BybitAccountType accountType) =>

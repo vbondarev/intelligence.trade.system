@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Helpers;
 
@@ -21,4 +21,3 @@ public static class FundingRateEntryFactory
             timestamp ?? new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero),
             fundingRate);
 }
-

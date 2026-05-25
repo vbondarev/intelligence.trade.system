@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -23,7 +23,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void LastCandle_Is_Newest_Even_When_Input_Is_Unsorted()
     {
-        var klines   = KlineFactory.CreateSeries(count: 250).ToList();
+        var klines = KlineFactory.CreateSeries(count: 250).ToList();
         var expected = klines.Max(k => k.StartTime);
 
         klines.Reverse(); // намеренно переворачиваем порядок
@@ -160,7 +160,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // When all candle volumes are zero, VolumeSma20 = 0 → VolumeRatio cannot be computed → null.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var klines   = Enumerable.Range(0, 25)
+        var klines = Enumerable.Range(0, 25)
             .Select(i => KlineFactory.Create(volume: 0m, startTime: baseTime.AddHours(i)))
             .ToList();
 
@@ -283,7 +283,7 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "ema200" &&
-            d.Reason    == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
+            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
             d.IsFallback);
     }
 
@@ -295,8 +295,8 @@ public sealed class TimeframeSnapshotAssemblerTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
         result.Diagnostics.Should().Contain(d =>
-            d.Indicator  == "rsi14" &&
-            d.Reason     == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
+            d.Indicator == "rsi14" &&
+            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
             !d.IsFallback);
     }
 
@@ -308,8 +308,8 @@ public sealed class TimeframeSnapshotAssemblerTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "4h");
 
         result.Diagnostics.Should().Contain(d =>
-            d.Indicator  == "atr14" &&
-            d.Reason     == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
+            d.Indicator == "atr14" &&
+            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
             !d.IsFallback);
     }
 
@@ -362,7 +362,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Diagnostic объясняет причину fallback.
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "ema200" &&
-            d.Reason    == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
+            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
             d.IsFallback);
     }
 
@@ -469,7 +469,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // Arrange: 5 valid candles + 1 invalid candle with the LATEST StartTime.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var klines   = KlineFactory.CreateSeries(count: 5).ToList();
+        var klines = KlineFactory.CreateSeries(count: 5).ToList();
         // Inject an invalid candle (High < Low) with StartTime beyond all valid candles.
         klines.Add(KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
             startTime: baseTime.AddHours(100)));
@@ -503,7 +503,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // Invalid candle at position 2 (not the last by time — series goes 0h..9h, invalid at 2h).
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
             startTime: baseTime.AddHours(2));
 
@@ -519,7 +519,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // 10 candles, 3 invalid = 30% > 20% threshold.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[1] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1));
         klines[3] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(3));
         klines[5] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(5));
@@ -540,7 +540,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // 10 candles, 1 invalid = 10% <= 20% threshold → no highViolationRate diagnostic.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var klines   = KlineFactory.CreateSeries(count: 10).ToList();
+        var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2));
 
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
@@ -595,7 +595,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // 250 свечей достаточно для работы VolumeProfileDetector
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
-        var snap   = result.Snapshot;
+        var snap = result.Snapshot;
 
         // Если уровень обнаружен — Strength и ClusterVolume должны быть заполнены
         if (snap.Support1 is not null)
@@ -630,8 +630,8 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Создаём минимально достаточный набор свечей с одинаковыми ценами — профиль не выдаст поддержку/сопротивление
         // относительно Close, поэтому проверяем консистентность: если Price == null, то Strength == null.
         var klines200 = KlineFactory.CreateSeries(count: 200);
-        var result    = TimeframeSnapshotAssembler.Assemble(klines200, timeframe: "1h");
-        var snap      = result.Snapshot;
+        var result = TimeframeSnapshotAssembler.Assemble(klines200, timeframe: "1h");
+        var snap = result.Snapshot;
 
         if (snap.Support1 is null)
         {

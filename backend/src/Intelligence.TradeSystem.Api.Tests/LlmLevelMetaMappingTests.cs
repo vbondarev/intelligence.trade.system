@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -178,7 +178,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     public async Task Support1Meta_Is_Absent_From_Json_When_Support1_Is_Null()
     {
         var snapshot = CreateSnapshotWithNullLevels();
-        using var client   = CreateClientWithSnapshot(snapshot);
+        using var client = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -210,11 +210,11 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         {
             var meta = metaField switch
             {
-                "support1Meta"    => tf.Support1Meta,
-                "support2Meta"    => tf.Support2Meta,
+                "support1Meta" => tf.Support1Meta,
+                "support2Meta" => tf.Support2Meta,
                 "resistance1Meta" => tf.Resistance1Meta,
                 "resistance2Meta" => tf.Resistance2Meta,
-                _                 => null,
+                _ => null,
             };
 
             if (meta?.StrengthLabel is { } label)
@@ -240,11 +240,11 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         {
             var meta = metaField switch
             {
-                "support1Meta"    => tf.Support1Meta,
-                "support2Meta"    => tf.Support2Meta,
+                "support1Meta" => tf.Support1Meta,
+                "support2Meta" => tf.Support2Meta,
                 "resistance1Meta" => tf.Resistance1Meta,
                 "resistance2Meta" => tf.Resistance2Meta,
-                _                 => null,
+                _ => null,
             };
 
             if (meta?.Strength is { } strength)
@@ -297,7 +297,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     public async Task LevelMeta_ClusterVolume_Is_Absent_From_Json_When_Level_Is_Null()
     {
         var snapshot = CreateSnapshotWithNullLevels();
-        using var client   = CreateClientWithSnapshot(snapshot);
+        using var client = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -321,11 +321,11 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         {
             var meta = metaField switch
             {
-                "support1Meta"    => tf.Support1Meta,
-                "support2Meta"    => tf.Support2Meta,
+                "support1Meta" => tf.Support1Meta,
+                "support2Meta" => tf.Support2Meta,
                 "resistance1Meta" => tf.Resistance1Meta,
                 "resistance2Meta" => tf.Resistance2Meta,
-                _                 => null,
+                _ => null,
             };
 
             if (meta is not null)
@@ -343,7 +343,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        using var client   = CreateClientWithSnapshot(snapshot);
+        using var client = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -378,21 +378,20 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
 
         var nullTimeframe = baseSnapshot.M15 with
         {
-            Support1    = null,
-            Support2    = null,
+            Support1 = null,
+            Support2 = null,
             Resistance1 = null,
             Resistance2 = null,
-            DistanceToSupport1Pct    = null,
+            DistanceToSupport1Pct = null,
             DistanceToResistance1Pct = null,
         };
 
         return baseSnapshot with
         {
             M15 = nullTimeframe,
-            H1  = nullTimeframe with { Timeframe = "1h" },
-            H4  = nullTimeframe with { Timeframe = "4h" },
-            D1  = nullTimeframe with { Timeframe = "1d" },
+            H1 = nullTimeframe with { Timeframe = "1h" },
+            H4 = nullTimeframe with { Timeframe = "4h" },
+            D1 = nullTimeframe with { Timeframe = "1d" },
         };
     }
 }
-

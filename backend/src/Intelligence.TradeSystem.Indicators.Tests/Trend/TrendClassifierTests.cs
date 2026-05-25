@@ -230,5 +230,3 @@ public sealed class TrendClassifierTests
         [100m, 100m, 100m, 100m, 1.0m],  // All equal
     ];
 }
-
-

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 
 [assembly: SuppressMessage(
     "Naming",
@@ -13,4 +13,3 @@
     Justification = "Short является устоявшимся финансовым термином предметной области трейдинга.",
     Scope = "member",
     Target = "~F:Intelligence.TradeSystem.Domain.Snapshots.PositionSide.Short")]
-

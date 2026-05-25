@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Abstractions;
+namespace Intelligence.TradeSystem.Abstractions;
 
 /// <summary>
 /// Временный compatibility-контракт поверх нейтральных capability-интерфейсов Bybit.
@@ -12,4 +12,3 @@
 public interface IBybitProvider : IMarketDataProvider, IDerivativesDataProvider, IPrivateAccountProvider
 {
 }
-

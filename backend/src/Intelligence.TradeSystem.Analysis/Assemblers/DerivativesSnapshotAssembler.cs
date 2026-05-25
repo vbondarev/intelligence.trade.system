@@ -50,9 +50,9 @@ public static class DerivativesSnapshotAssembler
         ArgumentNullException.ThrowIfNull(ticker);
 
         // 2. Current values from ticker
-        var currentFundingRate        = ticker.FundingRate       ?? 0m;
-        var currentOpenInterest       = ticker.OpenInterest      ?? 0m;
-        var currentOpenInterestValue  = ticker.OpenInterestValue ?? 0m;
+        var currentFundingRate = ticker.FundingRate ?? 0m;
+        var currentOpenInterest = ticker.OpenInterest ?? 0m;
+        var currentOpenInterestValue = ticker.OpenInterestValue ?? 0m;
 
         // 3. PremiumVsIndexPct = (MarkPrice − IndexPrice) / IndexPrice × 100
         //    null when IndexPrice = 0 (spot market or data unavailable)
@@ -68,18 +68,18 @@ public static class DerivativesSnapshotAssembler
         var oiChange4hPct = openInterest?.Change4hPct ?? 0m;
 
         // 6. Long / Short ratios — from snapshot; default 0 when unavailable
-        var longRatio  = longShortRatio?.CurrentBuyRatio  ?? 0m;
+        var longRatio = longShortRatio?.CurrentBuyRatio ?? 0m;
         var shortRatio = longShortRatio?.CurrentSellRatio ?? 0m;
 
         // 7. Assemble
         return new DerivativesSnapshot
         {
-            FundingRate        = currentFundingRate,
+            FundingRate = currentFundingRate,
             NextFundingTimeUtc = ticker.NextFundingTimeUtc,
-            OpenInterest       = currentOpenInterest,
-            OpenInterestValue  = currentOpenInterestValue,
+            OpenInterest = currentOpenInterest,
+            OpenInterestValue = currentOpenInterestValue,
 
-            LongRatio  = longRatio,
+            LongRatio = longRatio,
             ShortRatio = shortRatio,
 
             PremiumVsIndexPct = premiumVsIndexPct,
@@ -91,4 +91,3 @@ public static class DerivativesSnapshotAssembler
         };
     }
 }
-

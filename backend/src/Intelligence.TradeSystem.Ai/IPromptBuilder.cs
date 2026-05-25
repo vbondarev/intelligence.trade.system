@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai;
+namespace Intelligence.TradeSystem.Ai;
 
 /// <summary>
 /// Строит ordered prompt payload для LLM provider на основе готового рыночного снимка
@@ -17,4 +17,3 @@ public interface IPromptBuilder
     /// <exception cref="ArgumentNullException">Если <paramref name="request"/> равен <c>null</c>.</exception>
     PromptBuildResult Build(PromptBuildRequest request);
 }
-

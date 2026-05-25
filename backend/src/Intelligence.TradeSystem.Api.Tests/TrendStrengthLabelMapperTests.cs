@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Mappers;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
@@ -167,11 +167,11 @@ public sealed class TrendStrengthLabelMapperTests
     // ─── Консистентность: label == Undefined ←→ trend == Unknown ────────────
 
     [Theory]
-    [InlineData(MarketTrend.Unknown,  0.0,  true)]
-    [InlineData(MarketTrend.Unknown,  0.9,  true)]
-    [InlineData(MarketTrend.Bullish,  0.9,  false)]
-    [InlineData(MarketTrend.Bearish,  0.3,  false)]
-    [InlineData(MarketTrend.Sideways, 0.5,  false)]
+    [InlineData(MarketTrend.Unknown, 0.0, true)]
+    [InlineData(MarketTrend.Unknown, 0.9, true)]
+    [InlineData(MarketTrend.Bullish, 0.9, false)]
+    [InlineData(MarketTrend.Bearish, 0.3, false)]
+    [InlineData(MarketTrend.Sideways, 0.5, false)]
     public void Undefined_Label_IFF_Trend_Is_Unknown(MarketTrend trend, double scoreDouble, bool expectUndefined)
     {
         var score = (decimal)scoreDouble;
@@ -182,5 +182,3 @@ public sealed class TrendStrengthLabelMapperTests
             because: $"trend={trend}, score={score}: Undefined ←→ Unknown");
     }
 }
-
-

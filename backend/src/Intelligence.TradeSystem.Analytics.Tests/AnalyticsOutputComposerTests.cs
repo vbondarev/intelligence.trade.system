@@ -213,4 +213,3 @@ public sealed class AnalyticsOutputComposerTests
         }
     }
 }
-

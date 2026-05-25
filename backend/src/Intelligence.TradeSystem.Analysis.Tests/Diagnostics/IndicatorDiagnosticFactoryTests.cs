@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Diagnostics;
 using Intelligence.TradeSystem.Indicators.Results;
 using Xunit;
@@ -29,7 +29,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         var result = IndicatorDiagnosticFactory.Create("15m", "ema200", value);
 
         result.Should().NotBeNull();
-        result!.Timeframe.Should().Be("15m");
+        result.Timeframe.Should().Be("15m");
         result.Indicator.Should().Be("ema200");
         result.Reason.Should().Be(IndicatorValueReason.PartialWindow);
         result.IsFallback.Should().BeTrue();
@@ -48,7 +48,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         var result = IndicatorDiagnosticFactory.Create("1h", "rsi14", value);
 
         result.Should().NotBeNull();
-        result!.Timeframe.Should().Be("1h");
+        result.Timeframe.Should().Be("1h");
         result.Indicator.Should().Be("rsi14");
         result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
         result.IsFallback.Should().BeFalse();
@@ -65,7 +65,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         var result = IndicatorDiagnosticFactory.Create("15m", "ema20", value);
 
         result.Should().NotBeNull();
-        result!.Timeframe.Should().Be("15m");
+        result.Timeframe.Should().Be("15m");
         result.Indicator.Should().Be("ema20");
         result.Reason.Should().Be(IndicatorValueReason.EmptyInput);
         result.IsFallback.Should().BeFalse();
@@ -82,7 +82,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         var result = IndicatorDiagnosticFactory.Create("4h", "volumeRatio", value);
 
         result.Should().NotBeNull();
-        result!.Timeframe.Should().Be("4h");
+        result.Timeframe.Should().Be("4h");
         result.Indicator.Should().Be("volumeRatio");
         result.Reason.Should().Be(IndicatorValueReason.InvalidInput);
         result.IsFallback.Should().BeFalse();
@@ -127,9 +127,9 @@ public sealed class IndicatorDiagnosticFactoryTests
 
     [Theory]
     [InlineData("15m", "ema20")]
-    [InlineData("1h",  "rsi14")]
-    [InlineData("4h",  "atr14")]
-    [InlineData("1d",  "volumeSma20")]
+    [InlineData("1h", "rsi14")]
+    [InlineData("4h", "atr14")]
+    [InlineData("1d", "volumeSma20")]
     public void Create_Propagates_Timeframe_And_Indicator_Into_Diagnostic(string timeframe, string indicator)
     {
         var value = IndicatorValue.Unavailable(IndicatorValueReason.InsufficientData);
@@ -140,4 +140,3 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Indicator.Should().Be(indicator);
     }
 }
-

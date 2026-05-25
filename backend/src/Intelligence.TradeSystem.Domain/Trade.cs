@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Одна совершённая сделка торгового инструмента — сырые данные с биржи.
@@ -34,4 +34,3 @@ public sealed record Trade(
     /// <summary>Цена исполнения сделки.</summary>
     public decimal Price { get; init; } = Price;
 }
-

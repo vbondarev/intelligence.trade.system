@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Domain;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Статус открытой позиции на Bybit.
@@ -19,4 +19,3 @@ public enum PositionStatus
     /// <summary>Позиция неактивна (нулевой размер или архив).</summary>
     Inactive = 3,
 }
-

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Mappers;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Tests;
@@ -113,9 +113,9 @@ public sealed class LevelStrengthLabelMapperTests
     // ─── Консистентность: Unavailable ←→ null ────────────────────────────────
 
     [Theory]
-    [InlineData(0.0,  false)]
-    [InlineData(0.5,  false)]
-    [InlineData(1.0,  false)]
+    [InlineData(0.0, false)]
+    [InlineData(0.5, false)]
+    [InlineData(1.0, false)]
     public void Unavailable_IFF_Strength_Is_Null(double strengthDouble, bool expectUnavailable)
     {
         var strength = (decimal)strengthDouble;

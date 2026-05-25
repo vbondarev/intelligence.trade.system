@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -54,7 +54,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         };
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -100,7 +100,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ], overrideAtr14: null, overrideAtrIsReliable: false);
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -135,7 +135,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ]);
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -165,7 +165,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         // IndicatorDiagnostics defaults to [] in MarketAnalysisSnapshot.
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -190,7 +190,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ]);
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -225,7 +225,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
             overrideAtr14: null, overrideAtrIsReliable: false);
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -271,9 +271,9 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         snapshot = snapshot with
         {
             M15 = snapshot.M15 with { VolumeRatio = null, VolumeRatioIsReliable = false },
-            H1  = snapshot.H1  with { VolumeRatio = null, VolumeRatioIsReliable = false },
-            H4  = snapshot.H4  with { VolumeRatio = null, VolumeRatioIsReliable = false },
-            D1  = snapshot.D1  with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            H1 = snapshot.H1 with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            H4 = snapshot.H4 with { VolumeRatio = null, VolumeRatioIsReliable = false },
+            D1 = snapshot.D1 with { VolumeRatio = null, VolumeRatioIsReliable = false },
             IndicatorDiagnostics =
             [
                 new IndicatorDiagnosticSnapshot
@@ -288,7 +288,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         };
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -320,17 +320,17 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         {
             M15 = snapshot.M15 with
             {
-                Support1    = null,
-                Support2    = null,
+                Support1 = null,
+                Support2 = null,
                 Resistance1 = null,
                 Resistance2 = null,
-                DistanceToSupport1Pct    = null,
+                DistanceToSupport1Pct = null,
                 DistanceToResistance1Pct = null,
             },
         };
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -363,7 +363,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
 
         var service = MockService(snapshot);
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -413,11 +413,11 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
     /// </summary>
     private static MarketAnalysisSnapshot BuildSnapshotWithDiagnostics(
         IReadOnlyList<IndicatorDiagnosticSnapshot> diagnostics,
-        decimal? overrideRsi14         = 55m,
-        bool     overrideRsiOverbought = false,
-        bool     overrideRsiOversold   = false,
-        decimal? overrideAtr14         = 180m,
-        bool     overrideAtrIsReliable = true)
+        decimal? overrideRsi14 = 55m,
+        bool overrideRsiOverbought = false,
+        bool overrideRsiOversold = false,
+        decimal? overrideAtr14 = 180m,
+        bool overrideAtrIsReliable = true)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bullish,
@@ -432,15 +432,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
             snapshot = snapshot with
             {
                 M15 = snapshot.M15 with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
-                H1  = snapshot.H1  with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
-                H4  = snapshot.H4  with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
-                D1  = snapshot.D1  with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
+                H1 = snapshot.H1 with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
+                H4 = snapshot.H4 with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
+                D1 = snapshot.D1 with { Atr14 = overrideAtr14, AtrIsReliable = overrideAtrIsReliable },
             };
         }
 
         return snapshot with { IndicatorDiagnostics = diagnostics };
     }
 }
-
-
-

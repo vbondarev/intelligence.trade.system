@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -26,7 +26,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     public LlmMomentumStateMappingTests(LlmMomentumStateTestFactory factory)
     {
         _factory = factory;
-        _client  = factory.CreateClient();
+        _client = factory.CreateClient();
     }
 
     public void Dispose() => _client.Dispose();
@@ -210,7 +210,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     public async Task MomentumState_Neutral_For_Non_Directional_Trends(MarketTrend trend)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         AssertAllTimeframes(result!, tf =>
             tf.Summary.MomentumState.Should().Be("Neutral",
@@ -227,7 +227,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     public async Task MomentumState_Healthy_Implies_IsTrendConfirmed_And_Bias_Not_Neutral(MarketTrend trend)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(trend);
-        var result   = await GetPayloadAsync(snapshot);
+        var result = await GetPayloadAsync(snapshot);
 
         foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
         {
@@ -262,4 +262,3 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
         }
     }
 }
-

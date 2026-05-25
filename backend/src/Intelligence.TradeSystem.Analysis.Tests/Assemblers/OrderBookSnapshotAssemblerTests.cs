@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
@@ -292,4 +292,3 @@ public sealed class OrderBookSnapshotAssemblerTests
         result.AskWalls[0].DistancePctFromMarket.Should().Be(0m);
     }
 }
-

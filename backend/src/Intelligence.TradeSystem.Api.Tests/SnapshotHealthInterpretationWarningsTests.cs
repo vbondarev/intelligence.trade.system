@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -33,7 +33,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task IsFresh_Remains_True_When_Only_Interpretation_Warnings_Present()
     {
-        using var client   = CreateClientWithConflictingSnapshot();
+        using var client = CreateClientWithConflictingSnapshot();
         using var response = await client.GetAsync(Url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -48,7 +48,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task IsPartial_Remains_False_When_Only_Interpretation_Warnings_Present()
     {
-        using var client   = CreateClientWithConflictingSnapshot();
+        using var client = CreateClientWithConflictingSnapshot();
         using var response = await client.GetAsync(Url);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -62,7 +62,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task Warnings_Contains_ConflictingMicrostructure_When_Scores_Conflict()
     {
-        using var client   = CreateClientWithConflictingSnapshot();
+        using var client = CreateClientWithConflictingSnapshot();
         using var response = await client.GetAsync(Url);
 
         var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
@@ -74,7 +74,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task Warnings_Contains_LowVolume_When_VolumeRatio_Below_Threshold()
     {
-        using var client   = CreateClientWithLowVolumeSnapshot();
+        using var client = CreateClientWithLowVolumeSnapshot();
         using var response = await client.GetAsync(Url);
 
         var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
@@ -87,7 +87,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     public async Task Warnings_Contains_Portfolio_Context_Warning_When_IncludePortfolio_Is_False()
     {
         // Стандартный запрос без includePortfolio → должен появиться warning
-        using var client   = CreateClientWithDefaultSnapshot();
+        using var client = CreateClientWithDefaultSnapshot();
         using var response = await client.GetAsync(Url);  // no includePortfolio=true
 
         var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
@@ -98,7 +98,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task Warnings_NotEmpty_When_Multiple_Interpretation_Rules_Fire()
     {
-        using var client   = CreateClientWithConflictingSnapshot();
+        using var client = CreateClientWithConflictingSnapshot();
         using var response = await client.GetAsync(Url);
 
         var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
@@ -110,7 +110,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
     [Fact]
     public async Task Warnings_NotContain_Duplicates()
     {
-        using var client   = CreateClientWithConflictingSnapshot();
+        using var client = CreateClientWithConflictingSnapshot();
         using var response = await client.GetAsync(Url);
 
         var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
@@ -129,7 +129,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
             {
                 OrderBookPressureScore = 0.3m,
                 TradeFlowPressureScore = -0.25m,
-                MarketRegime           = "Trending",
+                MarketRegime = "Trending",
             },
         };
         return CreateClientWithSnapshot(snapshot);
@@ -142,8 +142,8 @@ public sealed class SnapshotHealthInterpretationWarningsTests
         var snapshot = baseSnapshot with
         {
             M15 = lowTf,
-            H1  = lowTf with { Timeframe = "1h" },
-            H4  = lowTf with { Timeframe = "4h" },
+            H1 = lowTf with { Timeframe = "1h" },
+            H4 = lowTf with { Timeframe = "4h" },
         };
         return CreateClientWithSnapshot(snapshot);
     }
@@ -166,8 +166,8 @@ public sealed class SnapshotHealthInterpretationWarningsTests
 
     private static List<string> ParseWarnings(string json)
     {
-        using var doc    = JsonDocument.Parse(json);
-        var health       = doc.RootElement.GetProperty("snapshotHealth");
+        using var doc = JsonDocument.Parse(json);
+        var health = doc.RootElement.GetProperty("snapshotHealth");
         var warningsElem = health.GetProperty("warnings");
 
         return warningsElem.EnumerateArray()
@@ -175,6 +175,3 @@ public sealed class SnapshotHealthInterpretationWarningsTests
             .ToList();
     }
 }
-
-
-

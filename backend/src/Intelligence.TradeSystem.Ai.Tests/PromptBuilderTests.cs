@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai.Tests;
+namespace Intelligence.TradeSystem.Ai.Tests;
 
 public sealed class PromptBuilderTests
 {
@@ -81,4 +81,3 @@ public sealed class PromptBuilderTests
             .Should().OnlyContain(static content => !content.Contains('\r'));
     }
 }
-

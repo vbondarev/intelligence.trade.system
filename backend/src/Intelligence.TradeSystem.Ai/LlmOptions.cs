@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Ai;
+namespace Intelligence.TradeSystem.Ai;
 
 /// <summary>
 /// Конфигурация LLM provider для AI-слоя.
@@ -87,4 +87,3 @@ public sealed class LlmOptions
         return value;
     }
 }
-

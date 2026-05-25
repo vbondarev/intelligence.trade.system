@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Api.Contracts;
@@ -23,4 +23,3 @@ public sealed record SnapshotAnalysisRequest
     /// </summary>
     public MarketCategory? Category { get; init; }
 }
-
