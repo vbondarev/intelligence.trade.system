@@ -6,13 +6,15 @@ public sealed record TimeframeModel
     public required string Timeframe { get; init; }
     public DateTimeOffset LastCandleOpenTimeUtc { get; init; }
     public required CandleModel LastCandle { get; init; }
-    public decimal Ema20 { get; init; }
-    public decimal Ema50 { get; init; }
-    public decimal Ema200 { get; init; }
-    public decimal Rsi14 { get; init; }
-    public decimal Atr14 { get; init; }
-    public decimal VolumeSma20 { get; init; }
-    public decimal VolumeRatio { get; init; }
+    public decimal? Ema20 { get; init; }
+    public decimal? Ema50 { get; init; }
+    public decimal? Ema200 { get; init; }
+    public decimal? Rsi14 { get; init; }
+    /// <summary><c>true</c> — RSI рассчитан на основе достаточного количества свечей.</summary>
+    public bool Rsi14IsReliable { get; init; }
+    public decimal? Atr14 { get; init; }
+    public decimal? VolumeSma20 { get; init; }
+    public decimal? VolumeRatio { get; init; }
     public decimal TrendStrengthScore { get; init; }
     public required string Trend { get; init; }
     /// <summary>Ближайший уровень поддержки. <c>null</c> — не обнаружен.</summary>

@@ -56,10 +56,10 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         var orderBook = OrderBookSnapshotAssembler.Assemble(collectedData.OrderBook!);
         var tradeFlow = TradeFlowSnapshotAssembler.Assemble(collectedData.Trades);
 
-        var m15 = TimeframeSnapshotAssembler.Assemble(collectedData.M15Klines, "15m");
-        var h1 = TimeframeSnapshotAssembler.Assemble(collectedData.H1Klines, "1h");
-        var h4 = TimeframeSnapshotAssembler.Assemble(collectedData.H4Klines, "4h");
-        var d1 = TimeframeSnapshotAssembler.Assemble(collectedData.D1Klines, "1d");
+        var m15 = TimeframeSnapshotAssembler.Assemble(collectedData.M15Klines, "15m").Snapshot;
+        var h1 = TimeframeSnapshotAssembler.Assemble(collectedData.H1Klines, "1h").Snapshot;
+        var h4 = TimeframeSnapshotAssembler.Assemble(collectedData.H4Klines, "4h").Snapshot;
+        var d1 = TimeframeSnapshotAssembler.Assemble(collectedData.D1Klines, "1d").Snapshot;
 
         var sentiment = SentimentSnapshotAssembler.Assemble(derivatives, orderBook, tradeFlow, h1, h4);
         var portfolio = PortfolioSnapshotAssembler.Assemble(collectedData.WalletBalance, collectedData.OpenPositions);

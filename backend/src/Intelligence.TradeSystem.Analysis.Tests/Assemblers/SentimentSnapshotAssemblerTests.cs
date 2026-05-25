@@ -513,7 +513,8 @@ public sealed class SentimentSnapshotAssemblerTests
             Ema50 = 100m,
             Ema200 = 100m,
             Rsi14 = 50m,
-            Atr14 = 1m,
+            Rsi14IsReliable = true,
+            Atr14 = 100m,
             VolumeSma20 = 1_000m,
             VolumeRatio = 1m,
             TrendStrengthScore = 0m,
@@ -534,4 +535,3 @@ public sealed class SentimentSnapshotAssemblerTests
             DistanceToResistance1Pct = 5m,
         };
 }
-

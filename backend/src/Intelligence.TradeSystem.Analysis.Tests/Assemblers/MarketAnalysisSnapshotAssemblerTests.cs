@@ -434,6 +434,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             Ema50 = 100m,
             Ema200 = 100m,
             Rsi14 = 50m,
+            Rsi14IsReliable = true,
             Atr14 = 1m,
             VolumeSma20 = 1_000m,
             VolumeRatio = 1m,

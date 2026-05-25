@@ -1,5 +1,6 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Indicators.Calculators;
+using Intelligence.TradeSystem.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Indicators.Tests.Calculators;
 
@@ -28,49 +29,93 @@ public sealed class RsiCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary & fallback ──────────────────────────────────────────────────
+    // ── Boundary ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Returns_50_When_Insufficient_Data()
+    public void Returns_Unavailable_EmptyInput_When_Array_Is_Empty()
     {
-        var closes = new[] { 100m, 101m, 102m }; // < period + 1
+        var result = RsiCalculator.Compute([]);
 
-        var result = RsiCalculator.Compute(closes);
-
-        result.Should().Be(50m);
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.EmptyInput);
     }
 
     [Fact]
-    public void Returns_100_When_Only_Gains()
+    public void Returns_Unavailable_InsufficientData_When_Data_Is_Insufficient()
     {
-        // Только рост → avgLoss == 0 → RSI = 100
+        var result = RsiCalculator.Compute([100m, 101m, 102m], period: 14);
+
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
+    }
+
+    [Fact]
+    public void Returns_Unavailable_InsufficientData_When_Single_Element()
+    {
+        // Один элемент: closes.Length(1) < period+1(15) → InsufficientData (не EmptyInput).
+        var result = RsiCalculator.Compute([100m], period: 14);
+
+        result.Value.Should().BeNull();
+        result.IsAvailable.Should().BeFalse();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
+    }
+
+    // ── Formula cases ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Returns_Available_100_When_Only_Gains()
+    {
         var closes = Enumerable.Range(0, 30).Select(i => 100m + i).ToArray();
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().Be(100m);
+        result.Value.Should().Be(100m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Returns_0_When_Only_Losses()
+    public void Returns_Available_0_When_Only_Losses()
     {
-        // Только падение → avgGain == 0 → RS = 0 → RSI = 0
         var closes = Enumerable.Range(0, 30).Select(i => 300m - i).ToArray();
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeApproximately(0m, precision: 0.0001m);
+        result.Value.Should().BeApproximately(0m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Result_Is_Always_In_Range_0_To_100()
+    public void Returns_Available_50_When_All_Prices_Are_Identical()
+    {
+        var closes = Enumerable.Repeat(100m, 30).ToArray();
+
+        var result = RsiCalculator.Compute(closes);
+
+        result.Value.Should().Be(50m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
+    }
+
+    [Fact]
+    public void Value_Is_Always_In_Range_0_To_100()
     {
         var closes = new[]
             { 10m, 20m, 5m, 15m, 8m, 25m, 12m, 30m, 3m, 18m, 22m, 7m, 14m, 28m, 11m, 9m };
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeInRange(0m, 100m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeInRange(0m, 100m);
     }
 
     [Fact]
@@ -80,7 +125,8 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeGreaterThan(70m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeGreaterThan(70m);
     }
 
     [Fact]
@@ -90,108 +136,114 @@ public sealed class RsiCalculatorTests
 
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().BeLessThan(30m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeLessThan(30m);
     }
 
-    [Fact]
-    public void Returns_50_When_All_Prices_Are_Identical()
-    {
-        // Полностью плоский рынок: avgGain == 0 и avgLoss == 0 → нейтральный RSI = 50
-        var closes = Enumerable.Repeat(100m, 30).ToArray();
+    // ── Invariant: RSI always in [0, 100] when available ─────────────────────
 
+    public static TheoryData<decimal[]> AvailableRsiSeries => new()
+    {
+        // Строго растущая серия
+        Enumerable.Range(0, 30).Select(i => 100m + i * 3m).ToArray(),
+        // Строго падающая серия
+        Enumerable.Range(0, 30).Select(i => 200m - i * 3m).ToArray(),
+        // Плоская серия
+        Enumerable.Repeat(100m, 30).ToArray(),
+        // Чередование роста и падения
+        Enumerable.Range(0, 30).Select(i => i % 2 == 0 ? 100m : 110m).ToArray(),
+        // Сильный спайк вверх в конце
+        Enumerable.Repeat(100m, 25).Append(10000m).ToArray(),
+        // Сильный спайк вниз в конце
+        Enumerable.Repeat(100m, 25).Append(0.01m).ToArray(),
+        // Минимально необходимая длина: period+1 при period=14
+        Enumerable.Range(0, 15).Select(i => 100m + i).ToArray(),
+    };
+
+    [Theory]
+    [MemberData(nameof(AvailableRsiSeries))]
+    public void Rsi_Is_Always_In_Range_0_To_100_When_Available(decimal[] closes)
+    {
         var result = RsiCalculator.Compute(closes);
 
-        result.Should().Be(50m);
+        result.IsAvailable.Should().BeTrue();
+        result.Value.Should().BeInRange(0m, 100m,
+            because: "RSI is mathematically bounded to [0, 100] by definition");
     }
 
     // ── Formula regression ───────────────────────────────────────────────────
 
     [Fact]
-    public void Returns_Expected_Rsi_When_Count_Equals_Period_Plus_One()
+    public void Returns_Available_When_Count_Equals_Period_Plus_One()
     {
-        // Граничный случай: gains.Length == period → Wilder loop 0 итераций (только seed).
-        // Ловит off-by-one ошибку, если loop стартует на шаг раньше.
-        //
         // closes=[100, 106, 104], period=2
-        // Changes: +6, -2  → gains=[6,0], losses=[0,2]
-        // Seed: avgGain=(6+0)/2=3, avgLoss=(0+2)/2=1
-        // Loop: i от 2 до 1 → 0 итераций
-        // RS=3 → RSI = 100 - 100/4 = 75
+        // Changes: +6, -2 → avgGain=3, avgLoss=1 → RS=3 → RSI=75
         var result = RsiCalculator.Compute([100m, 106m, 104m], period: 2);
 
-        result.Should().BeApproximately(75m, precision: 0.0001m);
+        result.Value.Should().BeApproximately(75m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Returns_Expected_Rsi_For_Known_Wilder_Series()
+    public void Returns_Available_Rsi_For_Known_Wilder_Series()
     {
-        // closes=[10, 13, 11, 15, 12], period=2
-        // Changes: +3, -2, +4, -3  → gains=[3,0,4,0], losses=[0,2,0,3]
-        //
-        // Seed: avgGain=(3+0)/2=1.5, avgLoss=(0+2)/2=1.0
-        // i=2: avgGain=(1.5+4)/2=2.75,  avgLoss=(1.0+0)/2=0.5
-        // i=3: avgGain=(2.75+0)/2=1.375, avgLoss=(0.5+3)/2=1.75
-        //
-        // RS = 1.375/1.75 = 11/14
-        // RSI = 100 − 100/(1 + 11/14) = 100 − 100×(14/25) = 100 − 56 = 44
-        //
-        // Ловит ошибки: неправильный seed, сдвиг цикла, деление gains/losses, формулу RS.
+        // closes=[10, 13, 11, 15, 12], period=2 → RSI=44
         var result = RsiCalculator.Compute([10m, 13m, 11m, 15m, 12m], period: 2);
 
-        result.Should().BeApproximately(44m, precision: 0.0001m);
+        result.Value.Should().BeApproximately(44m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Returns_Expected_Rsi_For_Mixed_Deterministic_Series()
+    public void Returns_Available_Rsi_For_Mixed_Deterministic_Series()
     {
-        // Серия с чередующимися +4/-4, period=2 (6 Wilder-шагов после seed).
-        // closes=[10,14,10,14,10,14,10,14]
-        // gains=[4,0,4,0,4,0,4], losses=[0,4,0,4,0,4,0]
-        //
-        // Seed: avgGain=2, avgLoss=2
-        // i=2: avgGain=3,      avgLoss=1
-        // i=3: avgGain=1.5,    avgLoss=2.5
-        // i=4: avgGain=2.75,   avgLoss=1.25
-        // i=5: avgGain=1.375,  avgLoss=2.625
-        // i=6: avgGain=2.6875, avgLoss=1.3125
-        //
-        // RS = (43/16)/(21/16) = 43/21
-        // RSI = 100 − 100×(21/64) = 100 − 32.8125 = 67.1875
+        // closes=[10,14,10,14,10,14,10,14], period=2 → RSI=67.1875
         decimal[] closes = [10m, 14m, 10m, 14m, 10m, 14m, 10m, 14m];
 
         var result = RsiCalculator.Compute(closes, period: 2);
 
-        result.Should().BeApproximately(67.1875m, precision: 0.0001m);
+        result.Value.Should().BeApproximately(67.1875m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     // ── Special cases: period = 1 ────────────────────────────────────────────
 
     [Fact]
-    public void Returns_100_For_Period_One_When_Last_Move_Is_Up()
+    public void Returns_Available_100_For_Period_One_When_Last_Move_Is_Up()
     {
-        // period=1 → k=1 → каждый Wilder-шаг заменяет avgGain/avgLoss текущим значением.
-        // Последнее изменение вверх (+10): avgGain=10, avgLoss=0 → RSI=100.
         var result = RsiCalculator.Compute([100m, 110m], period: 1);
 
-        result.Should().Be(100m);
+        result.Value.Should().Be(100m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Returns_0_For_Period_One_When_Last_Move_Is_Down()
+    public void Returns_Available_0_For_Period_One_When_Last_Move_Is_Down()
     {
-        // Последнее изменение вниз (-10): avgGain=0, avgLoss=10
-        // RS=0 → RSI = 100 - 100/(1+0) = 0.
         var result = RsiCalculator.Compute([100m, 90m], period: 1);
 
-        result.Should().BeApproximately(0m, precision: 0.0001m);
+        result.Value.Should().BeApproximately(0m, precision: 0.0001m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
     [Fact]
-    public void Returns_50_For_Period_One_When_Last_Move_Is_Flat()
+    public void Returns_Available_50_For_Period_One_When_Last_Move_Is_Flat()
     {
-        // Последнее изменение = 0: avgGain=0, avgLoss=0 → нейтральный RSI=50.
         var result = RsiCalculator.Compute([100m, 100m], period: 1);
 
-        result.Should().Be(50m);
+        result.Value.Should().Be(50m);
+        result.IsAvailable.Should().BeTrue();
+        result.IsFallback.Should().BeFalse();
+        result.Reason.Should().Be(IndicatorValueReason.None);
     }
 }

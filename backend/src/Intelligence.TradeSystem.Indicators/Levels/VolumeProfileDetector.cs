@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Indicators.Levels;
 
@@ -17,15 +17,21 @@ namespace Intelligence.TradeSystem.Indicators.Levels;
 /// </remarks>
 public static class VolumeProfileDetector
 {
-    private const int BucketCount = 100;
-    private const decimal HvnThresholdRatio = 0.7m; // кластер считаем сильным, если бакет >= 70% от max volume
-
     /// <summary>
     /// Возвращает два ближайших уровня поддержки и два ближайших уровня сопротивления.
     /// </summary>
-    public static LevelSet Detect(Kline[] klines)
+    /// <param name="klines">Массив свечей. Не может быть <see langword="null"/>.</param>
+    /// <param name="options">
+    /// Параметры алгоритма. Если <see langword="null"/>, используются <see cref="VolumeProfileOptions.Default"/>.
+    /// </param>
+    public static LevelSet Detect(Kline[] klines, VolumeProfileOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(klines);
+
+        options ??= VolumeProfileOptions.Default;
+
+        var bucketCount = options.BucketCount;
+        var hvnThresholdRatio = options.HvnThresholdRatio;
 
         if (klines.Length == 0)
         {
@@ -41,16 +47,16 @@ public static class VolumeProfileDetector
             return new LevelSet(null, null, null, null);
         }
 
-        var bucketSize = range / BucketCount;
-        var volumes = new decimal[BucketCount];
+        var bucketSize = range / bucketCount;
+        var volumes = new decimal[bucketCount];
 
         foreach (var kline in klines)
         {
             var startIdx = GetBucketIndex(kline.Low, minPrice, bucketSize);
             var endIdx = GetBucketIndex(kline.High, minPrice, bucketSize);
 
-            startIdx = Math.Clamp(startIdx, 0, BucketCount - 1);
-            endIdx = Math.Clamp(endIdx, 0, BucketCount - 1);
+            startIdx = Math.Clamp(startIdx, 0, bucketCount - 1);
+            endIdx = Math.Clamp(endIdx, 0, bucketCount - 1);
 
             if (endIdx < startIdx)
             {
@@ -77,20 +83,20 @@ public static class VolumeProfileDetector
             return new LevelSet(null, null, null, null);
         }
 
-        var threshold = maxVolume * HvnThresholdRatio;
+        var threshold = maxVolume * hvnThresholdRatio;
         var currentPrice = klines[^1].Close;
 
         var hvnClusters = BuildClusters(volumes, minPrice, bucketSize, threshold);
 
         var supports = hvnClusters
-            .Where(x => x < currentPrice)
-            .OrderByDescending(x => x)
+            .Where(x => x.Price < currentPrice)
+            .OrderByDescending(x => x.Price)
             .Take(2)
             .ToList();
 
         var resistances = hvnClusters
-            .Where(x => x > currentPrice)
-            .OrderBy(x => x)
+            .Where(x => x.Price > currentPrice)
+            .OrderBy(x => x.Price)
             .Take(2)
             .ToList();
 
@@ -111,9 +117,14 @@ public static class VolumeProfileDetector
         return (int)((price - minPrice) / bucketSize);
     }
 
-    private static List<decimal> BuildClusters(decimal[] volumes, decimal minPrice, decimal bucketSize, decimal threshold)
+    private static List<LevelInfo> BuildClusters(
+        decimal[] volumes,
+        decimal minPrice,
+        decimal bucketSize,
+        decimal threshold)
     {
-        var clusters = new List<decimal>();
+        // First pass: collect raw cluster data (volume-weighted price centre + total cluster volume).
+        var raw = new List<(decimal Price, decimal ClusterVolume, bool IsFallback)>();
         var i = 0;
 
         while (i < volumes.Length)
@@ -140,13 +151,36 @@ public static class VolumeProfileDetector
 
             if (weightedVolumeSum > 0m)
             {
-                var clusterCenter = weightedPriceSum / weightedVolumeSum;
-                clusters.Add(clusterCenter);
+                raw.Add((weightedPriceSum / weightedVolumeSum, weightedVolumeSum, false));
             }
             else
             {
                 var fallbackMid = minPrice + ((start + end + 1) / 2m) * bucketSize;
-                clusters.Add(fallbackMid);
+                raw.Add((fallbackMid, 0m, true));
+            }
+        }
+
+        if (raw.Count == 0)
+            return [];
+
+        // Second pass: normalize strength by the largest cluster volume so that the
+        // dominant cluster always receives Strength = 1.0 and all others are relative to it.
+        // This guarantees Strength ∈ [0, 1] regardless of how many buckets a cluster spans.
+        var maxClusterVolume = raw.Max(c => c.ClusterVolume);
+
+        var clusters = new List<LevelInfo>(raw.Count);
+        foreach (var (price, clusterVolume, isFallback) in raw)
+        {
+            if (isFallback)
+            {
+                clusters.Add(new LevelInfo(price, 0m, LevelSource.SimplifiedVolumeProfile, 0m));
+            }
+            else
+            {
+                var strength = maxClusterVolume > 0m
+                    ? Math.Round(clusterVolume / maxClusterVolume, 4)
+                    : 0m;
+                clusters.Add(new LevelInfo(price, strength, LevelSource.SimplifiedVolumeProfile, clusterVolume));
             }
         }
 

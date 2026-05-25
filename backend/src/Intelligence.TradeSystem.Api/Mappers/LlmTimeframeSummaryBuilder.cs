@@ -27,6 +27,9 @@ internal static class LlmTimeframeSummaryBuilder
     private const decimal TrendStrengthStrongThreshold   = 0.80m;
     private const decimal TrendStrengthModerateThreshold = 0.50m;
 
+    /// <summary>Порог объёма: VolumeRatio ниже этого значения → <c>LowVolume</c>.</summary>
+    private const decimal LowVolumeThreshold = 0.5m;
+
     /// <summary>
     /// Строит согласованный summary для снапшота таймфрейма.
     /// </summary>
@@ -35,7 +38,7 @@ internal static class LlmTimeframeSummaryBuilder
         var trendStrengthLabel = ComputeTrendStrengthLabel(s.Trend, s.TrendStrengthScore);
         var bias               = ComputeBias(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment);
         var isTrendConfirmed   = ComputeIsTrendConfirmed(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment, s.IsAboveEma200);
-        var momentumState      = ComputeMomentumState(bias, isTrendConfirmed, s.Rsi14, s.RsiOverbought, s.RsiOversold);
+        var momentumState      = ComputeMomentumState(bias, isTrendConfirmed, s.Rsi14, s.RsiOverbought, s.RsiOversold, s.Rsi14IsReliable);
         var entryQuality       = ComputeEntryQuality(bias, isTrendConfirmed, s);
         var riskFlags          = ComputeRiskFlags(s);
 
@@ -97,16 +100,17 @@ internal static class LlmTimeframeSummaryBuilder
     /// Neutral bias: всегда Neutral.
     /// </summary>
     private static MomentumState ComputeMomentumState(
-        TimeframeBias bias, bool isTrendConfirmed, decimal rsi14, bool rsiOverbought, bool rsiOversold) =>
+        TimeframeBias bias, bool isTrendConfirmed, decimal? rsi14,
+        bool rsiOverbought, bool rsiOversold, bool rsi14IsReliable) =>
         bias switch
         {
-            TimeframeBias.Bullish when rsiOverbought || rsi14 > 70m                     => MomentumState.Overextended,
-            TimeframeBias.Bullish when isTrendConfirmed && rsi14 >= 55m && rsi14 <= 70m => MomentumState.Healthy,
-            TimeframeBias.Bullish                                                        => MomentumState.Weak,
+            TimeframeBias.Bullish when rsi14IsReliable && (rsiOverbought || rsi14 > 70m)                   => MomentumState.Overextended,
+            TimeframeBias.Bullish when rsi14IsReliable && isTrendConfirmed && rsi14 >= 55m && rsi14 <= 70m => MomentumState.Healthy,
+            TimeframeBias.Bullish                                                                            => MomentumState.Weak,
 
-            TimeframeBias.Bearish when rsiOversold || rsi14 < 30m                       => MomentumState.Overextended,
-            TimeframeBias.Bearish when isTrendConfirmed && rsi14 >= 30m && rsi14 <= 45m => MomentumState.Healthy,
-            TimeframeBias.Bearish                                                        => MomentumState.Weak,
+            TimeframeBias.Bearish when rsi14IsReliable && (rsiOversold || rsi14 < 30m)                     => MomentumState.Overextended,
+            TimeframeBias.Bearish when rsi14IsReliable && isTrendConfirmed && rsi14 >= 30m && rsi14 <= 45m => MomentumState.Healthy,
+            TimeframeBias.Bearish                                                                            => MomentumState.Weak,
 
             _ => MomentumState.Neutral,
         };
@@ -114,28 +118,85 @@ internal static class LlmTimeframeSummaryBuilder
     // ─── Step 5: EntryQuality ────────────────────────────────────────────────
 
     private static EntryQuality ComputeEntryQuality(
-        TimeframeBias bias, bool isTrendConfirmed, TimeframeAnalysisSnapshot s) =>
-        EntryQualityEvaluator.Evaluate(
+        TimeframeBias bias, bool isTrendConfirmed, TimeframeAnalysisSnapshot s)
+    {
+        var raw = EntryQualityEvaluator.Evaluate(
             bias, isTrendConfirmed,
             s.Support1,    s.DistanceToSupport1Pct,    s.RsiOverbought,
             s.Resistance1, s.DistanceToResistance1Pct, s.RsiOversold);
+
+        return ApplyIndicatorCap(s, raw);
+    }
+
+    /// <summary>
+    /// Ограничивает качество точки входа исходя из доступности ключевых индикаторов.<br/>
+    /// Правило: unavailable → не выше Poor; fallback → не выше Fair.
+    /// </summary>
+    private static EntryQuality ApplyIndicatorCap(TimeframeAnalysisSnapshot s, EntryQuality computed)
+    {
+        // Если любой ключевой индикатор недоступен — cap на Poor.
+        if (!s.Rsi14IsReliable || !s.AtrIsReliable || !s.EmaIsReliable)
+            return EntryQuality.Poor;
+
+        // Если ATR или EMA рассчитаны по fallback — cap на Fair.
+        // VolumeRatioIsFallback не ограничивает entryQuality: объём — вспомогательный сигнал.
+        if (s.AtrIsFallback || s.EmaHasFallback)
+            return (EntryQuality)Math.Max((int)computed, (int)EntryQuality.Fair);
+
+        return computed;
+    }
 
     // ─── Step 6: RiskFlags ───────────────────────────────────────────────────
 
     private static List<string> ComputeRiskFlags(TimeframeAnalysisSnapshot s)
     {
         var flags = new List<string>();
-        if (s.RsiOverbought)                                        flags.Add("RsiOverbought");
-        if (s.RsiOversold)                                          flags.Add("RsiOversold");
-        if (s.TrendStrengthScore < TrendStrengthLabelMapper.ModerateThreshold) flags.Add("WeakTrend");
-        if (s.VolumeRatio < 1.0m)                                   flags.Add("LowVolume");
+
+        // ── RSI ──────────────────────────────────────────────────────────────
+        if (!s.Rsi14IsReliable)
+        {
+            flags.Add("RsiUnavailable");
+        }
+        else
+        {
+            if (s.RsiOverbought) flags.Add("RsiOverbought");
+            if (s.RsiOversold)   flags.Add("RsiOversold");
+        }
+
+        // ── ATR ──────────────────────────────────────────────────────────────
+        if (!s.AtrIsReliable)
+            flags.Add("AtrUnavailable");
+        else if (s.AtrIsFallback)
+            flags.Add("AtrFallback");
+
+        // ── Volume ───────────────────────────────────────────────────────────
+        if (!s.VolumeRatioIsReliable)
+            flags.Add("VolumeDataUnavailable");
+        else if (s.VolumeRatioIsFallback)
+        {
+            flags.Add("VolumeDataFallback");
+            // Fallback-значение можно использовать, поэтому LowVolume тоже эмитируем.
+            if (s.VolumeRatio.GetValueOrDefault() < LowVolumeThreshold)
+                flags.Add("LowVolume");
+        }
+        else if (s.VolumeRatio.GetValueOrDefault() < LowVolumeThreshold)
+            flags.Add("LowVolume");
+
+        // ── General IndicatorUnavailable ─────────────────────────────────────
+        // Добавляется, если EMA недоступны или уже добавлены RsiUnavailable/AtrUnavailable.
+        var anyUnavailable = !s.EmaIsReliable || !s.Rsi14IsReliable || !s.AtrIsReliable || !s.VolumeRatioIsReliable;
+        if (anyUnavailable && !flags.Contains("IndicatorUnavailable"))
+            flags.Add("IndicatorUnavailable");
+
+        // ── General IndicatorFallback ────────────────────────────────────────
+        var anyFallback = s.EmaHasFallback || s.AtrIsFallback || s.VolumeRatioIsFallback;
+        if (anyFallback && !flags.Contains("IndicatorFallback"))
+            flags.Add("IndicatorFallback");
+
+        // ── Weak trend ───────────────────────────────────────────────────────
+        if (s.TrendStrengthScore < TrendStrengthLabelMapper.ModerateThreshold)
+            flags.Add("WeakTrend");
+
         return flags;
     }
 }
-
-
-
-
-
-
-

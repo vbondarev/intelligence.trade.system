@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Indicators.Trend;
 

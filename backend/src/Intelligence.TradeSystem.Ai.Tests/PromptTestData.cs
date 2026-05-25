@@ -122,7 +122,8 @@ internal static class PromptTestData
             Ema50 = 64850m,
             Ema200 = 64000m,
             Rsi14 = 55m,
-            Atr14 = 180m,
+            Rsi14IsReliable = true,
+            Atr14 = 200m,
             VolumeSma20 = 1000m,
             VolumeRatio = 1.1m,
             TrendStrengthScore = 0.4m,
@@ -136,4 +137,3 @@ internal static class PromptTestData
             DistanceToResistance1Pct = 0.3077m,
         };
 }
-

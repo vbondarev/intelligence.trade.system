@@ -172,6 +172,8 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
             .Append(FormatBoolean(timeframe.RsiOverbought))
             .Append(", rsi_oversold=")
             .Append(FormatBoolean(timeframe.RsiOversold))
+            .Append(", rsi14_is_reliable=")
+            .Append(FormatBoolean(timeframe.Rsi14IsReliable))
             .Append(", candle_range_pct=")
             .Append(FormatPercent(timeframe.CandleRangePct))
             .AppendLine();
@@ -256,6 +258,9 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
 
     private static string FormatMetricOrRatio(decimal value) => value.ToString("0.####", _invariantCulture);
 
+    private static string FormatMetricOrRatio(decimal? value) =>
+        value.HasValue ? FormatMetricOrRatio(value.Value) : NotAvailable;
+
     private static string FormatQuantityOrValue(decimal value) => value.ToString("0.####", _invariantCulture);
 
     private static string FormatPriceLike(decimal value) => value.ToString("0.################", _invariantCulture);
@@ -263,5 +268,3 @@ public sealed class SnapshotTextFormatter : IAnalyticsFormatter
     private static string FormatPriceLike(decimal? value) =>
         value.HasValue ? FormatPriceLike(value.Value) : NotAvailable;
 }
-
-

@@ -63,4 +63,10 @@ public sealed record MarketAnalysisSnapshot
     /// Например: <c>high-volatility</c>, <c>funding-spike</c>, <c>breakout</c>.
     /// </summary>
     public List<string> Tags { get; init; } = [];
+
+    /// <summary>
+    /// Агрегированные диагностические записи для всех индикаторов всех таймфреймов.
+    /// Пустой список означает, что все индикаторы рассчитаны полноценно.
+    /// </summary>
+    public IReadOnlyList<IndicatorDiagnosticSnapshot> IndicatorDiagnostics { get; init; } = [];
 }

@@ -67,19 +67,32 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         AssertAllTimeframes(result!, tf =>
         {
             tf.Support1Meta!.Source.Should().Be("volume-profile",
-                because: $"{tf.Timeframe}: only VolumeProfileDetector is used in V1");
+                because: $"{tf.Timeframe}: only SimplifiedVolumeProfile detector is used in V1");
         });
     }
 
     [Fact]
-    public async Task Support1Meta_Strength_Is_0_7()
+    public async Task Support1Meta_Strength_Matches_Snapshot_Support1Strength()
     {
         var result = await GetPayloadAsync();
 
         AssertAllTimeframes(result!, tf =>
         {
-            tf.Support1Meta!.Strength.Should().Be(0.7m,
-                because: $"{tf.Timeframe}: V1 constant — all HVN clusters passed HvnThresholdRatio=0.7");
+            tf.Support1Meta!.Strength.Should().Be(ApiSnapshotTestData.Support1StrengthValue,
+                because: $"{tf.Timeframe}: support1Meta.strength must equal snapshot.Support1Strength");
+        });
+    }
+
+    [Fact]
+    public async Task Support1Meta_StrengthLabel_Matches_Expected_Label()
+    {
+        var result = await GetPayloadAsync();
+
+        AssertAllTimeframes(result!, tf =>
+        {
+            // Support1Strength = 0.9 → Strong
+            tf.Support1Meta!.StrengthLabel.Should().Be("Strong",
+                because: $"{tf.Timeframe}: Support1Strength=0.9 >= 0.70 → label must be Strong");
         });
     }
 
@@ -181,6 +194,37 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
             because: "resistance2==null → resistance2Meta must not appear in JSON");
     }
 
+    // ─── StrengthLabel присутствует и содержит допустимое значение ───────────
+
+    [Theory]
+    [InlineData("support1Meta")]
+    [InlineData("support2Meta")]
+    [InlineData("resistance1Meta")]
+    [InlineData("resistance2Meta")]
+    public async Task LevelMeta_StrengthLabel_Is_Valid_Enum_Value(string metaField)
+    {
+        var validLabels = new[] { "Strong", "Moderate", "Weak", "Unavailable" };
+        var result = await GetPayloadAsync();
+
+        foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
+        {
+            var meta = metaField switch
+            {
+                "support1Meta"    => tf.Support1Meta,
+                "support2Meta"    => tf.Support2Meta,
+                "resistance1Meta" => tf.Resistance1Meta,
+                "resistance2Meta" => tf.Resistance2Meta,
+                _                 => null,
+            };
+
+            if (meta?.StrengthLabel is { } label)
+            {
+                validLabels.Should().Contain(label,
+                    because: $"{tf.Timeframe}.{metaField}: strengthLabel must be one of {string.Join(", ", validLabels)}");
+            }
+        }
+    }
+
     // ─── Strength в диапазоне [0, 1] ─────────────────────────────────────────
 
     [Theory]
@@ -233,6 +277,65 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
                     because: $"{tf.Timeframe}: resistance2Meta.price must equal resistance2 flat field");
             }
         });
+    }
+
+    // ─── ClusterVolume присутствует и корректен ──────────────────────────────
+
+    [Fact]
+    public async Task Support1Meta_ClusterVolume_Matches_Snapshot()
+    {
+        var result = await GetPayloadAsync();
+
+        AssertAllTimeframes(result!, tf =>
+        {
+            tf.Support1Meta!.ClusterVolume.Should().Be(ApiSnapshotTestData.Support1ClusterVolumeValue,
+                because: $"{tf.Timeframe}: support1Meta.clusterVolume must equal snapshot.Support1ClusterVolume");
+        });
+    }
+
+    [Fact]
+    public async Task LevelMeta_ClusterVolume_Is_Absent_From_Json_When_Level_Is_Null()
+    {
+        var snapshot = CreateSnapshotWithNullLevels();
+        using var client   = CreateClientWithSnapshot(snapshot);
+        using var response = await client.GetAsync(Url);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var m15 = json.RootElement.GetProperty("m15");
+
+        // clusterVolume must not appear when the level itself is absent
+        m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
+            because: "support1==null → support1Meta (and its clusterVolume) must not appear in JSON");
+    }
+
+    [Theory]
+    [InlineData("support1Meta")]
+    [InlineData("support2Meta")]
+    [InlineData("resistance1Meta")]
+    [InlineData("resistance2Meta")]
+    public async Task LevelMeta_ClusterVolume_Is_Positive_When_Level_Is_Present(string metaField)
+    {
+        var result = await GetPayloadAsync();
+
+        foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
+        {
+            var meta = metaField switch
+            {
+                "support1Meta"    => tf.Support1Meta,
+                "support2Meta"    => tf.Support2Meta,
+                "resistance1Meta" => tf.Resistance1Meta,
+                "resistance2Meta" => tf.Resistance2Meta,
+                _                 => null,
+            };
+
+            if (meta is not null)
+            {
+                meta.ClusterVolume.Should().HaveValue(
+                    because: $"{tf.Timeframe}.{metaField}: clusterVolume must be present when level is detected");
+                meta.ClusterVolume!.Value.Should().BePositive(
+                    because: $"{tf.Timeframe}.{metaField}: cluster volume must be > 0");
+            }
+        }
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
