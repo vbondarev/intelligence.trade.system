@@ -20,7 +20,7 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// - Bias == Neutral            →  IsTrendConfirmed == false
 /// - IsTrendConfirmed == true   →  Bias != Neutral
 /// - Trend == Unknown           →  TrendStrengthLabel == Undefined
-/// - MomentumState == Healthy   →  IsTrendConfirmed == true && Bias != Neutral
+/// - MomentumState == Healthy   →  IsTrendConfirmed == true &amp;&amp; Bias != Neutral
 /// </summary>
 internal static class LlmTimeframeSummaryBuilder
 {
