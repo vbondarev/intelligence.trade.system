@@ -32,7 +32,6 @@ public sealed class MarketTagsBuilderTests
     }
 
     [Theory]
-    [InlineData("MeanReversion")]
     [InlineData("Volatile")]
     [InlineData("")]
     [InlineData("Unknown")]
@@ -60,6 +59,73 @@ public sealed class MarketTagsBuilderTests
     public void GetRegimeTag_Returns_Null_For_MeanReversion()
     {
         MarketTagsBuilder.GetRegimeTag("MeanReversion").Should().BeNull();
+    }
+
+    // ─── MeanReversion regime ─────────────────────────────────────────────────
+
+    [Fact]
+    public void MeanReversion_Regime_Produces_MeanReversionRegime_Tag()
+    {
+        var result = Build(sentiment: CreateSentiment("MeanReversion"));
+
+        result.Should().Contain(MarketTagsBuilder.TagMeanReversionRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagUnknownMarketRegime);
+    }
+
+    [Theory]
+    [InlineData(" meanreversion ")]
+    [InlineData(" MEANREVERSION ")]
+    [InlineData("MeanReversion")]
+    public void MeanReversion_Regime_Is_Trim_And_Case_Insensitive(string regime)
+    {
+        var result = Build(sentiment: CreateSentiment(regime));
+
+        result.Should().Contain(MarketTagsBuilder.TagMeanReversionRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagUnknownMarketRegime);
+    }
+
+    [Fact]
+    public void Null_Regime_Produces_UnknownMarketRegime_Tag()
+    {
+        var result = Build(sentiment: CreateSentiment(null!));
+
+        result.Should().Contain(MarketTagsBuilder.TagUnknownMarketRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Empty_Or_Whitespace_Regime_Produces_UnknownMarketRegime_Tag(string regime)
+    {
+        var result = Build(sentiment: CreateSentiment(regime));
+
+        result.Should().Contain(MarketTagsBuilder.TagUnknownMarketRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
+    }
+
+    [Fact]
+    public void Truly_Unknown_Regime_Produces_UnknownMarketRegime_Tag()
+    {
+        var result = Build(sentiment: CreateSentiment("SomeUnexpectedRegime"));
+
+        result.Should().Contain(MarketTagsBuilder.TagUnknownMarketRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
+    }
+
+    [Theory]
+    [InlineData("Volatile", "volatile-regime")]
+    [InlineData("Trending", "trending")]
+    [InlineData("Neutral", "neutral")]
+    [InlineData("Bullish", "bullish-regime")]
+    [InlineData("Bearish", "bearish-regime")]
+    public void Existing_Regime_Mappings_Still_Work(string regime, string expectedTag)
+    {
+        var result = Build(sentiment: CreateSentiment(regime));
+
+        result.Should().Contain(expectedTag);
+        result.Should().NotContain(MarketTagsBuilder.TagUnknownMarketRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
     }
 
     // ─── 4.2 Funding tags ────────────────────────────────────────────────────

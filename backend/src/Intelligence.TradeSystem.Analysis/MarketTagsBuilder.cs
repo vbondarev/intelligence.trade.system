@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.Analysis;
 ///   bid-pressure · ask-pressure · aggressive-buying · aggressive-selling
 ///
 /// Whitelist V2 (расширен):
-///   Режим:      volatile-regime · bullish-regime · bearish-regime · unknown-market-regime
+///   Режим:      volatile-regime · bullish-regime · bearish-regime · mean-reversion-regime · unknown-market-regime
 ///   Funding:    neutral-funding
 ///   OrderBook:  strong-orderbook-imbalance · upper-liquidity-heavy · lower-liquidity-heavy
 ///   TradeFlow:  stale-tradeflow · short-tradeflow-window · low-tradeflow-volume
@@ -61,6 +61,7 @@ internal static class MarketTagsBuilder
     public const string TagVolatileRegime = MarketTagConstants.VolatileRegime;
     public const string TagBullishRegime = MarketTagConstants.BullishRegime;
     public const string TagBearishRegime = MarketTagConstants.BearishRegime;
+    public const string TagMeanReversionRegime = MarketTagConstants.MeanReversionRegime;
     public const string TagUnknownMarketRegime = MarketTagConstants.UnknownMarketRegime;
 
     // ─── V2 whitelist — tradeFlow quality (из TradeFlowPressureScoreAdjuster) ──
@@ -286,11 +287,12 @@ internal static class MarketTagsBuilder
             return;
         }
 
-        if (string.Equals(normalized, "Volatile", StringComparison.OrdinalIgnoreCase)) { target.Add(TagVolatileRegime); return; }
+        if (string.Equals(normalized, MarketRegimes.Volatile, StringComparison.OrdinalIgnoreCase)) { target.Add(TagVolatileRegime); return; }
         if (string.Equals(normalized, "Bullish", StringComparison.OrdinalIgnoreCase)) { target.Add(TagBullishRegime); return; }
         if (string.Equals(normalized, "Bearish", StringComparison.OrdinalIgnoreCase)) { target.Add(TagBearishRegime); return; }
-        if (string.Equals(normalized, "Neutral", StringComparison.OrdinalIgnoreCase)) { target.Add(TagNeutral); return; }
-        if (string.Equals(normalized, "Trending", StringComparison.OrdinalIgnoreCase)) { target.Add(TagTrending); return; }
+        if (string.Equals(normalized, MarketRegimes.MeanReversion, StringComparison.OrdinalIgnoreCase)) { target.Add(TagMeanReversionRegime); return; }
+        if (string.Equals(normalized, MarketRegimes.Neutral, StringComparison.OrdinalIgnoreCase)) { target.Add(TagNeutral); return; }
+        if (string.Equals(normalized, MarketRegimes.Trending, StringComparison.OrdinalIgnoreCase)) { target.Add(TagTrending); return; }
         target.Add(TagUnknownMarketRegime);
     }
 

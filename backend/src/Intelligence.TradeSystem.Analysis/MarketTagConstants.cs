@@ -24,6 +24,7 @@ public static class MarketTagConstants
     public const string VolatileRegime = "volatile-regime";
     public const string BullishRegime = "bullish-regime";
     public const string BearishRegime = "bearish-regime";
+    public const string MeanReversionRegime = "mean-reversion-regime";
     public const string UnknownMarketRegime = "unknown-market-regime";
 
     // ─── V2 — health (выставляется API-layer enricher) ────────────────────────
