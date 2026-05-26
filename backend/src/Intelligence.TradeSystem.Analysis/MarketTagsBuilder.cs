@@ -372,7 +372,7 @@ internal static class MarketTagsBuilder
         }
     }
 
-    private static void AddLowVolumeTags(IReadOnlyList<TimeframeAnalysisSnapshot> tfs, List<string> target)
+    private static void AddLowVolumeTags(List<TimeframeAnalysisSnapshot> tfs, List<string> target)
     {
         foreach (var tf in tfs)
         {
@@ -384,7 +384,7 @@ internal static class MarketTagsBuilder
         }
     }
 
-    private static void AddRsiTags(IReadOnlyList<TimeframeAnalysisSnapshot> tfs, List<string> target)
+    private static void AddRsiTags(List<TimeframeAnalysisSnapshot> tfs, List<string> target)
     {
         var anyOverbought = false;
         var anyOversold = false;
@@ -399,7 +399,7 @@ internal static class MarketTagsBuilder
         if (anyOversold) target.Add(TagRsiOversold);
     }
 
-    private static void AddTimeframeStructureTags(IReadOnlyList<TimeframeAnalysisSnapshot> tfs, List<string> target)
+    private static void AddTimeframeStructureTags(List<TimeframeAnalysisSnapshot> tfs, List<string> target)
     {
         var neutralCount = 0;
         var weakTrendCount = 0;
@@ -440,7 +440,7 @@ internal static class MarketTagsBuilder
         }
     }
 
-    private static void AddLevelProximityTags(IReadOnlyList<TimeframeAnalysisSnapshot> tfs, List<string> target)
+    private static void AddLevelProximityTags(List<TimeframeAnalysisSnapshot> tfs, List<string> target)
     {
         var anyNearResistance = false;
         var anyNearSupport = false;
