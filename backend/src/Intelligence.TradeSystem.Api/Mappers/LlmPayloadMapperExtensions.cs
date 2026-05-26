@@ -380,10 +380,10 @@ internal static class LlmPayloadMapperExtensions
     /// For <see cref="TimeframeBias.Bullish"/> — nearest Resistance1 above price.<br/>
     /// For <see cref="TimeframeBias.Bearish"/> — nearest Support1 below price.
     /// </para>
-    /// Only considers levels with a strictly positive distance, meaning the level is
-    /// actually on the correct side of the current price.
-    /// A null or non-positive distance means the level is absent or already behind the
-    /// price direction → ignored as an obstacle.
+    /// Only levels with a non-negative distance are considered.
+    /// A negative distance means the level is on the wrong side of price and is ignored.
+    /// Distance == 0 is valid and represents an obstacle exactly at the current price.
+    /// A null distance means the level is absent — ignored.
     /// </summary>
     private static NearestOppositeLevel? ResolveHigherTfOppositeLevel(
         TimeframeBias bias, TimeframeAnalysisSnapshot[] higherTfs)
@@ -397,8 +397,8 @@ internal static class LlmPayloadMapperExtensions
                 ? (htf.DistanceToResistance1Pct, htf.Resistance1Strength)
                 : (htf.DistanceToSupport1Pct, htf.Support1Strength);
 
-            // Skip if level is absent or is on the wrong side of the price.
-            if (dist is not > 0m) continue;
+            // Skip if level is absent or on the wrong side of the price.
+            if (dist is null or < 0m) continue;
 
             var candidate = new NearestOppositeLevel(dist.Value, strength);
             if (best is null || dist.Value < best.DistancePct)

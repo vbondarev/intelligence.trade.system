@@ -150,8 +150,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_HigherTfLevel_OnWrongSideOfPrice_IsIgnored()
     {
-        // If higher TF has support/resistance with negative or zero distance
-        // (level is behind the trade, not ahead) → distancePct = null → no constraint.
+        // If higher TF has support/resistance with null distance (level absent) → no constraint.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -363,6 +362,113 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.H4.Summary.RiskFlags.Should().NotContain("NearSupport");
         payload.H4.Summary.RiskFlags.Should().NotContain("NearHigherTimeframeSupport");
         payload.H4.Summary.RiskFlags.Should().NotContain("WeakEntryLevel");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ResolveHigherTfOppositeLevel — distance boundary conditions
+    // dist == 0 is valid (obstacle exactly at price); dist < 0 is wrong-side (ignored)
+    // TODO: mapper-level integration coverage for TrendConfirmedButEntryFiltered with dist==0
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsZero_ForcesEntryQualityToPoor()
+    {
+        // H4 resistance exactly at price (distance=0) — the nearest possible obstacle.
+        var snapshot = MakeSnapshot(
+            m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
+            h4: MakeBullishTf("4h", distToResistance: 0m, resistanceStrength: 0.85m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().Be("Poor",
+            because: "H4 resistance at distance=0 is directly at price — maximum obstacle, must force Poor");
+        payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
+            because: "distance=0 meets the NearHigherTimeframeResistance threshold");
+    }
+
+    [Fact]
+    public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsZero_ForcesEntryQualityToPoor()
+    {
+        // H4 support exactly at price (distance=0) — the nearest possible obstacle for bearish.
+        var snapshot = MakeSnapshot(
+            m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
+            h4: MakeBearishTf("4h", distToSupport: 0m, supportStrength: 0.85m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().Be("Poor",
+            because: "H4 support at distance=0 is directly at price — maximum obstacle, must force Poor");
+        payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeSupport",
+            because: "distance=0 meets the NearHigherTimeframeSupport threshold");
+    }
+
+    [Fact]
+    public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsNegative_IsIgnored()
+    {
+        // H4 resistance with negative distance is behind the trade (wrong side) → must be ignored.
+        var snapshot = MakeSnapshot(
+            m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
+            h4: MakeBullishTf("4h", distToResistance: -0.1m, resistanceStrength: 0.85m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().Be("Good",
+            because: "H4 resistance with negative distance is on the wrong side of price and must not constrain M15");
+        payload.M15.Summary.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsNegative_IsIgnored()
+    {
+        // H4 support with negative distance is behind the trade (wrong side) → must be ignored.
+        var snapshot = MakeSnapshot(
+            m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
+            h4: MakeBearishTf("4h", distToSupport: -0.1m, supportStrength: 0.85m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().Be("Good",
+            because: "H4 support with negative distance is on the wrong side of price and must not constrain M15");
+        payload.M15.Summary.RiskFlags.Should().NotContain("NearHigherTimeframeSupport");
+    }
+
+    [Fact]
+    public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_ZeroAndPositive_SelectsZeroAsNearest()
+    {
+        // H1: distance=0 (at price), H4: distance=0.25 — zero must win as the nearest obstacle.
+        var snapshot = MakeSnapshot(
+            m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
+            h1: MakeBullishTf("1h", distToResistance: 0m, resistanceStrength: 0.80m),
+            h4: MakeBullishTf("4h", distToResistance: 0.25m, resistanceStrength: 0.80m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().Be("Poor",
+            because: "H1 resistance at distance=0 is nearer than H4 at 0.25%; zero wins as nearest obstacle → Poor");
+        payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_NegativeAndPositive_SelectsPositiveCandidate()
+    {
+        // H1: distance=-0.1 (wrong-side, ignored), H4: distance=0.25 — only positive is valid.
+        var snapshot = MakeSnapshot(
+            m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
+            h1: MakeBullishTf("1h", distToResistance: -0.1m, resistanceStrength: 0.80m),
+            h4: MakeBullishTf("4h", distToResistance: 0.25m, resistanceStrength: 0.80m),
+            regime: MarketRegimes.Trending);
+
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+
+        payload.M15.Summary.EntryQuality.Should().NotBe("Good",
+            because: "H1 negative distance ignored; H4 resistance at 0.25% < 0.30% threshold → Good forbidden");
+        payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
+            because: "H4 resistance at 0.25% is the selected obstacle and meets the near-resistance threshold");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

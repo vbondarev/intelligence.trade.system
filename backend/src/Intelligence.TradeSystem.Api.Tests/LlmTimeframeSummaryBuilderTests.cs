@@ -1247,4 +1247,132 @@ public sealed class LlmTimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("BetweenStrongSupportAndResistance",
             because: "both distances 0.76% >= 0.75% → flag absent");
     }
+
+    // ─── Negative distance filtering in ResolveNearestOppositeLevel ──────────
+
+    [Fact]
+    public void Build_Bullish_NegativeCurrentResistance_PositiveHigherTf_SelectsHigherTf()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: -0.30m, resistance1Strength: 1m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 1m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
+            because: "negative current resistance must be discarded; valid higher-TF resistance at 0.25% is the obstacle");
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "higher-TF resistance at 0.25% < 0.30% caps quality at Fair");
+    }
+
+    [Fact]
+    public void Build_Bearish_NegativeCurrentSupport_PositiveHigherTf_SelectsHigherTf()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: -0.30m, support1Strength: 1m,
+            distanceToResist: 0.5m, resistance1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 1m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.RiskFlags.Should().Contain("NearHigherTimeframeSupport",
+            because: "negative current support must be discarded; valid higher-TF support at 0.25% is the obstacle");
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "higher-TF support at 0.25% < 0.30% caps quality at Fair");
+    }
+
+    [Fact]
+    public void Build_Bullish_BothPositive_CurrentCloser_SelectsCurrent()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0.10m, resistance1Strength: 0.8m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.8m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "current TF resistance at 0.10% is closer and positive → current TF obstacle wins");
+        r.RiskFlags.Should().NotContain("NearHigherTimeframeResistance",
+            because: "current TF obstacle wins, not higher TF");
+    }
+
+    [Fact]
+    public void Build_Bullish_NegativeCurrent_NoHigherTf_NoOppositeLevel()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: -0.30m, resistance1Strength: 1m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var r = BuildForTest(s, higherTfOppositeLevel: null);
+
+        r.RiskFlags.Should().NotContain("NearResistance",
+            because: "negative current resistance is invalid; no higher-TF candidate either");
+        r.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void Build_Bullish_NullCurrent_NegativeHigherTf_NoOppositeLevel()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: null, resistance1Strength: null,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: -0.30m, Strength: 1m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.RiskFlags.Should().NotContain("NearHigherTimeframeResistance",
+            because: "negative higher-TF distance is invalid; null current → no obstacle at all");
+        r.RiskFlags.Should().NotContain("NearResistance");
+    }
+
+    [Fact]
+    public void Build_Bullish_ZeroCurrentResistance_IsValidObstacle()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: 0m, resistance1Strength: 0.8m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.8m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "distance 0 is valid (resistance at price); current TF (0) <= higher TF (0.25) → current wins");
+        r.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void Build_Bullish_NegativeCurrentResistance_ValidHigherTf_QualityIsNotGoodAndFlagIsSet()
+    {
+        // Before fix: negative current resistance (-0.30) numerically beat higher-TF 0.25 → higher-TF lost.
+        // After fix: negative current discarded → higher-TF resistance caps quality at Fair.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToResist: -0.30m, resistance1Strength: 1m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m);
+
+        var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 1m);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
+
+        r.EntryQuality.Should().NotBe(EntryQuality.Good,
+            because: "higher-TF resistance at 0.25% < NearOppositeThreshold (0.30%) must cap at Fair");
+        r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+        r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered",
+            because: "trend is confirmed (Bullish + EMA aligned) but entry is filtered by higher-TF obstacle");
+    }
 }

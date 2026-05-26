@@ -501,31 +501,53 @@ internal static class LlmTimeframeSummaryBuilder
     /// Возвращает ближайший противоположный уровень.
     /// Для Bullish — ближайший resistance.
     /// Для Bearish — ближайший support.
+    /// Отрицательная дистанция означает wrong-side-of-price и считается отсутствующей.
     /// </summary>
     private static (decimal? dist, decimal? strength, bool isHigherTf) ResolveNearestOppositeLevel(
         TimeframeBias bias,
         TimeframeAnalysisSnapshot s,
         NearestOppositeLevel? higherTf)
     {
-        var (currentDist, currentStrength) = bias switch
+        var (currentRawDist, currentRawStrength) = bias switch
         {
             TimeframeBias.Bullish => (s.DistanceToResistance1Pct, s.Resistance1Strength),
             TimeframeBias.Bearish => (s.DistanceToSupport1Pct, s.Support1Strength),
-            _ => (null, null),
+            _ => ((decimal?)null, (decimal?)null),
         };
 
-        if (currentDist is null && higherTf is null)
+        var current = NormalizeOppositeLevelCandidate(currentRawDist, currentRawStrength, isHigherTf: false);
+
+        var higher = higherTf is null
+            ? (dist: (decimal?)null, strength: (decimal?)null, isHigherTf: false)
+            : NormalizeOppositeLevelCandidate(higherTf.DistancePct, higherTf.Strength, isHigherTf: true);
+
+        if (current.dist is null && higher.dist is null)
             return (null, null, false);
 
-        if (currentDist is null)
-            return (higherTf!.DistancePct, higherTf.Strength, true);
+        if (current.dist is null)
+            return higher;
 
-        if (higherTf is null)
-            return (currentDist, currentStrength, false);
+        if (higher.dist is null)
+            return current;
 
-        return currentDist <= higherTf.DistancePct
-            ? (currentDist, currentStrength, false)
-            : (higherTf.DistancePct, higherTf.Strength, true);
+        return current.dist <= higher.dist
+            ? current
+            : higher;
+    }
+
+    /// <summary>
+    /// Нормализует кандидата: отрицательная дистанция (уровень на неправильной стороне цены)
+    /// возвращается как (null, null, false). Нулевая дистанция валидна.
+    /// </summary>
+    private static (decimal? dist, decimal? strength, bool isHigherTf) NormalizeOppositeLevelCandidate(
+        decimal? distancePct,
+        decimal? strength,
+        bool isHigherTf)
+    {
+        if (distancePct is null || distancePct < 0m)
+            return (null, null, false);
+
+        return (distancePct, strength, isHigherTf);
     }
 
     // ─── Market regime helpers ───────────────────────────────────────────────
