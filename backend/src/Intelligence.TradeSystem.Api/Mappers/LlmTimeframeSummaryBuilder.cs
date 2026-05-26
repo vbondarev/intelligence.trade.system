@@ -117,8 +117,8 @@ internal static class LlmTimeframeSummaryBuilder
     // ─── Step 2: Bias ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Bullish: trend == Bullish && emaBullish.
-    /// Bearish: trend == Bearish && emaBearish.
+    /// Bullish: trend == Bullish &amp;&amp; emaBullish.
+    /// Bearish: trend == Bearish &amp;&amp; emaBearish.
     /// Neutral: Sideways / Unknown / EMA-конфликт.
     /// </summary>
     private static TimeframeBias ComputeBias(MarketTrend trend, bool emaBullish, bool emaBearish)
