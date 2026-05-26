@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain.Snapshots;
+using Xunit;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
@@ -19,7 +20,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Strong);
         r.Bias.Should().Be(TimeframeBias.Bullish);
@@ -38,7 +39,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             isAboveEma20: false, isAboveEma50: false,
             rsi14: 38m, trendStrengthScore: 0.85m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Strong);
         r.Bias.Should().Be(TimeframeBias.Bearish);
@@ -55,7 +56,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         var s = MakeSnapshot(trend: MarketTrend.Sideways, rsi14: 50m, trendStrengthScore: 0.3m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Neutral);
         r.IsTrendConfirmed.Should().BeFalse();
@@ -70,7 +71,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         var s = MakeSnapshot(trend: MarketTrend.Unknown, rsi14: 50m, trendStrengthScore: 0.9m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Undefined,
             because: "Unknown trend always yields Undefined label regardless of score");
@@ -87,7 +88,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_NeutralBias_IsTrendConfirmedAlwaysFalse(MarketTrend trend)
     {
         var s = MakeSnapshot(trend: trend);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Neutral);
         r.IsTrendConfirmed.Should().BeFalse(
@@ -101,13 +102,13 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         // Bullish confirmed
         var bullish = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true);
-        var rb = LlmTimeframeSummaryBuilder.Build(bullish);
+        var rb = BuildForTest(bullish);
         if (rb.IsTrendConfirmed)
             rb.Bias.Should().NotBe(TimeframeBias.Neutral);
 
         // Bearish confirmed
         var bearish = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false);
-        var rr = LlmTimeframeSummaryBuilder.Build(bearish);
+        var rr = BuildForTest(bearish);
         if (rr.IsTrendConfirmed)
             rr.Bias.Should().NotBe(TimeframeBias.Neutral);
     }
@@ -118,7 +119,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_WhenMomentumIsHealthy_IsTrendConfirmedIsTrue()
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true, rsi14: 60m);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         if (r.MomentumState == MomentumState.Healthy)
             r.IsTrendConfirmed.Should().BeTrue(because: "Healthy momentum requires confirmed trend");
@@ -133,7 +134,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         // Even with EMA flags set to true, Sideways/Unknown must yield Neutral bias.
         var s = MakeSnapshot(trend: trend, emaBullish: true, emaBearish: true, isAboveEma200: true);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Neutral,
             because: $"{trend} must always produce Neutral bias regardless of EMA flags");
@@ -147,7 +148,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
         foreach (var score in new[] { 0m, 0.5m, 0.8m, 1.0m })
         {
             var s = MakeSnapshot(trend: MarketTrend.Unknown, trendStrengthScore: score);
-            var r = LlmTimeframeSummaryBuilder.Build(s);
+            var r = BuildForTest(s);
 
             r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Undefined,
                 because: $"Unknown trend with score={score} must yield Undefined");
@@ -160,7 +161,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_BullishTrendWithEmaConflict_BiasIsNeutral()
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: false, isAboveEma200: true);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Neutral,
             because: "Bullish trend without EMA alignment produces EMA conflict → Neutral bias");
@@ -174,7 +175,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_WeakTrendStrengthScore_AddsWeakTrendRiskFlag()
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, trendStrengthScore: 0.3m);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("WeakTrend");
     }
@@ -183,7 +184,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     public void Build_LowVolumeRatio_AddsLowVolumeRiskFlag()
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, trendStrengthScore: 0.6m, volumeRatio: 0.4m);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("LowVolume");
     }
@@ -193,7 +194,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 75m, rsiOverbought: true);
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("RsiOverbought");
         r.MomentumState.Should().Be(MomentumState.Overextended);
@@ -274,6 +275,19 @@ public sealed class LlmTimeframeSummaryBuilderTests
             DistanceToResistance1Pct = distanceToResist,
         };
 
+    /// <summary>
+    /// Test helper: вызывает <c>LlmTimeframeSummaryBuilder.Build</c> с безопасными дефолтами
+    /// (<c>snapshotIsFresh = true</c>, <c>marketRegime = MarketRegimes.Trending</c>).
+    /// Используется для тестов, которые проверяют структурные инварианты,
+    /// а не поведение параметров свежести/режима.
+    /// </summary>
+    private static LlmTimeframeSummaryResult BuildForTest(
+        TimeframeAnalysisSnapshot s,
+        bool snapshotIsFresh = true,
+        string? marketRegime = MarketRegimes.Trending,
+        NearestOppositeLevel? higherTfOppositeLevel = null) =>
+        LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Step 11: Nullable / unavailable indicator scenarios
     // ═══════════════════════════════════════════════════════════════════════════
@@ -291,7 +305,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             emaHasFallback: false,
             emaBullish: false, emaBearish: false);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Neutral);
         r.IsTrendConfirmed.Should().BeFalse();
@@ -311,7 +325,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             rsiOversold: false, rsiOverbought: false,
             trendStrengthScore: 0.85m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().NotContain("RsiOversold", because: "RSI unavailable must not produce RsiOversold");
         r.RiskFlags.Should().NotContain("RsiOverbought", because: "RSI unavailable must not produce RsiOverbought");
@@ -331,7 +345,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             rsi14: 60m, trendStrengthScore: 0.85m,
             atrIsReliable: false);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("AtrUnavailable");
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
@@ -349,7 +363,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatio: 0m,           // zero because unavailable
             volumeRatioIsReliable: false);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().NotContain("LowVolume",
             because: "VolumeRatio=0 from unavailable source must not trigger LowVolume");
@@ -367,7 +381,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatio: 0.3m,
             volumeRatioIsReliable: true, volumeRatioIsFallback: true);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("VolumeDataFallback");
         r.RiskFlags.Should().Contain("LowVolume",
@@ -383,7 +397,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatio: 0.8m,
             volumeRatioIsReliable: true, volumeRatioIsFallback: true);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.RiskFlags.Should().Contain("VolumeDataFallback");
         r.RiskFlags.Should().NotContain("LowVolume",
@@ -400,7 +414,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             rsi14: null, rsi14IsReliable: false,
             trendStrengthScore: 0.85m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Bullish,
             because: "EMA alignment + Bullish trend → Bullish bias even without RSI");
@@ -425,7 +439,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m,
             rsi14IsReliable: true, emaIsReliable: true, atrIsReliable: true, volumeRatioIsReliable: true);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Bullish);
         r.IsTrendConfirmed.Should().BeTrue();
@@ -451,7 +465,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m,
             rsi14IsReliable: true, emaIsReliable: true, atrIsReliable: true, volumeRatioIsReliable: true);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.Bias.Should().Be(TimeframeBias.Bearish);
         r.IsTrendConfirmed.Should().BeTrue();
@@ -478,7 +492,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().Be(EntryQuality.Fair,
             because: "EMA fallback caps entryQuality at Fair — Good is not allowed when EMA uses partial window");
@@ -505,7 +519,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().Be(EntryQuality.Fair,
             because: "ATR fallback caps entryQuality at Fair — Good is not allowed when AtrIsFallback=true");
@@ -535,7 +549,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             volumeRatioIsReliable: true, volumeRatioIsFallback: true,  // fallback, but high ratio
             volumeRatio: 1.2m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().Be(EntryQuality.Good,
             because: "VolumeRatioFallback must not cap entryQuality — volume is an auxiliary signal only");
@@ -561,7 +575,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             atrIsReliable: false,
             volumeRatioIsReliable: true, volumeRatio: 1.0m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         // No false oversold/overbought
         r.RiskFlags.Should().NotContain("RsiOversold", because: "RSI unavailable must not produce RsiOversold");
@@ -599,7 +613,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: null, resistance1Strength: null);
 
         var higherTf = new NearestOppositeLevel(DistancePct: 0.05m, Strength: 0.85m);
-        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
 
         r.EntryQuality.Should().Be(EntryQuality.Poor,
             because: "higher TF strong resistance < 0.15% → Poor");
@@ -618,7 +632,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: null, resistance1Strength: null);
 
         var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.85m);
-        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
 
         r.EntryQuality.Should().NotBe(EntryQuality.Good,
             because: "higher TF resistance < 0.30% → Good forbidden");
@@ -638,7 +652,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: null, support1Strength: null);
 
         var higherTf = new NearestOppositeLevel(DistancePct: 0.05m, Strength: 0.85m);
-        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
 
         r.EntryQuality.Should().Be(EntryQuality.Poor,
             because: "higher TF strong support < 0.15% → Poor");
@@ -658,7 +672,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: null, support1Strength: null);
 
         var higherTf = new NearestOppositeLevel(DistancePct: 0.25m, Strength: 0.85m);
-        var r = LlmTimeframeSummaryBuilder.Build(s, higherTfOppositeLevel: higherTf);
+        var r = BuildForTest(s, higherTfOppositeLevel: higherTf);
 
         r.EntryQuality.Should().NotBe(EntryQuality.Good,
             because: "higher TF support < 0.30% → Good forbidden");
@@ -675,7 +689,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
             distanceToSupport: 0.5m, support1Strength: 0.20m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().NotBe(EntryQuality.Good,
             because: "Weak support (0.20 ≤ 0.35) → not above Fair");
@@ -691,7 +705,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             rsi14: 38m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
             distanceToResist: 0.5m, resistance1Strength: 0.20m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().NotBe(EntryQuality.Good,
             because: "Weak resistance (0.20 ≤ 0.35) → not above Fair");
@@ -709,7 +723,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m, support1Strength: 0.80m,
             distanceToResist: null, resistance1Strength: null);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().Be(EntryQuality.Good,
             because: "strong support + no resistance obstacle → Good reachable");
@@ -726,7 +740,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m, resistance1Strength: 0.80m,
             distanceToSupport: null, support1Strength: null);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().Be(EntryQuality.Good,
             because: "strong resistance + no support obstacle → Good reachable");
@@ -744,10 +758,499 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m, support1Strength: 0.80m,
             distanceToResist: 0.20m, resistance1Strength: 0.85m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var r = BuildForTest(s);
 
         r.EntryQuality.Should().NotBe(EntryQuality.Good,
             because: "same-TF resistance < 0.30% → Good forbidden");
         r.RiskFlags.Should().Contain("NearResistance");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RiskFlags synchronization scenarios (Prompts 14 сценариев 1–7 + BTCUSDT)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ─── Scenario 1: h4 bearish confirmed but entry filtered ──────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario1_H4BearishConfirmedButEntryFiltered()
+    {
+        // bias = Bearish, isTrendConfirmed = true, entryQuality = Poor
+        // isAboveEma20 = true, isAboveEma50 = true, rsi14 > 50, momentumState = Weak
+        // marketRegime = Neutral, snapshotIsFresh = true, volumeRatio >= 0.5
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: true, isAboveEma50: true,
+            rsi14: 53.7m, trendStrengthScore: 0.60m,
+            volumeRatio: 0.8m,
+            distanceToResist: 0.5m, resistance1Strength: 0.75m,
+            distanceToSupport: 0.3m, support1Strength: 0.70m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Neutral);
+
+        r.Bias.Should().Be(TimeframeBias.Bearish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.RiskFlags.Should().Contain("AboveEma20");
+        r.RiskFlags.Should().Contain("AboveEma50");
+        r.RiskFlags.Should().Contain("EmaConflict");
+        r.RiskFlags.Should().Contain("RsiAgainstBearishBias",
+            because: "rsi14=53.7 > 50 opposes bearish direction");
+        r.RiskFlags.Should().Contain("WeakMomentum",
+            because: "momentumState=Weak for Bearish bias with rsi14 not in healthy range");
+        r.RiskFlags.Should().Contain("NeutralMarketRegime");
+        r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered",
+            because: "trend confirmed but entry quality not Good");
+        // Uniqueness
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 2: m15 neutral low volume near resistance ───────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario2_M15NeutralLowVolumeNearResistance()
+    {
+        // trend = Sideways, bias = Neutral, volumeRatio < 0.25, distance < 0.15, entryQuality = Poor
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways,
+            rsi14: 50m, trendStrengthScore: 0.3m,
+            volumeRatio: 0.18m,
+            distanceToResist: 0.12m, resistance1Strength: 0.55m,
+            distanceToSupport: 0.5m, support1Strength: 0.70m,
+            isAboveEma20: false, isAboveEma50: false);
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.RiskFlags.Should().Contain("VeryLowVolume",
+            because: "volumeRatio=0.18 < 0.25 → VeryLowVolume");
+        r.RiskFlags.Should().Contain("WeakTrend");
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "resistance1 at 0.12% < 0.30% threshold for Neutral bias");
+        r.RiskFlags.Should().Contain("RangeBound");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 3: h1 neutral range between support/resistance ──────────────
+
+    [Fact]
+    public void RiskFlags_Scenario3_H1NeutralRangeBetweenLevels()
+    {
+        // trend = Sideways, support strong, resistance moderate, distToResist < 0.3, volumeRatio < 0.5
+        // mixed EMA state: isAboveEma20 = true, isAboveEma50 = false
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways,
+            rsi14: 50m, trendStrengthScore: 0.3m,
+            volumeRatio: 0.32m,
+            distanceToResist: 0.06m, resistance1Strength: 0.55m,
+            distanceToSupport: 0.49m, support1Strength: 0.80m,
+            isAboveEma20: true, isAboveEma50: false);
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.RiskFlags.Should().Contain("LowVolume",
+            because: "volumeRatio=0.32 < 0.50");
+        r.RiskFlags.Should().Contain("WeakTrend");
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "resistance at 0.06% < 0.30%");
+        r.RiskFlags.Should().Contain("RangeBound");
+        r.RiskFlags.Should().Contain("MixedEmaState",
+            because: "isAboveEma20=true but isAboveEma50=false");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 4: bullish entry filtered by resistance ─────────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario4_BullishEntryFilteredByNearResistance()
+    {
+        // bias = Bullish, confirmed, entryQuality Poor/Fair, resistance < 0.3%, volume normal, EMA confirms
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            isAboveEma20: true, isAboveEma50: true,
+            rsi14: 60m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.0m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: 0.20m, resistance1Strength: 0.75m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Trending);
+
+        r.Bias.Should().Be(TimeframeBias.Bullish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.RiskFlags.Should().Contain("NearResistance");
+        r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered");
+        r.RiskFlags.Should().NotContain("EmaConflict",
+            because: "EMA fully confirms bullish direction");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 5: bearish entry filtered by nearby support ─────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario5_BearishEntryFilteredByNearSupport()
+    {
+        // bias = Bearish, confirmed, entryQuality Poor/Fair, support < 0.3%, volume normal, EMA confirms
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 40m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.0m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m,
+            distanceToSupport: 0.20m, support1Strength: 0.75m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Trending);
+
+        r.Bias.Should().Be(TimeframeBias.Bearish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.RiskFlags.Should().Contain("NearSupport");
+        r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered");
+        r.RiskFlags.Should().NotContain("EmaConflict",
+            because: "EMA fully confirms bearish direction");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 6: clean bullish Good setup ─────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario6_CleanBullishGoodSetup_NoSpuriousFlags()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            isAboveEma20: true, isAboveEma50: true,
+            rsi14: 60m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Trending);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good);
+        r.RiskFlags.Should().NotContain("LowVolume");
+        r.RiskFlags.Should().NotContain("VeryLowVolume");
+        r.RiskFlags.Should().NotContain("EmaConflict");
+        r.RiskFlags.Should().NotContain("BelowEma20");
+        r.RiskFlags.Should().NotContain("BelowEma50");
+        r.RiskFlags.Should().NotContain("NearResistance");
+        r.RiskFlags.Should().NotContain("TrendConfirmedButEntryFiltered");
+        r.RiskFlags.Should().NotContain("StaleSnapshot");
+        r.RiskFlags.Should().NotContain("NeutralMarketRegime");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── Scenario 7: clean bearish Good setup ─────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_Scenario7_CleanBearishGoodSetup_NoSpuriousFlags()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 38m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m,
+            distanceToSupport: null, support1Strength: null);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Trending);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good);
+        r.RiskFlags.Should().NotContain("LowVolume");
+        r.RiskFlags.Should().NotContain("VeryLowVolume");
+        r.RiskFlags.Should().NotContain("EmaConflict");
+        r.RiskFlags.Should().NotContain("AboveEma20");
+        r.RiskFlags.Should().NotContain("AboveEma50");
+        r.RiskFlags.Should().NotContain("NearSupport");
+        r.RiskFlags.Should().NotContain("TrendConfirmedButEntryFiltered");
+        r.RiskFlags.Should().NotContain("StaleSnapshot");
+        r.RiskFlags.Should().NotContain("NeutralMarketRegime");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── BTCUSDT-like regression: m15 neutral ─────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_BtcUsdt_M15_NeutralLowVolumeNearResistance()
+    {
+        // trend Sideways, bias Neutral, volumeRatio 0.1883, distanceToResistance1Pct 0.1064, resistance Moderate
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways,
+            rsi14: 50m, trendStrengthScore: 0.3m,
+            volumeRatio: 0.1883m,
+            distanceToResist: 0.1064m, resistance1Strength: 0.55m,
+            distanceToSupport: 0.5m, support1Strength: 0.70m);
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.EntryQuality.Should().Be(EntryQuality.Poor);
+        r.RiskFlags.Should().Contain("VeryLowVolume",
+            because: "0.1883 < 0.25 → VeryLowVolume");
+        r.RiskFlags.Should().Contain("WeakTrend");
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "0.1064 < 0.30 for Neutral bias");
+        r.RiskFlags.Should().Contain("RangeBound");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── BTCUSDT-like regression: h1 neutral range ────────────────────────────
+
+    [Fact]
+    public void RiskFlags_BtcUsdt_H1_NeutralRangeNearResistanceMixedEma()
+    {
+        // trend Sideways, volumeRatio 0.3248, distanceToResistance1Pct 0.06, mixed EMA
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways,
+            rsi14: 50m, trendStrengthScore: 0.3m,
+            volumeRatio: 0.3248m,
+            distanceToResist: 0.06m, resistance1Strength: 0.55m,
+            distanceToSupport: 0.49m, support1Strength: 0.80m,
+            isAboveEma20: true, isAboveEma50: false);  // mixed EMA state
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.EntryQuality.Should().Be(EntryQuality.Poor);
+        r.RiskFlags.Should().Contain("LowVolume",
+            because: "0.3248 is in [0.25, 0.50) → LowVolume");
+        r.RiskFlags.Should().Contain("WeakTrend");
+        r.RiskFlags.Should().Contain("NearResistance",
+            because: "0.06 < 0.30");
+        r.RiskFlags.Should().Contain("RangeBound");
+        r.RiskFlags.Should().Contain("MixedEmaState",
+            because: "isAboveEma20=true but isAboveEma50=false");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── BTCUSDT-like regression: h4 bearish confirmed filtered ───────────────
+
+    [Fact]
+    public void RiskFlags_BtcUsdt_H4_BearishConfirmedAllFiltersFired()
+    {
+        // trend Bearish, bias Bearish, isTrendConfirmed true, entryQuality Poor
+        // isAboveEma20=true, isAboveEma50=true, rsi14=53.7, momentumState=Weak, marketRegime=Neutral
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: true, isAboveEma50: true,
+            rsi14: 53.7m, trendStrengthScore: 0.60m,
+            volumeRatio: 0.8m,
+            distanceToResist: 0.5m, resistance1Strength: 0.75m,
+            distanceToSupport: 0.3m, support1Strength: 0.70m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Neutral);
+
+        r.Bias.Should().Be(TimeframeBias.Bearish);
+        r.IsTrendConfirmed.Should().BeTrue();
+        r.RiskFlags.Should().Contain("AboveEma20");
+        r.RiskFlags.Should().Contain("AboveEma50");
+        r.RiskFlags.Should().Contain("EmaConflict");
+        r.RiskFlags.Should().Contain("RsiAgainstBearishBias",
+            because: "rsi14=53.7 > 50");
+        r.RiskFlags.Should().Contain("WeakMomentum");
+        r.RiskFlags.Should().Contain("NeutralMarketRegime");
+        r.RiskFlags.Should().Contain("DirectionalTrendWithNeutralRegime",
+            because: "isTrendConfirmed=true + Neutral regime");
+        r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── VeryLowVolume threshold boundary ─────────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_VeryLowVolume_Below_0_25_AddsBothVeryLowVolumeAndLowVolume()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, volumeRatio: 0.18m, trendStrengthScore: 0.6m);
+        var r = BuildForTest(s);
+
+        r.RiskFlags.Should().Contain("VeryLowVolume",
+            because: "volumeRatio=0.18 < 0.25 → VeryLowVolume");
+        r.RiskFlags.Should().Contain("LowVolume",
+            because: "VeryLowVolume implies LowVolume — they are additive, not mutually exclusive");
+    }
+
+    [Fact]
+    public void RiskFlags_LowVolume_Between_0_25_And_0_50()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, volumeRatio: 0.32m, trendStrengthScore: 0.6m);
+        var r = BuildForTest(s);
+
+        r.RiskFlags.Should().Contain("LowVolume");
+        r.RiskFlags.Should().NotContain("VeryLowVolume");
+    }
+
+    // ─── StaleSnapshot flag ────────────────────────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_StaleSnapshot_AddsStaleSnapshotFlag()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: false, marketRegime: MarketRegimes.Trending);
+
+        r.RiskFlags.Should().Contain("StaleSnapshot");
+    }
+
+    [Fact]
+    public void RiskFlags_FreshSnapshot_DoesNotAddStaleSnapshotFlag()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: true, marketRegime: MarketRegimes.Trending);
+
+        r.RiskFlags.Should().NotContain("StaleSnapshot");
+    }
+
+    // ─── RsiAgainstBias flags ──────────────────────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_Bullish_Rsi_Below50_AddsRsiAgainstBullishBias()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 45m, trendStrengthScore: 0.85m, volumeRatio: 1.0m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m);
+
+        var r = BuildForTest(s);
+
+        r.RiskFlags.Should().Contain("RsiAgainstBullishBias");
+        r.RiskFlags.Should().NotContain("RsiAgainstBearishBias");
+    }
+
+    [Fact]
+    public void RiskFlags_Bearish_Rsi_Above50_AddsRsiAgainstBearishBias()
+    {
+        var s = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false,
+            rsi14: 55m, trendStrengthScore: 0.85m, volumeRatio: 1.0m,
+            distanceToResist: 0.5m, resistance1Strength: 0.80m);
+
+        var r = BuildForTest(s);
+
+        r.RiskFlags.Should().Contain("RsiAgainstBearishBias");
+        r.RiskFlags.Should().NotContain("RsiAgainstBullishBias");
+    }
+
+    // ─── TrendConfirmedButEntryFiltered not added when Good ───────────────────
+
+    [Fact]
+    public void RiskFlags_TrendConfirmedGoodEntry_NoTrendConfirmedButEntryFilteredFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            isAboveEma20: true, isAboveEma50: true,
+            rsi14: 60m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.80m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: MarketRegimes.Trending);
+
+        r.EntryQuality.Should().Be(EntryQuality.Good);
+        r.RiskFlags.Should().NotContain("TrendConfirmedButEntryFiltered");
+    }
+
+    // ─── MissingEntryLevel flag ────────────────────────────────────────────────
+
+    [Fact]
+    public void RiskFlags_Bullish_NullSupport_AddsMissingEntryLevelFlag()
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m,
+            distanceToSupport: null, support1Strength: null,
+            distanceToResist: null, resistance1Strength: null);
+        // Override support to null via a snapshot with no support
+        var sNoSupport = s with { Support1 = null, Support1Strength = null };
+
+        var r = BuildForTest(sNoSupport);
+
+        r.RiskFlags.Should().Contain("MissingEntryLevel");
+    }
+
+    // ─── NeutralBias flag ──────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(MarketTrend.Sideways)]
+    [InlineData(MarketTrend.Unknown)]
+    public void RiskFlags_NeutralBias_AddsBothNeutralBiasAndRangeBound(MarketTrend trend)
+    {
+        var s = MakeSnapshot(trend: trend, trendStrengthScore: 0.4m);
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.RiskFlags.Should().Contain("NeutralBias",
+            because: "bias == Neutral must produce NeutralBias flag");
+        r.RiskFlags.Should().Contain("RangeBound",
+            because: "NeutralBias and RangeBound are always co-present");
+        r.RiskFlags.Should().OnlyHaveUniqueItems();
+    }
+
+    // ─── marketRegime trim: leading/trailing spaces ────────────────────────────
+
+    [Theory]
+    [InlineData(" Neutral")]
+    [InlineData("Neutral ")]
+    [InlineData(" Neutral ")]
+    [InlineData("  NEUTRAL  ")]
+    public void RiskFlags_MarketRegimeWithWhitespace_StillRecognizedAsNeutral(string paddedRegime)
+    {
+        var s = MakeSnapshot(
+            trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m);
+
+        var r = LlmTimeframeSummaryBuilder.Build(s,
+            snapshotIsFresh: true,
+            marketRegime: paddedRegime);
+
+        r.RiskFlags.Should().Contain("NeutralMarketRegime",
+            because: $"marketRegime='{paddedRegime}' should be recognized as Neutral after Trim()");
+    }
+
+    // ─── BetweenStrongSupportAndResistance threshold 0.75% ───────────────────
+
+    [Fact]
+    public void RiskFlags_BetweenStrongSupportAndResistance_At_0_74Pct_AddsFlag()
+    {
+        // Both distances just inside the 0.75% threshold; both levels Moderate/Strong.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
+            volumeRatio: 1.0m,
+            distanceToSupport: 0.74m, support1Strength: 0.60m,   // Moderate
+            distanceToResist: 0.74m, resistance1Strength: 0.60m); // Moderate
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.RiskFlags.Should().Contain("BetweenStrongSupportAndResistance",
+            because: "both distances 0.74% < 0.75% with Moderate levels → flag present");
+    }
+
+    [Fact]
+    public void RiskFlags_BetweenStrongSupportAndResistance_At_0_76Pct_DoesNotAddFlag()
+    {
+        // Both distances just outside the 0.75% threshold.
+        var s = MakeSnapshot(
+            trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
+            volumeRatio: 1.0m,
+            distanceToSupport: 0.76m, support1Strength: 0.60m,
+            distanceToResist: 0.76m, resistance1Strength: 0.60m);
+
+        var r = BuildForTest(s);
+
+        r.Bias.Should().Be(TimeframeBias.Neutral);
+        r.RiskFlags.Should().NotContain("BetweenStrongSupportAndResistance",
+            because: "both distances 0.76% >= 0.75% → flag absent");
     }
 }

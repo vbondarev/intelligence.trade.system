@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.Analysis.Tests;
 
 /// <summary>
 /// Unit-тесты для <see cref="MarketTagsBuilder"/>.
-/// Проверяют каждое правило V1, взаимоисключения, порядок тегов и лимит.
+/// Проверяют детерминированность, приоритет и ключевые правила V2.
 /// </summary>
 public sealed class MarketTagsBuilderTests
 {
@@ -89,6 +89,7 @@ public sealed class MarketTagsBuilderTests
 
         result.Should().NotContain(MarketTagsBuilder.TagPositiveFunding);
         result.Should().NotContain(MarketTagsBuilder.TagNegativeFunding);
+        result.Should().Contain(MarketTagsBuilder.TagNeutralFunding);
     }
 
     [Fact]
@@ -229,11 +230,12 @@ public sealed class MarketTagsBuilderTests
             orderBook: CreateOrderBook(0.5m),
             tradeFlow: CreateTradeFlow(hasBuy: true));
 
+        // В V2 funding идёт после directional pressure/aggression.
         result.Should().Equal(
             MarketTagsBuilder.TagTrending,
-            MarketTagsBuilder.TagPositiveFunding,
             MarketTagsBuilder.TagBidPressure,
-            MarketTagsBuilder.TagAggressiveBuying);
+            MarketTagsBuilder.TagAggressiveBuying,
+            MarketTagsBuilder.TagPositiveFunding);
     }
 
     [Fact]
@@ -247,9 +249,9 @@ public sealed class MarketTagsBuilderTests
 
         result.Should().Equal(
             MarketTagsBuilder.TagNeutral,
-            MarketTagsBuilder.TagNegativeFunding,
             MarketTagsBuilder.TagAskPressure,
-            MarketTagsBuilder.TagAggressiveSelling);
+            MarketTagsBuilder.TagAggressiveSelling,
+            MarketTagsBuilder.TagNegativeFunding);
     }
 
     // ─── Лимит тегов ─────────────────────────────────────────────────────────
@@ -276,7 +278,133 @@ public sealed class MarketTagsBuilderTests
             orderBook: CreateOrderBook(0m),
             tradeFlow: CreateTradeFlow());
 
-        result.Should().BeEmpty();
+        result.Should().Contain(MarketTagsBuilder.TagUnknownMarketRegime);
+        result.Should().Contain(MarketTagsBuilder.TagNeutralFunding);
+    }
+
+    [Fact]
+    public void TradeFlow_Quality_Adds_Conflict_And_WeakConfirmation_Tags()
+    {
+        var result = Build(
+            tradeFlow: CreateTradeFlow(hasBuy: false, hasSell: true) with { BuyVolume = 0.4m, SellVolume = 0.3m },
+            sentiment: CreateSentiment("Trending") with
+            {
+                OrderBookPressureScore = 0.9m,
+                TradeFlowPressureScore = -0.8m,
+            });
+
+        result.Should().Contain(MarketTagsBuilder.TagLowTradeFlowVolume);
+        result.Should().Contain(MarketTagsBuilder.TagOrderBookTradeFlowConflict);
+        result.Should().Contain(MarketTagsBuilder.TagWeakTradeFlowConfirmation);
+    }
+
+    [Fact]
+    public void MarketRegime_Is_Trimmed_Before_Matching()
+    {
+        var result = Build(sentiment: CreateSentiment("  Neutral  "));
+
+        result.Should().Contain(MarketTagsBuilder.TagNeutral);
+        result.Should().NotContain(MarketTagsBuilder.TagUnknownMarketRegime);
+    }
+
+    [Fact]
+    public void Price_Close_To_24h_High_Adds_Near24hHigh_Tag()
+    {
+        var price = new PriceSnapshot
+        {
+            LastPrice = 100m,
+            High24h = 100.2m,
+            Low24h = 90m,
+        };
+
+        var result = Build(price: price, sentiment: CreateSentiment("Trending"));
+        result.Should().Contain(MarketTagsBuilder.TagNear24hHigh);
+    }
+
+    // ─── Сценарий 3: volatile market regime ──────────────────────────────────
+
+    [Fact]
+    public void MarketRegime_Volatile_Adds_VolatileRegime_Tag()
+    {
+        var result = Build(sentiment: CreateSentiment("Volatile"));
+
+        result.Should().Contain(MarketTagsBuilder.TagVolatileRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagNeutral);
+        result.Should().NotContain(MarketTagsBuilder.TagTrending);
+        result.Should().NotContain(MarketTagsBuilder.TagBullishRegime);
+        result.Should().NotContain(MarketTagsBuilder.TagBearishRegime);
+    }
+
+    // ─── Сценарий 4: declining OI ────────────────────────────────────────────
+
+    [Fact]
+    public void Derivatives_DecliningOI_Adds_OiDeclining_Tag()
+    {
+        var derivatives = CreateDerivatives() with
+        {
+            OpenInterestChange1hPct = -0.05m,
+            OpenInterestChange4hPct = -0.08m,
+        };
+
+        var result = Build(derivatives: derivatives);
+
+        result.Should().Contain(MarketTagsBuilder.TagOiDeclining);
+        result.Should().NotContain(MarketTagsBuilder.TagOiRising);
+    }
+
+    // ─── Сценарий 5: possible long unwinding ─────────────────────────────────
+
+    [Fact]
+    public void AggressiveSelling_With_DecliningOI_Adds_PossibleLongUnwinding_Tag()
+    {
+        var derivatives = CreateDerivatives() with
+        {
+            OpenInterestChange1hPct = -0.05m,
+            OpenInterestChange4hPct = -0.08m,
+        };
+
+        var result = Build(
+            derivatives: derivatives,
+            tradeFlow: CreateTradeFlow(hasBuy: false, hasSell: true));
+
+        result.Should().Contain(MarketTagsBuilder.TagAggressiveSelling);
+        result.Should().Contain(MarketTagsBuilder.TagOiDeclining);
+        result.Should().Contain(MarketTagsBuilder.TagPossibleLongUnwinding);
+        result.Should().NotContain(MarketTagsBuilder.TagPossibleShortCovering);
+    }
+
+    // ─── Сценарий 6: primary timeframe low volume ─────────────────────────────
+
+    [Fact]
+    public void PrimaryTimeframe_LowVolumeRatio_Adds_LowVolume_Tag()
+    {
+        var m15 = CreateTimeframe("15m", null, null, MarketTrend.Bullish) with
+        {
+            VolumeRatio = 0.1971m,
+        };
+
+        var result = Build(m15: m15, h1: null, h4: null);
+
+        result.Should().Contain(MarketTagsBuilder.TagLowVolume);
+    }
+
+    [Fact]
+    public void BetweenStrongSupportAndResistance_Does_Not_Trigger_Level_Tags_At_0_75pct()
+    {
+        var tf = CreateTimeframe(
+            "15m",
+            distanceToSupport1Pct: 0.75m,
+            distanceToResistance1Pct: 0.75m,
+            trend: MarketTrend.Bullish);
+
+        var result = Build(
+            sentiment: CreateSentiment("Trending"),
+            m15: tf,
+            h1: null,
+            h4: null);
+
+        result.Should().NotContain(MarketTagsBuilder.TagNearSupport);
+        result.Should().NotContain(MarketTagsBuilder.TagNearResistance);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -285,12 +413,20 @@ public sealed class MarketTagsBuilderTests
         DerivativesSnapshot? derivatives = null,
         OrderBookSnapshot? orderBook = null,
         TradeFlowSnapshot? tradeFlow = null,
-        SentimentSnapshot? sentiment = null) =>
+        SentimentSnapshot? sentiment = null,
+        PriceSnapshot? price = null,
+        TimeframeAnalysisSnapshot? m15 = null,
+        TimeframeAnalysisSnapshot? h1 = null,
+        TimeframeAnalysisSnapshot? h4 = null) =>
         MarketTagsBuilder.Build(
             derivatives ?? CreateDerivatives(),
             orderBook ?? CreateOrderBook(),
             tradeFlow ?? CreateTradeFlow(),
-            sentiment ?? CreateSentiment());
+            sentiment ?? CreateSentiment(),
+            price,
+            m15,
+            h1,
+            h4);
 
     private static SentimentSnapshot CreateSentiment(string marketRegime = "") =>
         new()
@@ -355,5 +491,48 @@ public sealed class MarketTagsBuilderTests
             MaxTradeSize = 25m,
             HasAggressiveBuyPressure = hasBuy,
             HasAggressiveSellPressure = hasSell,
+        };
+
+    private static TimeframeAnalysisSnapshot CreateTimeframe(
+        string timeframe,
+        decimal? distanceToSupport1Pct,
+        decimal? distanceToResistance1Pct,
+        MarketTrend trend) =>
+        new()
+        {
+            Timeframe = timeframe,
+            LastCandleOpenTimeUtc = DateTimeOffset.UtcNow,
+            LastCandle = new CandleSnapshot
+            {
+                OpenTimeUtc = DateTimeOffset.UtcNow,
+                Open = 100m,
+                High = 101m,
+                Low = 99m,
+                Close = 100m,
+                Volume = 100m,
+                Turnover = 10_000m,
+            },
+            Ema20 = 100m,
+            Ema50 = 100m,
+            Ema200 = 100m,
+            Rsi14 = 55m,
+            Rsi14IsReliable = true,
+            Atr14 = 1m,
+            VolumeSma20 = 100m,
+            VolumeRatio = 1m,
+            VolumeRatioIsReliable = true,
+            TrendStrengthScore = 0.6m,
+            Trend = trend,
+            Support1 = 99m,
+            Resistance1 = 101m,
+            DistanceToSupport1Pct = distanceToSupport1Pct,
+            DistanceToResistance1Pct = distanceToResistance1Pct,
+            IsAboveEma20 = true,
+            IsAboveEma50 = true,
+            IsAboveEma200 = true,
+            EmaBullishAlignment = true,
+            EmaBearishAlignment = false,
+            RsiOverbought = false,
+            RsiOversold = false,
         };
 }

@@ -41,7 +41,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         result.AnalysisContext.AnalysisMode.Should().Be("Intraday");
         result.AnalysisContext.PrimaryTimeframes.Should().Equal("15m", "1h", "4h");
         result.SnapshotHealth.Should().NotBeNull();
-        result.Tags.Should().Equal("trend", "momentum");
+        result.Tags.Should().ContainInOrder("trend", "momentum");
+        result.Tags.Should().Contain("no-clean-entry");
+        result.Tags.Should().Contain("trend-confirmed-entry-filtered");
 
         service.Verify(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()), Times.Once);
     }

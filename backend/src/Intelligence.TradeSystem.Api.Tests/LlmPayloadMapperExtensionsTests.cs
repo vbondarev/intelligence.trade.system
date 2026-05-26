@@ -605,4 +605,3 @@ public sealed class LlmPayloadMapperExtensionsTests
             CandleRangePct = 0.20m,
         };
 }
-

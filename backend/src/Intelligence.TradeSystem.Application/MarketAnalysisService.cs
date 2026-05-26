@@ -56,12 +56,18 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         var orderBook = OrderBookSnapshotAssembler.Assemble(collectedData.OrderBook!);
         var tradeFlow = TradeFlowSnapshotAssembler.Assemble(collectedData.Trades);
 
+        // Capture reference time before timeframe assembly to use as freshness anchor for tradeFlow.
+        // maxTradeFlowAgeMs defaults to TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs (5 s),
+        // which matches SnapshotFreshnessOptions.Default.Intraday.TradeFlowMaxAge — the strictest mode.
+        // The API-layer SnapshotHealthEvaluator still performs the authoritative isFresh / warnings judgement.
+        var capturedAtUtc = DateTimeOffset.UtcNow;
+
         var m15 = TimeframeSnapshotAssembler.Assemble(collectedData.M15Klines, "15m").Snapshot;
         var h1 = TimeframeSnapshotAssembler.Assemble(collectedData.H1Klines, "1h").Snapshot;
         var h4 = TimeframeSnapshotAssembler.Assemble(collectedData.H4Klines, "4h").Snapshot;
         var d1 = TimeframeSnapshotAssembler.Assemble(collectedData.D1Klines, "1d").Snapshot;
 
-        var sentiment = SentimentSnapshotAssembler.Assemble(derivatives, orderBook, tradeFlow, h1, h4);
+        var sentiment = SentimentSnapshotAssembler.Assemble(derivatives, orderBook, tradeFlow, h1, h4, capturedAtUtc);
         var portfolio = PortfolioSnapshotAssembler.Assemble(collectedData.WalletBalance, collectedData.OpenPositions);
 
         return MarketAnalysisSnapshotAssembler.Assemble(
