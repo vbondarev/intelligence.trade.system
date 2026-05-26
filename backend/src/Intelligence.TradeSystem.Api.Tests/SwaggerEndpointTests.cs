@@ -114,23 +114,6 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .GetString()
             .Should().Be("Название биржи, с которой был собран снимок.");
 
-        var aiAnalysisRequestSchema = root
-            .GetProperty("components")
-            .GetProperty("schemas")
-            .GetProperty("AiAnalysisRequest");
-
-        aiAnalysisRequestSchema
-            .GetProperty("description")
-            .GetString()
-            .Should().Be("Запрос API на построение AI-анализа по указанному инструменту.");
-
-        aiAnalysisRequestSchema
-            .GetProperty("properties")
-            .GetProperty("userQuery")
-            .GetProperty("description")
-            .GetString()
-            .Should().Be("Пользовательский запрос, который передаётся AI-сервису вместе с рыночным снимком.");
-
         var exchangeIdSchema = root
             .GetProperty("components")
             .GetProperty("schemas")
@@ -147,12 +130,6 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .Select(x => x.GetString())
             .Should().Contain("Bybit");
 
-        aiAnalysisRequestSchema
-            .GetProperty("properties")
-            .GetProperty("exchange")
-            .ToString()
-            .Should().Contain("ExchangeId");
-
         var marketCategorySchema = root
             .GetProperty("components")
             .GetProperty("schemas")
@@ -168,12 +145,6 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .EnumerateArray()
             .Select(x => x.GetString())
             .Should().Contain(["Spot", "Linear", "Inverse"]);
-
-        aiAnalysisRequestSchema
-            .GetProperty("properties")
-            .GetProperty("category")
-            .ToString()
-            .Should().Contain("MarketCategory");
     }
 
     [Fact]

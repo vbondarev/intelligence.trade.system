@@ -1,5 +1,4 @@
 using Intelligence.TradeSystem.Abstractions;
-using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
@@ -17,7 +16,6 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Route("api/market-analysis")]
 public sealed class MarketAnalysisController : ControllerBase
 {
-    private readonly ILlmAnalyticsService _llmAnalyticsService;
     private readonly IMarketAnalysisService _marketAnalysisService;
     private readonly ISnapshotHealthEvaluator _snapshotHealthEvaluator;
 
@@ -25,19 +23,14 @@ public sealed class MarketAnalysisController : ControllerBase
     /// Инициализирует новый экземпляр <see cref="MarketAnalysisController"/>.
     /// </summary>
     /// <param name="marketAnalysisService">Сервис построения агрегированного рыночного снимка.</param>
-    /// <param name="llmAnalyticsService">Сервис построения текстового AI-анализа по готовому рыночному снимку.</param>
     /// <param name="snapshotHealthEvaluator">Сервис оценки свежести снапшота.</param>
     /// <exception cref="ArgumentNullException">Если любая из зависимостей равна <c>null</c>.</exception>
     public MarketAnalysisController(
         IMarketAnalysisService marketAnalysisService,
-        ILlmAnalyticsService llmAnalyticsService,
         ISnapshotHealthEvaluator snapshotHealthEvaluator)
     {
-        _marketAnalysisService =
-            marketAnalysisService ?? throw new ArgumentNullException(nameof(marketAnalysisService));
-        _llmAnalyticsService = llmAnalyticsService ?? throw new ArgumentNullException(nameof(llmAnalyticsService));
-        _snapshotHealthEvaluator =
-            snapshotHealthEvaluator ?? throw new ArgumentNullException(nameof(snapshotHealthEvaluator));
+        _marketAnalysisService = marketAnalysisService;
+        _snapshotHealthEvaluator = snapshotHealthEvaluator;
     }
 
     /// <summary>
@@ -152,76 +145,6 @@ public sealed class MarketAnalysisController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Выполняет AI-анализ по указанному инструменту и пользовательскому запросу.
-    /// </summary>
-    /// <param name="request">Параметры инструмента и текст запроса к AI-анализу.</param>
-    /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
-    /// <returns>
-    /// HTTP 200 с <see cref="AiAnalysisResponse"/>, если AI-анализ успешно построен;
-    /// иначе один из стандартных problem-details ответов.
-    /// </returns>
-    [HttpPost("ai")]
-    [ProducesResponseType(typeof(AiAnalysisResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status502BadGateway)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<AiAnalysisResponse>> Ai(
-        [FromBody] AiAnalysisRequest? request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryValidateAiRequest(request, out var exchangeId, out var symbol, out var category, out var userQuery,
-                out var validationProblem))
-        {
-            return validationProblem!;
-        }
-
-        try
-        {
-            var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
-                exchangeId,
-                symbol,
-                category,
-                cancellationToken).ConfigureAwait(false);
-
-            var analysis = await _llmAnalyticsService.AnalyzeAsync(
-                snapshot,
-                userQuery,
-                cancellationToken).ConfigureAwait(false);
-
-            return Ok(new AiAnalysisResponse
-            {
-                Exchange = snapshot.Exchange,
-                Symbol = snapshot.Symbol,
-                Category = snapshot.Category,
-                Analysis = analysis,
-            });
-        }
-        catch (ArgumentException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (HttpRequestException exception)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status502BadGateway,
-                title: "AI provider request failed.",
-                detail: exception.Message);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "AI analysis is temporarily unavailable.",
-                detail: exception.Message);
-        }
-    }
-
     // ─── Validation ─────────────────────────────────────────────────────────
 
     private BadRequestObjectResult BadRequestProblem(string detail) =>
@@ -329,49 +252,6 @@ public sealed class MarketAnalysisController : ControllerBase
         return true;
     }
 
-    private bool TryValidateAiRequest(
-        AiAnalysisRequest? request,
-        out ExchangeId exchangeId,
-        out string symbol,
-        out MarketCategory category,
-        out string userQuery,
-        out BadRequestObjectResult? validationProblem)
-    {
-        if (request is null)
-        {
-            exchangeId = default;
-            symbol = string.Empty;
-            category = default;
-            userQuery = string.Empty;
-            validationProblem = BadRequestProblem("AI analysis request body is required.");
-            return false;
-        }
-
-        if (!TryValidateSnapshotRequest(
-                new SnapshotAnalysisRequest
-                {
-                    Exchange = request.Exchange,
-                    Symbol = request.Symbol,
-                    Category = request.Category,
-                },
-                out exchangeId,
-                out symbol,
-                out category,
-                out validationProblem))
-        {
-            userQuery = string.Empty;
-            return false;
-        }
-
-        if (!TryNormalizeRequiredString(request.UserQuery, "userQuery", out userQuery, out var userQueryError))
-        {
-            validationProblem = BadRequestProblem(userQueryError!);
-            return false;
-        }
-
-        validationProblem = null;
-        return true;
-    }
 
     private static bool TryNormalizeRequiredString(string? value, string fieldName, out string normalized,
         out string? error)

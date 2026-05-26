@@ -14,7 +14,6 @@ public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFact
 
     [Theory]
     [InlineData("/api/market-analysis/snapshot")]
-    [InlineData("/api/market-analysis/ai")]
     public async Task Get_Route_Returns_MethodNotAllowed(string route)
     {
         using var response = await _client.GetAsync(route);
