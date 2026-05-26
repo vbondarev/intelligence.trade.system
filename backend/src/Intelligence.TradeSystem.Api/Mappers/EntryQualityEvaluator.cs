@@ -78,6 +78,15 @@ internal static class EntryQualityEvaluator
     /// близости к релевантному уровню, состояния RSI и дополнительных фильтров
     /// (объём, EMA, свежесть снапшота, рыночный режим).
     /// </summary>
+    /// <param name="bias">Направление тренда таймфрейма. Neutral → Poor немедленно.</param>
+    /// <param name="isTrendConfirmed">Подтверждение тренда. Требуется для оценки Good.</param>
+    /// <param name="support1">Ближайший уровень поддержки (для Bullish). <c>null</c> → Poor.</param>
+    /// <param name="distanceToSupport1Pct">Дистанция до support1 в процентах. <c>null</c> / &lt; 0 → Poor.</param>
+    /// <param name="rsiOverbought"><c>true</c> — RSI перекуплен; при Bullish → Poor.</param>
+    /// <param name="resistance1">Ближайший уровень сопротивления (для Bearish). <c>null</c> → Poor.</param>
+    /// <param name="distanceToResistance1Pct">Дистанция до resistance1 в процентах. <c>null</c> / &lt; 0 → Poor.</param>
+    /// <param name="rsiOversold"><c>true</c> — RSI перепродан; при Bearish → Poor.</param>
+    /// <param name="volumeRatio">Отношение объёма к среднему. &lt; 0.25 → Poor; &lt; 0.5 → cap Fair; <c>null</c> → cap Fair.</param>
     /// <param name="isAboveEma20">
     /// <c>true</c> — цена выше EMA20; <c>false</c> — ниже; <c>null</c> — EMA недоступен.
     /// Неизвестное значение трактуется консервативно: считается конфликтом с bias.
@@ -87,6 +96,9 @@ internal static class EntryQualityEvaluator
     /// Рыночный режим (<see cref="MarketRegimes"/>). Сравнение регистронезависимо, пробелы обрезаются.
     /// <c>null</c> или пустая строка → неизвестный режим; трактуется консервативно: cap Fair.
     /// </param>
+    /// <param name="snapshotIsFresh"><c>false</c> → cap Fair; <c>false</c> + низкий объём → Poor.</param>
+    /// <param name="oppDistancePct">Дистанция до противоположного уровня в процентах. Отрицательная → игнорируется.</param>
+    /// <param name="oppStrength">Нормализованная сила противоположного уровня [0, 1].</param>
     /// <param name="entryLevelStrength">
     /// Нормализованная сила уровня входа [0, 1].
     /// <c>null</c> (по умолчанию) → неизвестная сила; cap Fair (Good запрещён).
