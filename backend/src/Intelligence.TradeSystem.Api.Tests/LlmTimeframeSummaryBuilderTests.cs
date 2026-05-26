@@ -142,17 +142,19 @@ public sealed class LlmTimeframeSummaryBuilderTests
 
     // ─── Invariant: Unknown ⇒ TrendStrengthLabel=Undefined ──────────────────
 
-    [Fact]
-    public void Build_Unknown_TrendStrengthLabelIsUndefined_RegardlessOfScore()
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.5)]
+    [InlineData(0.8)]
+    [InlineData(1.0)]
+    public void Build_Unknown_TrendStrengthLabelIsUndefined_RegardlessOfScore(double scoreDouble)
     {
-        foreach (var score in new[] { 0m, 0.5m, 0.8m, 1.0m })
-        {
-            var s = MakeSnapshot(trend: MarketTrend.Unknown, trendStrengthScore: score);
-            var r = BuildForTest(s);
+        var score = (decimal)scoreDouble;
+        var s = MakeSnapshot(trend: MarketTrend.Unknown, trendStrengthScore: score);
+        var r = BuildForTest(s);
 
-            r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Undefined,
-                because: $"Unknown trend with score={score} must yield Undefined");
-        }
+        r.TrendStrengthLabel.Should().Be(TrendStrengthLabel.Undefined,
+            because: $"Unknown trend with score={score} must yield Undefined");
     }
 
     // ─── EMA conflict: Bullish trend + emaBullish=false ⇒ Neutral bias ──────
@@ -1089,26 +1091,18 @@ public sealed class LlmTimeframeSummaryBuilderTests
 
     // ─── StaleSnapshot flag ────────────────────────────────────────────────────
 
-    [Fact]
-    public void RiskFlags_StaleSnapshot_AddsStaleSnapshotFlag()
-    {
-        var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
-            rsi14: 60m, trendStrengthScore: 0.85m);
-
-        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: false, marketRegime: MarketRegimes.Trending);
-
-        r.RiskFlags.Should().Contain("StaleSnapshot");
-    }
-
-    [Fact]
-    public void RiskFlags_FreshSnapshot_DoesNotAddStaleSnapshotFlag()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RiskFlags_StaleSnapshot_PresentOnlyWhenStale(bool snapshotIsFresh)
     {
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: true, marketRegime: MarketRegimes.Trending);
+        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: snapshotIsFresh, marketRegime: MarketRegimes.Trending);
 
-        r.RiskFlags.Should().NotContain("StaleSnapshot");
+        r.RiskFlags.Contains("StaleSnapshot").Should().Be(!snapshotIsFresh,
+            because: "StaleSnapshot flag is present iff snapshotIsFresh=false");
     }
 
     // ─── RsiAgainstBias flags ──────────────────────────────────────────────────

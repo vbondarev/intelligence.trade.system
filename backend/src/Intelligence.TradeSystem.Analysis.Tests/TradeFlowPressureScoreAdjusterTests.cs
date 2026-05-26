@@ -27,16 +27,17 @@ public sealed class TradeFlowPressureScoreAdjusterTests
 {
     private const long DefaultMaxAgeMs = TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs; // 5_000
 
-    // --- 1. Stale tradeFlow ---------------------------------------------------
+    // --- 1–2. Staleness-based caps -------------------------------------------
 
-    [Fact]
-    public void Stale_TradeFlow_Caps_Score_At_0_50()
+    [Theory]
+    [InlineData(-7_000, 0.50)]   // age > maxAge but < maxAge×2 → StaleCap
+    [InlineData(-25_000, 0.25)]  // age > maxAge×2 → VeryStaleCap
+    public void Staleness_Caps_Score_Based_On_Age(int windowEndOffsetMs, double expectedCap)
     {
-        // age = 7 000 ms > maxAge (5 000 ms) but < maxAge * 2 (10 000 ms) → StaleCap = 0.50
         var now = DateTimeOffset.UtcNow;
         var tradeFlow = CreateTradeFlow(
-            windowEnd: now.AddMilliseconds(-7_000),
-            windowStart: now.AddMilliseconds(-7_000 - 300_000),
+            windowEnd: now.AddMilliseconds(windowEndOffsetMs),
+            windowStart: now.AddMilliseconds(windowEndOffsetMs - 300_000),
             buyVolume: 50m, sellVolume: 50m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
@@ -46,38 +47,19 @@ public sealed class TradeFlowPressureScoreAdjusterTests
             capturedAtUtc: now,
             maxTradeFlowAgeMs: DefaultMaxAgeMs);
 
-        result.Should().BeLessThanOrEqualTo(0.50m);
+        result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
-    // --- 2. Very stale --------------------------------------------------------
+    // --- 3–5. Window-based caps -----------------------------------------------
 
-    [Fact]
-    public void Very_Stale_TradeFlow_Caps_Score_At_0_25()
-    {
-        // age = 25 000 ms > maxAge * 2 (10 000 ms) → VeryStaleCap = 0.25
-        var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateTradeFlow(
-            windowEnd: now.AddMilliseconds(-25_000),
-            windowStart: now.AddMilliseconds(-25_000 - 300_000),
-            buyVolume: 50m, sellVolume: 50m);
-
-        var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
-            rawScore: 1m,
-            tradeFlow: tradeFlow,
-            orderBookPressureScore: 0m,
-            capturedAtUtc: now,
-            maxTradeFlowAgeMs: DefaultMaxAgeMs);
-
-        result.Should().BeLessThanOrEqualTo(0.25m);
-    }
-
-    // --- 3. Window < 10 s -----------------------------------------------------
-
-    [Fact]
-    public void Window_Under_10s_Caps_Score_At_0_25()
+    [Theory]
+    [InlineData(8, 0.25)]   // < 10 s
+    [InlineData(20, 0.35)]  // [10, 30) s
+    [InlineData(45, 0.50)]  // [30, 60) s
+    public void Window_Caps_Score_Based_On_Duration(int windowSeconds, double expectedCap)
     {
         var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 8, buyVolume: 50m, sellVolume: 50m);
+        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: windowSeconds, buyVolume: 50m, sellVolume: 50m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
             rawScore: 1m,
@@ -85,16 +67,19 @@ public sealed class TradeFlowPressureScoreAdjusterTests
             orderBookPressureScore: 0m,
             capturedAtUtc: now);
 
-        result.Should().BeLessThanOrEqualTo(0.25m);
+        result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
-    // --- 4. Window [10, 30) s -------------------------------------------------
+    // --- 6–7. Volume-based caps -----------------------------------------------
 
-    [Fact]
-    public void Window_10_To_30s_Caps_Score_At_0_35()
+    [Theory]
+    [InlineData(0.872, 0.1, 0.35)]  // total < 1 BTC
+    [InlineData(1.5, 0.8, 0.50)]    // total 2.3 BTC ∈ [1, 3)
+    public void Volume_Caps_Score_Based_On_TotalVolume(double buyVolume, double sellVolume, double expectedCap)
     {
         var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 20, buyVolume: 50m, sellVolume: 50m);
+        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300,
+            buyVolume: (decimal)buyVolume, sellVolume: (decimal)sellVolume);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
             rawScore: 1m,
@@ -102,59 +87,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
             orderBookPressureScore: 0m,
             capturedAtUtc: now);
 
-        result.Should().BeLessThanOrEqualTo(0.35m);
-    }
-
-    // --- 5. Window [30, 60) s -------------------------------------------------
-
-    [Fact]
-    public void Window_30_To_60s_Caps_Score_At_0_50()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 45, buyVolume: 50m, sellVolume: 50m);
-
-        var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
-            rawScore: 1m,
-            tradeFlow: tradeFlow,
-            orderBookPressureScore: 0m,
-            capturedAtUtc: now);
-
-        result.Should().BeLessThanOrEqualTo(0.50m);
-    }
-
-    // --- 6. Volume < 1 BTC ---------------------------------------------------
-
-    [Fact]
-    public void Volume_Under_1_BTC_Caps_Score_At_0_35()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300, buyVolume: 0.872m, sellVolume: 0.1m);
-
-        var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
-            rawScore: 1m,
-            tradeFlow: tradeFlow,
-            orderBookPressureScore: 0m,
-            capturedAtUtc: now);
-
-        result.Should().BeLessThanOrEqualTo(0.35m);
-    }
-
-    // --- 7. Volume [1, 3) BTC ------------------------------------------------
-
-    [Fact]
-    public void Volume_1_To_3_BTC_Caps_Score_At_0_50()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300, buyVolume: 1.5m, sellVolume: 0.8m);
-        // total = 2.3 BTC ? [1, 3)
-
-        var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
-            rawScore: 1m,
-            tradeFlow: tradeFlow,
-            orderBookPressureScore: 0m,
-            capturedAtUtc: now);
-
-        result.Should().BeLessThanOrEqualTo(0.50m);
+        result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
     // --- 8. Conflict: obScore < 0 --------------------------------------------

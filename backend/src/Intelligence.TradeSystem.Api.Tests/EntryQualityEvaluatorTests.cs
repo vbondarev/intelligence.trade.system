@@ -75,24 +75,6 @@ public sealed class EntryQualityEvaluatorTests
     // ─── Bullish: Poor ───────────────────────────────────────────────────────
 
     [Fact]
-    public void Bullish_FarFromSupport_Returns_Poor()
-    {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 2.0m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "dist > 1.50 → Poor");
-    }
-
-    [Fact]
-    public void Bullish_NoSupport_Returns_Poor()
-    {
-        var result = EvaluateBullish(confirmed: true, support1: null, distS: 0.5m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "support1 == null → Poor");
-    }
-
-    [Fact]
     public void Bullish_ZeroDistance_Confirmed_ReturnsGood()
     {
         // dist == 0 means price is exactly at the support level (retest).
@@ -101,24 +83,6 @@ public sealed class EntryQualityEvaluatorTests
 
         result.Should().Be(EntryQuality.Good,
             because: "distancePct == 0 is a retest at the level; confirmed + strong setup → Good");
-    }
-
-    [Fact]
-    public void Bullish_NullDistance_Returns_Poor()
-    {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: null);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "distToSupport1 == null → Poor");
-    }
-
-    [Fact]
-    public void Bullish_Overbought_Returns_Poor()
-    {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.4m, overbought: true);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "rsiOverbought = true → Poor regardless of distance");
     }
 
     // ─── Bearish: Good ───────────────────────────────────────────────────────
@@ -155,33 +119,6 @@ public sealed class EntryQualityEvaluatorTests
     // ─── Bearish: Poor ───────────────────────────────────────────────────────
 
     [Fact]
-    public void Bearish_FarFromResistance_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 2.0m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "dist > 1.50 → Poor");
-    }
-
-    [Fact]
-    public void Bearish_NoResistance_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: null, distR: 0.3m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "resistance1 == null → Poor");
-    }
-
-    [Fact]
-    public void Bearish_Oversold_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m, oversold: true);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "rsiOversold = true → Poor regardless of distance");
-    }
-
-    [Fact]
     public void Bearish_ZeroDistance_Confirmed_ReturnsGood()
     {
         // dist == 0 means price is exactly at the resistance level (retest).
@@ -191,13 +128,43 @@ public sealed class EntryQualityEvaluatorTests
             because: "distancePct == 0 is a retest at the level; confirmed + strong setup → Good");
     }
 
-    [Fact]
-    public void Bearish_NullDistance_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: null);
+    // ─── Symmetry: Bullish/Bearish Poor conditions ───────────────────────────
 
-        result.Should().Be(EntryQuality.Poor,
-            because: "distToResistance1 == null → Poor");
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void FarFromLevel_Returns_Poor(TimeframeBias bias)
+    {
+        EvaluateByBias(bias, distancePct: 2.0m)
+            .Should().Be(EntryQuality.Poor, because: "dist > 1.50 → Poor");
+    }
+
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void NoLevel_Returns_Poor(TimeframeBias bias)
+    {
+        EvaluateByBias(bias, hasLevel: false)
+            .Should().Be(EntryQuality.Poor, because: "entry level == null → Poor");
+    }
+
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void NullDistance_Returns_Poor(TimeframeBias bias)
+    {
+        EvaluateByBias(bias, distancePct: null)
+            .Should().Be(EntryQuality.Poor, because: "distancePct == null → Poor");
+    }
+
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void RsiExtreme_Returns_Poor(TimeframeBias bias)
+    {
+        EvaluateByBias(bias, rsiExtreme: true, distancePct: 0.4m)
+            .Should().Be(EntryQuality.Poor,
+                because: "rsi overbought (Bullish) / oversold (Bearish) → Poor");
     }
 
     // ─── Граничные значения ──────────────────────────────────────────────────
@@ -296,14 +263,14 @@ public sealed class EntryQualityEvaluatorTests
 
     // ─── Volume rule ─────────────────────────────────────────────────────────
 
-    [Fact]
-    public void Bullish_Confirmed_VeryLowVolume_Returns_Poor()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void VeryLowVolume_Returns_Poor(TimeframeBias bias)
     {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            volumeRatio: 0.19m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "volumeRatio < 0.25 → Poor regardless of base quality");
+        EvaluateByBias(bias, volumeRatio: 0.19m)
+            .Should().Be(EntryQuality.Poor,
+                because: "volumeRatio < 0.25 → Poor regardless of base quality");
     }
 
     [Fact]
@@ -315,16 +282,6 @@ public sealed class EntryQualityEvaluatorTests
         result.Should().BeOneOf([EntryQuality.Fair, EntryQuality.Poor],
             because: "volumeRatio < 0.5 → not above Fair");
         result.Should().NotBe(EntryQuality.Good);
-    }
-
-    [Fact]
-    public void Bearish_Confirmed_VeryLowVolume_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            volumeRatio: 0.19m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "volumeRatio < 0.25 → Poor regardless of base quality");
     }
 
     [Fact]
@@ -622,54 +579,25 @@ public sealed class EntryQualityEvaluatorTests
 
     // ─── Volume rule: additional boundary tests ───────────────��───────────────
 
-    [Fact]
-    public void Bullish_LowVolume_0_49_Returns_AtMostFair()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish, 0.49)]
+    [InlineData(TimeframeBias.Bearish, 0.30)]
+    [InlineData(TimeframeBias.Bearish, 0.49)]
+    public void LowVolume_CapsAtFair(TimeframeBias bias, double ratio)
     {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            volumeRatio: 0.49m);
-
-        result.Should().NotBe(EntryQuality.Good,
-            because: "volumeRatio=0.49 < 0.50 → cap Fair");
+        EvaluateByBias(bias, volumeRatio: (decimal)ratio)
+            .Should().NotBe(EntryQuality.Good,
+                because: $"volumeRatio={ratio} < 0.50 → cap Fair");
     }
 
-    [Fact]
-    public void Bullish_NormalVolume_0_70_Returns_Good()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish, 0.70)]
+    [InlineData(TimeframeBias.Bearish, 0.70)]
+    public void NormalVolume_GoodPossible(TimeframeBias bias, double ratio)
     {
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            volumeRatio: 0.70m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "volumeRatio=0.70 ≥ 0.50 + all conditions OK → Good");
-    }
-
-    [Fact]
-    public void Bearish_LowVolume_0_30_Returns_AtMostFair()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            volumeRatio: 0.30m);
-
-        result.Should().NotBe(EntryQuality.Good,
-            because: "volumeRatio=0.30 < 0.50 → cap Fair");
-    }
-
-    [Fact]
-    public void Bearish_LowVolume_0_49_Returns_AtMostFair()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            volumeRatio: 0.49m);
-
-        result.Should().NotBe(EntryQuality.Good,
-            because: "volumeRatio=0.49 < 0.50 → cap Fair");
-    }
-
-    [Fact]
-    public void Bearish_NormalVolume_0_70_Returns_Good()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            volumeRatio: 0.70m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "volumeRatio=0.70 ≥ 0.50 + all conditions OK → Good");
+        EvaluateByBias(bias, volumeRatio: (decimal)ratio)
+            .Should().Be(EntryQuality.Good,
+                because: $"volumeRatio={ratio} ≥ 0.50 + all conditions OK → Good");
     }
 
     // ─── EMA rule: Good-positive cases ───────────────────────────────────────
@@ -818,70 +746,36 @@ public sealed class EntryQualityEvaluatorTests
             because: "null oppDistancePct (e.g. support above price) → no obstacle constraint");
     }
 
-    // ─── Higher TF: near/far resistance/support ───────────────────────────────
+    // ─── Higher TF: near/far opposite level (Bullish + Bearish) ─────────────
 
-    [Fact]
-    public void Bullish_HigherTfResistanceFar_DoesNotRestrictGood()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void HigherTfOppositeLevelFar_DoesNotRestrictGood(TimeframeBias bias)
     {
-        // h4 resistance at 0.50% (≥ 0.30%) → no cap
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            oppDistancePct: 0.50m, oppStrength: 0.85m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "higher TF resistance ≥ 0.30% → no opposite-level constraint → Good");
+        EvaluateByBias(bias, oppDistancePct: 0.50m, oppStrength: 0.85m)
+            .Should().Be(EntryQuality.Good,
+                because: "opp level ≥ 0.30% → no constraint → Good");
     }
 
-    [Fact]
-    public void Bullish_HigherTfResistanceNear_Returns_AtMostFair()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void HigherTfOppositeLevelNear_Returns_AtMostFair(TimeframeBias bias)
     {
-        // m15 resistance null, h4 resistance at 0.20% → cap Fair
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            oppDistancePct: 0.20m, oppStrength: 0.85m);
-
-        result.Should().NotBe(EntryQuality.Good,
-            because: "h4-like resistance 0.20% < 0.30% → Good forbidden");
+        EvaluateByBias(bias, oppDistancePct: 0.20m, oppStrength: 0.85m)
+            .Should().NotBe(EntryQuality.Good,
+                because: "opp level 0.20% < 0.30% → Good forbidden");
     }
 
-    [Fact]
-    public void Bullish_HigherTfStrongResistanceVeryClose_Returns_Poor()
+    [Theory]
+    [InlineData(TimeframeBias.Bullish)]
+    [InlineData(TimeframeBias.Bearish)]
+    public void HigherTfOppositeLevelVeryClose_Returns_Poor(TimeframeBias bias)
     {
-        // m15 resistance null, h4 strong resistance at 0.10% → Poor
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            oppDistancePct: 0.10m, oppStrength: 0.80m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "h4-like strong resistance 0.10% < 0.15% → Poor");
-    }
-
-    [Fact]
-    public void Bearish_HigherTfSupportFar_DoesNotRestrictGood()
-    {
-        // h4 support at 0.50% → no cap
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            oppDistancePct: 0.50m, oppStrength: 0.85m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "higher TF support ≥ 0.30% → no opposite-level constraint → Good");
-    }
-
-    [Fact]
-    public void Bearish_HigherTfSupportNear_Returns_AtMostFair()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            oppDistancePct: 0.20m, oppStrength: 0.85m);
-
-        result.Should().NotBe(EntryQuality.Good,
-            because: "h4-like support 0.20% < 0.30% → Good forbidden");
-    }
-
-    [Fact]
-    public void Bearish_HigherTfStrongSupportVeryClose_Returns_Poor()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
-            oppDistancePct: 0.10m, oppStrength: 0.80m);
-
-        result.Should().Be(EntryQuality.Poor,
-            because: "h4-like strong support 0.10% < 0.15% → Poor");
+        EvaluateByBias(bias, oppDistancePct: 0.10m, oppStrength: 0.80m)
+            .Should().Be(EntryQuality.Poor,
+                because: "opp level 0.10% < 0.15% → Poor");
     }
 
     // ─── Real-world BTCUSDT scenarios ─────────────────────────────────────────
@@ -986,26 +880,6 @@ public sealed class EntryQualityEvaluatorTests
     }
 
     // ─── Regression: distance == 0 ───────────────────────────────────────────
-
-    [Fact]
-    public void ZeroDistance_WithConfirmedBullish_ReturnsGood()
-    {
-        // dist == 0 is a retest of the level — Good is allowed if all other conditions hold.
-        var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "V2 contract: distancePct == 0 means retest at the level → Good allowed " +
-                     "when other conditions (confirmed, strong level, volume, EMA) are met");
-    }
-
-    [Fact]
-    public void ZeroDistance_WithConfirmedBearish_ReturnsGood()
-    {
-        var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0m);
-
-        result.Should().Be(EntryQuality.Good,
-            because: "V2 contract: distancePct == 0 means retest at the level → Good allowed");
-    }
 
     [Fact]
     public void ZeroDistance_Unconfirmed_ReturnsFair()
@@ -1267,6 +1141,32 @@ public sealed class EntryQualityEvaluatorTests
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    /// <summary>Dispatches by bias with clean defaults — used for symmetric Theory tests.</summary>
+    private static EntryQuality EvaluateByBias(
+        TimeframeBias bias,
+        bool confirmed = true,
+        decimal? distancePct = 0.5m,
+        bool hasLevel = true,
+        bool rsiExtreme = false,
+        decimal? volumeRatio = 1.0m,
+        decimal? oppDistancePct = null,
+        decimal? oppStrength = null)
+        => bias == TimeframeBias.Bullish
+            ? EvaluateBullish(confirmed,
+                support1: hasLevel ? 99m : null,
+                distS: distancePct,
+                overbought: rsiExtreme,
+                volumeRatio: volumeRatio,
+                oppDistancePct: oppDistancePct,
+                oppStrength: oppStrength)
+            : EvaluateBearish(confirmed,
+                resistance1: hasLevel ? 110m : null,
+                distR: distancePct,
+                oversold: rsiExtreme,
+                volumeRatio: volumeRatio,
+                oppDistancePct: oppDistancePct,
+                oppStrength: oppStrength);
 
     /// <summary>Bullish helper. Permissive defaults для параметров, чтобы старые тесты не ограничивались.</summary>
     private static EntryQuality EvaluateBullish(

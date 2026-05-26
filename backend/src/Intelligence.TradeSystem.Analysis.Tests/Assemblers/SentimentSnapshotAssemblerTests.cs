@@ -7,79 +7,27 @@ namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
 
 public sealed class SentimentSnapshotAssemblerTests
 {
-    [Fact]
-    public void Throws_ArgumentNullException_When_Derivatives_Is_Null()
+    [Theory]
+    [InlineData(0, "derivatives")]
+    [InlineData(1, "orderBook")]
+    [InlineData(2, "tradeFlow")]
+    [InlineData(3, "h1")]
+    [InlineData(4, "h4")]
+    public void Throws_ArgumentNullException_For_Null_Parameter(int nullParamIndex, string paramName)
     {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            null!,
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
+        Action act = nullParamIndex switch
+        {
+            0 => () => SentimentSnapshotAssembler.Assemble(null!, CreateOrderBook(), CreateTradeFlow(), CreateTimeframe("1h"), CreateTimeframe("4h")),
+            1 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), null!, CreateTradeFlow(), CreateTimeframe("1h"), CreateTimeframe("4h")),
+            2 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), null!, CreateTimeframe("1h"), CreateTimeframe("4h")),
+            3 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), CreateTradeFlow(), null!, CreateTimeframe("4h")),
+            4 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), CreateTradeFlow(), CreateTimeframe("1h"), null!),
+            _ => throw new ArgumentOutOfRangeException(nameof(nullParamIndex))
+        };
 
         act.Should()
             .Throw<ArgumentNullException>()
-            .WithParameterName("derivatives");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_OrderBook_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            null!,
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("orderBook");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_TradeFlow_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            null!,
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("tradeFlow");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_H1_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            null!,
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("h1");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_H4_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            null!);
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("h4");
+            .WithParameterName(paramName);
     }
 
     [Fact]
