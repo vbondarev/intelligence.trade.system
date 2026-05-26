@@ -17,8 +17,8 @@
 - Don't silently change public payload contracts, enum serialization shape, or schema-version semantics.
 
 ## What this project does
-- `Program.cs` wires controllers, Swagger, service defaults, AI services, application services, and the Bybit exchange registration.
-- `Controllers/MarketAnalysisController.cs` is the main entrypoint for snapshot, LLM payload, and AI analysis flows.
+- `Program.cs` wires controllers, Swagger, service defaults, application services, and the Bybit exchange registration.
+- `Controllers/MarketAnalysisController.cs` is the main entrypoint for snapshot and LLM payload flows.
 - `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketAnalysisSnapshot` into the public LLM payload contract.
 
 ## Endpoint and validation patterns
