@@ -139,8 +139,8 @@ internal static class LlmTimeframeSummaryBuilder
 
     /// <summary>
     /// Structural confirmation:
-    /// Bullish: emaBullishAlignment && price above EMA200.
-    /// Bearish: emaBearishAlignment && price below EMA200.
+    /// Bullish: emaBullishAlignment &amp;&amp; price above EMA200.
+    /// Bearish: emaBearishAlignment &amp;&amp; price below EMA200.
     /// Execution filters are applied later by EntryQuality/RiskFlags.
     /// </summary>
     private static bool ComputeIsTrendConfirmed(
