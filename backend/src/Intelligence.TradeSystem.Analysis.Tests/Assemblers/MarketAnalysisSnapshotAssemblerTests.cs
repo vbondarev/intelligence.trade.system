@@ -104,9 +104,8 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         result.Sentiment.Should().BeSameAs(sentiment);
         result.Portfolio.Should().BeSameAs(portfolio);
 
-        // V2: MeanReversion маппится в unknown-market-regime; RSI/structure теги учитываются.
         result.Tags.Should().Equal(
-            "unknown-market-regime",
+            "mean-reversion-regime",
             "bid-pressure",
             "aggressive-buying",
             "positive-funding",
@@ -274,7 +273,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         result.Category.Should().Be("inverse");
         // V2: MeanReversion → unknown-market-regime; RSI/structure теги добавляются.
         result.Tags.Should().Equal(
-            "unknown-market-regime",
+            "mean-reversion-regime",
             "ask-pressure",
             "aggressive-selling",
             "negative-funding",
