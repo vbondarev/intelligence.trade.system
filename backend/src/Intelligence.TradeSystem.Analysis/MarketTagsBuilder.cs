@@ -495,7 +495,7 @@ internal static class MarketTagsBuilder
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private static IReadOnlyList<TimeframeAnalysisSnapshot> GetNonNullTfs(
+    private static List<TimeframeAnalysisSnapshot> GetNonNullTfs(
         TimeframeAnalysisSnapshot? m15,
         TimeframeAnalysisSnapshot? h1,
         TimeframeAnalysisSnapshot? h4)
