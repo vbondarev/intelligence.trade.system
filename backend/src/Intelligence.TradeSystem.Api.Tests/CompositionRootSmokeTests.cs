@@ -1,6 +1,5 @@
 ﻿using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Abstractions;
-using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Application;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +27,5 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
         serviceProvider.GetRequiredService<IPrivateAccountProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IBybitProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IMarketAnalysisService>().Should().NotBeNull();
-        serviceProvider.GetRequiredService<ILlmAnalyticsService>().Should().NotBeNull();
-        serviceProvider.GetRequiredService<IOpenRouterClient>().Should().NotBeNull();
     }
 }

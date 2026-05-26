@@ -40,18 +40,16 @@
 
 ## Big picture
 - This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
-- Main dependency direction: `Domain` contracts → `Indicators` / `Analysis` / `Analytics` / `Ai` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
+- Main dependency direction: `Domain` contracts → `Indicators` / `Analysis` / `Analytics` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
 - `Application` does not calculate indicators itself: `MarketDataCollector` fetches raw data, then `MarketAnalysisService` delegates assembly to `Analysis.Assemblers`.
-- `Analytics` interprets an existing `MarketAnalysisSnapshot`; `Ai` builds prompt payloads and calls OpenRouter without recalculating market data.
+- `Analytics` interprets an existing `MarketAnalysisSnapshot` without recalculating market data.
 
 ## Request and data flow
 - Snapshot path: `MarketAnalysisController` → `IMarketAnalysisService` → `IMarketDataCollector` → capability interfaces backed by `BybitProvider` → `Analysis.Assemblers` → `MarketAnalysisSnapshot`.
-- AI path extends snapshot flow with `IAnalyticsOutputComposer` → `IPromptBuilder` → `IOpenRouterClient`.
-- Key files: `Intelligence.TradeSystem.Api/Controllers/MarketAnalysisController.cs`, `Intelligence.TradeSystem.Application/MarketDataCollector.cs`, `Intelligence.TradeSystem.Application/MarketAnalysisService.cs`, `Intelligence.TradeSystem.Analysis/Assemblers/MarketAnalysisSnapshotAssembler.cs`, `Intelligence.TradeSystem.Ai/LlmAnalyticsService.cs`.
+- Key files: `Intelligence.TradeSystem.Api/Controllers/MarketAnalysisController.cs`, `Intelligence.TradeSystem.Application/MarketDataCollector.cs`, `Intelligence.TradeSystem.Application/MarketAnalysisService.cs`, `Intelligence.TradeSystem.Analysis/Assemblers/MarketAnalysisSnapshotAssembler.cs`.
 
 ## Current constraints
 - Orchestration is currently `Bybit`-only; both `MarketDataCollector` and `MarketAnalysisService` reject other exchanges.
-- `OpenRouterClient` supports only provider `OpenRouter`.
 - `includeAggregatedContext=true` is not supported yet; `AggregatedContext` stays `null` in payloads.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
 - `Portfolio` always exists in `MarketAnalysisSnapshot`, but the `portfolio` section in LLM payload is emitted only when `includePortfolio=true`.
@@ -59,14 +57,14 @@
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.Domain/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts.
 - Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
-- If you change snapshot fields, update all affected assemblers, payload mappers, prompt generation, and tests.
+- If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
 - Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`.
 - `AnalysisMode` drives payload shape and primary timeframes: `Intraday = 15m/1h/4h`, `Swing = 1h/4h/1d`, `Portfolio = 4h/1d`.
 
 ## Contract change checklist
-- If you change snapshot fields, review `Domain/Snapshots`, `Analysis.Assemblers`, API payload mappers, prompt generation, and affected tests together.
+- If you change snapshot fields, review `Domain/Snapshots`, `Analysis.Assemblers`, API payload mappers, and affected tests together.
 - If you change API payload/request models, review controller validation, `ProblemDetails` mapping, schema/version assumptions, and API tests together.
-- If you change indicator-derived values, review downstream snapshot fields, payload mapping, analytics/prompt formatting, and indicator/analysis tests together.
+- If you change indicator-derived values, review downstream snapshot fields, payload mapping, analytics output, and indicator/analysis tests together.
 - If you change exchange-mapped fields, review provider mapping, normalized domain models, application orchestration, and exchange/application tests together.
 - For public or wire-visible contracts, prefer extend-only changes: add new fields or new paths instead of renaming/removing existing members or silently changing established semantics.
 - If a change is intentionally breaking, make the breaking impact explicit in the same change set and update dependent consumers, tests, and version/schema assumptions together.
@@ -105,4 +103,3 @@
 - If you change indicator calculations, check `Intelligence.TradeSystem.Indicators`, `Analysis.Assemblers`, and `Intelligence.TradeSystem.Indicators.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `Analysis.Assemblers`, `Domain/Snapshots`, payload mappers, and `Analysis.Tests` / `Api.Tests`.
-- If you change prompt or AI transport, check `PromptBuilder`, `OpenRouterClient`, `LlmAnalyticsService`, and `Ai.Tests`.

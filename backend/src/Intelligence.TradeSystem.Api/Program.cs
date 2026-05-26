@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
-using Intelligence.TradeSystem.Ai;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Services;
@@ -62,11 +61,7 @@ public partial class Program
                 options.IncludeXmlComments(xmlFilePath, includeControllerXmlComments: true);
             }
         });
-        builder.Services.AddSingleton(_ => builder.Configuration.GetSection(LlmOptions.SectionName).Get<LlmOptions>() ?? new LlmOptions());
-        builder.Services.AddHttpClient<IOpenRouterClient, OpenRouterClient>();
         builder.Services.AddAnalytics();
-        builder.Services.AddScoped<IPromptBuilder, PromptBuilder>();
-        builder.Services.AddScoped<ILlmAnalyticsService, LlmAnalyticsService>();
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
         var freshnessOptions = builder.Configuration
