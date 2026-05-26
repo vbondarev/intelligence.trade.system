@@ -8,31 +8,22 @@ public sealed class AtrCalculatorTests
 {
     // ── Guard clauses ────────────────────────────────────────────────────────
 
-    [Fact]
-    public void Throws_ArgumentNullException_When_Highs_Is_Null()
+    [Theory]
+    [InlineData(0, "highs")]
+    [InlineData(1, "lows")]
+    [InlineData(2, "closes")]
+    public void Throws_ArgumentNullException_For_Null_Parameter(int nullParamIndex, string paramName)
     {
-        var act = () => AtrCalculator.Compute(null!, [90m, 100m], [95m, 105m]);
+        Action act = nullParamIndex switch
+        {
+            0 => () => AtrCalculator.Compute(null!, [90m, 100m], [95m, 105m]),
+            1 => () => AtrCalculator.Compute([100m, 110m], null!, [95m, 105m]),
+            2 => () => AtrCalculator.Compute([100m, 110m], [90m, 100m], null!),
+            _ => throw new ArgumentOutOfRangeException(nameof(nullParamIndex))
+        };
 
         act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("highs");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_Lows_Is_Null()
-    {
-        var act = () => AtrCalculator.Compute([100m, 110m], null!, [95m, 105m]);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("lows");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_Closes_Is_Null()
-    {
-        var act = () => AtrCalculator.Compute([100m, 110m], [90m, 100m], null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("closes");
+            .WithParameterName(paramName);
     }
 
     [Theory]

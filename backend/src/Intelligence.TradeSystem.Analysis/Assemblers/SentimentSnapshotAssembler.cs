@@ -58,13 +58,23 @@ public static class SentimentSnapshotAssembler
     /// <param name="tradeFlow">Снапшот потока совершённых сделок.</param>
     /// <param name="h1">Снапшот технического анализа на таймфрейме 1 ч.</param>
     /// <param name="h4">Снапшот технического анализа на таймфрейме 4 ч.</param>
+    /// <param name="capturedAtUtc">
+    /// Момент фиксации снапшота. Используется для проверки freshness tradeFlow.
+    /// Если <c>null</c>, freshness cap не применяется.
+    /// </param>
+    /// <param name="maxTradeFlowAgeMs">
+    /// Максимальный допустимый возраст tradeFlow в мс для freshness cap.
+    /// По умолчанию — <see cref="TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">Если любой из обязательных параметров равен <c>null</c>.</exception>
     public static SentimentSnapshot Assemble(
         DerivativesSnapshot derivatives,
         OrderBookSnapshot orderBook,
         TradeFlowSnapshot tradeFlow,
         TimeframeAnalysisSnapshot h1,
-        TimeframeAnalysisSnapshot h4)
+        TimeframeAnalysisSnapshot h4,
+        DateTimeOffset? capturedAtUtc = null,
+        long maxTradeFlowAgeMs = TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs)
     {
         // 1. Validate
         ArgumentNullException.ThrowIfNull(derivatives);
@@ -93,8 +103,12 @@ public static class SentimentSnapshotAssembler
             orderBook.ImbalanceTop20 * ImbalanceWeightTop20,
             4);
 
-        // 5. TradeFlowPressureScore — normalized delta + aggressive pressure floor
-        var tradeFlowPressureScore = ComputeTradeFlowPressureScore(tradeFlow);
+        // 5. TradeFlowPressureScore — normalized delta + aggressive pressure floor + quality caps
+        var tradeFlowPressureScore = ComputeTradeFlowPressureScore(
+            tradeFlow,
+            orderBookPressureScore,
+            capturedAtUtc,
+            maxTradeFlowAgeMs);
 
         // 6. MarketRegime — heuristic from H1 and H4
         var marketRegime = ClassifyMarketRegime(h1, h4);
@@ -135,9 +149,15 @@ public static class SentimentSnapshotAssembler
     /// <list type="bullet">
     ///   <item>Нормализует <c>DeltaPct</c> в [−1, 1] делением на <see cref="TradeFlowNormalizationFactor"/>.</item>
     ///   <item>Обеспечивает минимальный абсолютный скор <see cref="AggressivePressureFloor"/> при выставленных флагах агрессии.</item>
+    ///   <item>Применяет quality caps через <see cref="TradeFlowPressureScoreAdjuster.ApplyCaps"/>:
+    ///     freshness, window duration, volume и конфликт с orderBook.</item>
     /// </list>
     /// </summary>
-    private static decimal ComputeTradeFlowPressureScore(TradeFlowSnapshot tradeFlow)
+    private static decimal ComputeTradeFlowPressureScore(
+        TradeFlowSnapshot tradeFlow,
+        decimal orderBookPressureScore,
+        DateTimeOffset? capturedAtUtc,
+        long maxTradeFlowAgeMs)
     {
         var score = Math.Clamp(tradeFlow.DeltaPct / TradeFlowNormalizationFactor, -1m, 1m);
 
@@ -151,6 +171,14 @@ public static class SentimentSnapshotAssembler
         {
             score = -AggressivePressureFloor;
         }
+
+        // Apply quality caps (freshness / window / volume / orderBook conflict)
+        score = TradeFlowPressureScoreAdjuster.ApplyCaps(
+            score,
+            tradeFlow,
+            orderBookPressureScore,
+            capturedAtUtc,
+            maxTradeFlowAgeMs);
 
         return Math.Round(score, 4);
     }

@@ -25,6 +25,19 @@ internal static class LlmPayloadMapperExtensions
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(health);
 
+        // Строим TF-payload вместе с summary для последующего обогащения тегов.
+        var (m15Payload, m15Summary) = BuildTimeframeWithResult(snapshot.M15, health.IsFresh,
+            snapshot.Sentiment.MarketRegime, snapshot.H1, snapshot.H4);
+        var (h1Payload, h1Summary) = BuildTimeframeWithResult(snapshot.H1, health.IsFresh,
+            snapshot.Sentiment.MarketRegime, snapshot.H4, snapshot.D1);
+        var (h4Payload, h4Summary) = BuildTimeframeWithResult(snapshot.H4, health.IsFresh,
+            snapshot.Sentiment.MarketRegime, snapshot.D1);
+        var (d1Payload, d1Summary) = BuildTimeframeWithResult(snapshot.D1, health.IsFresh,
+            snapshot.Sentiment.MarketRegime);
+
+        var enrichedTags = LlmTagEnricher.Enrich(
+            snapshot.Tags, health, m15Summary, h1Summary, h4Summary, d1Summary, mode);
+
         return new LlmMarketAnalysisPayload
         {
             SchemaVersion = SchemaVersion,
@@ -38,12 +51,12 @@ internal static class LlmPayloadMapperExtensions
             Derivatives = BuildDerivatives(snapshot.Derivatives),
             OrderBook = BuildOrderBook(snapshot.OrderBook),
             TradeFlow = BuildTradeFlow(snapshot.TradeFlow),
-            M15 = BuildTimeframe(snapshot.M15),
-            H1 = BuildTimeframe(snapshot.H1),
-            H4 = BuildTimeframe(snapshot.H4),
-            D1 = BuildTimeframe(snapshot.D1),
+            M15 = m15Payload,
+            H1 = h1Payload,
+            H4 = h4Payload,
+            D1 = d1Payload,
             Sentiment = BuildSentiment(snapshot.Sentiment),
-            Tags = [.. snapshot.Tags],
+            Tags = [.. enrichedTags],
             Portfolio = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
             AggregatedContext = null,
             IndicatorDiagnostics = [.. snapshot.IndicatorDiagnostics.Select(d => new LlmIndicatorDiagnosticPayload
@@ -184,9 +197,26 @@ internal static class LlmPayloadMapperExtensions
 
     private const string LevelSourceV1 = "volume-profile";
 
-    private static LlmTimeframePayload BuildTimeframe(TimeframeAnalysisSnapshot s)
+    /// <summary>
+    /// Строит TF-payload и возвращает также summary-результат для использования в LlmTagEnricher.
+    /// </summary>
+    private static (LlmTimeframePayload Payload, LlmTimeframeSummaryResult Summary) BuildTimeframeWithResult(
+        TimeframeAnalysisSnapshot s, bool snapshotIsFresh, string? marketRegime,
+        params TimeframeAnalysisSnapshot[] higherTfs)
     {
-        var r = LlmTimeframeSummaryBuilder.Build(s);
+        var bias = PrecomputeBias(s);
+        var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTfs);
+        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+        return (BuildTimeframePayload(s, r), r);
+    }
+
+    private static LlmTimeframePayload BuildTimeframe(
+        TimeframeAnalysisSnapshot s, bool snapshotIsFresh, string? marketRegime,
+        params TimeframeAnalysisSnapshot[] higherTfs)
+        => BuildTimeframeWithResult(s, snapshotIsFresh, marketRegime, higherTfs).Payload;
+
+    private static LlmTimeframePayload BuildTimeframePayload(TimeframeAnalysisSnapshot s, LlmTimeframeSummaryResult r)
+    {
         var lastClose = s.LastCandle.Close;
 
         return new LlmTimeframePayload
@@ -326,4 +356,55 @@ internal static class LlmPayloadMapperExtensions
             Leverage = s.Leverage,
             LiquidationPrice = s.LiquidationPrice,
         };
+
+    // ─── Higher-TF level resolution ─────────────────────────────────────────
+
+    /// <summary>
+    /// Pre-computes bias from snapshot fields using the same deterministic rule as
+    /// <see cref="LlmTimeframeSummaryBuilder"/> so the correct kind of higher-TF
+    /// obstacle level can be selected (resistance for Bullish, support for Bearish)
+    /// before calling Build.
+    /// </summary>
+    private static TimeframeBias PrecomputeBias(TimeframeAnalysisSnapshot s) =>
+        s.Trend switch
+        {
+            MarketTrend.Bullish when s.EmaBullishAlignment => TimeframeBias.Bullish,
+            MarketTrend.Bearish when s.EmaBearishAlignment => TimeframeBias.Bearish,
+            _ => TimeframeBias.Neutral,
+        };
+
+    /// <summary>
+    /// Returns the nearest relevant opposite level from the supplied higher-timeframe
+    /// snapshots that acts as a potential obstacle for the given bias direction.
+    /// <para>
+    /// For <see cref="TimeframeBias.Bullish"/> — nearest Resistance1 above price.<br/>
+    /// For <see cref="TimeframeBias.Bearish"/> — nearest Support1 below price.
+    /// </para>
+    /// Only levels with a non-negative distance are considered.
+    /// A negative distance means the level is on the wrong side of price and is ignored.
+    /// Distance == 0 is valid and represents an obstacle exactly at the current price.
+    /// A null distance means the level is absent — ignored.
+    /// </summary>
+    private static NearestOppositeLevel? ResolveHigherTfOppositeLevel(
+        TimeframeBias bias, TimeframeAnalysisSnapshot[] higherTfs)
+    {
+        if (bias == TimeframeBias.Neutral || higherTfs.Length == 0) return null;
+
+        NearestOppositeLevel? best = null;
+        foreach (var htf in higherTfs)
+        {
+            var (dist, strength) = bias == TimeframeBias.Bullish
+                ? (htf.DistanceToResistance1Pct, htf.Resistance1Strength)
+                : (htf.DistanceToSupport1Pct, htf.Support1Strength);
+
+            // Skip if level is absent or on the wrong side of the price.
+            if (dist is null or < 0m) continue;
+
+            var candidate = new NearestOppositeLevel(dist.Value, strength);
+            if (best is null || dist.Value < best.DistancePct)
+                best = candidate;
+        }
+
+        return best;
+    }
 }

@@ -53,34 +53,26 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.Ema200.Should().NotBeNull().And.NotBe(0m);
     }
 
-    [Fact]
-    public void IsAboveEma20_Matches_Close_Greater_Than_Ema20()
+    [Theory]
+    [InlineData(20)]
+    [InlineData(50)]
+    [InlineData(200)]
+    public void IsAboveEmaX_MatchesCloseVsEmaX(int period)
     {
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
+        var s = result.Snapshot;
 
-        var expectedIsAbove = result.Snapshot.Ema20.HasValue && result.Snapshot.LastCandle.Close > result.Snapshot.Ema20.Value;
-        result.Snapshot.IsAboveEma20.Should().Be(expectedIsAbove);
-    }
+        var (emaValue, isAbove) = period switch
+        {
+            20  => (s.Ema20, s.IsAboveEma20),
+            50  => (s.Ema50, s.IsAboveEma50),
+            200 => (s.Ema200, s.IsAboveEma200),
+            _   => throw new ArgumentOutOfRangeException(nameof(period))
+        };
 
-    [Fact]
-    public void IsAboveEma50_Matches_Close_Greater_Than_Ema50()
-    {
-        var klines = KlineFactory.CreateSeries(count: 250);
-        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
-
-        var expectedIsAbove = result.Snapshot.Ema50.HasValue && result.Snapshot.LastCandle.Close > result.Snapshot.Ema50.Value;
-        result.Snapshot.IsAboveEma50.Should().Be(expectedIsAbove);
-    }
-
-    [Fact]
-    public void IsAboveEma200_Matches_Close_Greater_Than_Ema200()
-    {
-        var klines = KlineFactory.CreateSeries(count: 250);
-        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
-
-        var expectedIsAbove = result.Snapshot.Ema200.HasValue && result.Snapshot.LastCandle.Close > result.Snapshot.Ema200.Value;
-        result.Snapshot.IsAboveEma200.Should().Be(expectedIsAbove);
+        var expectedIsAbove = emaValue.HasValue && s.LastCandle.Close > emaValue.Value;
+        isAbove.Should().Be(expectedIsAbove);
     }
 
     [Fact]
@@ -192,17 +184,6 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Snapshot.Rsi14.Should().BeNull();
         result.Snapshot.Rsi14IsReliable.Should().BeFalse();
-        result.Snapshot.RsiOverbought.Should().BeFalse();
-        result.Snapshot.RsiOversold.Should().BeFalse();
-    }
-
-    [Fact]
-    public void RsiOverbought_And_RsiOversold_Are_False_When_Rsi_Unavailable()
-    {
-        // Явная защита: даже если RSI=0 (из-за unavailable), флаги не должны быть true.
-        var klines = KlineFactory.CreateSeries(count: 5);
-        var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
-
         result.Snapshot.RsiOverbought.Should().BeFalse();
         result.Snapshot.RsiOversold.Should().BeFalse();
     }

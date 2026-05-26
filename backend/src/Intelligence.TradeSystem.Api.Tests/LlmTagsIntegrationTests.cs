@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Analysis;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
@@ -20,12 +21,53 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     private const string Url =
         "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
 
-    private static readonly IReadOnlyList<string> _v1Whitelist =
+    private static readonly IReadOnlyList<string> _allowedTags =
     [
-        "trending", "neutral",
-        "positive-funding", "negative-funding",
-        "bid-pressure", "ask-pressure",
-        "aggressive-buying", "aggressive-selling",
+        MarketTagConstants.Trending,
+        MarketTagConstants.Neutral,
+        MarketTagConstants.PositiveFunding,
+        MarketTagConstants.NegativeFunding,
+        MarketTagConstants.BidPressure,
+        MarketTagConstants.AskPressure,
+        MarketTagConstants.AggressiveBuying,
+        MarketTagConstants.AggressiveSelling,
+        MarketTagConstants.VolatileRegime,
+        MarketTagConstants.BullishRegime,
+        MarketTagConstants.BearishRegime,
+        MarketTagConstants.UnknownMarketRegime,
+        MarketTagConstants.StaleSnapshot,
+        MarketTagConstants.StaleOrderBook,
+        MarketTagConstants.StaleTradeFlow,
+        MarketTagConstants.ShortTradeFlowWindow,
+        MarketTagConstants.LowTradeFlowVolume,
+        MarketTagConstants.OrderBookTradeFlowConflict,
+        MarketTagConstants.WeakTradeFlowConfirmation,
+        MarketTagConstants.StrongOrderBookImbalance,
+        MarketTagConstants.UpperLiquidityHeavy,
+        MarketTagConstants.LowerLiquidityHeavy,
+        MarketTagConstants.OiDeclining,
+        MarketTagConstants.OiRising,
+        MarketTagConstants.LongCrowded,
+        MarketTagConstants.ShortCrowded,
+        MarketTagConstants.PossibleShortCovering,
+        MarketTagConstants.PossibleLongUnwinding,
+        MarketTagConstants.NeutralFunding,
+        MarketTagConstants.Near24hHigh,
+        MarketTagConstants.Near24hLow,
+        MarketTagConstants.LowVolume,
+        MarketTagConstants.RsiOverbought,
+        MarketTagConstants.RsiOversold,
+        MarketTagConstants.WeakTrend,
+        MarketTagConstants.RangeBound,
+        MarketTagConstants.NeutralTimeframes,
+        MarketTagConstants.NearResistance,
+        MarketTagConstants.NearSupport,
+        MarketTagConstants.OverextendedMomentum,
+        MarketTagConstants.DirectionalTrendWithNeutralRegime,
+        MarketTagConstants.NoCleanEntry,
+        MarketTagConstants.ActionableEntry,
+        MarketTagConstants.WeakEntryConfirmation,
+        MarketTagConstants.TrendConfirmedEntryFiltered,
     ];
 
     private readonly WebApplicationFactory<Program> _factory;
@@ -57,8 +99,8 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
 
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
 
-        tags.Count.Should().BeInRange(0, 4,
-            because: "лимит V1 = 4 тега");
+        tags.Count.Should().BeInRange(0, MarketTagConstants.MaxTags,
+            because: "лимит V2 = 20 тегов");
     }
 
     [Fact]
@@ -73,7 +115,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task Tags_Contain_Only_V1_Whitelist_Values()
+    public async Task Tags_Contain_Only_Allowed_Whitelist_Values()
     {
         using var client = CreateClientWithSnapshot(BuildKnownSnapshot());
         using var response = await client.GetAsync(Url);
@@ -82,8 +124,8 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
 
         foreach (var tag in tags)
         {
-            _v1Whitelist.Should().Contain(tag,
-                because: $"тег '{tag}' отсутствует в V1 whitelist");
+            _allowedTags.Should().Contain(tag,
+                because: $"тег '{tag}' отсутствует в V2 whitelist");
         }
     }
 
@@ -126,11 +168,8 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task Tags_Do_Not_Contain_Non_V1_Tags_Like_FundingSpike_Or_RsiOverbought()
+    public async Task Tags_Can_Contain_V2_EntryQuality_Tags_From_Enricher()
     {
-        // API копирует теги из snapshot.Tags напрямую — builder тестируется unit-тестами.
-        // Здесь проверяем, что snapshot с тегом "positive-funding" возвращает именно его,
-        // и в ответе нет запрещённых V1-тегов из старого кода.
         var snapshot = ApiSnapshotTestData.CreateSnapshot() with
         {
             Tags = ["positive-funding"],
@@ -141,9 +180,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
         var tags = ParseTags(await response.Content.ReadAsStringAsync());
 
         tags.Should().Contain("positive-funding");
-        tags.Should().NotContain("funding-spike");
-        tags.Should().NotContain("rsi-overbought");
-        tags.Should().NotContain("rsi-oversold");
+        tags.Should().Contain(MarketTagConstants.NoCleanEntry);
     }
 
     // ─── Conflicting tags never co-exist ─────────────────────────────────────
@@ -170,6 +207,30 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
 
         var hasConflict = tags.Contains("bid-pressure") && tags.Contains("ask-pressure");
         hasConflict.Should().BeFalse(because: "bid-pressure и ask-pressure — взаимоисключающие теги");
+    }
+
+    // ─── Сценарий 8: trend confirmed but entry filtered ───────────────────────
+
+    [Fact]
+    public async Task Tags_Contain_TrendConfirmedEntryFiltered_And_WeakEntryConfirmation_When_Trend_Confirmed_But_Entry_Poor()
+    {
+        // Bullish snapshot with EmaBullishAlignment=true and IsAboveEma200=true → IsTrendConfirmed=true.
+        // Stale CapturedAtUtc causes EntryQuality=Poor, so LlmTimeframeSummaryBuilder adds
+        // "TrendConfirmedButEntryFiltered" to riskFlags. LlmTagEnricher maps it to
+        // "trend-confirmed-entry-filtered". AggressiveBuying in base tags triggers
+        // "weak-entry-confirmation" (directional signal + Poor entry).
+        var snapshot = ApiSnapshotTestData.CreateSnapshot() with
+        {
+            Tags = [MarketTagConstants.AggressiveBuying],
+        };
+
+        using var client = CreateClientWithSnapshot(snapshot);
+        using var response = await client.GetAsync(Url);
+
+        var tags = ParseTags(await response.Content.ReadAsStringAsync());
+
+        tags.Should().Contain(MarketTagConstants.TrendConfirmedEntryFiltered);
+        tags.Should().Contain(MarketTagConstants.WeakEntryConfirmation);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

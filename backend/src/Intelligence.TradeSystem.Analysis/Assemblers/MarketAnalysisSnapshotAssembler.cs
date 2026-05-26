@@ -73,8 +73,10 @@ public static class MarketAnalysisSnapshotAssembler
         // 2. Category string — lowercase to match API conventions: "linear", "spot", "inverse"
         var categoryString = category.ToString().ToLowerInvariant();
 
-        // 3. Tags — делегируется MarketTagsBuilder (V1 whitelist, детерминированный порядок, лимит 4)
-        var tags = MarketTagsBuilder.Build(derivatives, orderBook, tradeFlow, sentiment);
+        // 3. Tags — делегируется MarketTagsBuilder (V2 whitelist, приоритетный порядок, лимит 20).
+        //    capturedAtUtc не передаётся: mode-specific пороги свежести tradeFlow известны только в API-слое.
+        //    stale-tradeflow добавляется LlmTagEnricher после оценки health.
+        var tags = MarketTagsBuilder.Build(derivatives, orderBook, tradeFlow, sentiment, price, m15, h1, h4);
 
         // 4. Assemble
         // Aggregate indicator diagnostics from all four timeframes in stable order.

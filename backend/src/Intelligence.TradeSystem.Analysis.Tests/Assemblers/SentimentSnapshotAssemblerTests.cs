@@ -7,79 +7,27 @@ namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
 
 public sealed class SentimentSnapshotAssemblerTests
 {
-    [Fact]
-    public void Throws_ArgumentNullException_When_Derivatives_Is_Null()
+    [Theory]
+    [InlineData(0, "derivatives")]
+    [InlineData(1, "orderBook")]
+    [InlineData(2, "tradeFlow")]
+    [InlineData(3, "h1")]
+    [InlineData(4, "h4")]
+    public void Throws_ArgumentNullException_For_Null_Parameter(int nullParamIndex, string paramName)
     {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            null!,
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
+        Action act = nullParamIndex switch
+        {
+            0 => () => SentimentSnapshotAssembler.Assemble(null!, CreateOrderBook(), CreateTradeFlow(), CreateTimeframe("1h"), CreateTimeframe("4h")),
+            1 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), null!, CreateTradeFlow(), CreateTimeframe("1h"), CreateTimeframe("4h")),
+            2 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), null!, CreateTimeframe("1h"), CreateTimeframe("4h")),
+            3 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), CreateTradeFlow(), null!, CreateTimeframe("4h")),
+            4 => () => SentimentSnapshotAssembler.Assemble(CreateDerivatives(), CreateOrderBook(), CreateTradeFlow(), CreateTimeframe("1h"), null!),
+            _ => throw new ArgumentOutOfRangeException(nameof(nullParamIndex))
+        };
 
         act.Should()
             .Throw<ArgumentNullException>()
-            .WithParameterName("derivatives");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_OrderBook_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            null!,
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("orderBook");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_TradeFlow_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            null!,
-            CreateTimeframe("1h"),
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("tradeFlow");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_H1_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            null!,
-            CreateTimeframe("4h"));
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("h1");
-    }
-
-    [Fact]
-    public void Throws_ArgumentNullException_When_H4_Is_Null()
-    {
-        var act = () => SentimentSnapshotAssembler.Assemble(
-            CreateDerivatives(),
-            CreateOrderBook(),
-            CreateTradeFlow(),
-            CreateTimeframe("1h"),
-            null!);
-
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("h4");
+            .WithParameterName(paramName);
     }
 
     [Fact]
@@ -415,6 +363,76 @@ public sealed class SentimentSnapshotAssemblerTests
         result.OrderBookPressureScore.Should().Be(0.26m);
         result.TradeFlowPressureScore.Should().Be(0.5m);
         result.MarketRegime.Should().Be("Trending");
+    }
+
+    // --- Integration: BTCUSDT-like regression --------------------------------
+
+    /// <summary>
+    /// Регрессионный тест: BTCUSDT-подобный снапшот с устаревшим tradeFlow,
+    /// коротким окном, малым объёмом и конфликтом orderBook должен давать
+    /// tradeFlowPressureScore &lt;= 0.25 (строгий cap).
+    ///
+    /// Исходные данные:
+    ///   buyVolume = 0.872, sellVolume = 0.1
+    ///   deltaPct ≈ 79 % → rawScore = 1.0 (clamp); HasAggressiveBuyPressure = true → floor 0.5 (raw уже выше)
+    ///   windowDuration = 8 s       → windowCap = 0.25
+    ///   tradeFlowAge = 5 824 ms, maxAge = 5 000 ms → staleCap = 0.50
+    ///   totalVolume = 0.972 BTC    → volumeCap = 0.35
+    ///   orderBook conflict + short window → conflictWithWeaknessCap = 0.25
+    ///   strictest cap = 0.25
+    /// </summary>
+    [Fact]
+    public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()
+    {
+        // Arrange
+        const long maxAgeMs = 5_000L; // Intraday threshold
+        var now = DateTimeOffset.UtcNow;
+        var windowEnd = now.AddMilliseconds(-5_824); // stale: age > maxAge
+        var windowStart = windowEnd.AddSeconds(-8);  // window = 8 s < 10 s
+
+        var buyVolume = 0.872m;
+        var sellVolume = 0.1m;
+        var totalVolume = buyVolume + sellVolume;    // 0.972 BTC < 1 BTC
+        var deltaVolume = buyVolume - sellVolume;
+        var deltaPct = deltaVolume / totalVolume * 100m; // ≈ 79.4 %
+
+        var tradeFlow = new TradeFlowSnapshot
+        {
+            WindowStartUtc = windowStart,
+            WindowEndUtc = windowEnd,
+            BuyVolume = buyVolume,
+            SellVolume = sellVolume,
+            DeltaVolume = deltaVolume,
+            DeltaPct = deltaPct,
+            TotalTrades = 10,
+            BuyTrades = 9,
+            SellTrades = 1,
+            AvgTradeSize = totalVolume / 10m,
+            MaxTradeSize = buyVolume,
+            HasAggressiveBuyPressure = true,
+            HasAggressiveSellPressure = false,
+        };
+
+        // orderBook dominates ask-side → negative pressure → conflict with bullish tradeFlow
+        var orderBook = CreateOrderBook(
+            imbalanceTop5: -0.40m,
+            imbalanceTop10: -0.20m,
+            imbalanceTop20: -0.10m);
+
+        // Act
+        var result = SentimentSnapshotAssembler.Assemble(
+            derivatives: CreateDerivatives(),
+            orderBook: orderBook,
+            tradeFlow: tradeFlow,
+            h1: CreateTimeframe("1h"),
+            h4: CreateTimeframe("4h"),
+            capturedAtUtc: now,
+            maxTradeFlowAgeMs: maxAgeMs);
+
+        // Assert
+        result.TradeFlowPressureScore
+            .Should().BeGreaterThan(0m, because: "bullish raw signal must remain positive")
+            .And.BeLessThanOrEqualTo(0.25m, because: "stale + short window + low volume + conflict → cap 0.25");
     }
 
     private static SentimentSnapshot AssembleWithDefaults(
