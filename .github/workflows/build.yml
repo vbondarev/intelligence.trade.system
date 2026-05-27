@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [ opened, reopened, synchronize ]
   workflow_dispatch:
 
 jobs:
@@ -50,3 +50,14 @@ jobs:
           name: test-results
           path: '**/TestResults/*.trx'
           if-no-files-found: ignore
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker build API
+        run: docker build -f src/Intelligence.TradeSystem.Api/Dockerfile -t intelligence-trade-system-api:ci .
