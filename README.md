@@ -270,7 +270,7 @@ dotnet test Intelligence.TradeSystem.slnx --no-build --logger "console;verbosity
 ### Запустить API
 
 ```bash
-dotnet run --project backend/src/Intelligence.TradeSystem.Api
+dotnet run --project src/Intelligence.TradeSystem.Api
 ```
 
 Swagger UI доступен в режиме Development.
@@ -280,7 +280,7 @@ Swagger UI доступен в режиме Development.
 ## Запуск через Aspire
 
 ```bash
-dotnet run --project backend/src/Intelligence.TradeSystem.AppHost
+dotnet run --project src/Intelligence.TradeSystem.AppHost
 ```
 
 ---

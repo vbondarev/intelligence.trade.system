@@ -37,6 +37,7 @@
 - Do not infer that `Microsoft.Testing.Platform` is enabled unless the repository explicitly adds its configuration.
 - Do not infer support for `includeAggregatedContext`, partial snapshots, or additional exchanges/providers beyond the currently documented constraints.
 - Do not infer that package versions, shared build settings, or common test behavior should be duplicated into individual project files when they already belong to centralized MSBuild files.
+- Do not infer that `Intelligence.TradeSystem.Ai` or `Intelligence.TradeSystem.Ai.Tests` are ready for use; both are currently empty placeholder projects with no source files.
 
 ## Big picture
 - This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
