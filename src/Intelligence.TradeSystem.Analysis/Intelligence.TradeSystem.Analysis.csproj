@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+      <ProjectReference Include="..\Intelligence.TradeSystem.Indicators\Intelligence.TradeSystem.Indicators.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+        <_Parameter1>Intelligence.TradeSystem.Analysis.Tests</_Parameter1>
+      </AssemblyAttribute>
+    </ItemGroup>
+
+</Project>

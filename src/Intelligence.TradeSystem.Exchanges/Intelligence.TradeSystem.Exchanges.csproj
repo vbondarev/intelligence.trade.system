@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Bybit.Net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Abstractions\Intelligence.TradeSystem.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
