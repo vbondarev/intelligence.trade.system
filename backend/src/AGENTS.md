@@ -103,3 +103,6 @@
 - If you change indicator calculations, check `Intelligence.TradeSystem.Indicators`, `Analysis.Assemblers`, and `Intelligence.TradeSystem.Indicators.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `Analysis.Assemblers`, `Domain/Snapshots`, payload mappers, and `Analysis.Tests` / `Api.Tests`.
+- If you change `EntryQualityEvaluator`, review `LlmTimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `LlmTimeframeSummaryBuilderTests` in `Api.Tests`.
+- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Analysis.Tests`.
+- If you change higher-TF level wiring in `LlmPayloadMapperExtensions`, review `LlmPayloadMapperExtensionsTests` in `Api.Tests`.

@@ -20,6 +20,8 @@
 - `Program.cs` wires controllers, Swagger, service defaults, application services, and the Bybit exchange registration.
 - `Controllers/MarketAnalysisController.cs` is the main entrypoint for snapshot and LLM payload flows.
 - `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketAnalysisSnapshot` into the public LLM payload contract.
+- `Mappers/EntryQualityEvaluator.cs` computes entry quality for each timeframe summary.
+- `Mappers/LlmTimeframeSummaryBuilder.cs` builds per-timeframe LLM summaries including riskFlags and entryQuality.
 
 ## Endpoint and validation patterns
 - Keep controller actions thin: validate request, call orchestration service, translate exceptions into `ProblemDetails`.
@@ -43,7 +45,54 @@
   - `Swing` → `1h`, `4h`, `1d`
   - `Portfolio` → `4h`, `1d`
 
+## Mapper pipeline rules
+
+### EntryQualityEvaluator invariants
+- Neutral bias → always `Poor` (immediate return; no further evaluation).
+- `distancePct == 0` is valid (retest scenario); do not treat as invalid or Poor.
+- `distancePct < 0` means wrong-side-of-price → returns `Poor`; level is not applicable.
+- Base quality: confirmed trend + distance ≤ 0.75% → `Good`; distance ≤ 1.50% → `Fair`; otherwise `Poor`.
+- Downgrades (strictest result wins when multiple apply):
+  - Volume: ratio < 0.25 → `Poor`; ratio < 0.50 or null → cap `Fair`.
+  - EMA conflict: both EMA20/EMA50 conflict → `Poor`; one conflicts or null → cap `Fair`.
+  - Freshness: `!fresh` → cap `Fair`; `!fresh` + low volume → `Poor`.
+  - MarketRegime: null/empty → cap `Fair`; `Neutral` + (low volume || EMA conflict) → `Poor`; `Neutral` alone → cap `Fair`.
+  - Level strength ≤ 0.35 → cap `Fair`.
+  - Opposite level dist < 0.30% → cap `Fair`; dist < 0.15% + Moderate/Strong strength → `Poor`.
+- Higher-TF opposite level is evaluated with the same rules as the current-TF level; the closer candidate wins.
+
+### RiskFlags
+- Every entryQuality downgrade must be accompanied by a riskFlag that explains the reason.
+- `TrendConfirmedButEntryFiltered`: always set when `isTrendConfirmed == true` AND `entryQuality != Good`.
+- `NearResistance` (current-TF) and `NearHigherTimeframeResistance` (higher-TF) are distinct flags; do not merge them.
+- Same separation applies to `NearSupport` vs `NearHigherTimeframeSupport` for bearish bias.
+
+### Higher-TF opposite level resolution
+- Bullish bias: opposite level = nearest `Resistance1` from higher timeframes.
+- Bearish bias: opposite level = nearest `Support1` from higher timeframes.
+- `dist < 0` → ignored (level is on the wrong side of price).
+- `dist == 0` → valid.
+- Pick the closer candidate between the current-TF level and the higher-TF level before passing to `EntryQualityEvaluator`.
+
+### TradeFlowPressureScore caps
+- Sign is always preserved; caps are applied to the absolute value and the sign is reapplied.
+- Strictest cap wins when multiple factors apply simultaneously.
+- Freshness: age > 2×maxAge → ×0.25; age > maxAge → ×0.50.
+- Window duration: < 10s → ×0.25; [10s, 30s) → ×0.35; [30s, 60s) → ×0.50.
+- Volume: < 1 BTC → ×0.35; [1 BTC, 3 BTC) → ×0.50.
+- Conflict (orderBook vs tradeFlow sign mismatch): ×0.50; conflict + stale or short-window → ×0.25.
+
+### Tags composition
+- Tags are assembled in priority order: tradeFlow quality → OI direction → market regime → price proximity → low-volume → orderBook → aggression → funding → RSI → timeframe structure → level proximity → other.
+- `MeanReversion` regime maps to tag `mean-reversion-regime`; never `unknown-market-regime`.
+- `unknown-market-regime` is only for null, empty, or unrecognized `MarketRegime` values.
+- TradeFlow quality tags: `short-tradeflow-window`, `stale-tradeflow`, `low-tradeflow-volume`, `orderbook-tradeflow-conflict`, `weak-tradeflow-confirmation`.
+- Max 20 tags per snapshot; `MarketTagsBuilder` enforces the limit.
+- Do not use V1 legacy tags (`"trending"`, `"neutral"`) in new code.
+
 ## When changing code here
 - If you change an endpoint contract, update controller docs, payload/request models, mapper logic, and `Intelligence.TradeSystem.Api.Tests`.
 - If you change payload shape, inspect `LlmPayloadEndpointTests`, `SnapshotHealthWarningsBuilderTests`, and any consumers of `schemaVersion` / `analysisContext`.
 - If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for analytics/application/exchange services.
+- If you change `EntryQualityEvaluator` or `LlmTimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests`, `LlmTimeframeSummaryBuilderTests`, and `LlmPayloadMapperExtensionsTests`.
+- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.Analysis.Tests`.
