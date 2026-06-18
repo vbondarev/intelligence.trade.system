@@ -1,0 +1,6 @@
+{
+  "btcDailyCheck": {
+    "chatId": "{chatId}",
+    "messageThreadId": "{messageThreadId}"
+  }
+}

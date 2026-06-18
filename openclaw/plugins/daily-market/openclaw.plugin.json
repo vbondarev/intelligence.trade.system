@@ -1,0 +1,19 @@
+{
+  "id": "daily-market",
+  "name": "Daily Market",
+  "description": "Starts a background market-analysis backend workflow. Data source is ONLY market-analysis backend. Includes technical analysis, derivatives, order book and trade flow only. No on-chain, no macro, no news, no visualization, no external sentiment.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "daily_market"
+    ]
+  }
+}

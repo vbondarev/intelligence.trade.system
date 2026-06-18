@@ -1,0 +1,82 @@
+```yaml
+agent:
+  name: tech-analysis-agent
+  role: intermediate
+  description: >
+    Produces a structured technical analysis report from backend market-analysis
+    payload using the market-analysis skill. This agent does not create final
+    Telegram posts and does not make final market synthesis decisions.
+  language: ru
+  timezone: Europe/Moscow
+
+model:
+  provider: openrouter
+  name: deepseek/deepseek-v4-pro
+  temperature: 0.1
+  max_tokens: 2500
+  timeout_seconds: 60
+
+skills:
+  - name: market-analysis
+    required: true
+
+input:
+  symbol: BTCUSDT
+  exchange: Bybit
+  category: Linear
+  mode: Intraday
+  includePortfolio: false
+  includeAggregatedContext: false
+
+output:
+  name: technical_report
+  type: json
+  schema: schemas/technical-report.schema.json
+  strict: true
+
+instructions:
+  system: |
+    You are tech-analysis-agent.
+
+    Your only responsibility is to produce a structured technical analysis report
+    from backend market-analysis data.
+
+    Use the market-analysis skill as the authoritative instruction for:
+    - backend request format;
+    - backend payload retrieval;
+    - backend payload mapping;
+    - source-of-truth rules;
+    - data freshness and status rules;
+    - warning classification rules;
+    - level selection rules;
+    - scenario language boundaries;
+    - output boundaries.
+
+    Return only valid JSON matching schemas/technical-report.schema.json.
+
+    Do not return markdown.
+    Do not return explanations.
+    Do not create final Telegram post text.
+    Do not use Mr Crypto persona.
+    Do not make final market synthesis decisions.
+    Do not produce direct trading commands.
+    Do not analyze Telegram, Twitter/X, news, macro or on-chain data.
+    Do not use external sources.
+    Do not invent missing values.
+    Do not include fields that are not defined in the output schema.
+
+validation:
+  enabled: true
+  schema: schemas/technical-report.schema.json
+  fail_on_invalid_json: true
+  fail_on_schema_violation: true
+  fail_on_extra_fields: true
+
+publishing:
+  enabled: false
+
+handoff:
+  enabled: true
+  next_agent: chief-market-synthesizer
+  output_name: technical_report
+```

@@ -1,0 +1,619 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://people-love-crypto.local/schemas/technical-report.schema.json",
+    "title": "Technical Analysis Report",
+    "description": "Structured technical report produced by tech-analysis-agent using market-analysis skill.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "agent",
+        "skill",
+        "symbol",
+        "captured_at_utc",
+        "status",
+        "data_quality",
+        "market",
+        "technical",
+        "context",
+        "scenarios",
+        "summary",
+        "warnings"
+    ],
+    "properties": {
+        "agent": {
+            "type": "string",
+            "const": "tech-analysis-agent"
+        },
+        "skill": {
+            "type": "string",
+            "const": "market-analysis"
+        },
+        "symbol": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 30,
+            "pattern": "^[A-Z0-9]+$"
+        },
+        "captured_at_utc": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "format": "date-time"
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "partial",
+                "no_data",
+                "error"
+            ]
+        },
+        "data_quality": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "is_stale",
+                "is_partial",
+                "missing_fields",
+                "warnings"
+            ],
+            "properties": {
+                "is_stale": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "is_partial": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "missing_fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "market": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "price",
+                "change_24h_percent",
+                "low_24h",
+                "high_24h"
+            ],
+            "properties": {
+                "price": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "change_24h_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "low_24h": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "high_24h": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                }
+            }
+        },
+        "technical": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "technical_bias",
+                "setup_quality",
+                "risk_level",
+                "rsi",
+                "volume",
+                "levels"
+            ],
+            "properties": {
+                "technical_bias": {
+                    "type": "string",
+                    "enum": [
+                        "bullish",
+                        "neutral_bullish",
+                        "neutral",
+                        "neutral_bearish",
+                        "bearish",
+                        "unclear"
+                    ]
+                },
+                "setup_quality": {
+                    "type": "string",
+                    "enum": [
+                        "normal",
+                        "risky",
+                        "premature",
+                        "poor",
+                        "unclear"
+                    ]
+                },
+                "risk_level": {
+                    "type": "string",
+                    "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "unclear"
+                    ]
+                },
+                "rsi": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "15m",
+                        "1h",
+                        "4h",
+                        "1d"
+                    ],
+                    "properties": {
+                        "15m": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 100
+                        },
+                        "1h": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 100
+                        },
+                        "4h": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 100
+                        },
+                        "1d": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 100
+                        }
+                    }
+                },
+                "volume": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "15m",
+                        "1h",
+                        "4h"
+                    ],
+                    "properties": {
+                        "15m": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0
+                        },
+                        "1h": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0
+                        },
+                        "4h": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0
+                        }
+                    }
+                },
+                "levels": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "support",
+                        "support_source",
+                        "resistance",
+                        "resistance_source",
+                        "distance_to_support_percent",
+                        "distance_to_resistance_percent"
+                    ],
+                    "properties": {
+                        "support": {
+                            "type": [
+                                "number",
+                                "null"
+                            ]
+                        },
+                        "support_source": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "resistance": {
+                            "type": [
+                                "number",
+                                "null"
+                            ]
+                        },
+                        "resistance_source": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "distance_to_support_percent": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0
+                        },
+                        "distance_to_resistance_percent": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0
+                        }
+                    }
+                }
+            }
+        },
+        "context": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "derivatives",
+                "order_book",
+                "trade_flow",
+                "backend_sentiment",
+                "tags"
+            ],
+            "properties": {
+                "derivatives": {
+                    "anyOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/derivatives"
+                        }
+                    ]
+                },
+                "order_book": {
+                    "anyOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/order_book"
+                        }
+                    ]
+                },
+                "trade_flow": {
+                    "anyOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/trade_flow"
+                        }
+                    ]
+                },
+                "backend_sentiment": {
+                    "anyOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/backend_sentiment"
+                        }
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "scenarios": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "long",
+                "short"
+            ],
+            "properties": {
+                "long": {
+                    "$ref": "#/$defs/scenario"
+                },
+                "short": {
+                    "$ref": "#/$defs/scenario"
+                }
+            }
+        },
+        "summary": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "warnings": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "$defs": {
+        "derivatives": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "funding_rate",
+                "funding_rate_avg_24h",
+                "open_interest",
+                "open_interest_value",
+                "open_interest_change_1h_percent",
+                "open_interest_change_4h_percent",
+                "long_ratio_percent",
+                "short_ratio_percent",
+                "premium_vs_index_percent"
+            ],
+            "properties": {
+                "funding_rate": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "funding_rate_avg_24h": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "open_interest": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": 0
+                },
+                "open_interest_value": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": 0
+                },
+                "open_interest_change_1h_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "open_interest_change_4h_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "long_ratio_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "short_ratio_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "premium_vs_index_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                }
+            }
+        },
+        "order_book": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "pressure_label",
+                "liquidity_skew_label",
+                "imbalance_top5",
+                "imbalance_top10",
+                "imbalance_top20"
+            ],
+            "properties": {
+                "pressure_label": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "liquidity_skew_label": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "imbalance_top5": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                },
+                "imbalance_top10": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                },
+                "imbalance_top20": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                }
+            }
+        },
+        "trade_flow": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "delta_percent",
+                "has_aggressive_buy_pressure",
+                "has_aggressive_sell_pressure"
+            ],
+            "properties": {
+                "delta_percent": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -100,
+                    "maximum": 100
+                },
+                "has_aggressive_buy_pressure": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "has_aggressive_sell_pressure": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                }
+            }
+        },
+        "backend_sentiment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "market_regime",
+                "long_short_bias_score",
+                "funding_bias_score",
+                "order_book_pressure_score",
+                "trade_flow_pressure_score"
+            ],
+            "properties": {
+                "market_regime": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "long_short_bias_score": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                },
+                "funding_bias_score": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                },
+                "order_book_pressure_score": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                },
+                "trade_flow_pressure_score": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": -1,
+                    "maximum": 1
+                }
+            }
+        },
+        "scenario": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "status",
+                "condition"
+            ],
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "conditional",
+                        "unavailable",
+                        "unclear"
+                    ]
+                },
+                "condition": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            }
+        }
+    }
+}
