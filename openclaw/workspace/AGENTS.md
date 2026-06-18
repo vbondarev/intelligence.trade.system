@@ -16,6 +16,8 @@ Supported command form:
 Examples:
 
 - `/crypto intraday BTCUSDT`
+- `/crypto swing BTCUSDT`
+- `/crypto portfolio BTCUSDT`
 - `crypto intraday BTCUSDT`
 
 ## Defaults
@@ -33,11 +35,17 @@ Allowed mode format:
 - lowercase letters only
 - length from 3 to 20 characters
 
-Currently supported mode:
+Currently supported modes:
 
 - `intraday`
+- `swing`
+- `portfolio`
 
-Future modes such as `swing` may be added later, but do not accept them until the workflow scripts and backend mapping support them.
+Mode mapping:
+
+- `intraday` -> backend `mode=Intraday`
+- `swing` -> backend `mode=Swing`
+- `portfolio` -> backend `mode=Portfolio`
 
 If `MODE` is missing or invalid, return exactly:
 
@@ -45,7 +53,7 @@ If `MODE` is missing or invalid, return exactly:
 
 If `MODE` is syntactically valid but not supported, return exactly:
 
-`Unsupported mode. Currently supported: intraday.`
+`Unsupported mode. Supported modes: intraday, swing, portfolio.`
 
 ## Symbol validation
 
@@ -67,7 +75,7 @@ If `SYMBOL` is invalid, return exactly:
 
 ## Execution rule
 
-For a valid `/crypto intraday SYMBOL` command, execute the Telegram workflow wrapper in background using `exec`.
+For a valid `/crypto MODE SYMBOL` command, execute the Telegram workflow wrapper in background using `exec`.
 
 Execute exactly:
 
@@ -104,4 +112,6 @@ The background wrapper script is responsible for running the workflow and sendin
 
 The current MVP uses only the market-analysis backend data source.
 
-The `MODE` parameter is passed to the workflow as `ANALYSIS_MODE`. The wrapper/base workflow scripts must read this variable and map it to the backend `mode` query parameter. Until that script support is implemented, only `intraday` is supported and the current backend behavior remains unchanged.
+The `MODE` parameter is passed to the workflow as `ANALYSIS_MODE`. The wrapper/base workflow scripts read this variable and map it to the backend `mode` query parameter.
+
+Portfolio data and aggregated context are still disabled in the current MVP unless the workflow scripts are explicitly changed later.
