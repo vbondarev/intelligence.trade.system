@@ -4,12 +4,31 @@ set -eu
 SYMBOL="${1:-BTCUSDT}"
 RUN_ID="${2:-}"
 LOCK_PATH="${3:-}"
+ANALYSIS_MODE="${ANALYSIS_MODE:-intraday}"
 
 LOG_ROOT="/home/node/.openclaw/logs/daily-market"
 BASE_SCRIPT="/home/node/.openclaw/workflows/scripts/run-daily-market-overview.sh"
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
 TELEGRAM_TARGETS_FILE="/home/node/.openclaw/workflows/config/telegram-targets.json"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
+
+normalize_analysis_mode() {
+  case "$ANALYSIS_MODE" in
+    intraday)
+      BACKEND_ANALYSIS_MODE="Intraday"
+      ;;
+    swing)
+      BACKEND_ANALYSIS_MODE="Swing"
+      ;;
+    portfolio)
+      BACKEND_ANALYSIS_MODE="Portfolio"
+      ;;
+    *)
+      printf '%s\n' "Unsupported analysis mode: ${ANALYSIS_MODE}. Supported modes: intraday, swing, portfolio." >&2
+      exit 2
+      ;;
+  esac
+}
 
 make_suffix() {
   if [ -r /dev/urandom ]; then
@@ -19,8 +38,10 @@ make_suffix() {
   fi
 }
 
+normalize_analysis_mode
+
 if [ -z "$RUN_ID" ]; then
-  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${SYMBOL}-$(make_suffix)"
+  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${ANALYSIS_MODE}-${SYMBOL}-$(make_suffix)"
 fi
 
 DAY_DIR="$(date -u +%Y-%m-%d)"
@@ -163,14 +184,14 @@ main().catch((error) => {
 NODE
 }
 
-log "wrapper started: run_id=${RUN_ID} symbol=${SYMBOL} log_dir=${LOG_DIR} lock_path=${LOCK_PATH}"
+log "wrapper started: run_id=${RUN_ID} symbol=${SYMBOL} mode=${ANALYSIS_MODE} backend_mode=${BACKEND_ANALYSIS_MODE} log_dir=${LOG_DIR} lock_path=${LOCK_PATH}"
 
 attempt=1
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
-  log "attempt ${attempt} started"
+  log "attempt ${attempt} started mode=${ANALYSIS_MODE}"
 
   set +e
-  ATTEMPT="$attempt" "$BASE_SCRIPT" "$SYMBOL" "$RUN_ID" "$LOG_DIR" > "/tmp/${RUN_ID}-attempt-${attempt}-stdout.txt" 2> "/tmp/${RUN_ID}-attempt-${attempt}-stderr.txt"
+  ANALYSIS_MODE="$ANALYSIS_MODE" ATTEMPT="$attempt" "$BASE_SCRIPT" "$SYMBOL" "$RUN_ID" "$LOG_DIR" > "/tmp/${RUN_ID}-attempt-${attempt}-stdout.txt" 2> "/tmp/${RUN_ID}-attempt-${attempt}-stderr.txt"
   EXIT_CODE="$?"
   set -e
 
@@ -209,6 +230,7 @@ FAIL_FILE="/tmp/${RUN_ID}-workflow-failed-message.txt"
 
 {
   printf 'Workflow failed for %s\n' "$SYMBOL"
+  printf 'Mode: %s\n' "$ANALYSIS_MODE"
   printf 'Run ID: %s\n' "$RUN_ID"
   printf 'Log dir: %s\n' "$LOG_DIR"
 } > "$FAIL_FILE"
