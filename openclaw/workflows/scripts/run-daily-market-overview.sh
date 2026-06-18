@@ -6,11 +6,30 @@ RUN_ID="${2:-}"
 LOG_DIR="${3:-}"
 ATTEMPT="${ATTEMPT:-1}"
 DEBUG_DAILY_MARKET="${DEBUG_DAILY_MARKET:-0}"
+ANALYSIS_MODE="${ANALYSIS_MODE:-intraday}"
 
 OPENCLAW_BIN="/app/dist/index.js"
 BACKEND_BASE_URL="http://intelligence-trade-api:8080"
 CHIEF_WORKSPACE="/home/node/.openclaw/workspaces/chief-market-synthesizer"
 LOG_ROOT="/home/node/.openclaw/logs/daily-market"
+
+normalize_analysis_mode() {
+  case "$ANALYSIS_MODE" in
+    intraday)
+      BACKEND_ANALYSIS_MODE="Intraday"
+      ;;
+    swing)
+      BACKEND_ANALYSIS_MODE="Swing"
+      ;;
+    portfolio)
+      BACKEND_ANALYSIS_MODE="Portfolio"
+      ;;
+    *)
+      printf '%s\n' "Unsupported analysis mode: ${ANALYSIS_MODE}. Supported modes: intraday, swing, portfolio." >&2
+      exit 2
+      ;;
+  esac
+}
 
 make_suffix() {
   if [ -r /dev/urandom ]; then
@@ -20,8 +39,10 @@ make_suffix() {
   fi
 }
 
+normalize_analysis_mode
+
 if [ -z "$RUN_ID" ]; then
-  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${SYMBOL}-$(make_suffix)"
+  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${ANALYSIS_MODE}-${SYMBOL}-$(make_suffix)"
 fi
 
 if [ -z "$LOG_DIR" ]; then
@@ -74,7 +95,7 @@ fail() {
 }
 
 write_meta() {
-  RUN_ID="$RUN_ID" SYMBOL="$SYMBOL" LOG_DIR="$LOG_DIR" ATTEMPT="$ATTEMPT" node <<'NODE'
+  RUN_ID="$RUN_ID" SYMBOL="$SYMBOL" LOG_DIR="$LOG_DIR" ATTEMPT="$ATTEMPT" ANALYSIS_MODE="$ANALYSIS_MODE" BACKEND_ANALYSIS_MODE="$BACKEND_ANALYSIS_MODE" node <<'NODE'
 const fs = require("fs");
 
 const metaPath = `${process.env.LOG_DIR}/meta.json`;
@@ -94,6 +115,8 @@ attempts.push({
 const meta = {
   runId: process.env.RUN_ID,
   symbol: process.env.SYMBOL,
+  analysisMode: process.env.ANALYSIS_MODE,
+  backendAnalysisMode: process.env.BACKEND_ANALYSIS_MODE,
   logDir: process.env.LOG_DIR,
   updatedAtUtc: now,
   attempts
@@ -104,11 +127,13 @@ NODE
 }
 
 save_backend_snapshot() {
-  BACKEND_URL="${BACKEND_BASE_URL}/api/market-analysis/${SYMBOL}/llm-payload?exchange=Bybit&category=Linear&mode=Intraday&includePortfolio=false&includeAggregatedContext=false"
+  BACKEND_URL="${BACKEND_BASE_URL}/api/market-analysis/${SYMBOL}/llm-payload?exchange=Bybit&category=Linear&mode=${BACKEND_ANALYSIS_MODE}&includePortfolio=false&includeAggregatedContext=false"
 
   {
     printf 'RUN_ID=%s\n' "$RUN_ID"
     printf 'SYMBOL=%s\n' "$SYMBOL"
+    printf 'ANALYSIS_MODE=%s\n' "$ANALYSIS_MODE"
+    printf 'BACKEND_ANALYSIS_MODE=%s\n' "$BACKEND_ANALYSIS_MODE"
     printf 'URL=%s\n' "$BACKEND_URL"
     printf 'HEADER=X-Correlation-Id: %s\n' "$RUN_ID"
     printf 'CREATED_AT_UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -133,7 +158,7 @@ save_backend_snapshot() {
   if [ "$CURL_EXIT" -ne 0 ]; then
     err "backend snapshot failed: curl_exit=${CURL_EXIT} ${BACKEND_CURL_LOG}"
   else
-    log "backend snapshot saved: http_status=${BACKEND_STATUS}"
+    log "backend snapshot saved: http_status=${BACKEND_STATUS} mode=${BACKEND_ANALYSIS_MODE}"
   fi
 }
 
@@ -214,7 +239,7 @@ NODE
 }
 
 write_meta
-log "started: run_id=${RUN_ID} symbol=${SYMBOL} attempt=${ATTEMPT}"
+log "started: run_id=${RUN_ID} symbol=${SYMBOL} mode=${ANALYSIS_MODE} backend_mode=${BACKEND_ANALYSIS_MODE} attempt=${ATTEMPT}"
 
 save_backend_snapshot
 
@@ -223,7 +248,7 @@ set +e
 node "$OPENCLAW_BIN" agent \
   --agent tech-analysis-agent \
   --json \
-  --message "Generate technical_report JSON for ${SYMBOL} using backend endpoint from AGENTS.md. Return ONLY raw JSON. No markdown. No explanations." \
+  --message "Generate technical_report JSON for ${SYMBOL} using backend endpoint from AGENTS.md with analysis mode ${BACKEND_ANALYSIS_MODE}. Return ONLY raw JSON. No markdown. No explanations." \
   > "$TECH_RAW" \
   2> "$TECH_STDERR"
 TECH_EXIT="$?"
