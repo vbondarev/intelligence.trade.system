@@ -89,5 +89,3 @@ jobs:
       - name: Stop API container
         if: always()
         run: docker rm -f intelligence-trade-system-api-test
-
-
