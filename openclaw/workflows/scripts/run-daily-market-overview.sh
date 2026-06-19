@@ -12,6 +12,8 @@ OPENCLAW_BIN="/app/dist/index.js"
 BACKEND_BASE_URL="http://intelligence-trade-api:8080"
 CHIEF_WORKSPACE="/home/node/.openclaw/workspaces/chief-market-synthesizer"
 LOG_ROOT="/home/node/.openclaw/logs/daily-market"
+VALIDATOR_SCRIPT="/home/node/.openclaw/workflows/scripts/validate-technical-report.js"
+TECHNICAL_REPORT_SCHEMA="/home/node/.openclaw/schemas/technical-report.schema.json"
 
 normalize_analysis_mode() {
   case "$ANALYSIS_MODE" in
@@ -60,6 +62,8 @@ TECH_RAW="/tmp/${RUN_ID}-attempt-${ATTEMPT}-tech-agent-run.json"
 CHIEF_RAW="/tmp/${RUN_ID}-attempt-${ATTEMPT}-chief-agent-run.json"
 TECH_STDERR="/tmp/${RUN_ID}-attempt-${ATTEMPT}-tech-agent-stderr.log"
 CHIEF_STDERR="/tmp/${RUN_ID}-attempt-${ATTEMPT}-chief-agent-stderr.log"
+TECHNICAL_REPORT_PATH="${LOG_DIR}/technical-report.json"
+TECHNICAL_REPORT_VALIDATION_ERRORS="${LOG_DIR}/technical-report-validation-errors.txt"
 
 log() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$RUN_LOG"
@@ -163,7 +167,7 @@ save_backend_snapshot() {
 }
 
 extract_technical_report() {
-  node - "$TECH_RAW" "$LOG_DIR/technical-report.json" <<'NODE'
+  node - "$TECH_RAW" "$TECHNICAL_REPORT_PATH" <<'NODE'
 const fs = require("fs");
 
 const inputPath = process.argv[2];
@@ -200,204 +204,12 @@ NODE
 }
 
 validate_technical_report() {
-  node - "$LOG_DIR/technical-report.json" "$SYMBOL" "$BACKEND_ANALYSIS_MODE" "$LOG_DIR/technical-report-validation-errors.txt" <<'NODE'
-const fs = require("fs");
-
-const reportPath = process.argv[2];
-const expectedSymbol = process.argv[3];
-const expectedMode = process.argv[4];
-const errorsPath = process.argv[5];
-
-const statusValues = new Set(["ok", "partial", "error", "no_data"]);
-const analysisModes = new Set(["Intraday", "Swing", "Portfolio"]);
-const confidenceValues = new Set(["high", "medium", "low"]);
-const biasValues = new Set(["bullish", "bearish", "neutral", "mixed", "unknown"]);
-const entryQualityValues = new Set(["good", "medium", "poor", "no_trade", "unknown"]);
-const scenarioStatusValues = new Set(["available", "not_available", "wait"]);
-const priorityValues = new Set(["long", "short", "neutral", "wait", "no_trade", "unknown"]);
-
-const errors = [];
-
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function hasOwn(object, key) {
-  return Object.prototype.hasOwnProperty.call(object, key);
-}
-
-function requireObject(parent, key, path) {
-  if (!isObject(parent?.[key])) {
-    errors.push(`${path}.${key} must be an object`);
-    return {};
-  }
-  return parent[key];
-}
-
-function requireArray(parent, key, path) {
-  if (!Array.isArray(parent?.[key])) {
-    errors.push(`${path}.${key} must be an array`);
-    return [];
-  }
-  return parent[key];
-}
-
-function requireString(parent, key, path) {
-  if (typeof parent?.[key] !== "string" || parent[key].trim() === "") {
-    errors.push(`${path}.${key} must be a non-empty string`);
-    return "";
-  }
-  return parent[key];
-}
-
-function requireBoolean(parent, key, path) {
-  if (typeof parent?.[key] !== "boolean") {
-    errors.push(`${path}.${key} must be a boolean`);
-  }
-}
-
-function requireEnum(parent, key, values, path) {
-  const value = requireString(parent, key, path);
-  if (value && !values.has(value)) {
-    errors.push(`${path}.${key} has unsupported value: ${value}`);
-  }
-  return value;
-}
-
-function validateScenario(parent, key) {
-  const scenario = requireObject(parent, key, "scenarios");
-  requireEnum(scenario, "status", scenarioStatusValues, `scenarios.${key}`);
-  if (scenario.condition !== null && scenario.condition !== undefined && typeof scenario.condition !== "string") {
-    errors.push(`scenarios.${key}.condition must be a string or null`);
-  }
-  if (scenario.invalidation !== null && scenario.invalidation !== undefined && typeof scenario.invalidation !== "string") {
-    errors.push(`scenarios.${key}.invalidation must be a string or null`);
-  }
-  requireArray(scenario, "targets", `scenarios.${key}`);
-}
-
-let report;
-try {
-  report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-} catch (error) {
-  fs.writeFileSync(errorsPath, `technical_report is not valid JSON: ${error.message}\n`);
-  console.error(`technical_report is not valid JSON: ${error.message}`);
-  process.exit(1);
-}
-
-if (!isObject(report)) {
-  errors.push("technical_report root must be an object");
-} else {
-  const requiredTopLevel = [
-    "status",
-    "symbol",
-    "exchange",
-    "category",
-    "analysis_mode",
-    "generated_at_utc",
-    "source",
-    "data_quality",
-    "market",
-    "timeframes",
-    "technical_summary",
-    "key_metrics",
-    "levels",
-    "scenarios",
-    "risk",
-    "conclusion"
-  ];
-
-  for (const key of requiredTopLevel) {
-    if (!hasOwn(report, key)) {
-      errors.push(`missing top-level field: ${key}`);
-    }
-  }
-
-  const status = requireEnum(report, "status", statusValues, "root");
-  const symbol = requireString(report, "symbol", "root");
-  requireString(report, "exchange", "root");
-  requireString(report, "category", "root");
-  const analysisMode = requireEnum(report, "analysis_mode", analysisModes, "root");
-
-  if (symbol && symbol !== expectedSymbol) {
-    errors.push(`root.symbol must match requested symbol ${expectedSymbol}, got ${symbol}`);
-  }
-
-  if (report.exchange && report.exchange !== "Bybit") {
-    errors.push(`root.exchange must be Bybit, got ${report.exchange}`);
-  }
-
-  if (report.category && report.category !== "Linear") {
-    errors.push(`root.category must be Linear, got ${report.category}`);
-  }
-
-  if (analysisMode && analysisMode !== expectedMode) {
-    errors.push(`root.analysis_mode must match backend mode ${expectedMode}, got ${analysisMode}`);
-  }
-
-  if (report.generated_at_utc !== null && typeof report.generated_at_utc !== "string") {
-    errors.push("root.generated_at_utc must be a string or null");
-  }
-
-  const source = requireObject(report, "source", "root");
-  if (source.backend_url !== null && source.backend_url !== undefined && typeof source.backend_url !== "string") {
-    errors.push("source.backend_url must be a string or null");
-  }
-  if (source.payload_timestamp_utc !== null && source.payload_timestamp_utc !== undefined && typeof source.payload_timestamp_utc !== "string") {
-    errors.push("source.payload_timestamp_utc must be a string or null");
-  }
-
-  const dataQuality = requireObject(report, "data_quality", "root");
-  requireBoolean(dataQuality, "is_stale", "data_quality");
-  requireBoolean(dataQuality, "is_partial", "data_quality");
-  requireEnum(dataQuality, "confidence", confidenceValues, "data_quality");
-  requireArray(dataQuality, "warnings", "data_quality");
-
-  const market = requireObject(report, "market", "root");
-  requireString(market, "base_asset", "market");
-
-  const timeframes = requireObject(report, "timeframes", "root");
-  requireArray(timeframes, "primary", "timeframes");
-  requireArray(timeframes, "context", "timeframes");
-  requireArray(timeframes, "items", "timeframes");
-
-  const technicalSummary = requireObject(report, "technical_summary", "root");
-  requireEnum(technicalSummary, "bias", biasValues, "technical_summary");
-  requireEnum(technicalSummary, "entry_quality", entryQualityValues, "technical_summary");
-  requireString(technicalSummary, "summary", "technical_summary");
-
-  requireObject(report, "key_metrics", "root");
-
-  const levels = requireObject(report, "levels", "root");
-  requireArray(levels, "support", "levels");
-  requireArray(levels, "resistance", "levels");
-
-  const scenarios = requireObject(report, "scenarios", "root");
-  validateScenario(scenarios, "long");
-  validateScenario(scenarios, "short");
-
-  const risk = requireObject(report, "risk", "root");
-  requireString(risk, "summary", "risk");
-  requireArray(risk, "items", "risk");
-
-  const conclusion = requireObject(report, "conclusion", "root");
-  requireEnum(conclusion, "priority", priorityValues, "conclusion");
-  requireString(conclusion, "text", "conclusion");
-
-  if (status === "ok" && dataQuality.confidence === "low") {
-    errors.push("status ok should not have low confidence; use partial when confidence is low");
-  }
-}
-
-if (errors.length > 0) {
-  const text = errors.map((error) => `- ${error}`).join("\n") + "\n";
-  fs.writeFileSync(errorsPath, text);
-  console.error(text);
-  process.exit(1);
-}
-
-fs.writeFileSync(errorsPath, "OK\n");
-NODE
+  node "$VALIDATOR_SCRIPT" \
+    "$TECHNICAL_REPORT_PATH" \
+    "$SYMBOL" \
+    "$BACKEND_ANALYSIS_MODE" \
+    "$TECHNICAL_REPORT_VALIDATION_ERRORS" \
+    "$TECHNICAL_REPORT_SCHEMA"
 }
 
 extract_final_post() {
@@ -466,7 +278,7 @@ log "validating technical report schema"
 validate_technical_report || fail "technical report schema validation failed"
 
 mkdir -p "$CHIEF_WORKSPACE/input"
-cp "$LOG_DIR/technical-report.json" "$CHIEF_WORKSPACE/input/technical_report.json"
+cp "$TECHNICAL_REPORT_PATH" "$CHIEF_WORKSPACE/input/technical_report.json"
 
 log "running chief-market-synthesizer"
 set +e
