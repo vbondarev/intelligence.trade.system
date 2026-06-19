@@ -1,5 +1,4 @@
-import { Type } from "typebox";
-import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, unlinkSync } from "node:fs";
 
@@ -110,55 +109,66 @@ function releaseLock(lockPath: string): void {
   }
 }
 
-export default defineToolPlugin({
+function startWorkflow(symbol: string, mode: SupportedMode): void {
+  if (!existsSync(SCRIPT_PATH)) {
+    throw new Error(`Workflow script not found: ${SCRIPT_PATH}`);
+  }
+
+  const runId = makeRunId(mode, symbol);
+  const lockPath = makeLockPath(mode, symbol);
+
+  acquireLock(lockPath);
+
+  try {
+    const child = spawn("sh", [SCRIPT_PATH, symbol, runId, lockPath], {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        ANALYSIS_MODE: mode
+      }
+    });
+
+    child.once("error", () => releaseLock(lockPath));
+    child.unref();
+  } catch (error) {
+    releaseLock(lockPath);
+    throw error;
+  }
+}
+
+export default definePluginEntry({
   id: "daily-market",
   name: "Daily Market",
   description: "Starts a background market-analysis backend workflow. Data source is ONLY market-analysis backend. Includes technical analysis, derivatives, order book and trade flow only. No on-chain, no macro, no news, no visualization, no external sentiment.",
 
-  tools: (tool) => [
-    tool({
-      name: "daily_market",
-      label: "Daily Market",
-      description: "Start intraday market overview workflow in background.",
-      parameters: Type.Object({
-        command: Type.Optional(Type.String({
-          description: "Raw args from /crypto or /daily slash command, for example BTCUSDT or intraday BTCUSDT."
-        })),
-        commandName: Type.Optional(Type.String()),
-        skillName: Type.Optional(Type.String())
-      }),
-
-      async execute(params) {
-        const { mode, symbol } = parseCommand(params.command);
-
-        if (!existsSync(SCRIPT_PATH)) {
-          throw new Error(`Workflow script not found: ${SCRIPT_PATH}`);
+  register(api) {
+    api.registerCommand({
+      name: "crypto",
+      description: "Start intraday crypto market overview.",
+      acceptsArgs: true,
+      channels: ["telegram"],
+      nativeNames: {
+        default: "daily",
+        telegram: "crypto"
+      },
+      nativeProgressMessages: {
+        telegram: "Запускаю интрадей-обзор..."
+      },
+      agentPromptGuidance: [
+        {
+          text: "Use /crypto SYMBOL for intraday market overview routing through the daily-market plugin. Do not answer /crypto manually.",
+          surfaces: ["openclaw_main"]
         }
+      ],
+      handler: async (ctx) => {
+        const { mode, symbol } = parseCommand(ctx.args);
+        startWorkflow(symbol, mode);
 
-        const runId = makeRunId(mode, symbol);
-        const lockPath = makeLockPath(mode, symbol);
-
-        acquireLock(lockPath);
-
-        try {
-          const child = spawn("sh", [SCRIPT_PATH, symbol, runId, lockPath], {
-            detached: true,
-            stdio: "ignore",
-            env: {
-              ...process.env,
-              ANALYSIS_MODE: mode
-            }
-          });
-
-          child.once("error", () => releaseLock(lockPath));
-          child.unref();
-        } catch (error) {
-          releaseLock(lockPath);
-          throw error;
-        }
-
-        return `Запустил интрадей-обзор ${symbol}. Результат придёт в Telegram.`;
+        return {
+          text: `Запустил интрадей-обзор ${symbol}. Результат придёт в Telegram.`
+        };
       }
-    })
-  ]
+    });
+  }
 });
