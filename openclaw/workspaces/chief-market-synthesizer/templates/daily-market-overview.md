@@ -1,4 +1,4 @@
-📊 {SYMBOL} Daily Check
+📊 {SYMBOL} {CHECK_LABEL}
 
 {SYMBOL_SHORT}: ${PRICE} | 24ч: {CHANGE_24H}% | Диапазон: ${LOW_24H}–${HIGH_24H}
 
