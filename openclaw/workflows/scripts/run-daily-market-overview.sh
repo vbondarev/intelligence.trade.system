@@ -260,6 +260,7 @@ log "running tech-analysis-agent"
 set +e
 node "$OPENCLAW_BIN" agent \
   --agent tech-analysis-agent \
+  --session-key "agent:tech-analysis-agent:${RUN_ID}" \
   --json \
   --message "Generate technical_report JSON for ${SYMBOL} using backend endpoint from AGENTS.md with analysis mode ${BACKEND_ANALYSIS_MODE}. Return ONLY raw JSON. No markdown. No explanations." \
   > "$TECH_RAW" \
@@ -284,6 +285,7 @@ log "running chief-market-synthesizer"
 set +e
 node "$OPENCLAW_BIN" agent \
   --agent chief-market-synthesizer \
+  --session-key "agent:chief-market-synthesizer:${RUN_ID}" \
   --json \
   --message "Use input/technical_report.json and generate the final Telegram post according to AGENTS.md, SOUL.md and templates/daily-market-overview.md. Return only plain final post text." \
   > "$CHIEF_RAW" \

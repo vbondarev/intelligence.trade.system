@@ -34,6 +34,8 @@ Do not say that you wrote to `output.md`.
 
 The only source of truth is `technical_report.json`.
 
+**CRITICAL: You MUST re-read `input/technical_report.json` with the `read` tool at the start of EVERY invocation. Never rely on previously cached file content from earlier turns. The file on disk may have changed between invocations. If you skip the read, you will produce a post about the wrong symbol — this is a confirmed bug.**
+
 Expected input path:
 
 `/home/node/.openclaw/workspaces/chief-market-synthesizer/input/technical_report.json`
