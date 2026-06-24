@@ -35,7 +35,7 @@
 - Do not infer that `.config/dotnet-tools.json` is required just because the repository has multiple projects or shared build logic.
 - Do not infer that `copilot-instructions.md` is required when `AGENTS.md` already covers the durable repository guidance.
 - Do not infer that `Microsoft.Testing.Platform` is enabled unless the repository explicitly adds its configuration.
-- Do not infer support for `includeAggregatedContext`, partial snapshots, or additional exchanges/providers beyond the currently documented constraints.
+- Do not infer support for partial snapshots or additional exchanges/providers beyond the currently documented constraints.
 - Do not infer that package versions, shared build settings, or common test behavior should be duplicated into individual project files when they already belong to centralized MSBuild files.
 - Do not infer that `Intelligence.TradeSystem.Ai` or `Intelligence.TradeSystem.Ai.Tests` are ready for use; both are currently empty placeholder projects with no source files.
 
@@ -51,9 +51,7 @@
 
 ## Current constraints
 - Orchestration is currently `Bybit`-only; both `MarketDataCollector` and `MarketAnalysisService` reject other exchanges.
-- `includeAggregatedContext=true` is not supported yet; `AggregatedContext` stays `null` in payloads.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
-- `Portfolio` always exists in `MarketAnalysisSnapshot`, but the `portfolio` section in LLM payload is emitted only when `includePortfolio=true`.
 
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.Domain/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts.

@@ -19,7 +19,6 @@ internal static class LlmPayloadMapperExtensions
     public static LlmMarketAnalysisPayload ToLlmPayload(
         this MarketAnalysisSnapshot snapshot,
         AnalysisMode mode,
-        bool includePortfolio,
         LlmSnapshotHealthPayload health)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -45,7 +44,7 @@ internal static class LlmPayloadMapperExtensions
             Symbol = snapshot.Symbol,
             Category = snapshot.Category,
             CapturedAtUtc = snapshot.CapturedAtUtc,
-            AnalysisContext = BuildAnalysisContext(mode, includePortfolio),
+            AnalysisContext = BuildAnalysisContext(mode),
             SnapshotHealth = health,
             Price = BuildPrice(snapshot.Price),
             Derivatives = BuildDerivatives(snapshot.Derivatives),
@@ -57,8 +56,6 @@ internal static class LlmPayloadMapperExtensions
             D1 = d1Payload,
             Sentiment = BuildSentiment(snapshot.Sentiment),
             Tags = [.. enrichedTags],
-            Portfolio = includePortfolio ? BuildPortfolio(snapshot.Portfolio) : null,
-            AggregatedContext = null,
             IndicatorDiagnostics = [.. snapshot.IndicatorDiagnostics.Select(d => new LlmIndicatorDiagnosticPayload
             {
                 Timeframe  = d.Timeframe,
@@ -72,13 +69,11 @@ internal static class LlmPayloadMapperExtensions
 
     // ─── AnalysisContext ────────────────────────────────────────────────────
 
-    private static LlmAnalysisContextPayload BuildAnalysisContext(AnalysisMode mode, bool includePortfolio) =>
+    private static LlmAnalysisContextPayload BuildAnalysisContext(AnalysisMode mode) =>
         new()
         {
             AnalysisMode = mode.ToString(),
             PrimaryTimeframes = AnalysisModeDefaults.GetPrimaryTimeframes(mode),
-            UsesPortfolioContext = includePortfolio,
-            UsesAggregatedContext = false,
         };
 
     // ─── Price ──────────────────────────────────────────────────────────────
@@ -321,41 +316,6 @@ internal static class LlmPayloadMapperExtensions
             MarketRegime = s.MarketRegime,
         };
 
-    // ─── Portfolio ──────────────────────────────────────────────────────────
-
-    private static LlmPortfolioPayload BuildPortfolio(PortfolioSnapshot s)
-    {
-        if (!s.IsAvailable)
-        {
-            return new LlmPortfolioPayload
-            {
-                IsAvailable = false,
-                TotalEquityUsd = 0m,
-                TotalUnrealizedPnlUsd = 0m,
-                OpenPositions = [],
-            };
-        }
-
-        return new LlmPortfolioPayload
-        {
-            IsAvailable = true,
-            TotalEquityUsd = s.TotalEquityUsd,
-            TotalUnrealizedPnlUsd = s.TotalUnrealizedPnlUsd,
-            OpenPositions = [.. s.OpenPositions.Select(BuildOpenPosition)],
-        };
-    }
-
-    private static LlmOpenPositionPayload BuildOpenPosition(OpenPositionSnapshot s) =>
-        new()
-        {
-            Symbol = s.Symbol,
-            Side = s.Side switch { PositionSide.Long => "Long", PositionSide.Short => "Short", _ => s.Side.ToString() },
-            Size = s.Size,
-            AvgPrice = s.AvgPrice,
-            UnrealizedPnlPct = s.UnrealizedPnlPct,
-            Leverage = s.Leverage,
-            LiquidationPrice = s.LiquidationPrice,
-        };
 
     // ─── Higher-TF level resolution ─────────────────────────────────────────
 

@@ -1,11 +1,13 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using FluentValidation;
 using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Services;
+using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Exchanges;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -16,39 +18,11 @@ public partial class Program
         var builder = WebApplication.CreateBuilder(args);
 
         builder.AddServiceDefaults();
-        builder.Services.AddControllers()
+        builder.Services
+            .AddControllers()
             .AddJsonOptions(options =>
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
-            })
-            .ConfigureApiBehaviorOptions(options =>
-            {
-                options.InvalidModelStateResponseFactory = context =>
-                {
-                    var query = context.HttpContext.Request.Query;
-
-                    var hasModeError = context.ModelState.Any(e =>
-                        e.Key.Equals("mode", StringComparison.OrdinalIgnoreCase) &&
-                        e.Value?.Errors.Count > 0);
-
-                    if (hasModeError && query.ContainsKey("mode"))
-                    {
-                        var detail = $"Field 'mode' has invalid value '{query["mode"]}'. " +
-                                     "Allowed values: Intraday, Swing, Portfolio.";
-                        return new BadRequestObjectResult(new ProblemDetails
-                        {
-                            Status = StatusCodes.Status400BadRequest,
-                            Title = "Request validation failed.",
-                            Detail = detail,
-                        });
-                    }
-
-                    // Default behaviour for all other binding/validation errors.
-                    return new BadRequestObjectResult(new ValidationProblemDetails(context.ModelState)
-                    {
-                        Status = StatusCodes.Status400BadRequest,
-                    });
-                };
             });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
@@ -75,6 +49,8 @@ public partial class Program
         builder.Services.AddSingleton<Microsoft.Extensions.Options.IOptions<SnapshotFreshnessOptions>>(
             sp => Microsoft.Extensions.Options.Options.Create(sp.GetRequiredService<SnapshotFreshnessOptions>()));
         builder.Services.AddSingleton<ISnapshotHealthEvaluator, SnapshotHealthEvaluator>();
+        builder.Services.AddScoped<IValidator<SnapshotAnalysisRequest>, SnapshotAnalysisRequestValidator>();
+        builder.Services.AddScoped<IValidator<LlmPayloadRequest>, LlmPayloadRequestValidator>();
 
         var app = builder.Build();
 

@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Intelligence.TradeSystem.Api.Models.Payloads;
 
 /// <summary>
@@ -65,18 +63,4 @@ public sealed record LlmMarketAnalysisPayload
     /// Непустой список объясняет, почему значение индикатора <c>null</c> или fallback.
     /// </summary>
     public IReadOnlyList<LlmIndicatorDiagnosticPayload> IndicatorDiagnostics { get; init; } = [];
-
-    /// <summary>
-    /// Данные портфеля. Присутствует только если <c>includePortfolio=true</c>.
-    /// Если секция запрошена, но данные недоступны — <c>isAvailable: false</c>.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public LlmPortfolioPayload? Portfolio { get; init; }
-
-    /// <summary>
-    /// Агрегированный текстовый контекст. Зарезервировано для будущего расширения.
-    /// На первом этапе не поддерживается — поле не сериализуется в payload.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? AggregatedContext { get; init; }
 }

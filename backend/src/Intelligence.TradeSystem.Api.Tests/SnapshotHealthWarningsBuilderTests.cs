@@ -20,15 +20,11 @@ public sealed class SnapshotHealthWarningsBuilderTests
 
     private static SnapshotHealthWarningsContext BuildCtx(
         AnalysisMode mode = AnalysisMode.Intraday,
-        bool includePortfolio = true,
-        bool includeAggregatedContext = false,
         Dictionary<string, long>? sectionAgesMs = null,
         decimal stalenessProximityFactor = 0.8m) =>
         new()
         {
             Mode = mode,
-            IncludePortfolio = includePortfolio,
-            IncludeAggregatedContext = includeAggregatedContext,
             SectionAgesMs = sectionAgesMs ?? [],
             Thresholds = _intradayThresholds,
             StalenessProximityFactor = stalenessProximityFactor,
@@ -333,41 +329,6 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Should().ContainSingle(w => w == "price is far from nearest relevant level");
     }
 
-    // ─── 6.6 Missing optional context ────────────────────────────────────────
-
-    [Fact]
-    public void Context_Warning_When_Portfolio_Not_Included()
-    {
-        var ctx = BuildCtx(includePortfolio: false);
-        var result = new List<string>();
-
-        SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
-
-        result.Should().Contain("portfolio context is not included");
-    }
-
-    [Fact]
-    public void Context_No_Warning_When_Portfolio_Included()
-    {
-        var ctx = BuildCtx(includePortfolio: true);
-        var result = new List<string>();
-
-        SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
-
-        result.Should().NotContain("portfolio context is not included");
-    }
-
-    [Fact]
-    public void Context_Warning_When_AggregatedContext_Not_Included()
-    {
-        var ctx = BuildCtx(includeAggregatedContext: false);
-        var result = new List<string>();
-
-        SnapshotHealthWarningsBuilder.AddContextWarnings(ctx, result);
-
-        result.Should().Contain("aggregated market context is not included");
-    }
-
     // ─── Truncation to MaxWarnings ───────────────────────────────────────────
 
     [Fact]
@@ -379,7 +340,6 @@ public sealed class SnapshotHealthWarningsBuilderTests
         // - conflicting: OB > 0, TF < 0
         // - directional + neutral: Bullish + Neutral
         // - far from level: distance > 1.5
-        // - context: portfolio + aggregated не включены
         var lowFarTf = DefaultSnapshot().M15 with
         {
             VolumeRatio = 0.2m,
@@ -400,8 +360,6 @@ public sealed class SnapshotHealthWarningsBuilderTests
         };
 
         var ctx = BuildCtx(
-            includePortfolio: false,
-            includeAggregatedContext: false,
             sectionAgesMs: new()
             {
                 ["orderBook"] = 1800,  // 90% от 2000ms
@@ -419,11 +377,9 @@ public sealed class SnapshotHealthWarningsBuilderTests
     public void Build_Returns_Empty_When_No_Rules_Fire()
     {
         // Стандартный снапшот: volume = 1.1, MarketRegime = Trending,
-        // distance = 0.6154, scores = aligned, portfolio included
+        // distance = 0.6154, scores = aligned
         var snapshot = DefaultSnapshot();
         var ctx = BuildCtx(
-            includePortfolio: true,
-            includeAggregatedContext: true,
             sectionAgesMs: new()
             {
                 ["orderBook"] = 100,
@@ -447,7 +403,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             H1 = lowTf with { Timeframe = "1h" },
             H4 = lowTf with { Timeframe = "4h" },
         };
-        var ctx = BuildCtx(includePortfolio: true);
+        var ctx = BuildCtx();
 
         var result = SnapshotHealthWarningsBuilder.Build(snapshot, ctx);
 

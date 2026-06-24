@@ -1,10 +1,9 @@
-using Intelligence.TradeSystem.Abstractions;
+using FluentValidation;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Application;
-using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
@@ -18,19 +17,27 @@ public sealed class MarketAnalysisController : ControllerBase
 {
     private readonly IMarketAnalysisService _marketAnalysisService;
     private readonly ISnapshotHealthEvaluator _snapshotHealthEvaluator;
+    private readonly IValidator<SnapshotAnalysisRequest> _snapshotRequestValidator;
+    private readonly IValidator<LlmPayloadRequest> _llmPayloadRequestValidator;
 
     /// <summary>
     /// Инициализирует новый экземпляр <see cref="MarketAnalysisController"/>.
     /// </summary>
     /// <param name="marketAnalysisService">Сервис построения агрегированного рыночного снимка.</param>
     /// <param name="snapshotHealthEvaluator">Сервис оценки свежести снапшота.</param>
+    /// <param name="snapshotRequestValidator">Валидатор запроса снапшота.</param>
+    /// <param name="llmPayloadRequestValidator">Валидатор запроса LLM-payload.</param>
     /// <exception cref="ArgumentNullException">Если любая из зависимостей равна <c>null</c>.</exception>
     public MarketAnalysisController(
         IMarketAnalysisService marketAnalysisService,
-        ISnapshotHealthEvaluator snapshotHealthEvaluator)
+        ISnapshotHealthEvaluator snapshotHealthEvaluator,
+        IValidator<SnapshotAnalysisRequest> snapshotRequestValidator,
+        IValidator<LlmPayloadRequest> llmPayloadRequestValidator)
     {
         _marketAnalysisService = marketAnalysisService;
         _snapshotHealthEvaluator = snapshotHealthEvaluator;
+        _snapshotRequestValidator = snapshotRequestValidator;
+        _llmPayloadRequestValidator = llmPayloadRequestValidator;
     }
 
     /// <summary>
@@ -51,18 +58,24 @@ public sealed class MarketAnalysisController : ControllerBase
         [FromBody] SnapshotAnalysisRequest? request,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateSnapshotRequest(request, out var exchangeId, out var symbol, out var category,
-                out var validationProblem))
+        if (request is null)
         {
-            return validationProblem!;
+            return BadRequestProblem("Snapshot request body is required.");
+        }
+
+        var validationResult = await _snapshotRequestValidator.ValidateAsync(request, cancellationToken);
+
+        if (!validationResult.IsValid)
+        {
+            return BadRequestProblem(validationResult.Errors[0].ErrorMessage);
         }
 
         try
         {
             var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
-                exchangeId,
-                symbol,
-                category,
+                request.Exchange!.Value,
+                request.Symbol!.Trim(),
+                request.Category!.Value,
                 cancellationToken).ConfigureAwait(false);
 
             return Ok(snapshot.ToResponse());
@@ -105,26 +118,33 @@ public sealed class MarketAnalysisController : ControllerBase
         [FromQuery] LlmPayloadRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateLlmPayloadRequest(symbol, request, out var exchangeId, out var normalizedSymbol,
-                out var category, out var mode, out var validationProblem))
+        if (string.IsNullOrWhiteSpace(symbol))
         {
-            return validationProblem!;
+            return BadRequestProblem("Field 'symbol' is required.");
         }
+
+        var validationResult = await _llmPayloadRequestValidator
+            .ValidateAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!validationResult.IsValid)
+        {
+            return BadRequestProblem(validationResult.Errors[0].ErrorMessage);
+        }
+
+        var mode = request.Mode ?? AnalysisMode.Intraday;
+        var normalizedSymbol = symbol.Trim();
 
         try
         {
             var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
-                exchangeId,
+                request.Exchange!.Value,
                 normalizedSymbol,
-                category,
+                request.Category!.Value,
                 cancellationToken).ConfigureAwait(false);
 
-            var health = _snapshotHealthEvaluator.Evaluate(
-                snapshot,
-                mode,
-                includePortfolio: request.IncludePortfolio ?? false,
-                includeAggregatedContext: false);
-            var payload = snapshot.ToLlmPayload(mode, request.IncludePortfolio ?? false, health);
+            var health = _snapshotHealthEvaluator.Evaluate(snapshot, mode);
+            var payload = snapshot.ToLlmPayload(mode, health);
 
             return Ok(payload);
         }
@@ -145,8 +165,6 @@ public sealed class MarketAnalysisController : ControllerBase
         }
     }
 
-    // ─── Validation ─────────────────────────────────────────────────────────
-
     private BadRequestObjectResult BadRequestProblem(string detail) =>
         BadRequest(new ProblemDetails
         {
@@ -154,117 +172,4 @@ public sealed class MarketAnalysisController : ControllerBase
             Title = "Request validation failed.",
             Detail = detail,
         });
-
-    private bool TryValidateLlmPayloadRequest(
-        string? symbol,
-        LlmPayloadRequest request,
-        out ExchangeId exchangeId,
-        out string normalizedSymbol,
-        out MarketCategory category,
-        out AnalysisMode mode,
-        out BadRequestObjectResult? validationProblem)
-    {
-        mode = request.Mode ?? AnalysisMode.Intraday;
-
-        if (!TryNormalizeRequiredString(symbol, "symbol", out normalizedSymbol, out var symbolError))
-        {
-            exchangeId = default;
-            category = default;
-            validationProblem = BadRequestProblem(symbolError!);
-            return false;
-        }
-
-        if (request.Exchange is null)
-        {
-            exchangeId = default;
-            category = default;
-            validationProblem = BadRequestProblem("Field 'exchange' is required.");
-            return false;
-        }
-
-        exchangeId = request.Exchange.Value;
-
-        if (request.Category is null)
-        {
-            category = default;
-            validationProblem = BadRequestProblem("Field 'category' is required.");
-            return false;
-        }
-
-        category = request.Category.Value;
-
-
-        if (request.IncludeAggregatedContext == true)
-        {
-            validationProblem =
-                BadRequestProblem("Field 'includeAggregatedContext' is not supported in the current version.");
-            return false;
-        }
-
-        validationProblem = null;
-        return true;
-    }
-
-    private bool TryValidateSnapshotRequest(
-        SnapshotAnalysisRequest? request,
-        out ExchangeId exchangeId,
-        out string symbol,
-        out MarketCategory category,
-        out BadRequestObjectResult? validationProblem)
-    {
-        if (request is null)
-        {
-            exchangeId = default;
-            symbol = string.Empty;
-            category = default;
-            validationProblem = BadRequestProblem("Snapshot request body is required.");
-            return false;
-        }
-
-        if (request.Exchange is null)
-        {
-            exchangeId = default;
-            symbol = string.Empty;
-            category = default;
-            validationProblem = BadRequestProblem("Field 'exchange' is required.");
-            return false;
-        }
-
-        exchangeId = request.Exchange.Value;
-
-        if (!TryNormalizeRequiredString(request.Symbol, "symbol", out symbol, out var symbolError))
-        {
-            category = default;
-            validationProblem = BadRequestProblem(symbolError!);
-            return false;
-        }
-
-        if (request.Category is null)
-        {
-            category = default;
-            validationProblem = BadRequestProblem("Field 'category' is required.");
-            return false;
-        }
-
-        category = request.Category.Value;
-
-        validationProblem = null;
-        return true;
-    }
-
-
-    private static bool TryNormalizeRequiredString(string? value, string fieldName, out string normalized,
-        out string? error)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            normalized = string.Empty;
-            error = $"Field '{fieldName}' is required.";
-            return false;
-        }
-
-        normalized = value.Trim();
-        error = null;
-        return true;
-    }
 }
