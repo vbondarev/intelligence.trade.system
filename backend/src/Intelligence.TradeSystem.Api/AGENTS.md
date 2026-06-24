@@ -33,9 +33,7 @@
 - Public payload models under `Models/Payloads` are contract-sensitive; prefer additive changes.
 - Follow extend-only design for public payloads and request models: add new optional fields or new endpoints/paths instead of renaming, removing, or silently reinterpreting existing fields.
 - `LlmPayloadMapperExtensions` currently fixes `SchemaVersion = "1.0"`; do not change it silently.
-- `AnalysisContext.UsesAggregatedContext` is always `false` today.
-- `Portfolio` is serialized only when `includePortfolio=true`; if requested but unavailable, use `isAvailable: false` instead of omitting business meaning.
-- `AggregatedContext` is reserved for future use and must remain `null` until API support is intentionally added.
+- `GET /api/market-analysis/{symbol}/llm-payload` accepts only `exchange`, `category`, and `mode`.
 
 ## Snapshot health behavior
 - `Services/SnapshotHealthEvaluator.cs` currently reports freshness and warnings, but not partial snapshots.

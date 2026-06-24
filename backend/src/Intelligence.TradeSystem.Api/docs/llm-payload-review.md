@@ -14,11 +14,10 @@
 | 2 | **Детерминированный summary-pipeline** — `LlmTimeframeSummaryBuilder` вычисляет поля в строгом порядке (Bias → IsTrendConfirmed → MomentumState → EntryQuality → RiskFlags) с документированными инвариантами. |
 | 3 | **Двухуровневые тесты** — unit-тесты на логику маппера (`EntryQualityEvaluatorTests`, `LlmTimeframeSummaryBuilderTests`) работают без HTTP-стека; endpoint-тесты покрывают 200 / 400 / 503 через `WebApplicationFactory`. |
 | 4 | **`MockBehavior.Strict` во всех мок-объектах** — защита от неожиданных вызовов в тестах. |
-| 5 | **`JsonIgnoreCondition.WhenWritingNull`** на `Portfolio` и `AggregatedContext` — payload чист, лишние ключи не сериализуются. |
-| 6 | **`InternalsVisibleTo` + `internal`-маперы** — правильная инкапсуляция: `EntryQualityEvaluator` и `LlmTimeframeSummaryBuilder` не экспонируются публично. |
-| 7 | **Стандартный `ProblemDetails`** для всех ошибок — 400 / 503 оформлены единообразно. |
-| 8 | **Строго типизированные enum-ы** — `MomentumState`, `PressureLabel`, `EntryQuality`, `TimeframeBias`, `TrendStrengthLabel` исключают строковые опечатки в логике маппинга. |
-| 9 | **`PortfolioSnapshot.IsAvailable`** — путь `IsAvailable = false` реализован и покрыт тестами. |
+| 5 | **`InternalsVisibleTo` + `internal`-маперы** — правильная инкапсуляция: `EntryQualityEvaluator` и `LlmTimeframeSummaryBuilder` не экспонируются публично. |
+| 6 | **Стандартный `ProblemDetails`** для всех ошибок — 400 / 503 оформлены единообразно. |
+| 7 | **Строго типизированные enum-ы** — `MomentumState`, `PressureLabel`, `EntryQuality`, `TimeframeBias`, `TrendStrengthLabel` исключают строковые опечатки в логике маппинга. |
+| 8 | **`PortfolioSnapshot.IsAvailable`** — путь `IsAvailable = false` реализован и покрыт тестами. |
 
 ---
 

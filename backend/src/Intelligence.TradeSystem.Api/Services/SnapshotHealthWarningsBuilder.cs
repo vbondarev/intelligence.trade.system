@@ -11,7 +11,6 @@ namespace Intelligence.TradeSystem.Api.Services;
 /// Правила V1 (по приоритету при усечении):
 ///   — Data-quality:          near-staleness для orderBook / tradeFlow / derivatives
 ///   — Market-interpretation: low volume · conflicting signals · directional+neutral · far from level
-///   — Context:               portfolio not included · aggregated context not included
 ///
 /// Итоговый список урезается до <see cref="MaxWarnings"/> сообщений.
 /// </summary>
@@ -38,7 +37,6 @@ internal static class SnapshotHealthWarningsBuilder
 
         var dataQuality = new List<string>();
         var marketInterpretation = new List<string>();
-        var contextWarnings = new List<string>();
 
         // Priority 1: data-quality
         AddNearStalenessWarnings(ctx, dataQuality);
@@ -49,12 +47,9 @@ internal static class SnapshotHealthWarningsBuilder
         AddDirectionalNeutralRegimeWarning(snapshot, ctx.Mode, marketInterpretation);
         AddFarFromLevelWarning(snapshot, ctx.Mode, marketInterpretation);
 
-        // Priority 3: context
-        AddContextWarnings(ctx, contextWarnings);
-
         // Merge by priority, deduplicate and truncate
         var result = new List<string>(MaxWarnings);
-        foreach (var w in dataQuality.Concat(marketInterpretation).Concat(contextWarnings))
+        foreach (var w in dataQuality.Concat(marketInterpretation))
         {
             if (result.Count >= MaxWarnings) break;
             if (!result.Contains(w, StringComparer.Ordinal))
@@ -175,20 +170,6 @@ internal static class SnapshotHealthWarningsBuilder
                 return; // одно предупреждение на snapshot
             }
         }
-    }
-
-    /// <summary>
-    /// Rule 6.6: опциональные секции контекста не запрошены.
-    /// </summary>
-    internal static void AddContextWarnings(
-        SnapshotHealthWarningsContext ctx,
-        List<string> target)
-    {
-        if (!ctx.IncludePortfolio)
-            target.Add("portfolio context is not included");
-
-        if (!ctx.IncludeAggregatedContext)
-            target.Add("aggregated market context is not included");
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────

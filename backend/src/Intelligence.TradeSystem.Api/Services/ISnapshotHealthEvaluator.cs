@@ -13,11 +13,7 @@ public interface ISnapshotHealthEvaluator
     /// </summary>
     /// <param name="snapshot">Рыночный снимок.</param>
     /// <param name="mode">Режим анализа.</param>
-    /// <param name="includePortfolio"><c>true</c>, если portfolio-секция запрошена в payload.</param>
-    /// <param name="includeAggregatedContext"><c>true</c>, если агрегированный контекст запрошен в payload.</param>
     LlmSnapshotHealthPayload Evaluate(
         MarketAnalysisSnapshot snapshot,
-        AnalysisMode mode,
-        bool includePortfolio,
-        bool includeAggregatedContext);
+        AnalysisMode mode);
 }

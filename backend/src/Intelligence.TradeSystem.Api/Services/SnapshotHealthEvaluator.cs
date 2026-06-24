@@ -21,9 +21,7 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
     /// <inheritdoc/>
     public LlmSnapshotHealthPayload Evaluate(
         MarketAnalysisSnapshot snapshot,
-        AnalysisMode mode,
-        bool includePortfolio,
-        bool includeAggregatedContext)
+        AnalysisMode mode)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
@@ -61,8 +59,6 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
         var softWarnings = SnapshotHealthWarningsBuilder.Build(snapshot, new SnapshotHealthWarningsContext
         {
             Mode = mode,
-            IncludePortfolio = includePortfolio,
-            IncludeAggregatedContext = includeAggregatedContext,
             SectionAgesMs = sectionAges,
             Thresholds = thresholds,
             StalenessProximityFactor = _options.StalenessProximityFactor,

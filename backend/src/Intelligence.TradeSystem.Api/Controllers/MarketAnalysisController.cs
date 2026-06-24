@@ -119,12 +119,8 @@ public sealed class MarketAnalysisController : ControllerBase
                 category,
                 cancellationToken).ConfigureAwait(false);
 
-            var health = _snapshotHealthEvaluator.Evaluate(
-                snapshot,
-                mode,
-                includePortfolio: request.IncludePortfolio ?? false,
-                includeAggregatedContext: false);
-            var payload = snapshot.ToLlmPayload(mode, request.IncludePortfolio ?? false, health);
+            var health = _snapshotHealthEvaluator.Evaluate(snapshot, mode);
+            var payload = snapshot.ToLlmPayload(mode, health);
 
             return Ok(payload);
         }
@@ -192,16 +188,8 @@ public sealed class MarketAnalysisController : ControllerBase
         }
 
         category = request.Category.Value;
-
-
-        if (request.IncludeAggregatedContext == true)
-        {
-            validationProblem =
-                BadRequestProblem("Field 'includeAggregatedContext' is not supported in the current version.");
-            return false;
-        }
-
         validationProblem = null;
+
         return true;
     }
 

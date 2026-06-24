@@ -155,37 +155,6 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task LlmPayload_Without_IncludePortfolio_Portfolio_Key_Is_Absent_From_Json()
-    {
-        var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service = MockService(snapshot);
-
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
-        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
-
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        json.RootElement.TryGetProperty("portfolio", out _).Should().BeFalse(
-            because: "portfolio must not appear in JSON when includePortfolio is false");
-    }
-
-    [Fact]
-    public async Task LlmPayload_With_IncludePortfolio_True_Returns_Portfolio()
-    {
-        var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service = MockService(snapshot);
-
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
-        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includePortfolio=true");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var result = await response.Content.ReadFromJsonAsync<LlmMarketAnalysisPayload>();
-        result!.Portfolio.Should().NotBeNull();
-        result.Portfolio!.OpenPositions.Should().ContainSingle(p => p.Symbol == "BTCUSDT" && p.Side == "Long");
-        result.AnalysisContext.UsesPortfolioContext.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task LlmPayload_Trims_Symbol_Before_Calling_Service()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
@@ -197,37 +166,6 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         service.Verify(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task LlmPayload_With_IncludePortfolio_True_Returns_IsAvailable_True()
-    {
-        var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service = MockService(snapshot);
-
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
-        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includePortfolio=true");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        json.RootElement.TryGetProperty("portfolio", out var portfolioEl).Should().BeTrue(
-            because: "portfolio key must be present when includePortfolio=true");
-        portfolioEl.GetProperty("isAvailable").GetBoolean().Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task LlmPayload_AggregatedContext_Key_Is_Always_Absent_From_Json()
-    {
-        var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var service = MockService(snapshot);
-
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
-        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
-
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        json.RootElement.TryGetProperty("aggregatedContext", out _).Should().BeFalse(
-            because: "aggregatedContext is not supported in V1 and must not appear in payload");
     }
 
     // ─── trendCode mapping ──────────────────────────────────────────────────
@@ -301,17 +239,6 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         detail.Should().Contain("Swing");
         detail.Should().Contain("Portfolio");
 
-        service.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task LlmPayload_Returns_BadRequest_When_IncludeAggregatedContext_Is_True()
-    {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
-        using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&includeAggregatedContext=true");
-
-        await ProblemDetailsAssertions.AssertProblemAsync(response, HttpStatusCode.BadRequest, "Request validation failed.", "not supported");
         service.VerifyNoOtherCalls();
     }
 

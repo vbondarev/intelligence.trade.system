@@ -28,17 +28,4 @@ public sealed record LlmPayloadRequest
     /// </summary>
     [FromQuery(Name = "mode")]
     public AnalysisMode? Mode { get; init; }
-
-    /// <summary>
-    /// Включить ли секцию <c>portfolio</c> в payload. По умолчанию <c>false</c>.
-    /// </summary>
-    [FromQuery(Name = "includePortfolio")]
-    public bool? IncludePortfolio { get; init; }
-
-    /// <summary>
-    /// Включить ли агрегированный контекст в payload. На первом этапе не поддерживается —
-    /// передача <c>true</c> вернёт <c>400 Bad Request</c>.
-    /// </summary>
-    [FromQuery(Name = "includeAggregatedContext")]
-    public bool? IncludeAggregatedContext { get; init; }
 }

@@ -83,17 +83,6 @@ public sealed class SnapshotHealthInterpretationWarningsTests
             because: "VolumeRatio = 0.3 < 0.5 на первичных таймфреймах");
     }
 
-    [Fact]
-    public async Task Warnings_Contains_Portfolio_Context_Warning_When_IncludePortfolio_Is_False()
-    {
-        // Стандартный запрос без includePortfolio → должен появиться warning
-        using var client = CreateClientWithDefaultSnapshot();
-        using var response = await client.GetAsync(Url);  // no includePortfolio=true
-
-        var warnings = ParseWarnings(await response.Content.ReadAsStringAsync());
-
-        warnings.Should().Contain("portfolio context is not included");
-    }
 
     [Fact]
     public async Task Warnings_NotEmpty_When_Multiple_Interpretation_Rules_Fire()
@@ -147,9 +136,6 @@ public sealed class SnapshotHealthInterpretationWarningsTests
         };
         return CreateClientWithSnapshot(snapshot);
     }
-
-    private HttpClient CreateClientWithDefaultSnapshot() =>
-        CreateClientWithSnapshot(ApiSnapshotTestData.CreateSnapshot());
 
     private HttpClient CreateClientWithSnapshot(MarketAnalysisSnapshot snapshot)
     {

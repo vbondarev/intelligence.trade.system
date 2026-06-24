@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Mappers;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -15,35 +15,35 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// 4. JSON structure is not changed: only entryQuality values change as expected.
 /// 5. riskFlags are consistent with entryQuality (no contradictions).
 ///
-/// Tests go through <c>ToLlmPayload</c> — the same path as the real API endpoint.
+/// Tests go through <c>ToLlmPayload</c> the same path as the real API endpoint.
 /// </summary>
 public sealed class LlmPayloadMapperExtensionsTests
 {
-    // ─── Shared health instances ─────────────────────────────────────────────
+    // --- Shared health instances ---------------------------------------------
 
-    private static readonly LlmSnapshotHealthPayload FreshHealth = new()
+    private static readonly LlmSnapshotHealthPayload _freshHealth = new()
     {
         IsFresh = true,
         IsPartial = false,
         Warnings = [],
     };
 
-    private static readonly LlmSnapshotHealthPayload StaleHealth = new()
+    private static readonly LlmSnapshotHealthPayload _staleHealth = new()
     {
         IsFresh = false,
         IsPartial = false,
         Warnings = ["SnapshotStale"],
     };
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
     // Cross-TF level propagation: M15 considers H1/H4 opposite levels
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasVeryCloseResistance_M15EntryQualityIsPoor()
     {
         // Arrange: M15 bullish, good conditions, no local resistance.
-        // H4 has strong resistance very close (0.05%) → should force M15 to Poor.
+        // H4 has strong resistance very close (0.05%) > should force M15 to Poor.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,       // no local m15 resistance
@@ -55,7 +55,7 @@ public sealed class LlmPayloadMapperExtensionsTests
             regime: MarketRegimes.Trending);
 
         // Act
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         // Assert
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
@@ -67,7 +67,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasNearResistance_M15EntryQualityIsNotGood()
     {
-        // H4 resistance at 0.20% (< 0.30%) → Good forbidden for M15.
+        // H4 resistance at 0.20% (< 0.30%) > Good forbidden for M15.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -78,7 +78,7 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().NotBe("Good",
             because: "H4 resistance at 0.20% < 0.30% threshold must forbid Good for M15");
@@ -88,7 +88,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasFarResistance_M15EntryQualityCanBeGood()
     {
-        // H4 resistance at 0.50% (>= 0.30%) → no constraint from higher TF.
+        // H4 resistance at 0.50% (>= 0.30%) > no constraint from higher TF.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -99,7 +99,7 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Good",
             because: "H4 resistance at 0.50% >= 0.30% threshold does not restrict M15 entryQuality");
@@ -109,7 +109,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_H1Bullish_WhenD1HasNearResistance_H1EntryQualityIsNotGood()
     {
-        // D1 resistance at 0.20% for H1 → Good forbidden.
+        // D1 resistance at 0.20% for H1 > Good forbidden.
         var snapshot = MakeSnapshot(
             h1: MakeBullishTf("1h",
                 distToResistance: null,
@@ -120,7 +120,7 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: 0.80m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.H1.Summary.EntryQuality.Should().NotBe("Good",
             because: "D1 resistance at 0.20% acts as higher-TF obstacle for H1");
@@ -129,7 +129,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4HasVeryCloseSupport_M15EntryQualityIsPoor()
     {
-        // M15 bearish, H4 has strong support very close (0.05%) → Poor.
+        // M15 bearish, H4 has strong support very close (0.05%) > Poor.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m",
                 distToSupport: null,
@@ -140,7 +140,7 @@ public sealed class LlmPayloadMapperExtensionsTests
                 supportStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
             because: "H4 strong support at 0.05% < 0.15% must force M15 bearish entryQuality to Poor");
@@ -150,7 +150,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_HigherTfLevel_OnWrongSideOfPrice_IsIgnored()
     {
-        // If higher TF has support/resistance with null distance (level absent) → no constraint.
+        // If higher TF has support/resistance with null distance (level absent) > no constraint.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -162,16 +162,16 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Good",
             because: "H4 resistance with null distance (wrong side) must not constrain M15 entryQuality");
         payload.M15.Summary.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
     // BTCUSDT-like regression scenarios via full pipeline
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_BtcUsdtLike_M15Bullish_LowVolume_BelowEmas_NeutralRegime_NearH4Resistance_IsPoor()
@@ -192,8 +192,8 @@ public sealed class LlmPayloadMapperExtensionsTests
                 Open = 77_400m, High = 77_500m, Low = 77_350m, Close = 77_437m,
                 Volume = 197m, Turnover = 15_260_000m,
             },
-            Ema20 = 77_600m,    // above close → isAboveEma20 = false
-            Ema50 = 77_550m,    // above close → isAboveEma50 = false
+            Ema20 = 77_600m,    // above close > isAboveEma20 = false
+            Ema50 = 77_550m,    // above close > isAboveEma50 = false
             Ema200 = 75_000m,
             Rsi14 = 45m,
             Rsi14IsReliable = true,
@@ -227,11 +227,11 @@ public sealed class LlmPayloadMapperExtensionsTests
             volumeRatio: 1.0m);
 
         var snapshot = MakeSnapshot(m15: m15, h4: h4, regime: MarketRegimes.Neutral);
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, StaleHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _staleHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
             because: "BTCUSDT m15: very low volume + EMA conflict + stale snapshot + " +
-                     "neutral regime + very close H4 resistance → Poor");
+                     "neutral regime + very close H4 resistance > Poor");
         // Verify raw fields are not altered
         payload.M15.VolumeRatio.Should().Be(0.1971m);
         payload.M15.IsAboveEma20.Should().BeFalse();
@@ -255,8 +255,8 @@ public sealed class LlmPayloadMapperExtensionsTests
                 Open = 102_000m, High = 102_100m, Low = 101_800m, Close = 101_900m,
                 Volume = 18m, Turnover = 1_834_000m,
             },
-            Ema20 = 101_500m,   // below close → isAboveEma20 = true → EMA conflict for bearish
-            Ema50 = 101_400m,   // below close → isAboveEma50 = true → EMA conflict for bearish
+            Ema20 = 101_500m,   // below close > isAboveEma20 = true > EMA conflict for bearish
+            Ema50 = 101_400m,   // below close > isAboveEma50 = true > EMA conflict for bearish
             Ema200 = 103_000m,
             Rsi14 = 52m,
             Rsi14IsReliable = true,
@@ -284,10 +284,10 @@ public sealed class LlmPayloadMapperExtensionsTests
         };
 
         var snapshot = MakeSnapshot(h4: h4, regime: MarketRegimes.Neutral);
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.H4.Summary.EntryQuality.Should().NotBe("Good",
-            because: "H4 bearish: very low volume + price above both EMAs + neutral regime → never Good");
+            because: "H4 bearish: very low volume + price above both EMAs + neutral regime > never Good");
         payload.H4.Summary.EntryQuality.Should().BeOneOf("Poor", "Fair");
         // Verify raw data unchanged
         payload.H4.VolumeRatio.Should().Be(0.0184m);
@@ -295,9 +295,9 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.H4.IsAboveEma50.Should().BeTrue();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Clean setups — Good must still be reachable
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
+    // Clean setups � Good must still be reachable
+    // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_CleanBullishSetup_ReturnsGoodForM15()
@@ -320,11 +320,11 @@ public sealed class LlmPayloadMapperExtensionsTests
             h4: MakeBullishTf("4h", distToResistance: null, resistanceStrength: null),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Good",
             because: "clean bullish setup: confirmed + strong support + high volume + " +
-                     "above both EMAs + fresh + Trending + no resistance obstacle → Good");
+                     "above both EMAs + fresh + Trending + no resistance obstacle > Good");
         payload.M15.Summary.IsTrendConfirmed.Should().BeTrue();
         payload.M15.Summary.RiskFlags.Should().NotContain("LowVolume");
         payload.M15.Summary.RiskFlags.Should().NotContain("NearResistance");
@@ -352,11 +352,11 @@ public sealed class LlmPayloadMapperExtensionsTests
             d1: MakeBearishTf("1d", distToSupport: null, supportStrength: null),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.H4.Summary.EntryQuality.Should().Be("Good",
             because: "clean bearish setup: confirmed + strong resistance + high volume + " +
-                     "below both EMAs + fresh + Trending + no support obstacle → Good");
+                     "below both EMAs + fresh + Trending + no support obstacle > Good");
         payload.H4.Summary.IsTrendConfirmed.Should().BeTrue();
         payload.H4.Summary.RiskFlags.Should().NotContain("LowVolume");
         payload.H4.Summary.RiskFlags.Should().NotContain("NearSupport");
@@ -364,25 +364,25 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.H4.Summary.RiskFlags.Should().NotContain("WeakEntryLevel");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ResolveHigherTfOppositeLevel — distance boundary conditions
+    // ===========================================================================
+    // ResolveHigherTfOppositeLevel � distance boundary conditions
     // dist == 0 is valid (obstacle exactly at price); dist < 0 is wrong-side (ignored)
     // TODO: mapper-level integration coverage for TrendConfirmedButEntryFiltered with dist==0
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsZero_ForcesEntryQualityToPoor()
     {
-        // H4 resistance exactly at price (distance=0) — the nearest possible obstacle.
+        // H4 resistance exactly at price (distance=0) � the nearest possible obstacle.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h4: MakeBullishTf("4h", distToResistance: 0m, resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
-            because: "H4 resistance at distance=0 is directly at price — maximum obstacle, must force Poor");
+            because: "H4 resistance at distance=0 is directly at price � maximum obstacle, must force Poor");
         payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
             because: "distance=0 meets the NearHigherTimeframeResistance threshold");
     }
@@ -390,16 +390,16 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsZero_ForcesEntryQualityToPoor()
     {
-        // H4 support exactly at price (distance=0) — the nearest possible obstacle for bearish.
+        // H4 support exactly at price (distance=0) � the nearest possible obstacle for bearish.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
             h4: MakeBearishTf("4h", distToSupport: 0m, supportStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
-            because: "H4 support at distance=0 is directly at price — maximum obstacle, must force Poor");
+            because: "H4 support at distance=0 is directly at price � maximum obstacle, must force Poor");
         payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeSupport",
             because: "distance=0 meets the NearHigherTimeframeSupport threshold");
     }
@@ -407,13 +407,13 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsNegative_IsIgnored()
     {
-        // H4 resistance with negative distance is behind the trade (wrong side) → must be ignored.
+        // H4 resistance with negative distance is behind the trade (wrong side) > must be ignored.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h4: MakeBullishTf("4h", distToResistance: -0.1m, resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Good",
             because: "H4 resistance with negative distance is on the wrong side of price and must not constrain M15");
@@ -423,13 +423,13 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsNegative_IsIgnored()
     {
-        // H4 support with negative distance is behind the trade (wrong side) → must be ignored.
+        // H4 support with negative distance is behind the trade (wrong side) > must be ignored.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
             h4: MakeBearishTf("4h", distToSupport: -0.1m, supportStrength: 0.85m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Good",
             because: "H4 support with negative distance is on the wrong side of price and must not constrain M15");
@@ -439,47 +439,47 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_ZeroAndPositive_SelectsZeroAsNearest()
     {
-        // H1: distance=0 (at price), H4: distance=0.25 — zero must win as the nearest obstacle.
+        // H1: distance=0 (at price), H4: distance=0.25 � zero must win as the nearest obstacle.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h1: MakeBullishTf("1h", distToResistance: 0m, resistanceStrength: 0.80m),
             h4: MakeBullishTf("4h", distToResistance: 0.25m, resistanceStrength: 0.80m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
-            because: "H1 resistance at distance=0 is nearer than H4 at 0.25%; zero wins as nearest obstacle → Poor");
+            because: "H1 resistance at distance=0 is nearer than H4 at 0.25%; zero wins as nearest obstacle > Poor");
         payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
     }
 
     [Fact]
     public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_NegativeAndPositive_SelectsPositiveCandidate()
     {
-        // H1: distance=-0.1 (wrong-side, ignored), H4: distance=0.25 — only positive is valid.
+        // H1: distance=-0.1 (wrong-side, ignored), H4: distance=0.25 � only positive is valid.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h1: MakeBullishTf("1h", distToResistance: -0.1m, resistanceStrength: 0.80m),
             h4: MakeBullishTf("4h", distToResistance: 0.25m, resistanceStrength: 0.80m),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Summary.EntryQuality.Should().NotBe("Good",
-            because: "H1 negative distance ignored; H4 resistance at 0.25% < 0.30% threshold → Good forbidden");
+            because: "H1 negative distance ignored; H4 resistance at 0.25% < 0.30% threshold > Good forbidden");
         payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
             because: "H4 resistance at 0.25% is the selected obstacle and meets the near-resistance threshold");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Pipeline integrity — raw market data must not be altered
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
+    // Pipeline integrity � raw market data must not be altered
+    // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_RawMarketDataFields_AreNotAlteredByEntryQualityLogic()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         // Raw indicator fields must pass through unmodified
         payload.M15.VolumeRatio.Should().Be(snapshot.M15.VolumeRatio);
@@ -506,7 +506,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     public void ToLlmPayload_JsonStructure_AllTimeframesPresent()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         payload.M15.Should().NotBeNull();
         payload.H1.Should().NotBeNull();
@@ -539,7 +539,7 @@ public sealed class LlmPayloadMapperExtensionsTests
             h4: MakeBullishTf("4h", distToResistance: null, resistanceStrength: null),
             regime: MarketRegimes.Trending);
 
-        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, includePortfolio: false, FreshHealth);
+        var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
         if (payload.M15.Summary.EntryQuality == "Good")
         {
@@ -555,9 +555,9 @@ public sealed class LlmPayloadMapperExtensionsTests
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
     // Helpers
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ===========================================================================
 
     /// <summary>
     /// Creates a full <see cref="MarketAnalysisSnapshot"/> with overridable TF snapshots.
@@ -680,7 +680,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         };
 
     /// <summary>
-    /// Creates a neutral/sideways snapshot — does not constrain or help any TF's entryQuality.
+    /// Creates a neutral/sideways snapshot � does not constrain or help any TF's entryQuality.
     /// </summary>
     private static TimeframeAnalysisSnapshot MakeNeutralTf(string timeframe) =>
         new()
@@ -699,7 +699,7 @@ public sealed class LlmPayloadMapperExtensionsTests
             VolumeSma20 = 1000m, VolumeRatio = 1.0m,
             TrendStrengthScore = 0.3m,
             Trend = MarketTrend.Sideways,
-            // No levels — will not act as a higher-TF obstacle
+            // No levels � will not act as a higher-TF obstacle
             Support1 = null, Support1Strength = null, DistanceToSupport1Pct = null,
             Resistance1 = null, Resistance1Strength = null, DistanceToResistance1Pct = null,
             IsAboveEma20 = true, IsAboveEma50 = true, IsAboveEma200 = true,
