@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://people-love-crypto.local/openclaw/schemas/technical-report.schema.json",
+  "title": "Technical Report",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "status",
+    "symbol",
+    "exchange",
+    "category",
+    "analysis_mode",
+    "generated_at_utc",
+    "source",
+    "data_quality",
+    "market",
+    "timeframes",
+    "technical_summary",
+    "key_metrics",
+    "levels",
+    "scenarios",
+    "risk",
+    "conclusion"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "partial", "error", "no_data"]
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 20,
+      "pattern": "^[A-Z0-9]+$"
+    },
+    "exchange": {
+      "type": "string",
+      "const": "Bybit"
+    },
+    "category": {
+      "type": "string",
+      "const": "Linear"
+    },
+    "analysis_mode": {
+      "type": "string",
+      "enum": ["Intraday", "Swing", "Portfolio"]
+    },
+    "generated_at_utc": {
+      "type": ["string", "null"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["backend_url", "payload_timestamp_utc"],
+      "properties": {
+        "backend_url": {
+          "type": ["string", "null"]
+        },
+        "payload_timestamp_utc": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["is_stale", "is_partial", "confidence", "warnings"],
+      "properties": {
+        "is_stale": {
+          "type": "boolean"
+        },
+        "is_partial": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["base_asset", "price", "change_24h_pct", "high_24h", "low_24h"],
+      "properties": {
+        "base_asset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "price": {
+          "type": ["number", "null"]
+        },
+        "change_24h_pct": {
+          "type": ["number", "null"]
+        },
+        "high_24h": {
+          "type": ["number", "null"]
+        },
+        "low_24h": {
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "timeframes": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["primary", "context", "items"],
+      "properties": {
+        "primary": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["timeframe", "trend", "rsi", "volume_context", "notes"],
+            "properties": {
+              "timeframe": {
+                "type": "string",
+                "enum": ["15m", "1h", "4h", "1d"]
+              },
+              "trend": {
+                "type": "string",
+                "enum": ["bullish", "bearish", "neutral", "mixed", "unknown"]
+              },
+              "rsi": {
+                "type": ["number", "null"]
+              },
+              "volume_context": {
+                "type": ["string", "null"]
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "technical_summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["bias", "entry_quality", "summary"],
+      "properties": {
+        "bias": {
+          "type": "string",
+          "enum": ["bullish", "bearish", "neutral", "mixed", "unknown"]
+        },
+        "entry_quality": {
+          "type": "string",
+          "enum": ["good", "medium", "poor", "no_trade", "unknown"]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "key_metrics": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["rsi", "volume", "open_interest", "funding", "orderbook", "trade_flow"],
+      "properties": {
+        "rsi": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "volume": {},
+        "open_interest": {},
+        "funding": {},
+        "orderbook": {},
+        "trade_flow": {}
+      }
+    },
+    "levels": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["support", "resistance"],
+      "properties": {
+        "support": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/level"
+          }
+        },
+        "resistance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/level"
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["long", "short"],
+      "properties": {
+        "long": {
+          "$ref": "#/$defs/scenario"
+        },
+        "short": {
+          "$ref": "#/$defs/scenario"
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["summary", "items"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "conclusion": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["priority", "text"],
+      "properties": {
+        "priority": {
+          "type": "string",
+          "enum": ["long", "short", "neutral", "wait", "no_trade", "unknown"]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["price", "source", "reason"],
+      "properties": {
+        "price": {
+          "type": ["number", "null"]
+        },
+        "source": {
+          "type": ["string", "null"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["price", "reason"],
+      "properties": {
+        "price": {
+          "type": ["number", "null"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status", "condition", "invalidation", "targets"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["available", "not_available", "wait"]
+        },
+        "condition": {
+          "type": ["string", "null"]
+        },
+        "invalidation": {
+          "type": ["string", "null"]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "data_quality": {
+            "properties": {
+              "confidence": {
+                "const": "low"
+              }
+            }
+          }
+        }
+      },
+      "then": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+﻿services:
+  api:
+    container_name: intelligence-trade-api
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    networks:
+      trade-agent-network:
+        aliases:
+          - intelligence-trade-api
+
+networks:
+  trade-agent-network:
+    external: true

@@ -1,0 +1,79 @@
+{
+  "env": {
+    "OPENROUTER_API_KEY": "{OPENROUTER_API_KEY}"
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "skills": [
+        "market-analysis",
+        "daily"
+      ],
+      "model": {
+        "primary": "openrouter/deepseek/deepseek-v4-pro"
+      },
+      "models": {
+        "openrouter/deepseek/deepseek-v4-pro": {}
+      }
+    },
+    "list": [
+      {
+        "id": "main"
+      },
+      {
+        "id": "chief-market-synthesizer",
+        "name": "chief-market-synthesizer",
+        "workspace": "/home/node/.openclaw/workspaces/chief-market-synthesizer",
+        "agentDir": "/home/node/.openclaw/agents/chief-market-synthesizer/agent",
+        "model": "openrouter/deepseek/deepseek-v4-pro"
+      },
+      {
+        "id": "tech-analysis-agent",
+        "name": "tech-analysis-agent",
+        "workspace": "/home/node/.openclaw/workspaces/tech-analysis-agent",
+        "agentDir": "/home/node/.openclaw/agents/tech-analysis-agent/agent",
+        "model": "openrouter/deepseek/deepseek-v4-pro"
+      },
+      {
+        "id": "daily-market-orchestrator",
+        "name": "daily-market-orchestrator",
+        "workspace": "/home/node/.openclaw/workspaces/daily-market-orchestrator",
+        "agentDir": "/home/node/.openclaw/agents/daily-market-orchestrator/agent",
+        "model": "openrouter/deepseek/deepseek-v4-pro"
+      }
+    ]
+  },
+  "gateway": {
+    "mode": "local"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.5.28",
+    "lastTouchedAt": "2026-06-11T16:18:07.839Z"
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "daily-market": {
+        "enabled": true
+      }
+    },
+    "load": {
+      "paths": [
+        "/home/node/.openclaw/plugins/daily-market"
+      ]
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "{botToken}"
+    }
+  },
+  "commands": {
+    "ownerAllowFrom": [
+      "{ownerAllowFrom}"
+    ]
+  }
+}

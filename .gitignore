@@ -494,3 +494,9 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+#OpenClaw
+.env
+.openclaw/
+.openclaw-auth-profile-secrets/
+*.working.json
+

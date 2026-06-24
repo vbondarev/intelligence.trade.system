@@ -1,0 +1,115 @@
+{
+  "agent": "tech-analysis-agent",
+  "skill": "market-analysis",
+  "symbol": "XRPUSDT",
+  "captured_at_utc": "2026-06-16T20:04:09.0254713+00:00",
+  "status": "ok",
+  "data_quality": {
+    "is_stale": false,
+    "is_partial": false,
+    "missing_fields": [],
+    "warnings": []
+  },
+  "market": {
+    "price": 1.2178,
+    "change_24h_percent": -4.6,
+    "low_24h": 1.2046,
+    "high_24h": 1.2766
+  },
+  "technical": {
+    "technical_bias": "neutral_bearish",
+    "setup_quality": "poor",
+    "risk_level": "high",
+    "rsi": {
+      "15m": 45,
+      "1h": 46,
+      "4h": 57,
+      "1d": 48
+    },
+    "volume": {
+      "15m": 0.6,
+      "1h": 0.1,
+      "4h": 0.0
+    },
+    "levels": {
+      "support": 1.1395,
+      "support_source": "1h volume-profile cluster (Strong)",
+      "resistance": 1.2379,
+      "resistance_source": "15m volume-profile cluster (Strong)",
+      "distance_to_support_percent": 6.4,
+      "distance_to_resistance_percent": 1.6
+    }
+  },
+  "context": {
+    "derivatives": {
+      "funding_rate": 0.000091,
+      "funding_rate_avg_24h": 0.000008,
+      "open_interest": 181843796.2,
+      "open_interest_value": 221467559.39,
+      "open_interest_change_1h_percent": 1.7,
+      "open_interest_change_4h_percent": 0.7,
+      "long_ratio_percent": 78.0,
+      "short_ratio_percent": 22.0,
+      "premium_vs_index_percent": -0.05
+    },
+    "order_book": {
+      "pressure_label": "Balanced",
+      "liquidity_skew_label": "Balanced",
+      "imbalance_top5": -0.2588,
+      "imbalance_top10": -0.0876,
+      "imbalance_top20": -0.0574
+    },
+    "trade_flow": {
+      "delta_percent": 42.5,
+      "has_aggressive_buy_pressure": true,
+      "has_aggressive_sell_pressure": false
+    },
+    "backend_sentiment": {
+      "market_regime": "Neutral",
+      "long_short_bias_score": 0.5602,
+      "funding_bias_score": -0.0495,
+      "order_book_pressure_score": -0.1672,
+      "trade_flow_pressure_score": 0.25
+    },
+    "tags": [
+      "short-tradeflow-window",
+      "orderbook-tradeflow-conflict",
+      "weak-tradeflow-confirmation",
+      "oi-rising",
+      "neutral",
+      "low-volume",
+      "directional-trend-with-neutral-regime",
+      "aggressive-buying",
+      "positive-funding",
+      "range-bound",
+      "neutral-timeframes",
+      "weak-trend",
+      "long-crowded",
+      "no-clean-entry",
+      "weak-entry-confirmation",
+      "trend-confirmed-entry-filtered"
+    ]
+  },
+  "scenarios": {
+    "long": {
+      "status": "conditional",
+      "condition": "Long scenario becomes more relevant if price breaks and holds above 1.2379 resistance with volume expansion and 1h bullish structure reasserts above EMA20."
+    },
+    "short": {
+      "status": "conditional",
+      "condition": "Short scenario becomes more relevant if price rejects from 15m resistance at 1.2379 and loses 1.1395 support with bearish momentum confirming 1d bearish trend."
+    }
+  },
+  "summary": "XRPUSDT at 1.2178, -4.6% 24h. Range 1.2046–1.2766. 1h bullish trend (strength 0.80, Strong) but with weak momentum, below EMA20, and very low volume (0.1x); 4h neutral (strength 0.49, Weak) with extremely low volume (0.0x); 1d bearish confirmed (strength 0.80, Strong). Nearest resistance at 1.2379 (1.6% above, 15m volume-profile cluster, Strong). Nearest support at 1.1395 (6.4% below, 1h volume-profile cluster, Strong). RSI: 15m 45, 1h 46, 4h 57, 1d 48 — neutral across all timeframes. All timeframes show Poor entry quality. Derivatives: funding slightly positive (0.000091), OI rising 1h (+1.7%), extremely crowded long positioning at 78.0%. Order book balanced; trade flow shows aggressive buying — signals conflict. Backend sentiment regime is Neutral. No clean entry confirmed; both long and short scenarios remain conditional.",
+  "warnings": [
+    "low volume on primary timeframes — 1h at 0.1x and 4h at 0.0x average, reducing signal reliability",
+    "order book and trade flow signals are conflicting — balanced order book vs aggressive trade flow buying",
+    "directional trend detected with neutral market regime — signal reliability is reduced",
+    "backend warning: price is far from nearest relevant intraday entry level; nearest visible resistance is at 1.6%",
+    "trend conflict: 1h bullish (strength 0.80) vs 1d bearish confirmed (strength 0.80), with 4h neutral (strength 0.49)",
+    "long positioning is extremely crowded at 78.0% — elevated unwind risk on further downside",
+    "OI rising 1h (+1.7%) and 4h (+0.7%) while price is declining and longs are crowded",
+    "all timeframes show Poor entry quality — no clean entry point identified",
+    "1h bullish trend paired with weak momentum, below EMA20, RSI neutral, and very low volume"
+  ]
+}
