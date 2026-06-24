@@ -233,11 +233,10 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var detail = json.RootElement.GetProperty("detail").GetString();
-        detail.Should().Contain("mode");
-        detail.Should().Contain("Intraday");
-        detail.Should().Contain("Swing");
-        detail.Should().Contain("Portfolio");
+        var root = json.RootElement;
+        root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
+        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("errors").ToString().Should().Contain("mode");
 
         service.VerifyNoOtherCalls();
     }
@@ -264,8 +263,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
 
     // ─── Helpers ────────────────────────────────────────────────────────────
 
-    private static Mock<IMarketAnalysisService> MockService(
-        Intelligence.TradeSystem.Domain.Snapshots.MarketAnalysisSnapshot snapshot)
+    private static Mock<IMarketAnalysisService> MockService(Domain.Snapshots.MarketAnalysisSnapshot snapshot)
     {
         var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
