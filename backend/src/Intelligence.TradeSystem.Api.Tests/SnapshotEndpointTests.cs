@@ -92,6 +92,36 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
+    public async Task Snapshot_Uses_Exact_Legacy_Root_Shape_With_Portfolio_And_String_Enums()
+    {
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        marketAnalysisService
+            .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+
+        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "Linear",
+        });
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        JsonContractAssertions.AssertExactPropertyNames(root,
+            "exchange", "symbol", "category", "capturedAtUtc", "price", "derivatives", "orderBook",
+            "tradeFlow", "m15", "h1", "h4", "d1", "sentiment", "portfolio", "tags");
+        root.TryGetProperty("marketData", out _).Should().BeFalse();
+        root.GetProperty("portfolio").ValueKind.Should().Be(JsonValueKind.Object);
+        root.GetProperty("portfolio").GetProperty("openPositions").ValueKind.Should().Be(JsonValueKind.Array);
+        root.GetProperty("h1").GetProperty("trend").ValueKind.Should().Be(JsonValueKind.String);
+        root.GetProperty("portfolio").GetProperty("openPositions")[0].GetProperty("side").ValueKind.Should().Be(JsonValueKind.String);
+    }
+
+    [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Exchange_Is_Invalid()
     {
         var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);

@@ -19,6 +19,7 @@
     <Project Path="Intelligence.TradeSystem.ServiceDefaults/Intelligence.TradeSystem.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="Intelligence.TradeSystem.Architecture.Tests/Intelligence.TradeSystem.Architecture.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Api.Tests/Intelligence.TradeSystem.Api.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Analytics.Tests/Intelligence.TradeSystem.Analytics.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Analysis.Tests/Intelligence.TradeSystem.Analysis.Tests.csproj" />
