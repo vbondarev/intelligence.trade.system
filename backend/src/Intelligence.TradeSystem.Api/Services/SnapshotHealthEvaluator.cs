@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Api.Configuration;
+﻿using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Microsoft.Extensions.Options;
 
@@ -19,7 +19,7 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
 
     /// <inheritdoc/>
     public LlmSnapshotHealthPayload Evaluate(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode)
     {
         ArgumentNullException.ThrowIfNull(snapshot);

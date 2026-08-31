@@ -1,10 +1,10 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+﻿using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
 /// <summary>
-/// Extension-методы для преобразования <see cref="MarketAnalysisSnapshot"/> в <see cref="LlmMarketAnalysisPayload"/>.
+/// Extension-методы для преобразования <see cref="MarketSnapshot"/> в <see cref="LlmMarketAnalysisPayload"/>.
 /// </summary>
 internal static class LlmPayloadMapperExtensions
 {
@@ -17,7 +17,7 @@ internal static class LlmPayloadMapperExtensions
     /// Преобразует снапшот в LLM-оптимизированный payload.
     /// </summary>
     public static LlmMarketAnalysisPayload ToLlmPayload(
-        this MarketAnalysisSnapshot snapshot,
+        this MarketSnapshot snapshot,
         AnalysisMode mode,
         LlmSnapshotHealthPayload health)
     {

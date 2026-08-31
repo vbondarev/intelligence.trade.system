@@ -1,10 +1,11 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.MarketFacts;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
@@ -16,7 +17,7 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Route("api/market-analysis")]
 public sealed class MarketAnalysisController : ControllerBase
 {
-    private readonly IMarketAnalysisService _marketAnalysisService;
+    private readonly IMarketSnapshotService _marketSnapshotService;
     private readonly ISnapshotHealthEvaluator _snapshotHealthEvaluator;
     private readonly IValidator<SnapshotAnalysisRequest> _snapshotRequestValidator;
     private readonly IValidator<LlmPayloadRequest> _llmPayloadRequestValidator;
@@ -24,18 +25,18 @@ public sealed class MarketAnalysisController : ControllerBase
     /// <summary>
     /// Инициализирует новый экземпляр <see cref="MarketAnalysisController"/>.
     /// </summary>
-    /// <param name="marketAnalysisService">Сервис построения агрегированного рыночного снимка.</param>
+    /// <param name="marketSnapshotService">Сервис построения агрегированного рыночного снимка.</param>
     /// <param name="snapshotHealthEvaluator">Сервис оценки свежести снапшота.</param>
     /// <param name="snapshotRequestValidator">Валидатор запроса снапшота.</param>
     /// <param name="llmPayloadRequestValidator">Валидатор запроса LLM-payload.</param>
     /// <exception cref="ArgumentNullException">Если любая из зависимостей равна <c>null</c>.</exception>
     public MarketAnalysisController(
-        IMarketAnalysisService marketAnalysisService,
+        IMarketSnapshotService marketSnapshotService,
         ISnapshotHealthEvaluator snapshotHealthEvaluator,
         IValidator<SnapshotAnalysisRequest> snapshotRequestValidator,
         IValidator<LlmPayloadRequest> llmPayloadRequestValidator)
     {
-        _marketAnalysisService = marketAnalysisService;
+        _marketSnapshotService = marketSnapshotService;
         _snapshotHealthEvaluator = snapshotHealthEvaluator;
         _snapshotRequestValidator = snapshotRequestValidator;
         _llmPayloadRequestValidator = llmPayloadRequestValidator;
@@ -73,13 +74,13 @@ public sealed class MarketAnalysisController : ControllerBase
 
         try
         {
-            var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
+            var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
                 request.Exchange!.Value,
                 request.Symbol!.Trim(),
                 request.Category!.Value,
                 cancellationToken).ConfigureAwait(false);
 
-            return Ok(snapshot.ToResponse());
+            return Ok(snapshot.ToResponse(PortfolioSnapshot.Unavailable));
         }
         catch (ArgumentException exception)
         {
@@ -138,7 +139,7 @@ public sealed class MarketAnalysisController : ControllerBase
 
         try
         {
-            var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
+            var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
                 request.Exchange!.Value,
                 normalizedSymbol,
                 request.Category!.Value,
@@ -210,7 +211,7 @@ public sealed class MarketAnalysisController : ControllerBase
 
         try
         {
-            var snapshot = await _marketAnalysisService.BuildSnapshotAsync(
+            var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
                 request.Exchange!.Value,
                 normalizedSymbol,
                 request.Category!.Value,

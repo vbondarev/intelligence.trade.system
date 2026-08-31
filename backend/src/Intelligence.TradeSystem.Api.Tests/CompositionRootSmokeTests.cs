@@ -26,6 +26,7 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
         serviceProvider.GetRequiredService<IDerivativesDataProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPrivateAccountProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IBybitProvider>().Should().NotBeNull();
-        serviceProvider.GetRequiredService<IMarketAnalysisService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPublicMarketDataCollector>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IMarketSnapshotService>().Should().NotBeNull();
     }
 }

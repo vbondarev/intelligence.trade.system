@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Abstractions;
+﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
@@ -8,17 +8,16 @@ namespace Intelligence.TradeSystem.Application;
 /// <summary>
 /// Оркестрирует сбор сырых данных и последовательную сборку всех аналитических снапшотов.
 /// </summary>
-public sealed class MarketAnalysisService : IMarketAnalysisService
+public sealed class MarketSnapshotService : IMarketSnapshotService
 {
-    private readonly IMarketDataCollector _marketDataCollector;
+    private readonly IPublicMarketDataCollector _marketDataCollector;
 
-    public MarketAnalysisService(IMarketDataCollector marketDataCollector)
+    public MarketSnapshotService(IPublicMarketDataCollector marketDataCollector)
     {
         _marketDataCollector = marketDataCollector;
     }
 
-    /// <inheritdoc />
-    public async Task<MarketAnalysisSnapshot> BuildSnapshotAsync(
+    public async Task<MarketSnapshot> BuildSnapshotAsync(
         ExchangeId exchangeId,
         string symbol,
         MarketCategory category,
@@ -30,7 +29,6 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         var collectedData = await _marketDataCollector.CollectAsync(exchangeId, normalizedSymbol, category, cancellationToken);
 
         ArgumentNullException.ThrowIfNull(collectedData);
-
         ValidateRequiredData(collectedData);
 
         var price = PriceSnapshotAssembler.Assemble(collectedData.Ticker!);
@@ -56,10 +54,6 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         var orderBook = OrderBookSnapshotAssembler.Assemble(collectedData.OrderBook!);
         var tradeFlow = TradeFlowSnapshotAssembler.Assemble(collectedData.Trades);
 
-        // Capture reference time before timeframe assembly to use as freshness anchor for tradeFlow.
-        // maxTradeFlowAgeMs defaults to TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs (5 s),
-        // which matches SnapshotFreshnessOptions.Default.Intraday.TradeFlowMaxAge — the strictest mode.
-        // The API-layer SnapshotHealthEvaluator still performs the authoritative isFresh / warnings judgement.
         var capturedAtUtc = DateTimeOffset.UtcNow;
 
         var m15 = TimeframeSnapshotAssembler.Assemble(collectedData.M15Klines, "15m").Snapshot;
@@ -68,9 +62,8 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         var d1 = TimeframeSnapshotAssembler.Assemble(collectedData.D1Klines, "1d").Snapshot;
 
         var sentiment = SentimentSnapshotAssembler.Assemble(derivatives, orderBook, tradeFlow, h1, h4, capturedAtUtc);
-        var portfolio = PortfolioSnapshotAssembler.Assemble(collectedData.WalletBalance, collectedData.OpenPositions);
 
-        return MarketAnalysisSnapshotAssembler.Assemble(
+        return MarketSnapshotAssembler.Assemble(
             exchangeId.ToString(),
             normalizedSymbol,
             category,
@@ -82,8 +75,7 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
             h1,
             h4,
             d1,
-            sentiment,
-            portfolio);
+            sentiment);
     }
 
     private static void EnsureExchangeIsSupported(ExchangeId exchangeId)
@@ -100,7 +92,7 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         return symbol.Trim();
     }
 
-    private static void ValidateRequiredData(CollectedMarketData collectedData)
+    private static void ValidateRequiredData(CollectedPublicMarketData collectedData)
     {
         if (collectedData.Ticker is null)
         {
@@ -136,7 +128,5 @@ public sealed class MarketAnalysisService : IMarketAnalysisService
         {
             throw new InvalidOperationException($"Failed to collect 1d klines for symbol '{collectedData.Symbol}'.");
         }
-
-        ArgumentNullException.ThrowIfNull(collectedData.OpenPositions);
     }
 }

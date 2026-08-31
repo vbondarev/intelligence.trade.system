@@ -1,31 +1,34 @@
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Models.MarketAnalysis;
+using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
 internal static class MarketAnalysisMapperExtensions
 {
-    public static MarketAnalysisResponse ToResponse(this MarketAnalysisSnapshot snapshot)
+    public static MarketAnalysisResponse ToResponse(this MarketSnapshot market, PortfolioSnapshot portfolio)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(market);
+        ArgumentNullException.ThrowIfNull(portfolio);
 
         return new MarketAnalysisResponse
         {
-            Exchange = snapshot.Exchange,
-            Symbol = snapshot.Symbol,
-            Category = snapshot.Category,
-            CapturedAtUtc = snapshot.CapturedAtUtc,
-            Price = ToPriceModel(snapshot.Price),
-            Derivatives = ToDerivativesModel(snapshot.Derivatives),
-            OrderBook = ToOrderBookModel(snapshot.OrderBook),
-            TradeFlow = ToTradeFlowModel(snapshot.TradeFlow),
-            M15 = ToTimeframeModel(snapshot.M15),
-            H1 = ToTimeframeModel(snapshot.H1),
-            H4 = ToTimeframeModel(snapshot.H4),
-            D1 = ToTimeframeModel(snapshot.D1),
-            Sentiment = ToSentimentModel(snapshot.Sentiment),
-            Portfolio = ToPortfolioModel(snapshot.Portfolio),
-            Tags = [.. snapshot.Tags],
+            Exchange = market.Exchange,
+            Symbol = market.Symbol,
+            Category = market.Category,
+            CapturedAtUtc = market.CapturedAtUtc,
+            Price = ToPriceModel(market.Price),
+            Derivatives = ToDerivativesModel(market.Derivatives),
+            OrderBook = ToOrderBookModel(market.OrderBook),
+            TradeFlow = ToTradeFlowModel(market.TradeFlow),
+            M15 = ToTimeframeModel(market.M15),
+            H1 = ToTimeframeModel(market.H1),
+            H4 = ToTimeframeModel(market.H4),
+            D1 = ToTimeframeModel(market.D1),
+            Sentiment = ToSentimentModel(market.Sentiment),
+            Portfolio = ToPortfolioModel(portfolio),
+            Tags = [.. market.Tags],
         };
     }
 

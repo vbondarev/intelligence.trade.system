@@ -1,13 +1,13 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Application;
 
 /// <summary>
-/// Нормализованный пакет сырых рыночных и аккаунтных данных,
+/// Нормализованный пакет сырых публичных рыночных данных,
 /// собранных для одного инструмента и одной биржи.
 /// </summary>
-public sealed record CollectedMarketData
+public sealed record CollectedPublicMarketData
 {
     /// <summary>Идентификатор биржи, с которой собран пакет данных.</summary>
     public required ExchangeId ExchangeId { get; init; }
@@ -78,16 +78,4 @@ public sealed record CollectedMarketData
     /// с которым был собран <see cref="LongShortRatioEntries"/>.
     /// </summary>
     public LongShortRatioPeriod LongShortRatioPeriod { get; init; } = LongShortRatioPeriod.FiveMinutes;
-
-    /// <summary>
-    /// Баланс торгового аккаунта.
-    /// Может быть <c>null</c>, если приватный запрос завершился ошибкой или данные недоступны.
-    /// </summary>
-    public AccountBalance? WalletBalance { get; init; }
-
-    /// <summary>
-    /// Список открытых позиций по инструменту/категории.
-    /// Пустой список означает отсутствие позиций, неприменимость для рынка или ошибку запроса.
-    /// </summary>
-    public IReadOnlyList<OpenPosition> OpenPositions { get; init; } = [];
 }

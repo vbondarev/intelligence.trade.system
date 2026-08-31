@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -349,9 +349,9 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         return await response.Content.ReadFromJsonAsync<LlmMarketAnalysisPayload>();
     }
 
-    private HttpClient CreateClientWithSnapshot(MarketAnalysisSnapshot snapshot)
+    private HttpClient CreateClientWithSnapshot(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -359,7 +359,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        return _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        return _factory.CreateClientWithMarketSnapshotService(mock.Object);
     }
 
     private static void AssertAllTimeframes(
@@ -371,7 +371,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     }
 
     /// <summary>Снапшот с null-уровнями — имитирует ситуацию, когда детектор не нашёл уровней.</summary>
-    private static MarketAnalysisSnapshot CreateSnapshotWithNullLevels()
+    private static MarketSnapshot CreateSnapshotWithNullLevels()
     {
         var baseSnapshot = ApiSnapshotTestData.CreateSnapshot();
 

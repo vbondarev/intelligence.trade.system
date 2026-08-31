@@ -6,9 +6,7 @@ using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 namespace Intelligence.TradeSystem.Application.AI;
 
 /// <summary>
-/// Формирует компактный детерминированный текстовый контекст по готовому <see cref="MarketAnalysisSnapshot"/>.
-/// Использует уже вычисленные снапшоты и агрегаты, не пересчитывает сырые биржевые данные
-/// и не пытается заменить финальный ответ для пользователя.
+/// Формирует компактный детерминированный текстовый контекст на основе <see cref="AiAnalysisContext"/>.
 /// </summary>
 public sealed class SnapshotTextFormatter : IAiContextFormatter
 {
@@ -16,26 +14,25 @@ public sealed class SnapshotTextFormatter : IAiContextFormatter
     private const string None = "none";
     private static readonly CultureInfo _invariantCulture = CultureInfo.InvariantCulture;
 
-    /// <inheritdoc />
-    public string Format(MarketAnalysisSnapshot snapshot)
+    public string Format(AiAnalysisContext context)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(context);
 
         var builder = new StringBuilder(capacity: 2048);
 
-        AppendHeader(builder, snapshot);
-        AppendPriceSection(builder, snapshot.Price);
-        AppendDerivativesSection(builder, snapshot.Derivatives);
-        AppendOrderBookSection(builder, snapshot.OrderBook);
-        AppendTradeFlowSection(builder, snapshot.TradeFlow);
-        AppendTrendSection(builder, snapshot);
-        AppendSentimentSection(builder, snapshot.Sentiment);
-        AppendPortfolioSection(builder, snapshot.Portfolio);
+        AppendHeader(builder, context.Market);
+        AppendPriceSection(builder, context.Market.Price);
+        AppendDerivativesSection(builder, context.Market.Derivatives);
+        AppendOrderBookSection(builder, context.Market.OrderBook);
+        AppendTradeFlowSection(builder, context.Market.TradeFlow);
+        AppendTrendSection(builder, context.Market);
+        AppendSentimentSection(builder, context.Market.Sentiment);
+        AppendPortfolioSection(builder, context.Portfolio);
 
         return builder.ToString().TrimEnd();
     }
 
-    private static void AppendHeader(StringBuilder builder, MarketAnalysisSnapshot snapshot)
+    private static void AppendHeader(StringBuilder builder, MarketSnapshot snapshot)
     {
         builder.AppendLine("snapshot:");
         builder.Append("  exchange: ").AppendLine(snapshot.Exchange);
@@ -121,7 +118,7 @@ public sealed class SnapshotTextFormatter : IAiContextFormatter
         builder.AppendLine();
     }
 
-    private static void AppendTrendSection(StringBuilder builder, MarketAnalysisSnapshot snapshot)
+    private static void AppendTrendSection(StringBuilder builder, MarketSnapshot snapshot)
     {
         builder.AppendLine("trend:");
         AppendTimeframeLine(builder, snapshot.M15);

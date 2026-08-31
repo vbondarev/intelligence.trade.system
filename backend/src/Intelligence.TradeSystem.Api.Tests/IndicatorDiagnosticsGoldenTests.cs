@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -53,7 +53,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         };
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -99,7 +99,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ], overrideAtr14: null, overrideAtrIsReliable: false);
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -134,7 +134,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ]);
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -161,10 +161,10 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
     {
         // All indicators available → no diagnostics.
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        // IndicatorDiagnostics defaults to [] in MarketAnalysisSnapshot.
+        // IndicatorDiagnostics defaults to [] in MarketSnapshot.
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -189,7 +189,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         ]);
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -224,7 +224,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
             overrideAtr14: null, overrideAtrIsReliable: false);
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -287,7 +287,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         };
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -329,7 +329,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         };
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -362,7 +362,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
 
         var service = MockService(snapshot);
-        using var client = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -395,9 +395,9 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private static Mock<IMarketAnalysisService> MockService(MarketAnalysisSnapshot snapshot)
+    private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -410,7 +410,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
     /// <summary>
     /// Builds a snapshot with the given diagnostics and optional overrides for indicator values.
     /// </summary>
-    private static MarketAnalysisSnapshot BuildSnapshotWithDiagnostics(
+    private static MarketSnapshot BuildSnapshotWithDiagnostics(
         IReadOnlyList<IndicatorDiagnosticSnapshot> diagnostics,
         decimal? overrideRsi14 = 55m,
         bool overrideRsiOverbought = false,

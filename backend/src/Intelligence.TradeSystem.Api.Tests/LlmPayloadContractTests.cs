@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -121,14 +121,14 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
             .Should().Equal("4h", "1d");
     }
 
-    private HttpClient CreateClient(MarketAnalysisSnapshot snapshot)
+    private HttpClient CreateClient(MarketSnapshot snapshot)
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         service.Setup(x => x.BuildSnapshotAsync(
                 ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        return _factory.CreateClientWithMarketAnalysisService(service.Object);
+        return _factory.CreateClientWithMarketSnapshotService(service.Object);
     }
 
     private static void AssertAnalysisContext(JsonElement element)

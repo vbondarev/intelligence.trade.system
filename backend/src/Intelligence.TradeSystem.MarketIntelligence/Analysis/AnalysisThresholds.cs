@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
+﻿namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 
 /// <summary>
 /// Общие эвристические пороги, используемые несколькими компонентами слоя Analysis.
@@ -11,7 +11,7 @@ internal static class AnalysisThresholds
     /// <list type="bullet">
     /// <item><description>граница экстремального funding в <c>FundingRateSnapshotAssembler</c>;</description></item>
     /// <item><description>точка насыщения funding-bias score до ±1 в <c>SentimentSnapshotAssembler</c>;</description></item>
-    /// <item><description>порог тега <c>funding-spike</c> в <c>MarketAnalysisSnapshotAssembler</c>.</description></item>
+    /// <item><description>порог тега <c>funding-spike</c> в <c>MarketSnapshotAssembler</c>.</description></item>
     /// </list>
     /// </summary>
     internal const decimal FundingExtremeThreshold = 0.001m;

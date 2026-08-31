@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 using Intelligence.TradeSystem.MarketIntelligence.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
@@ -231,7 +231,7 @@ public sealed class IndicatorPipelineIntegrationTests
     // ─── Scenario 9: Assembler diagnostic count across multiple timeframes ───
 
     [Fact]
-    public void MarketAnalysisSnapshotAssembler_Aggregates_Diagnostics_From_All_Timeframes()
+    public void MarketSnapshotAssembler_Aggregates_Diagnostics_From_All_Timeframes()
     {
         // Build snapshots with different data amounts to trigger different diagnostics.
         var m15 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 5), "15m").Snapshot;
@@ -288,16 +288,16 @@ public sealed class IndicatorPipelineIntegrationTests
 
     /// <summary>
     /// Builds minimal market snapshot and returns its aggregated diagnostics,
-    /// bypassing real exchange data by calling MarketAnalysisSnapshotAssembler directly.
+    /// bypassing real exchange data by calling MarketSnapshotAssembler directly.
     /// </summary>
-    private static (MarketAnalysisSnapshot Snapshot, IReadOnlyList<IndicatorDiagnosticSnapshot> Diagnostics)
+    private static (MarketSnapshot Snapshot, IReadOnlyList<IndicatorDiagnosticSnapshot> Diagnostics)
         BuildMinimalMarketSnapshot(
             TimeframeAnalysisSnapshot m15,
             TimeframeAnalysisSnapshot h1,
             TimeframeAnalysisSnapshot h4,
             TimeframeAnalysisSnapshot d1)
     {
-        var snapshot = MarketAnalysisSnapshotAssembler.Assemble(
+        var snapshot = MarketSnapshotAssembler.Assemble(
             exchange: "Bybit",
             symbol: "BTCUSDT",
             category: MarketCategory.Linear,
@@ -306,8 +306,7 @@ public sealed class IndicatorPipelineIntegrationTests
             orderBook: TestSnapshotFactory.CreateOrderBook(),
             tradeFlow: TestSnapshotFactory.CreateTradeFlow(),
             m15: m15, h1: h1, h4: h4, d1: d1,
-            sentiment: TestSnapshotFactory.CreateSentiment(),
-            portfolio: TestSnapshotFactory.CreatePortfolio());
+            sentiment: TestSnapshotFactory.CreateSentiment());
 
         return (snapshot, snapshot.IndicatorDiagnostics);
     }

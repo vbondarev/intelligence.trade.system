@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis;
@@ -238,7 +238,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
     /// Снапшот с известными входными данными, которые должны дать конкретный набор тегов:
     /// trending, positive-funding (без давления и агрессии из тестовых данных).
     /// </summary>
-    private static MarketAnalysisSnapshot BuildKnownSnapshot()
+    private static MarketSnapshot BuildKnownSnapshot()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
 
@@ -256,9 +256,9 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
         };
     }
 
-    private HttpClient CreateClientWithSnapshot(MarketAnalysisSnapshot snapshot)
+    private HttpClient CreateClientWithSnapshot(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -266,7 +266,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        return _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        return _factory.CreateClientWithMarketSnapshotService(mock.Object);
     }
 
     private static List<string> ParseTags(string json)

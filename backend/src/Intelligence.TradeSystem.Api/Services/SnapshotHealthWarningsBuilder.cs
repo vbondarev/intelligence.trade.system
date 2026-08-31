@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+﻿using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Services;
 
@@ -28,7 +28,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// Результат содержит не более <see cref="MaxWarnings"/> уникальных сообщений.
     /// </summary>
     public static IReadOnlyList<string> Build(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         SnapshotHealthWarningsContext ctx)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -94,7 +94,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// Rule 6.2: на любом первичном таймфрейме VolumeRatio &lt; 0.5.
     /// </summary>
     internal static void AddLowVolumeWarning(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode,
         List<string> target)
     {
@@ -129,7 +129,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// но sentiment.MarketRegime == "Neutral".
     /// </summary>
     internal static void AddDirectionalNeutralRegimeWarning(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode,
         List<string> target)
     {
@@ -150,7 +150,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// Rule 6.5: Bullish → distanceToSupport1Pct &gt; 1.5 || Bearish → distanceToResistance1Pct &gt; 1.5.
     /// </summary>
     internal static void AddFarFromLevelWarning(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode,
         List<string> target)
     {
@@ -177,7 +177,7 @@ internal static class SnapshotHealthWarningsBuilder
     /// Возвращает <see cref="TimeframeAnalysisSnapshot"/> для первичных таймфреймов текущего режима.
     /// </summary>
     internal static IEnumerable<TimeframeAnalysisSnapshot> GetPrimaryTimeframeSnapshots(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode)
     {
         foreach (var label in AnalysisModeDefaults.GetPrimaryTimeframes(mode))

@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 ## Scope
 - Applies to `Intelligence.TradeSystem.MarketIntelligence`.
@@ -23,7 +23,7 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 ## What this project does
 - This project contains deterministic market indicators, analysis assemblers, diagnostics, and market snapshot contracts; it does not call exchanges or services directly.
 - Key areas: `Indicators/*` for calculations, `Analysis/Assemblers/*` for snapshot construction, `Analysis/Timeframes/*` for deterministic per-timeframe bias/momentum/entry-quality/risk-flag evaluation (`TimeframeSummaryBuilder`, `EntryQualityEvaluator`, label mappers), `Analysis/MarketRegimePolicy` for the single canonical market regime classification, `Diagnostics/*` for fallback/unavailable reporting, and `Snapshots/*` for market-facing snapshot types.
-- Current dependency direction is `Application -> MarketIntelligence -> Domain`; `MarketAnalysisSnapshot` temporarily composes Domain `PortfolioSnapshot`. `MarketIntelligence` never depends on `Api` or `Application`.
+- Current dependency direction is `Application -> MarketIntelligence -> Domain`; `MarketSnapshot` contains only public market data and must not compose Domain `PortfolioSnapshot` or any private-account/provider types. `MarketIntelligence` never depends on `Api` or `Application`.
 - The API converts the analytical results from `Analysis/Timeframes` into wire payloads only (bias/momentum/entry quality via `ToString()`, trend/level strength via label mappers); it does not recompute or duplicate this logic.
 
 ## Input assumptions to preserve
@@ -46,7 +46,7 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 
 ## When changing code here
 - If you change a calculator return contract, update dependent `Analysis/Assemblers` expectations and `Intelligence.TradeSystem.MarketIntelligence.Tests`.
-- If you change `TrendClassifier` or `VolumeProfileDetector`, review downstream fields in `Snapshots` and API payloads.
+- If you change `TrendClassifier` or `VolumeProfileDetector`, review downstream fields in `Snapshots` and API payloads. `PortfolioSnapshotAssembler` no longer lives in this project; portfolio assembly now belongs to `Intelligence.TradeSystem.Application/Portfolio`.
 
 ## Scalar indicator API
 

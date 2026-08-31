@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Intelligence.TradeSystem.Application.AI;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
@@ -9,20 +9,20 @@ public sealed class SnapshotTextFormatterTests
     private readonly SnapshotTextFormatter _formatter = new();
 
     [Fact]
-    public void Throws_When_Snapshot_Is_Null()
+    public void Throws_When_Context_Is_Null()
     {
         var action = () => _formatter.Format(null!);
 
         action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("snapshot");
+            .WithParameterName("context");
     }
 
     [Fact]
     public void Includes_All_Expected_Sections_In_Fixed_Order()
     {
-        var snapshot = CreateSnapshot();
+        var context = CreateContext();
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         var snapshotIndex = result.IndexOf("snapshot:", StringComparison.Ordinal);
         var priceIndex = result.IndexOf("price:", StringComparison.Ordinal);
@@ -46,7 +46,7 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Renders_Key_Collections_And_Tag_List_Using_Stable_Compact_Format()
     {
-        var snapshot = CreateSnapshot(
+        var context = CreateContext(
             tags: ["trend-following", "", "high-conviction"],
             bidWalls:
             [
@@ -75,7 +75,7 @@ public sealed class SnapshotTextFormatterTests
                 },
             ]);
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  tags: [trend-following, high-conviction]");
         result.Should().Contain("  bid_walls: price=64850, size=1200, distance_pct=0.75%; price=64700, size=950, distance_pct=1.23%", Exactly.Once());
@@ -86,7 +86,7 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Uses_Placeholders_For_Null_And_Empty_Values()
     {
-        var snapshot = CreateSnapshot(
+        var context = CreateContext(
             tags: [],
             sentimentMarketRegime: " ",
             nextFundingTimeUtc: null,
@@ -95,7 +95,7 @@ public sealed class SnapshotTextFormatterTests
             askWalls: [],
             openPositions: []);
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  tags: []");
         result.Should().Contain("  next_funding_time_utc: n/a");
@@ -107,11 +107,25 @@ public sealed class SnapshotTextFormatterTests
     }
 
     [Fact]
+    public void Uses_Zeroed_Portfolio_When_Portfolio_Is_Unavailable()
+    {
+        var context = CreateContext(openPositions: [] ) with { Portfolio = PortfolioSnapshot.Unavailable };
+
+        var result = _formatter.Format(context);
+
+        result.Should().Contain("  total_equity_usd: 0");
+        result.Should().Contain("  available_balance_usd: 0");
+        result.Should().Contain("  total_wallet_balance_usd: 0");
+        result.Should().Contain("  total_unrealized_pnl_usd: 0");
+        result.Should().Contain("  open_positions: none");
+    }
+
+    [Fact]
     public void Renders_All_Whitespace_Tags_As_Empty_Array()
     {
-        var snapshot = CreateSnapshot(tags: [" ", "\t", string.Empty]);
+        var context = CreateContext(tags: [" ", "\t", string.Empty]);
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  tags: []");
     }
@@ -119,7 +133,7 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Uses_Invariant_Culture_For_Decimals_And_Dates()
     {
-        var snapshot = CreateSnapshot(
+        var context = CreateContext(
             capturedAtUtc: new DateTimeOffset(2026, 4, 12, 13, 45, 56, TimeSpan.Zero),
             lastPrice: 65000.5m,
             spreadPct: 1.25m,
@@ -127,7 +141,7 @@ public sealed class SnapshotTextFormatterTests
 
         using var _ = new CultureScope("ru-RU");
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  captured_at_utc: 2026-04-12T13:45:56.0000000+00:00");
         result.Should().Contain("  last_price: 65000.5");
@@ -140,7 +154,7 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Preserves_Price_Like_Precision_For_Low_Priced_Instruments()
     {
-        var snapshot = CreateSnapshot(
+        var context = CreateContext(
             symbol: "SHIBUSDT",
             lastPrice: 0.00003452m,
             markPrice: 0.00003449m,
@@ -183,7 +197,7 @@ public sealed class SnapshotTextFormatterTests
                 Resistance2 = 0.00003560m,
             });
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  last_price: 0.00003452");
         result.Should().Contain("  mark_price: 0.00003449");
@@ -203,9 +217,9 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Keeps_Btc_Like_Prices_Compact_While_Using_Higher_Precision_For_Price_Like_Fields_Only()
     {
-        var snapshot = CreateSnapshot();
+        var context = CreateContext();
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         result.Should().Contain("  last_price: 65000");
         result.Should().Contain("  mark_price: 64990.25");
@@ -218,10 +232,10 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Returns_Deterministic_Output_For_Same_Input()
     {
-        var snapshot = CreateSnapshot();
+        var context = CreateContext();
 
-        var first = _formatter.Format(snapshot);
-        var second = _formatter.Format(snapshot);
+        var first = _formatter.Format(context);
+        var second = _formatter.Format(context);
 
         second.Should().Be(first);
     }
@@ -229,9 +243,9 @@ public sealed class SnapshotTextFormatterTests
     [Fact]
     public void Renders_Timeframes_In_Fixed_Order_M15_H1_H4_D1()
     {
-        var snapshot = CreateSnapshot();
+        var context = CreateContext();
 
-        var result = _formatter.Format(snapshot);
+        var result = _formatter.Format(context);
 
         var m15Index = result.IndexOf("  15m:", StringComparison.Ordinal);
         var h1Index = result.IndexOf("  1h:", StringComparison.Ordinal);
@@ -244,7 +258,7 @@ public sealed class SnapshotTextFormatterTests
         d1Index.Should().BeGreaterThan(h4Index);
     }
 
-    private static MarketAnalysisSnapshot CreateSnapshot(
+    private static AiAnalysisContext CreateContext(
         List<string>? tags = null,
         string sentimentMarketRegime = MarketRegimes.Trending,
         DateTimeOffset? capturedAtUtc = null,
@@ -262,6 +276,30 @@ public sealed class SnapshotTextFormatterTests
         List<LiquidityWall>? bidWalls = null,
         List<LiquidityWall>? askWalls = null,
         List<OpenPositionSnapshot>? openPositions = null,
+        TimeframeAnalysisSnapshot? m15 = null) =>
+        new()
+        {
+            Market = CreateSnapshot(tags, sentimentMarketRegime, capturedAtUtc, nextFundingTimeUtc, premiumVsIndexPct, symbol, lastPrice, markPrice, indexPrice, bidPrice, askPrice, high24h, low24h, spreadPct, bidWalls, askWalls, m15),
+            Portfolio = CreatePortfolio(openPositions ?? []),
+        };
+
+    private static MarketSnapshot CreateSnapshot(
+        List<string>? tags = null,
+        string sentimentMarketRegime = MarketRegimes.Trending,
+        DateTimeOffset? capturedAtUtc = null,
+        DateTimeOffset? nextFundingTimeUtc = null,
+        decimal? premiumVsIndexPct = 0.18m,
+        string symbol = "BTCUSDT",
+        decimal lastPrice = 65000m,
+        decimal markPrice = 64990.25m,
+        decimal indexPrice = 64980.5m,
+        decimal bidPrice = 64995m,
+        decimal askPrice = 65005m,
+        decimal high24h = 65200m,
+        decimal low24h = 64000m,
+        decimal spreadPct = 0.0154m,
+        List<LiquidityWall>? bidWalls = null,
+        List<LiquidityWall>? askWalls = null,
         TimeframeAnalysisSnapshot? m15 = null) =>
         new()
         {
@@ -344,15 +382,17 @@ public sealed class SnapshotTextFormatterTests
                 TradeFlowPressureScore = 0.04m,
                 MarketRegime = sentimentMarketRegime,
             },
-            Portfolio = new PortfolioSnapshot
-            {
-                TotalEquityUsd = 10000m,
-                AvailableBalanceUsd = 8000m,
-                TotalWalletBalanceUsd = 9500m,
-                TotalUnrealizedPnlUsd = 500m,
-                OpenPositions = openPositions ?? [],
-            },
             Tags = tags ?? ["trend", "momentum"],
+        };
+
+    private static PortfolioSnapshot CreatePortfolio(List<OpenPositionSnapshot> openPositions) =>
+        new()
+        {
+            TotalEquityUsd = 10000m,
+            AvailableBalanceUsd = 8000m,
+            TotalWalletBalanceUsd = 9500m,
+            TotalUnrealizedPnlUsd = 500m,
+            OpenPositions = openPositions,
         };
 
     private static CandleSnapshot CreateCandle(decimal close) =>

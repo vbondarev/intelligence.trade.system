@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 ## Scope
 - This file applies to `backend/src`.
@@ -42,24 +42,24 @@
 ## Big picture
 - This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
 - Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
-- `Application` does not calculate indicators itself: `MarketDataCollector` fetches raw data, then `MarketAnalysisService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
+- `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
 - Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
-- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from an existing `MarketAnalysisSnapshot`. It performs no trading calculations and does not call any LLM.
+- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
 - `MarketRegimePolicy` (in `MarketIntelligence/Analysis`) is the single source of market regime classification; no other classifier exists.
 
 ## Request and data flow
-- Snapshot path: `MarketAnalysisController` → `IMarketAnalysisService` → `IMarketDataCollector` → capability interfaces backed by `BybitProvider` → `MarketIntelligence.Analysis.Assemblers` → `MarketAnalysisSnapshot`.
-- Key files: `Intelligence.TradeSystem.Api/Controllers/MarketAnalysisController.cs`, `Intelligence.TradeSystem.Application/MarketDataCollector.cs`, `Intelligence.TradeSystem.Application/MarketAnalysisService.cs`, `Intelligence.TradeSystem.MarketIntelligence/Analysis/Assemblers/MarketAnalysisSnapshotAssembler.cs`.
+- Snapshot path: `MarketAnalysisController` -> `IMarketSnapshotService` -> `IPublicMarketDataCollector` -> public exchange capability interfaces (`IMarketDataProvider`, `IDerivativesDataProvider`) -> `MarketIntelligence.Analysis.Assemblers` -> `MarketSnapshot`.
+- Key files: `Intelligence.TradeSystem.Api/Controllers/MarketAnalysisController.cs`, `Intelligence.TradeSystem.Application/Market/PublicMarketDataCollector.cs`, `Intelligence.TradeSystem.Application/Market/MarketSnapshotService.cs`, `Intelligence.TradeSystem.MarketIntelligence/Analysis/Assemblers/MarketSnapshotAssembler.cs`.
 
 ## Current constraints
-- Orchestration is currently `Bybit`-only; both `MarketDataCollector` and `MarketAnalysisService` reject other exchanges.
+- Orchestration is currently `Bybit`-only; both `PublicMarketDataCollector` and `MarketSnapshotService` reject other exchanges.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
 
 ## Contract-sensitive areas
-- Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`.
+- Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and `PortfolioSnapshotAssembler` now lives in `Intelligence.TradeSystem.Application/Portfolio`.
 - Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
 - If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
-- Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`.
+- Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`, and `GET /api/market-analysis/{symbol}/llm-payload` remains a purely public market contract. Legacy `POST /api/market-analysis/snapshot` still returns a `portfolio` object sourced from `PortfolioSnapshot.Unavailable` (zeroed values, no `isAvailable` field on the wire).
 - `AnalysisMode` drives payload shape and primary timeframes: `Intraday = 15m/1h/4h`, `Swing = 1h/4h/1d`, `Portfolio = 4h/1d`.
 
 ## Contract change checklist
@@ -102,7 +102,7 @@
 ## Impact map
 - Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
 - If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
-- If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedMarketData`, and `Application.Tests` / `Exchanges.Tests`.
+- If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
 - If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.

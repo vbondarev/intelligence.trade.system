@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Intelligence.TradeSystem.Api.Models.MarketFacts;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 
 /// <summary>
 /// Extension-методы для построения <see cref="MarketFactsPayload"/> напрямую из
-/// <see cref="MarketAnalysisSnapshot"/>, <see cref="AnalysisMode"/> и <see cref="LlmSnapshotHealthPayload"/>.
+/// <see cref="MarketSnapshot"/>, <see cref="AnalysisMode"/> и <see cref="LlmSnapshotHealthPayload"/>.
 /// Mapper детерминирован: не использует LLM и не добавляет интерпретаций.
 /// </summary>
 internal static class MarketFactsPayloadMapper
@@ -29,7 +29,7 @@ internal static class MarketFactsPayloadMapper
     /// Строит <see cref="MarketFactsPayload"/> напрямую из снапшота, режима анализа и оценки здоровья.
     /// </summary>
     public static MarketFactsPayload ToMarketFacts(
-        this MarketAnalysisSnapshot snapshot,
+        this MarketSnapshot snapshot,
         AnalysisMode mode,
         LlmSnapshotHealthPayload health)
     {
@@ -55,7 +55,7 @@ internal static class MarketFactsPayloadMapper
 
     // ─── Source ──────────────────────────────────────────────────────────────
 
-    private static MarketFactsSourcePayload BuildSource(MarketAnalysisSnapshot s) =>
+    private static MarketFactsSourcePayload BuildSource(MarketSnapshot s) =>
         new()
         {
             // Source snapshot schema version (market snapshot assembly schema).
@@ -79,7 +79,7 @@ internal static class MarketFactsPayloadMapper
 
     private static MarketFactsDataQualityPayload BuildDataQuality(
         LlmSnapshotHealthPayload health,
-        MarketAnalysisSnapshot snapshot) =>
+        MarketSnapshot snapshot) =>
         new()
         {
             Status = ResolveDataQualityStatus(health),
@@ -247,7 +247,7 @@ internal static class MarketFactsPayloadMapper
     // ─── Timeframes ──────────────────────────────────────────────────────────
 
     private static Dictionary<string, MarketFactsTimeframePayload> BuildTimeframes(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         bool snapshotIsFresh)
     {
         var regime = snapshot.Sentiment.MarketRegime;
@@ -392,7 +392,7 @@ internal static class MarketFactsPayloadMapper
 
     // ─── Aggregated Levels ───────────────────────────────────────────────────
 
-    private static MarketFactsLevelsPayload BuildAggregatedLevels(MarketAnalysisSnapshot snapshot)
+    private static MarketFactsLevelsPayload BuildAggregatedLevels(MarketSnapshot snapshot)
     {
         var timeframes = new[]
         {

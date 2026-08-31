@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -35,7 +35,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var service  = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -56,7 +56,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -68,7 +68,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -87,7 +87,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -104,7 +104,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -121,7 +121,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -136,7 +136,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -154,7 +154,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -167,7 +167,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear&mode=Intraday");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -188,7 +188,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var service  = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/%20BTCUSDT%20/market-facts?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -207,7 +207,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -222,7 +222,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     {
         var service = MockService(ApiSnapshotTestData.CreateSnapshot());
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear&mode=Swing");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -241,9 +241,9 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     [Fact]
     public async Task MarketFacts_Returns_BadRequest_When_Exchange_Is_Missing()
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?category=Linear");
 
         await ProblemDetailsAssertions.AssertProblemAsync(
@@ -254,9 +254,9 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     [Fact]
     public async Task MarketFacts_Returns_BadRequest_When_Category_Is_Missing()
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit");
 
         await ProblemDetailsAssertions.AssertProblemAsync(
@@ -267,9 +267,9 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     [Fact]
     public async Task MarketFacts_Returns_BadRequest_When_Symbol_Is_Whitespace()
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         // %20 is a space — after trim the symbol is empty
         using var response = await client.GetAsync("/api/market-analysis/%20/market-facts?exchange=Bybit&category=Linear");
 
@@ -280,9 +280,9 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     [Fact]
     public async Task MarketFacts_Returns_BadRequest_When_Mode_Is_Invalid()
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear&mode=scalping");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -301,13 +301,13 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     [Fact]
     public async Task MarketFacts_Returns_ServiceUnavailable_When_Service_Throws_InvalidOperationException()
     {
-        var service = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         service
             .Setup(x => x.BuildSnapshotAsync(
                 ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Ticker temporarily unavailable."));
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear");
 
         await ProblemDetailsAssertions.AssertProblemAsync(
@@ -327,7 +327,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var service  = MockService(snapshot);
 
-        using var client   = _factory.CreateClientWithMarketAnalysisService(service.Object);
+        using var client   = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode=Intraday");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -340,7 +340,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
 
         // Confirm it's the LLM payload shape (has M15 as a property, not timeframes dict)
         using var json = JsonDocument.Parse(
-            await _factory.CreateClientWithMarketAnalysisService(service.Object)
+            await _factory.CreateClientWithMarketSnapshotService(service.Object)
                 .GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear")
                 .ContinueWith(t => t.Result.Content.ReadAsStringAsync())
                 .Unwrap());
@@ -354,10 +354,10 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     // Helpers
     // ===========================================================================
 
-    private static Mock<IMarketAnalysisService> MockService(
-        MarketAnalysisSnapshot snapshot)
+    private static Mock<IMarketSnapshotService> MockService(
+        MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),

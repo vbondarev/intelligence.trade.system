@@ -1,27 +1,27 @@
-using Intelligence.TradeSystem.Abstractions;
+﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
 /// <summary>
-/// Тестовая реализация <see cref="IMarketAnalysisService"/>,
+/// Тестовая реализация <see cref="IMarketSnapshotService"/>,
 /// возвращающая заранее сконфигурированный снапшот.
 /// Позволяет переиспользовать один экземпляр <c>WebApplicationFactory</c>
 /// для всего тест-класса вместо создания нового хоста на каждый тест.
 /// </summary>
-public sealed class ConfigurableMarketAnalysisService : IMarketAnalysisService
+public sealed class ConfigurableMarketSnapshotService : IMarketSnapshotService
 {
-    private volatile MarketAnalysisSnapshot? _snapshot;
+    private volatile MarketSnapshot? _snapshot;
 
     /// <summary>
     /// Устанавливает снапшот, который будет возвращён при следующем вызове
     /// <see cref="BuildSnapshotAsync"/>.
     /// </summary>
-    public void Configure(MarketAnalysisSnapshot snapshot) => _snapshot = snapshot;
+    public void Configure(MarketSnapshot snapshot) => _snapshot = snapshot;
 
     /// <inheritdoc/>
-    public Task<MarketAnalysisSnapshot> BuildSnapshotAsync(
+    public Task<MarketSnapshot> BuildSnapshotAsync(
         ExchangeId exchangeId,
         string symbol,
         MarketCategory category,
@@ -29,7 +29,7 @@ public sealed class ConfigurableMarketAnalysisService : IMarketAnalysisService
     {
         var snapshot = _snapshot
             ?? throw new InvalidOperationException(
-                $"{nameof(ConfigurableMarketAnalysisService)} has not been configured. " +
+                $"{nameof(ConfigurableMarketSnapshotService)} has not been configured. " +
                 $"Call {nameof(Configure)} before making a request.");
 
         return Task.FromResult(snapshot);

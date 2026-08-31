@@ -1,9 +1,9 @@
-
+﻿
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Helpers;
 
 /// <summary>
 /// Создаёт минимальные non-timeframe domain-снапшоты для integration-тестов,
-/// которым нужно собрать <see cref="MarketAnalysisSnapshot"/> без реального API.
+/// которым нужно собрать <see cref="MarketSnapshot"/> без реального API.
 /// </summary>
 internal static class TestSnapshotFactory
 {

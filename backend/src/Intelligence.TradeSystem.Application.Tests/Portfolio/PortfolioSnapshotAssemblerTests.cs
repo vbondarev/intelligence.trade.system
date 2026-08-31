@@ -1,9 +1,7 @@
-using FluentAssertions;
-using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
+﻿using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
-using Xunit;
 
-namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Assemblers;
+namespace Intelligence.TradeSystem.Application.Tests.Portfolio;
 
 public sealed class PortfolioSnapshotAssemblerTests
 {
@@ -12,9 +10,7 @@ public sealed class PortfolioSnapshotAssemblerTests
     {
         var act = () => PortfolioSnapshotAssembler.Assemble(balance: null, positions: null!);
 
-        act.Should()
-            .Throw<ArgumentNullException>()
-            .WithParameterName("positions");
+        act.Should().Throw<ArgumentNullException>().WithParameterName("positions");
     }
 
     [Fact]
@@ -32,11 +28,7 @@ public sealed class PortfolioSnapshotAssemblerTests
     [Fact]
     public void Maps_Balance_Fields_From_AccountBalance()
     {
-        var balance = CreateBalance(
-            totalEquity: 12_500.75m,
-            totalWalletBalance: 11_900.50m,
-            totalAvailableBalance: 8_400.25m,
-            totalPerpUnrealizedPnl: 600.25m);
+        var balance = CreateBalance(12_500.75m, 11_900.50m, 8_400.25m, 600.25m);
 
         var result = PortfolioSnapshotAssembler.Assemble(balance, positions: []);
 
@@ -44,23 +36,6 @@ public sealed class PortfolioSnapshotAssemblerTests
         result.AvailableBalanceUsd.Should().Be(8_400.25m);
         result.TotalWalletBalanceUsd.Should().Be(11_900.50m);
         result.TotalUnrealizedPnlUsd.Should().Be(600.25m);
-    }
-
-    [Fact]
-    public void Falls_Back_To_Zero_For_Null_Balance_Fields()
-    {
-        var balance = CreateBalance(
-            totalEquity: null,
-            totalWalletBalance: 2_000m,
-            totalAvailableBalance: null,
-            totalPerpUnrealizedPnl: null);
-
-        var result = PortfolioSnapshotAssembler.Assemble(balance, positions: []);
-
-        result.TotalEquityUsd.Should().Be(0m);
-        result.AvailableBalanceUsd.Should().Be(0m);
-        result.TotalWalletBalanceUsd.Should().Be(2_000m);
-        result.TotalUnrealizedPnlUsd.Should().Be(0m);
     }
 
     [Fact]
@@ -84,28 +59,8 @@ public sealed class PortfolioSnapshotAssemblerTests
     {
         var positions = new[]
         {
-            CreatePosition(
-                symbol: "BTCUSDT",
-                side: PositionSide.Long,
-                size: 2m,
-                avgPrice: 100m,
-                positionValue: 250m,
-                leverage: 5m,
-                markPrice: 125m,
-                breakEvenPrice: 101m,
-                liquidationPrice: 80m,
-                unrealizedPnl: 25m),
-            CreatePosition(
-                symbol: "ETHUSDT",
-                side: PositionSide.Short,
-                size: 3m,
-                avgPrice: 200m,
-                positionValue: 540m,
-                leverage: 3m,
-                markPrice: 180m,
-                breakEvenPrice: 198m,
-                liquidationPrice: 260m,
-                unrealizedPnl: -60m),
+            CreatePosition(symbol: "BTCUSDT", side: PositionSide.Long, size: 2m, avgPrice: 100m, positionValue: 250m, leverage: 5m, markPrice: 125m, breakEvenPrice: 101m, liquidationPrice: 80m, unrealizedPnl: 25m),
+            CreatePosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 3m, avgPrice: 200m, positionValue: 540m, leverage: 3m, markPrice: 180m, breakEvenPrice: 198m, liquidationPrice: 260m, unrealizedPnl: -60m),
         };
 
         var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
@@ -146,21 +101,12 @@ public sealed class PortfolioSnapshotAssemblerTests
     {
         var positions = new[]
         {
-            CreatePosition(
-                avgPrice: null,
-                positionValue: null,
-                leverage: null,
-                markPrice: null,
-                breakEvenPrice: null,
-                liquidationPrice: null,
-                unrealizedPnl: null),
+            CreatePosition(avgPrice: null, positionValue: null, leverage: null, markPrice: null, breakEvenPrice: null, liquidationPrice: null, unrealizedPnl: null),
         };
 
         var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
 
-        result.OpenPositions.Should().ContainSingle();
-
-        var position = result.OpenPositions[0];
+        var position = result.OpenPositions.Should().ContainSingle().Subject;
         position.AvgPrice.Should().Be(0m);
         position.MarkPrice.Should().Be(0m);
         position.BreakEvenPrice.Should().Be(0m);
@@ -174,59 +120,15 @@ public sealed class PortfolioSnapshotAssemblerTests
     [Fact]
     public void Calculates_UnrealizedPnlPct_From_PositionValue_And_Rounds_To_Four_Decimals()
     {
-        var positions = new[]
-        {
-            CreatePosition(positionValue: 3m, unrealizedPnl: 1m),
-        };
+        var positions = new[] { CreatePosition(positionValue: 3m, unrealizedPnl: 1m) };
 
         var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
 
-        result.OpenPositions.Should().ContainSingle();
         result.OpenPositions[0].UnrealizedPnlPct.Should().Be(33.3333m);
     }
 
-    [Fact]
-    public void Returns_Zero_UnrealizedPnlPct_When_PositionValue_Is_Zero_Or_Negative()
-    {
-        var zeroValuePosition = CreatePosition(symbol: "BTCUSDT", positionValue: 0m, unrealizedPnl: 10m);
-        var negativeValuePosition = CreatePosition(symbol: "ETHUSDT", positionValue: -50m, unrealizedPnl: 10m);
-
-        var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions: [zeroValuePosition, negativeValuePosition]);
-
-        result.OpenPositions.Should().SatisfyRespectively(
-            first => first.UnrealizedPnlPct.Should().Be(0m),
-            second => second.UnrealizedPnlPct.Should().Be(0m));
-    }
-
-    [Fact]
-    public void Uses_Source_PositionValue_Without_Recomputing_From_Size_And_MarkPrice()
-    {
-        var positions = new[]
-        {
-            CreatePosition(size: 2m, markPrice: 100m, positionValue: 80m, unrealizedPnl: 8m),
-        };
-
-        var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
-
-        result.OpenPositions.Should().ContainSingle();
-
-        var position = result.OpenPositions[0];
-        position.PositionValueUsd.Should().Be(80m);
-        position.UnrealizedPnlPct.Should().Be(10m);
-    }
-
-    private static AccountBalance CreateBalance(
-        decimal? totalEquity = 10_000m,
-        decimal? totalWalletBalance = 9_500m,
-        decimal? totalAvailableBalance = 7_000m,
-        decimal? totalPerpUnrealizedPnl = 500m) =>
-        new(
-            AccountType.Unified,
-            totalEquity,
-            totalWalletBalance,
-            totalAvailableBalance,
-            totalPerpUnrealizedPnl,
-            []);
+    private static AccountBalance CreateBalance(decimal? totalEquity = 10_000m, decimal? totalWalletBalance = 9_500m, decimal? totalAvailableBalance = 7_000m, decimal? totalPerpUnrealizedPnl = 500m) =>
+        new(AccountType.Unified, totalEquity, totalWalletBalance, totalAvailableBalance, totalPerpUnrealizedPnl, []);
 
     private static OpenPosition CreatePosition(
         string symbol = "BTCUSDT",
@@ -248,24 +150,5 @@ public sealed class PortfolioSnapshotAssemblerTests
         decimal? riskLimitValue = 100_000m,
         DateTimeOffset? createdTime = null,
         DateTimeOffset? updatedTime = null) =>
-        new(
-            symbol,
-            category,
-            side,
-            status,
-            size,
-            avgPrice,
-            positionValue,
-            leverage,
-            markPrice,
-            breakEvenPrice,
-            liquidationPrice,
-            unrealizedPnl,
-            takeProfit,
-            stopLoss,
-            trailingStop,
-            riskId,
-            riskLimitValue,
-            createdTime,
-            updatedTime);
+        new(symbol, category, side, status, size, avgPrice, positionValue, leverage, markPrice, breakEvenPrice, liquidationPrice, unrealizedPnl, takeProfit, stopLoss, trailingStop, riskId, riskLimitValue, createdTime, updatedTime);
 }

@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+﻿using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Services;
 
@@ -13,6 +13,6 @@ public interface ISnapshotHealthEvaluator
     /// <param name="snapshot">Рыночный снимок.</param>
     /// <param name="mode">Режим анализа.</param>
     LlmSnapshotHealthPayload Evaluate(
-        MarketAnalysisSnapshot snapshot,
+        MarketSnapshot snapshot,
         AnalysisMode mode);
 }

@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Api.Configuration;
+﻿using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -29,7 +29,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             StalenessProximityFactor = stalenessProximityFactor,
         };
 
-    private static MarketAnalysisSnapshot DefaultSnapshot() =>
+    private static MarketSnapshot DefaultSnapshot() =>
         ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
 
     // ─── 6.1 Near-staleness warnings ─────────────────────────────────────────

@@ -1,11 +1,11 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 using Intelligence.TradeSystem.Domain;
 using Xunit;
 
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Assemblers;
 
-public sealed class MarketAnalysisSnapshotAssemblerTests
+public sealed class MarketSnapshotAssemblerTests
 {
     [Theory]
     [InlineData(null)]
@@ -45,7 +45,6 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
     [InlineData("h4")]
     [InlineData("d1")]
     [InlineData("sentiment")]
-    [InlineData("portfolio")]
     public void Throws_ArgumentNullException_When_Required_Snapshot_Is_Null(string parameterName)
     {
         var act = CreateAssembleActWithNull(parameterName);
@@ -56,7 +55,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
     }
 
     [Fact]
-    public void Builds_Consistent_MarketAnalysisSnapshot_When_All_Inputs_Are_Provided()
+    public void Builds_Consistent_MarketSnapshot_When_All_Inputs_Are_Provided()
     {
         var price = CreatePrice();
         var derivatives = CreateDerivatives(fundingRate: 0.0005m);
@@ -67,10 +66,9 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         var h4 = CreateTimeframe("4h");
         var d1 = CreateTimeframe("1d");
         var sentiment = CreateSentiment(marketRegime: "MeanReversion");
-        var portfolio = CreatePortfolio();
         var before = DateTimeOffset.UtcNow;
 
-        var result = MarketAnalysisSnapshotAssembler.Assemble(
+        var result = MarketSnapshotAssembler.Assemble(
             "Bybit",
             "BTCUSDT",
             MarketCategory.Linear,
@@ -82,8 +80,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             h1,
             h4,
             d1,
-            sentiment,
-            portfolio);
+            sentiment);
 
         var after = DateTimeOffset.UtcNow;
 
@@ -101,8 +98,6 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         result.H4.Should().BeSameAs(h4);
         result.D1.Should().BeSameAs(d1);
         result.Sentiment.Should().BeSameAs(sentiment);
-        result.Portfolio.Should().BeSameAs(portfolio);
-
         result.Tags.Should().Equal(
             "mean-reversion-regime",
             "bid-pressure",
@@ -282,7 +277,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             "weak-trend");
     }
 
-    private static MarketAnalysisSnapshot AssembleWithDefaults(
+    private static MarketSnapshot AssembleWithDefaults(
         string exchange = "Bybit",
         string symbol = "BTCUSDT",
         MarketCategory category = MarketCategory.Linear,
@@ -294,9 +289,8 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         TimeframeAnalysisSnapshot? h1 = null,
         TimeframeAnalysisSnapshot? h4 = null,
         TimeframeAnalysisSnapshot? d1 = null,
-        SentimentSnapshot? sentiment = null,
-        PortfolioSnapshot? portfolio = null) =>
-        MarketAnalysisSnapshotAssembler.Assemble(
+        SentimentSnapshot? sentiment = null) =>
+        MarketSnapshotAssembler.Assemble(
             exchange,
             symbol,
             category,
@@ -308,8 +302,7 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             h1 ?? CreateTimeframe("1h"),
             h4 ?? CreateTimeframe("4h"),
             d1 ?? CreateTimeframe("1d"),
-            sentiment ?? CreateSentiment(),
-            portfolio ?? CreatePortfolio());
+            sentiment ?? CreateSentiment());
 
     private static Action CreateAssembleActWithNull(string parameterName)
     {
@@ -322,20 +315,17 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
         var h4 = CreateTimeframe("4h");
         var d1 = CreateTimeframe("1d");
         var sentiment = CreateSentiment();
-        var portfolio = CreatePortfolio();
-
         return parameterName switch
         {
-            "price" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, null!, derivatives, orderBook, tradeFlow, m15, h1, h4, d1, sentiment, portfolio),
-            "derivatives" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, null!, orderBook, tradeFlow, m15, h1, h4, d1, sentiment, portfolio),
-            "orderBook" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, null!, tradeFlow, m15, h1, h4, d1, sentiment, portfolio),
-            "tradeFlow" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, null!, m15, h1, h4, d1, sentiment, portfolio),
-            "m15" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, null!, h1, h4, d1, sentiment, portfolio),
-            "h1" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, null!, h4, d1, sentiment, portfolio),
-            "h4" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, null!, d1, sentiment, portfolio),
-            "d1" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, h4, null!, sentiment, portfolio),
-            "sentiment" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, h4, d1, null!, portfolio),
-            "portfolio" => () => MarketAnalysisSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, h4, d1, sentiment, null!),
+            "price" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, null!, derivatives, orderBook, tradeFlow, m15, h1, h4, d1, sentiment),
+            "derivatives" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, null!, orderBook, tradeFlow, m15, h1, h4, d1, sentiment),
+            "orderBook" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, null!, tradeFlow, m15, h1, h4, d1, sentiment),
+            "tradeFlow" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, null!, m15, h1, h4, d1, sentiment),
+            "m15" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, null!, h1, h4, d1, sentiment),
+            "h1" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, null!, h4, d1, sentiment),
+            "h4" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, null!, d1, sentiment),
+            "d1" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, h4, null!, sentiment),
+            "sentiment" => () => MarketSnapshotAssembler.Assemble("Bybit", "BTCUSDT", MarketCategory.Linear, price, derivatives, orderBook, tradeFlow, m15, h1, h4, d1, null!),
             _ => throw new InvalidOperationException($"Unsupported parameter name: {parameterName}"),
         };
     }
@@ -469,15 +459,5 @@ public sealed class MarketAnalysisSnapshotAssemblerTests
             OrderBookPressureScore = 0m,
             TradeFlowPressureScore = 0m,
             MarketRegime = marketRegime,
-        };
-
-    private static PortfolioSnapshot CreatePortfolio() =>
-        new()
-        {
-            TotalEquityUsd = 10_000m,
-            AvailableBalanceUsd = 7_500m,
-            TotalWalletBalanceUsd = 9_800m,
-            TotalUnrealizedPnlUsd = 200m,
-            OpenPositions = [],
         };
 }

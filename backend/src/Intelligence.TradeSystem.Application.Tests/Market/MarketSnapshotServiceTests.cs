@@ -1,11 +1,10 @@
-using FluentAssertions;
-using Intelligence.TradeSystem.Abstractions;
+﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 using Moq;
 
 namespace Intelligence.TradeSystem.Application.Tests;
 
-public sealed class MarketAnalysisServiceTests
+public sealed class MarketSnapshotServiceTests
 {
     [Theory]
     [InlineData(null)]
@@ -13,7 +12,7 @@ public sealed class MarketAnalysisServiceTests
     [InlineData("  ")]
     public async Task BuildSnapshotAsync_Throws_When_Symbol_Is_Null_Or_Whitespace(string? symbol)
     {
-        var service = new MarketAnalysisService(new Mock<IMarketDataCollector>().Object);
+        var service = new MarketSnapshotService(new Mock<IPublicMarketDataCollector>().Object);
 
         var act = () => service.BuildSnapshotAsync(ExchangeId.Bybit, symbol!, MarketCategory.Linear);
 
@@ -23,7 +22,7 @@ public sealed class MarketAnalysisServiceTests
     [Fact]
     public async Task BuildSnapshotAsync_Throws_When_Exchange_Is_Not_Supported()
     {
-        var service = new MarketAnalysisService(new Mock<IMarketDataCollector>().Object);
+        var service = new MarketSnapshotService(new Mock<IPublicMarketDataCollector>().Object);
 
         var act = () => service.BuildSnapshotAsync((ExchangeId)999, "BTCUSDT", MarketCategory.Linear);
 
@@ -33,60 +32,25 @@ public sealed class MarketAnalysisServiceTests
     [Fact]
     public async Task BuildSnapshotAsync_Throws_When_Ticker_Is_Missing()
     {
-        var collector = new Mock<IMarketDataCollector>();
-        collector
-            .Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+        var collector = new Mock<IPublicMarketDataCollector>();
+        collector.Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCollectedData() with { Ticker = null });
 
-        var service = new MarketAnalysisService(collector.Object);
+        var service = new MarketSnapshotService(collector.Object);
 
         var act = () => service.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear);
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*ticker*");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*ticker*");
     }
 
     [Fact]
-    public async Task BuildSnapshotAsync_Throws_When_Trades_Are_Empty()
+    public async Task BuildSnapshotAsync_Returns_MarketSnapshot_Without_Portfolio()
     {
-        var collector = new Mock<IMarketDataCollector>();
-        collector
-            .Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCollectedData() with { Trades = [] });
-
-        var service = new MarketAnalysisService(collector.Object);
-
-        var act = () => service.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*recent trades*");
-    }
-
-    [Fact]
-    public async Task BuildSnapshotAsync_Throws_When_H1_Klines_Are_Empty()
-    {
-        var collector = new Mock<IMarketDataCollector>();
-        collector
-            .Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateCollectedData() with { H1Klines = [] });
-
-        var service = new MarketAnalysisService(collector.Object);
-
-        var act = () => service.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*1h klines*");
-    }
-
-    [Fact]
-    public async Task BuildSnapshotAsync_Returns_Full_MarketAnalysisSnapshot_For_Valid_Collected_Data()
-    {
-        var collector = new Mock<IMarketDataCollector>();
-        collector
-            .Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+        var collector = new Mock<IPublicMarketDataCollector>();
+        collector.Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCollectedData());
 
-        var service = new MarketAnalysisService(collector.Object);
+        var service = new MarketSnapshotService(collector.Object);
 
         var result = await service.BuildSnapshotAsync(ExchangeId.Bybit, " BTCUSDT ", MarketCategory.Linear);
 
@@ -95,41 +59,34 @@ public sealed class MarketAnalysisServiceTests
         result.Category.Should().Be("linear");
         result.Price.LastPrice.Should().Be(100m);
         result.Derivatives.FundingRate.Should().Be(0.0004m);
-        result.Derivatives.FundingRateAvg24h.Should().BeGreaterThan(0m);
         result.OrderBook.BestBidPrice.Should().Be(99.5m);
         result.TradeFlow.TotalTrades.Should().Be(3);
         result.M15.Timeframe.Should().Be("15m");
         result.H1.Timeframe.Should().Be("1h");
         result.H4.Timeframe.Should().Be("4h");
         result.D1.Timeframe.Should().Be("1d");
-        result.Portfolio.TotalEquityUsd.Should().Be(10_000m);
-        result.Portfolio.OpenPositions.Should().ContainSingle();
         result.Sentiment.MarketRegime.Should().NotBeNullOrWhiteSpace();
         result.Tags.Should().NotBeNull();
+        typeof(MarketSnapshot).GetProperty("Portfolio").Should().BeNull();
 
-        collector.Verify(
-            x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()),
-            Times.Once);
+        collector.Verify(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task BuildSnapshotAsync_Uses_Fallbacks_When_Optional_Derivatives_And_Portfolio_Data_Are_Unavailable()
+    public async Task BuildSnapshotAsync_Uses_Fallbacks_When_Optional_Derivatives_Data_Are_Unavailable()
     {
         var ticker = CreateTicker();
-        var collector = new Mock<IMarketDataCollector>();
-        collector
-            .Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+        var collector = new Mock<IPublicMarketDataCollector>();
+        collector.Setup(x => x.CollectAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCollectedData() with
             {
                 FundingRateEntries = [],
                 OpenInterestEntries = [],
                 LongShortRatioEntries = [],
-                WalletBalance = null,
-                OpenPositions = [],
                 Ticker = ticker,
             });
 
-        var service = new MarketAnalysisService(collector.Object);
+        var service = new MarketSnapshotService(collector.Object);
 
         var result = await service.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear);
 
@@ -139,12 +96,9 @@ public sealed class MarketAnalysisServiceTests
         result.Derivatives.OpenInterestChange4hPct.Should().Be(0m);
         result.Derivatives.LongRatio.Should().Be(0m);
         result.Derivatives.ShortRatio.Should().Be(0m);
-        result.Portfolio.TotalEquityUsd.Should().Be(0m);
-        result.Portfolio.TotalWalletBalanceUsd.Should().Be(0m);
-        result.Portfolio.OpenPositions.Should().BeEmpty();
     }
 
-    private static CollectedMarketData CreateCollectedData() =>
+    private static CollectedPublicMarketData CreateCollectedData() =>
         new()
         {
             ExchangeId = ExchangeId.Bybit,
@@ -162,8 +116,6 @@ public sealed class MarketAnalysisServiceTests
             FundingRateEntries = CreateFundingRateEntries(),
             LongShortRatioEntries = CreateLongShortRatioEntries(),
             LongShortRatioPeriod = LongShortRatioPeriod.FiveMinutes,
-            WalletBalance = CreateBalance(),
-            OpenPositions = [CreatePosition()],
         };
 
     private static Ticker CreateTicker() =>
@@ -258,28 +210,4 @@ public sealed class MarketAnalysisServiceTests
             new LongShortRatioEntry("BTCUSDT", MarketCategory.Linear, new DateTimeOffset(2026, 4, 2, 11, 0, 0, TimeSpan.Zero), 0.56m, 0.44m),
             new LongShortRatioEntry("BTCUSDT", MarketCategory.Linear, new DateTimeOffset(2026, 4, 2, 12, 0, 0, TimeSpan.Zero), 0.58m, 0.42m),
         ];
-
-    private static AccountBalance CreateBalance() => new(AccountType.Unified, 10_000m, 9_400m, 8_100m, 600m, []);
-
-    private static OpenPosition CreatePosition() =>
-        new(
-            "BTCUSDT",
-            MarketCategory.Linear,
-            PositionSide.Long,
-            PositionStatus.Normal,
-            1.5m,
-            100m,
-            150m,
-            5m,
-            101m,
-            100.2m,
-            80m,
-            12m,
-            null,
-            null,
-            null,
-            1,
-            100_000m,
-            new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 4, 2, 12, 0, 0, TimeSpan.Zero));
 }

@@ -4,10 +4,10 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.Application;
 
 /// <summary>
-/// Тонкий orchestration-компонент, параллельно собирающий сырые данные
+/// Тонкий orchestration-компонент, параллельно собирающий сырые публичные рыночные данные
 /// через capability-интерфейсы биржевого слоя.
 /// </summary>
-public sealed class MarketDataCollector : IMarketDataCollector
+public sealed class PublicMarketDataCollector : IPublicMarketDataCollector
 {
     private const int KlineLimit = 250;
     private const int RecentTradesLimit = 60;
@@ -15,26 +15,21 @@ public sealed class MarketDataCollector : IMarketDataCollector
     private const int OpenInterestLimit = 48;
     private const int FundingRateLimit = 30;
     private const int LongShortRatioLimit = 50;
-    private const AccountType DefaultAccountType = AccountType.Unified;
     private const OpenInterestInterval DefaultOpenInterestInterval = OpenInterestInterval.FiveMinutes;
     private const LongShortRatioPeriod DefaultLongShortRatioPeriod = LongShortRatioPeriod.FiveMinutes;
 
     private readonly IMarketDataProvider _marketDataProvider;
     private readonly IDerivativesDataProvider _derivativesDataProvider;
-    private readonly IPrivateAccountProvider _privateAccountProvider;
 
-    public MarketDataCollector(
+    public PublicMarketDataCollector(
         IMarketDataProvider marketDataProvider,
-        IDerivativesDataProvider derivativesDataProvider,
-        IPrivateAccountProvider privateAccountProvider)
+        IDerivativesDataProvider derivativesDataProvider)
     {
         _marketDataProvider = marketDataProvider;
         _derivativesDataProvider = derivativesDataProvider;
-        _privateAccountProvider = privateAccountProvider;
     }
 
-    /// <inheritdoc />
-    public async Task<CollectedMarketData> CollectAsync(
+    public async Task<CollectedPublicMarketData> CollectAsync(
         ExchangeId exchangeId,
         string symbol,
         MarketCategory category,
@@ -76,7 +71,6 @@ public sealed class MarketDataCollector : IMarketDataCollector
             limit: KlineLimit,
             cancellationToken: cancellationToken);
 
-        var walletBalanceTask = _privateAccountProvider.GetWalletBalanceAsync(DefaultAccountType, cancellationToken);
         var requiresDerivativesData = category is MarketCategory.Linear or MarketCategory.Inverse;
 
         var openInterestTask = requiresDerivativesData
@@ -105,10 +99,6 @@ public sealed class MarketDataCollector : IMarketDataCollector
                 cancellationToken: cancellationToken)
             : Task.FromResult<IReadOnlyList<LongShortRatioEntry>>([]);
 
-        var openPositionsTask = requiresDerivativesData
-            ? _privateAccountProvider.GetOpenPositionsAsync(category, normalizedSymbol, cancellationToken)
-            : Task.FromResult<IReadOnlyList<OpenPosition>>([]);
-
         await Task.WhenAll(
             tickerTask,
             orderBookTask,
@@ -119,11 +109,9 @@ public sealed class MarketDataCollector : IMarketDataCollector
             d1KlinesTask,
             openInterestTask,
             fundingRateTask,
-            longShortRatioTask,
-            walletBalanceTask,
-            openPositionsTask);
+            longShortRatioTask);
 
-        return new CollectedMarketData
+        return new CollectedPublicMarketData
         {
             ExchangeId = exchangeId,
             Symbol = normalizedSymbol,
@@ -140,8 +128,6 @@ public sealed class MarketDataCollector : IMarketDataCollector
             FundingRateEntries = fundingRateTask.Result,
             LongShortRatioEntries = longShortRatioTask.Result,
             LongShortRatioPeriod = DefaultLongShortRatioPeriod,
-            WalletBalance = walletBalanceTask.Result,
-            OpenPositions = openPositionsTask.Result,
         };
     }
 

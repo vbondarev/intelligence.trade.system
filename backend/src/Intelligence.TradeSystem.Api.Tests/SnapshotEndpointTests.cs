@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -25,12 +25,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     public async Task Snapshot_Returns_Ok_And_MarketAnalysisResponse_When_Request_Is_Valid()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -52,7 +52,11 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         result.TradeFlow.HasAggressiveBuyPressure.Should().BeTrue();
         result.M15.Timeframe.Should().Be("15m");
         result.H1.Trend.Should().Be("Bullish");
-        result.Portfolio.OpenPositions.Should().ContainSingle(position => position.Symbol == "BTCUSDT" && position.Side == "Long");
+        result.Portfolio.TotalEquityUsd.Should().Be(0m);
+        result.Portfolio.AvailableBalanceUsd.Should().Be(0m);
+        result.Portfolio.TotalWalletBalanceUsd.Should().Be(0m);
+        result.Portfolio.TotalUnrealizedPnlUsd.Should().Be(0m);
+        result.Portfolio.OpenPositions.Should().BeEmpty();
         result.Tags.Should().Equal("trend", "momentum");
 
         marketAnalysisService.Verify(
@@ -64,12 +68,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     public async Task Snapshot_Response_Uses_Public_Dto_Shape_Without_MarketData_Wrapper()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -88,19 +92,19 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         root.GetProperty("price").GetProperty("lastPrice").GetDecimal().Should().Be(65000m);
         root.GetProperty("m15").GetProperty("timeframe").GetString().Should().Be("15m");
         root.GetProperty("h1").GetProperty("trend").GetString().Should().Be("Bullish");
-        root.GetProperty("portfolio").GetProperty("openPositions").GetArrayLength().Should().Be(1);
+        root.GetProperty("portfolio").GetProperty("openPositions").GetArrayLength().Should().Be(0);
     }
 
     [Fact]
     public async Task Snapshot_Uses_Exact_Legacy_Root_Shape_With_Portfolio_And_String_Enums()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
             exchange = "Bybit",
@@ -116,16 +120,23 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
             "tradeFlow", "m15", "h1", "h4", "d1", "sentiment", "portfolio", "tags");
         root.TryGetProperty("marketData", out _).Should().BeFalse();
         root.GetProperty("portfolio").ValueKind.Should().Be(JsonValueKind.Object);
-        root.GetProperty("portfolio").GetProperty("openPositions").ValueKind.Should().Be(JsonValueKind.Array);
+        var portfolio = root.GetProperty("portfolio");
+        JsonContractAssertions.AssertExactPropertyNames(portfolio,
+            "totalEquityUsd", "availableBalanceUsd", "totalWalletBalanceUsd", "totalUnrealizedPnlUsd", "openPositions");
+        portfolio.GetProperty("totalEquityUsd").GetDecimal().Should().Be(0m);
+        portfolio.GetProperty("availableBalanceUsd").GetDecimal().Should().Be(0m);
+        portfolio.GetProperty("totalWalletBalanceUsd").GetDecimal().Should().Be(0m);
+        portfolio.GetProperty("totalUnrealizedPnlUsd").GetDecimal().Should().Be(0m);
+        portfolio.GetProperty("openPositions").ValueKind.Should().Be(JsonValueKind.Array);
+        portfolio.GetProperty("openPositions").GetArrayLength().Should().Be(0);
         root.GetProperty("h1").GetProperty("trend").ValueKind.Should().Be(JsonValueKind.String);
-        root.GetProperty("portfolio").GetProperty("openPositions")[0].GetProperty("side").ValueKind.Should().Be(JsonValueKind.String);
     }
 
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Exchange_Is_Invalid()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -149,8 +160,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Exchange_Is_Missing()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -170,8 +181,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Category_Is_Invalid()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -195,8 +206,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Category_Is_Missing()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -216,8 +227,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Symbol_Is_Missing()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -239,12 +250,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     public async Task Snapshot_Trims_Symbol_Before_Calling_Service()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -263,8 +274,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Request_Body_Is_Missing()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsync("/api/market-analysis/snapshot", content: null);
 
@@ -280,8 +291,8 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Request_Body_Contains_Malformed_Json()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
         using var content = new StringContent("{ malformed json", Encoding.UTF8, "application/json");
 
         using var response = await client.PostAsync("/api/market-analysis/snapshot", content);
@@ -294,12 +305,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Service_Throws_ArgumentException()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ArgumentException("Symbol 'BTCUSDT' is invalid for snapshot analysis."));
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -318,12 +329,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_BadRequest_When_Service_Throws_NotSupportedException()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new NotSupportedException("Exchange 'Bybit' is not supported in this environment."));
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
@@ -342,12 +353,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Snapshot_Returns_ServiceUnavailable_When_Service_Throws_InvalidOperationException()
     {
-        var marketAnalysisService = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Ticker is temporarily unavailable."));
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(marketAnalysisService.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
         using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
         {
