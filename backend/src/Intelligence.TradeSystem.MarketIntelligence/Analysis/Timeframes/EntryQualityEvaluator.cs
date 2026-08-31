@@ -1,6 +1,6 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis;
 
-namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Централизованное вычисление <c>summary.entryQuality</c> V1.

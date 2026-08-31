@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Качество точки входа, вычисленное детерминированно на основе дистанций и RSI-флагов.

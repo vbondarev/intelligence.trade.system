@@ -2,7 +2,7 @@
 
 ## Scope
 - Applies to `Intelligence.TradeSystem.MarketIntelligence`.
-- Contains deterministic `Indicators`, `Analysis`, `Diagnostics`, and market `Snapshots`.
+- Contains deterministic `Indicators`, `Analysis` (including `Analysis/Timeframes` timeframe summary evaluation and `Analysis/MarketRegimePolicy` regime classification), `Diagnostics`, and market `Snapshots`.
 - Read `../AGENTS.md` first for solution-level architecture, orchestration boundaries, and snapshot flow.
 
 See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and diagnostics policy.
@@ -22,8 +22,9 @@ See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and d
 
 ## What this project does
 - This project contains deterministic market indicators, analysis assemblers, diagnostics, and market snapshot contracts; it does not call exchanges or services directly.
-- Key areas: `Indicators/*` for calculations, `Analysis/Assemblers/*` for snapshot construction, `Diagnostics/*` for fallback/unavailable reporting, and `Snapshots/*` for market-facing snapshot types.
-- Current dependency direction is `Application -> MarketIntelligence -> Domain`; `MarketAnalysisSnapshot` temporarily composes Domain `PortfolioSnapshot`.
+- Key areas: `Indicators/*` for calculations, `Analysis/Assemblers/*` for snapshot construction, `Analysis/Timeframes/*` for deterministic per-timeframe bias/momentum/entry-quality/risk-flag evaluation (`TimeframeSummaryBuilder`, `EntryQualityEvaluator`, label mappers), `Analysis/MarketRegimePolicy` for the single canonical market regime classification, `Diagnostics/*` for fallback/unavailable reporting, and `Snapshots/*` for market-facing snapshot types.
+- Current dependency direction is `Application -> MarketIntelligence -> Domain`; `MarketAnalysisSnapshot` temporarily composes Domain `PortfolioSnapshot`. `MarketIntelligence` never depends on `Api` or `Application`.
+- The API converts the analytical results from `Analysis/Timeframes` into wire payloads only (bias/momentum/entry quality via `ToString()`, trend/level strength via label mappers); it does not recompute or duplicate this logic.
 
 ## Input assumptions to preserve
 - Callers provide market series in chronological order (oldest -> newest); several calculations use the last element as the current state.

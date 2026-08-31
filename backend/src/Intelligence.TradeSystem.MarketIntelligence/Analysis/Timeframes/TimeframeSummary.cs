@@ -1,13 +1,11 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
-
-namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Результат построения summary для одного таймфрейма.
-/// Все поля вычислены централизованно в <c>LlmTimeframeSummaryBuilder</c> —
+/// Все поля вычислены централизованно в <c>TimeframeSummaryBuilder</c> —
 /// гарантированно согласованы между собой.
 /// </summary>
-internal sealed record LlmTimeframeSummaryResult
+public sealed record TimeframeSummary
 {
     /// <summary>Метка силы тренда. Зависит только от <c>Trend</c> и <c>TrendStrengthScore</c>.</summary>
     public required TrendStrengthLabel TrendStrengthLabel { get; init; }

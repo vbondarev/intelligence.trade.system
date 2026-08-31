@@ -1,6 +1,4 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
-
-namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Централизованное отображение числового <c>strength ∈ [0, 1]</c> в <see cref="LevelStrengthLabel"/>.
@@ -11,13 +9,13 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// - strength &gt;= 0.40        → <see cref="LevelStrengthLabel.Moderate"/>
 /// - strength &lt;  0.40        → <see cref="LevelStrengthLabel.Weak"/>
 /// </summary>
-internal static class LevelStrengthLabelMapper
+public static class LevelStrengthLabelMapper
 {
     /// <summary>Минимальный strength для метки <see cref="LevelStrengthLabel.Strong"/>.</summary>
-    internal const decimal StrongThreshold = 0.70m;
+    public const decimal StrongThreshold = 0.70m;
 
     /// <summary>Минимальный strength для метки <see cref="LevelStrengthLabel.Moderate"/>.</summary>
-    internal const decimal ModerateThreshold = 0.40m;
+    public const decimal ModerateThreshold = 0.40m;
 
     /// <summary>
     /// Отображает нормализованный <paramref name="strength"/> в <see cref="LevelStrengthLabel"/>.

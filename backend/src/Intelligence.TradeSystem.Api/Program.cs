@@ -1,7 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using FluentValidation;
-using Intelligence.TradeSystem.Analytics;
 using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Services;
@@ -35,7 +34,6 @@ public partial class Program
                 options.IncludeXmlComments(xmlFilePath, includeControllerXmlComments: true);
             }
         });
-        builder.Services.AddAnalytics();
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
         var freshnessOptions = builder.Configuration

@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Состояние моментума таймфрейма, вычисленное на основе bias, подтверждения тренда и RSI.

@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Направленное смещение (bias) по таймфрейму, вычисленное на основе тренда и EMA-alignment.

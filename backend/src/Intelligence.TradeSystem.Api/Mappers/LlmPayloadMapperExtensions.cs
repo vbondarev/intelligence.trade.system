@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -194,13 +195,13 @@ internal static class LlmPayloadMapperExtensions
     /// <summary>
     /// Строит TF-payload и возвращает также summary-результат для использования в LlmTagEnricher.
     /// </summary>
-    private static (LlmTimeframePayload Payload, LlmTimeframeSummaryResult Summary) BuildTimeframeWithResult(
+    private static (LlmTimeframePayload Payload, TimeframeSummary Summary) BuildTimeframeWithResult(
         TimeframeAnalysisSnapshot s, bool snapshotIsFresh, string? marketRegime,
         params TimeframeAnalysisSnapshot[] higherTfs)
     {
         var bias = PrecomputeBias(s);
         var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTfs);
-        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+        var r = TimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
         return (BuildTimeframePayload(s, r), r);
     }
 
@@ -209,7 +210,7 @@ internal static class LlmPayloadMapperExtensions
         params TimeframeAnalysisSnapshot[] higherTfs)
         => BuildTimeframeWithResult(s, snapshotIsFresh, marketRegime, higherTfs).Payload;
 
-    private static LlmTimeframePayload BuildTimeframePayload(TimeframeAnalysisSnapshot s, LlmTimeframeSummaryResult r)
+    private static LlmTimeframePayload BuildTimeframePayload(TimeframeAnalysisSnapshot s, TimeframeSummary r)
     {
         var lastClose = s.LastCandle.Close;
 
@@ -320,7 +321,7 @@ internal static class LlmPayloadMapperExtensions
 
     /// <summary>
     /// Pre-computes bias from snapshot fields using the same deterministic rule as
-    /// <see cref="LlmTimeframeSummaryBuilder"/> so the correct kind of higher-TF
+    /// <see cref="TimeframeSummaryBuilder"/> so the correct kind of higher-TF
     /// obstacle level can be selected (resistance for Bullish, support for Bearish)
     /// before calling Build.
     /// </summary>

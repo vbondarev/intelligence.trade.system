@@ -1,7 +1,7 @@
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-namespace Intelligence.TradeSystem.Analytics;
+namespace Intelligence.TradeSystem.Application.AI;
 
 /// <summary>
 /// Формирует компактный текстовый аналитический контекст на основе уже собранного
@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.Analytics;
 /// а подготавливает стабильное текстовое представление для downstream-потребителей,
 /// таких как AI- и presentation-слои.
 /// </summary>
-public interface IAnalyticsFormatter
+public interface IAiContextFormatter
 {
     /// <summary>
     /// Преобразует готовый рыночный снимок в компактное детерминированное текстовое представление.

@@ -1,6 +1,6 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Централизованное отображение <c>trendStrengthLabel</c> из <see cref="MarketTrend"/> и числового score.

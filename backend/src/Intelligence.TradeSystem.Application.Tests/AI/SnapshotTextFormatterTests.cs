@@ -1,7 +1,8 @@
 using System.Globalization;
+using Intelligence.TradeSystem.Application.AI;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
-namespace Intelligence.TradeSystem.Analytics.Tests;
+namespace Intelligence.TradeSystem.Application.Tests.AI;
 
 public sealed class SnapshotTextFormatterTests
 {

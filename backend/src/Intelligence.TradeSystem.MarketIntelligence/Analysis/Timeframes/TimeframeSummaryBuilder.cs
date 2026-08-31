@@ -1,6 +1,7 @@
-using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Централизованное построение summary-слоя для одного таймфрейма.
@@ -21,7 +22,7 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// - Trend == Unknown           →  TrendStrengthLabel == Undefined
 /// - MomentumState == Healthy   →  IsTrendConfirmed == true &amp;&amp; Bias != Neutral
 /// </summary>
-internal static class LlmTimeframeSummaryBuilder
+public static class TimeframeSummaryBuilder
 {
     /// <summary>Порог объёма: VolumeRatio ниже этого значения → LowVolume.</summary>
     private const decimal LowVolumeThreshold = 0.50m;
@@ -50,7 +51,7 @@ internal static class LlmTimeframeSummaryBuilder
     /// Для Bullish — resistance; для Bearish — support.
     /// null — нет уровня на старших ТФ; качество не ограничивается этим источником.
     /// </param>
-    public static LlmTimeframeSummaryResult Build(
+    public static TimeframeSummary Build(
         TimeframeAnalysisSnapshot s,
         bool snapshotIsFresh,
         string? marketRegime,
@@ -97,7 +98,7 @@ internal static class LlmTimeframeSummaryBuilder
             oppDistancePct,
             isOppFromHigherTf);
 
-        return new LlmTimeframeSummaryResult
+        return new TimeframeSummary
         {
             TrendStrengthLabel = trendStrengthLabel,
             Bias = bias,
@@ -369,7 +370,7 @@ internal static class LlmTimeframeSummaryBuilder
         if (s.EmaHasFallback || s.AtrIsFallback || s.VolumeRatioIsFallback)
             Add("IndicatorFallback");
 
-        // ── Weak trend ───────────────────────────────────────────────────────
+        // ── Weak trend ────────────────────────────────────────────────────────
         if (s.TrendStrengthScore < TrendStrengthLabelMapper.ModerateThreshold)
             Add("WeakTrend");
 

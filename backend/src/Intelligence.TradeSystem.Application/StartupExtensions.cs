@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.AI;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Application;
@@ -16,6 +17,7 @@ public static class StartupExtensions
     {
         services.AddScoped<IMarketDataCollector, MarketDataCollector>();
         services.AddScoped<IMarketAnalysisService, MarketAnalysisService>();
+        services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();
 
         return services;
     }

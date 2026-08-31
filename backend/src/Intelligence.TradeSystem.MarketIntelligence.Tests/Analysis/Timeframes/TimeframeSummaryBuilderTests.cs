@@ -1,15 +1,13 @@
-using Intelligence.TradeSystem.Api.Mappers;
-using Intelligence.TradeSystem.Api.Models.Payloads;
 using Xunit;
 
-namespace Intelligence.TradeSystem.Api.Tests;
+namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Timeframes;
 
 /// <summary>
-/// Прямые unit-тесты для <c>LlmTimeframeSummaryBuilder</c>.
+/// Прямые unit-тесты для <c>TimeframeSummaryBuilder</c>.
 /// Работают без HTTP-стека — значительно быстрее endpoint-тестов.
 /// Покрывают инварианты согласованности summary-полей.
 /// </summary>
-public sealed class LlmTimeframeSummaryBuilderTests
+public sealed class TimeframeSummaryBuilderTests
 {
     // ─── Bullish fully confirmed ─────────────────────────────────────────────
 
@@ -277,17 +275,17 @@ public sealed class LlmTimeframeSummaryBuilderTests
         };
 
     /// <summary>
-    /// Test helper: вызывает <c>LlmTimeframeSummaryBuilder.Build</c> с безопасными дефолтами
+    /// Test helper: вызывает <c>TimeframeSummaryBuilder.Build</c> с безопасными дефолтами
     /// (<c>snapshotIsFresh = true</c>, <c>marketRegime = MarketRegimes.Trending</c>).
     /// Используется для тестов, которые проверяют структурные инварианты,
     /// а не поведение параметров свежести/режима.
     /// </summary>
-    private static LlmTimeframeSummaryResult BuildForTest(
+    private static TimeframeSummary BuildForTest(
         TimeframeAnalysisSnapshot s,
         bool snapshotIsFresh = true,
         string? marketRegime = MarketRegimes.Trending,
         NearestOppositeLevel? higherTfOppositeLevel = null) =>
-        LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+        TimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Step 11: Nullable / unavailable indicator scenarios
@@ -786,7 +784,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m, resistance1Strength: 0.75m,
             distanceToSupport: 0.3m, support1Strength: 0.70m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Neutral);
 
@@ -875,7 +873,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m, support1Strength: 0.80m,
             distanceToResist: 0.20m, resistance1Strength: 0.75m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
 
@@ -902,7 +900,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m, resistance1Strength: 0.80m,
             distanceToSupport: 0.20m, support1Strength: 0.75m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
 
@@ -928,7 +926,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m, support1Strength: 0.80m,
             distanceToResist: null, resistance1Strength: null);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
 
@@ -958,7 +956,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m, resistance1Strength: 0.80m,
             distanceToSupport: null, support1Strength: null);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
 
@@ -1045,7 +1043,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToResist: 0.5m, resistance1Strength: 0.75m,
             distanceToSupport: 0.3m, support1Strength: 0.70m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Neutral);
 
@@ -1098,7 +1096,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
         var s = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh: snapshotIsFresh, marketRegime: MarketRegimes.Trending);
+        var r = TimeframeSummaryBuilder.Build(s, snapshotIsFresh: snapshotIsFresh, marketRegime: MarketRegimes.Trending);
 
         r.RiskFlags.Contains("StaleSnapshot").Should().Be(!snapshotIsFresh,
             because: "StaleSnapshot flag is present iff snapshotIsFresh=false");
@@ -1146,7 +1144,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             distanceToSupport: 0.5m, support1Strength: 0.80m,
             distanceToResist: null, resistance1Strength: null);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
 
@@ -1203,7 +1201,7 @@ public sealed class LlmTimeframeSummaryBuilderTests
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m);
 
-        var r = LlmTimeframeSummaryBuilder.Build(s,
+        var r = TimeframeSummaryBuilder.Build(s,
             snapshotIsFresh: true,
             marketRegime: paddedRegime);
 

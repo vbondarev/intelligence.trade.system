@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Api.Mappers;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Ближайший противоположный уровень, используемый как препятствие при оценке EntryQuality.
@@ -13,4 +13,4 @@
 /// Нормализованная сила уровня [0, 1].
 /// <c>null</c> — сила неизвестна; интерпретируется консервативно.
 /// </param>
-internal sealed record NearestOppositeLevel(decimal DistancePct, decimal? Strength);
+public sealed record NearestOppositeLevel(decimal DistancePct, decimal? Strength);

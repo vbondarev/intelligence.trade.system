@@ -1,7 +1,5 @@
-using Intelligence.TradeSystem.Api.Mappers;
-using Intelligence.TradeSystem.Api.Models.Payloads;
 
-namespace Intelligence.TradeSystem.Api.Tests;
+namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Timeframes;
 
 /// <summary>
 /// Unit-тесты для <see cref="LevelStrengthLabelMapper"/>.

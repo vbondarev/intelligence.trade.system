@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.Api.Models.Payloads;
+namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 /// <summary>
 /// Метка силы тренда, вычисленная из <c>trendStrengthScore</c>.

@@ -3,14 +3,14 @@ using System.Text;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-namespace Intelligence.TradeSystem.Analytics;
+namespace Intelligence.TradeSystem.Application.AI;
 
 /// <summary>
 /// Формирует компактный детерминированный текстовый контекст по готовому <see cref="MarketAnalysisSnapshot"/>.
 /// Использует уже вычисленные снапшоты и агрегаты, не пересчитывает сырые биржевые данные
 /// и не пытается заменить финальный ответ для пользователя.
 /// </summary>
-public sealed class SnapshotTextFormatter : IAnalyticsFormatter
+public sealed class SnapshotTextFormatter : IAiContextFormatter
 {
     private const string NotAvailable = "n/a";
     private const string None = "none";

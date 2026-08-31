@@ -19,9 +19,8 @@
 ## What this project does
 - `Program.cs` wires controllers, Swagger, service defaults, application services, and the Bybit exchange registration.
 - `Controllers/MarketAnalysisController.cs` is the main entrypoint for snapshot and LLM payload flows.
-- `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketAnalysisSnapshot` into the public LLM payload contract.
-- `Mappers/EntryQualityEvaluator.cs` computes entry quality for each timeframe summary.
-- `Mappers/LlmTimeframeSummaryBuilder.cs` builds per-timeframe LLM summaries including riskFlags and entryQuality.
+- `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketAnalysisSnapshot` into the public LLM payload contract by calling `MarketIntelligence.Analysis.Timeframes.TimeframeSummaryBuilder` and mapping the resulting `TimeframeSummary` (analytical enums) into the existing string wire fields via `ToString()`.
+- Deterministic timeframe evaluation (`EntryQualityEvaluator`, `TimeframeSummaryBuilder`, label mappers) lives in `Intelligence.TradeSystem.MarketIntelligence/Analysis/Timeframes`, not in this project. The API only consumes the results and maps them to payload DTOs.
 
 ## Endpoint and validation patterns
 - Keep controller actions thin: validate request, call orchestration service, translate exceptions into `ProblemDetails`.
@@ -43,7 +42,7 @@
   - `Swing` → `1h`, `4h`, `1d`
   - `Portfolio` → `4h`, `1d`
 
-## Mapper pipeline rules
+## Mapper pipeline rules (implemented in `MarketIntelligence/Analysis/Timeframes`, consumed by the API mapper)
 
 ### EntryQualityEvaluator invariants
 - Neutral bias → always `Poor` (immediate return; no further evaluation).
@@ -91,6 +90,6 @@
 ## When changing code here
 - If you change an endpoint contract, update controller docs, payload/request models, mapper logic, and `Intelligence.TradeSystem.Api.Tests`.
 - If you change payload shape, inspect `LlmPayloadEndpointTests`, `SnapshotHealthWarningsBuilderTests`, and any consumers of `schemaVersion` / `analysisContext`.
-- If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for analytics/application/exchange services.
-- If you change `EntryQualityEvaluator` or `LlmTimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests`, `LlmTimeframeSummaryBuilderTests`, and `LlmPayloadMapperExtensionsTests`.
+- If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for application/exchange services.
+- If you change `EntryQualityEvaluator` or `TimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests` and `TimeframeSummaryBuilderTests` in `Intelligence.TradeSystem.MarketIntelligence.Tests`, plus `LlmPayloadMapperExtensionsTests` in `Intelligence.TradeSystem.Api.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.MarketIntelligence.Tests`.

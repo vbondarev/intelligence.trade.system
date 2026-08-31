@@ -41,9 +41,11 @@
 
 ## Big picture
 - This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
-- Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Analytics` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
+- Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
 - `Application` does not calculate indicators itself: `MarketDataCollector` fetches raw data, then `MarketAnalysisService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
-- `Analytics` interprets an existing `MarketAnalysisSnapshot` without recalculating market data.
+- Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
+- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from an existing `MarketAnalysisSnapshot`. It performs no trading calculations and does not call any LLM.
+- `MarketRegimePolicy` (in `MarketIntelligence/Analysis`) is the single source of market regime classification; no other classifier exists.
 
 ## Request and data flow
 - Snapshot path: `MarketAnalysisController` → `IMarketAnalysisService` → `IMarketDataCollector` → capability interfaces backed by `BybitProvider` → `MarketIntelligence.Analysis.Assemblers` → `MarketAnalysisSnapshot`.
@@ -70,7 +72,7 @@
 - Prefer additive contract evolution; if a breaking change is truly required, make every dependent layer explicit in the same change set.
 
 ## Local patterns
-- DI registration is organized via `StartupExtensions` and `AddXyz(...)` methods (`AddApplication`, `AddAnalytics`, `AddBybitExchange`).
+- DI registration is organized via `StartupExtensions` and `AddXyz(...)` methods (`AddApplication`, `AddBybitExchange`).
 - Keep orchestrators thin and push deterministic calculations into assemblers, formatters, and calculators.
 - `TimeframeSnapshotAssembler` sorts klines by `StartTime` ascending before indicator calculation; preserve that assumption if you touch timeframe assembly.
 - `MarketTagsBuilder` is the single source of snapshot tag ordering and whitelist.
@@ -102,6 +104,6 @@
 - If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
-- If you change `EntryQualityEvaluator`, review `LlmTimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `LlmTimeframeSummaryBuilderTests` in `Api.Tests`.
+- If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.
 - If you change higher-TF level wiring in `LlmPayloadMapperExtensions`, review `LlmPayloadMapperExtensionsTests` in `Api.Tests`.

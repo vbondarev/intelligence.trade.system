@@ -1,6 +1,7 @@
 using System.Globalization;
 using Intelligence.TradeSystem.Api.Models.MarketFacts;
 using Intelligence.TradeSystem.Api.Models.Payloads;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -268,7 +269,7 @@ internal static class MarketFactsPayloadMapper
     {
         var bias                  = PrecomputeBias(s);
         var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTfs);
-        var summary               = LlmTimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+        var summary               = TimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
         var lastClose             = s.LastCandle.Close;
 
         return new MarketFactsTimeframePayload
@@ -284,7 +285,7 @@ internal static class MarketFactsPayloadMapper
 
     private static MarketFactsTimeframeTrendPayload BuildTrend(
         TimeframeAnalysisSnapshot s,
-        LlmTimeframeSummaryResult summary) =>
+        TimeframeSummary summary) =>
         new()
         {
             Trend              = s.Trend.ToString(),
@@ -373,7 +374,7 @@ internal static class MarketFactsPayloadMapper
         };
 
     private static MarketFactsTimeframeBackendSummaryPayload BuildBackendSummary(
-        LlmTimeframeSummaryResult r) =>
+        TimeframeSummary r) =>
         new()
         {
             Bias             = r.Bias.ToString(),
@@ -470,7 +471,7 @@ internal static class MarketFactsPayloadMapper
 
     /// <summary>
     /// Pre-computes bias from snapshot fields using the same deterministic rule as
-    /// <see cref="LlmTimeframeSummaryBuilder"/> so the correct higher-TF obstacle level
+    /// <see cref="TimeframeSummaryBuilder"/> so the correct higher-TF obstacle level
     /// can be selected before calling Build.
     /// </summary>
     private static TimeframeBias PrecomputeBias(TimeframeAnalysisSnapshot s) =>
