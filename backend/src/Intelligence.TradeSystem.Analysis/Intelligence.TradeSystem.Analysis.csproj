@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <ItemGroup>
-      <ProjectReference Include="..\Intelligence.TradeSystem.Indicators\Intelligence.TradeSystem.Indicators.csproj" />
+      <ProjectReference Include="..\Intelligence.TradeSystem.MarketIntelligence\Intelligence.TradeSystem.MarketIntelligence.csproj" />
     </ItemGroup>
 
     <ItemGroup>

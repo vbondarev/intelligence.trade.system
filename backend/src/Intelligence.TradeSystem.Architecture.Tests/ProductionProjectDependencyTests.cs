@@ -14,8 +14,8 @@ public sealed class ProductionProjectDependencyTests
         {
             ["Intelligence.TradeSystem.Domain"] = [],
             ["Intelligence.TradeSystem.Abstractions"] = ["Intelligence.TradeSystem.Domain"],
-            ["Intelligence.TradeSystem.Indicators"] = ["Intelligence.TradeSystem.Domain"],
-            ["Intelligence.TradeSystem.Analysis"] = ["Intelligence.TradeSystem.Indicators"],
+            ["Intelligence.TradeSystem.MarketIntelligence"] = ["Intelligence.TradeSystem.Domain"],
+            ["Intelligence.TradeSystem.Analysis"] = ["Intelligence.TradeSystem.MarketIntelligence"],
             ["Intelligence.TradeSystem.Analytics"] = ["Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.Application"] =
                 ["Intelligence.TradeSystem.Abstractions", "Intelligence.TradeSystem.Analysis", "Intelligence.TradeSystem.Domain"],

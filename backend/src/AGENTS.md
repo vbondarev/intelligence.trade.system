@@ -1,8 +1,8 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## Scope
 - This file applies to `backend/src`.
-- Read nested instructions when working inside `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.Exchanges/Bybit`, or `Intelligence.TradeSystem.Indicators`.
+- Read nested instructions when working inside `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.Exchanges/Bybit`, or `Intelligence.TradeSystem.MarketIntelligence`.
 
 ## Instruction layering
 - This file is the source of truth for repository-wide tooling, build, test, and skill-activation rules.
@@ -41,7 +41,7 @@
 
 ## Big picture
 - This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
-- Main dependency direction: `Domain` contracts → `Indicators` / `Analysis` / `Analytics` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
+- Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Analysis` / `Analytics` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
 - `Application` does not calculate indicators itself: `MarketDataCollector` fetches raw data, then `MarketAnalysisService` delegates assembly to `Analysis.Assemblers`.
 - `Analytics` interprets an existing `MarketAnalysisSnapshot` without recalculating market data.
 
@@ -99,7 +99,7 @@
 
 ## Impact map
 - Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
-- If you change indicator calculations, check `Intelligence.TradeSystem.Indicators`, `Analysis.Assemblers`, and `Intelligence.TradeSystem.Indicators.Tests` for fallback/ordering regressions.
+- If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `Analysis.Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `Analysis.Assemblers`, `Domain/Snapshots`, payload mappers, and `Analysis.Tests` / `Api.Tests`.
 - If you change `EntryQualityEvaluator`, review `LlmTimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `LlmTimeframeSummaryBuilderTests` in `Api.Tests`.

@@ -14,6 +14,7 @@
   <Project Path="Intelligence.TradeSystem.Api/Intelligence.TradeSystem.Api.csproj" />
   <Project Path="Intelligence.TradeSystem.Application/Intelligence.TradeSystem.Application.csproj" />
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
+  <Project Path="Intelligence.TradeSystem.MarketIntelligence/Intelligence.TradeSystem.MarketIntelligence.csproj" />
   <Folder Name="/Aspire/">
     <Project Path="Intelligence.TradeSystem.AppHost/Intelligence.TradeSystem.AppHost.csproj" />
     <Project Path="Intelligence.TradeSystem.ServiceDefaults/Intelligence.TradeSystem.ServiceDefaults.csproj" />
@@ -25,9 +26,8 @@
     <Project Path="Intelligence.TradeSystem.Analysis.Tests/Intelligence.TradeSystem.Analysis.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Application.Tests/Intelligence.TradeSystem.Application.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Exchanges.Tests/Intelligence.TradeSystem.Exchanges.Tests.csproj" />
-    <Project Path="Intelligence.TradeSystem.Indicators.Tests/Intelligence.TradeSystem.Indicators.Tests.csproj" />
+    <Project Path="Intelligence.TradeSystem.MarketIntelligence.Tests/Intelligence.TradeSystem.MarketIntelligence.Tests.csproj" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Abstractions/Intelligence.TradeSystem.Abstractions.csproj" />
   <Project Path="Intelligence.TradeSystem.Exchanges/Intelligence.TradeSystem.Exchanges.csproj" />
-  <Project Path="Intelligence.TradeSystem.Indicators/Intelligence.TradeSystem.Indicators.csproj" />
 </Solution>

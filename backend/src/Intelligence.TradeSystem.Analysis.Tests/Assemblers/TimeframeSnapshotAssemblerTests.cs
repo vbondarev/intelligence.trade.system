@@ -2,7 +2,7 @@ using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain.Snapshots;
-using Intelligence.TradeSystem.Indicators.Results;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;
@@ -264,7 +264,7 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "ema200" &&
-            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
+            d.Reason == Intelligence.TradeSystem.MarketIntelligence.Indicators.Results.IndicatorValueReason.PartialWindow &&
             d.IsFallback);
     }
 
@@ -277,7 +277,7 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "rsi14" &&
-            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
+            d.Reason == Intelligence.TradeSystem.MarketIntelligence.Indicators.Results.IndicatorValueReason.InsufficientData &&
             !d.IsFallback);
     }
 
@@ -290,7 +290,7 @@ public sealed class TimeframeSnapshotAssemblerTests
 
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "atr14" &&
-            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.InsufficientData &&
+            d.Reason == Intelligence.TradeSystem.MarketIntelligence.Indicators.Results.IndicatorValueReason.InsufficientData &&
             !d.IsFallback);
     }
 
@@ -343,7 +343,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Diagnostic объясняет причину fallback.
         result.Diagnostics.Should().Contain(d =>
             d.Indicator == "ema200" &&
-            d.Reason == Intelligence.TradeSystem.Indicators.Results.IndicatorValueReason.PartialWindow &&
+            d.Reason == Intelligence.TradeSystem.MarketIntelligence.Indicators.Results.IndicatorValueReason.PartialWindow &&
             d.IsFallback);
     }
 

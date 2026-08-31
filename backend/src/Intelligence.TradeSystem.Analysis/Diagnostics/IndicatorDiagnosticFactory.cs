@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Indicators.Results;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 
 namespace Intelligence.TradeSystem.Analysis.Diagnostics;
 

@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Analysis.Assemblers;
 using Intelligence.TradeSystem.Analysis.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
-using Intelligence.TradeSystem.Indicators.Results;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Assemblers;

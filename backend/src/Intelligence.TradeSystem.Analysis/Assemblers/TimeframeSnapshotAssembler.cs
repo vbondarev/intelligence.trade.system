@@ -1,11 +1,11 @@
 using Intelligence.TradeSystem.Analysis.Diagnostics;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
-using Intelligence.TradeSystem.Indicators.Calculators;
-using Intelligence.TradeSystem.Indicators.Levels;
-using Intelligence.TradeSystem.Indicators.Results;
-using Intelligence.TradeSystem.Indicators.Trend;
-using Intelligence.TradeSystem.Indicators.Validation;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Calculators;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Levels;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Trend;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Validation;
 
 namespace Intelligence.TradeSystem.Analysis.Assemblers;
 

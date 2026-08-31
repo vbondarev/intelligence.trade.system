@@ -1,6 +1,6 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Analysis.Diagnostics;
-using Intelligence.TradeSystem.Indicators.Results;
+using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Analysis.Tests.Diagnostics;
