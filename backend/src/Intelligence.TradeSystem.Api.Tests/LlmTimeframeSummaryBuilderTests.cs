@@ -1,6 +1,5 @@
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Api.Tests;

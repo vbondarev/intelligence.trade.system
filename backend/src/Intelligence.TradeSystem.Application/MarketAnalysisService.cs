@@ -1,7 +1,7 @@
 using Intelligence.TradeSystem.Abstractions;
-using Intelligence.TradeSystem.Analysis.Assemblers;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
 namespace Intelligence.TradeSystem.Application;
 

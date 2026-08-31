@@ -9,7 +9,6 @@
     <File Path="Directory.Build.targets" />
     <File Path="Directory.Packages.props" />
   </Folder>
-  <Project Path="Intelligence.TradeSystem.Analysis/Intelligence.TradeSystem.Analysis.csproj" />
   <Project Path="Intelligence.TradeSystem.Analytics/Intelligence.TradeSystem.Analytics.csproj" />
   <Project Path="Intelligence.TradeSystem.Api/Intelligence.TradeSystem.Api.csproj" />
   <Project Path="Intelligence.TradeSystem.Application/Intelligence.TradeSystem.Application.csproj" />
@@ -23,7 +22,6 @@
     <Project Path="Intelligence.TradeSystem.Architecture.Tests/Intelligence.TradeSystem.Architecture.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Api.Tests/Intelligence.TradeSystem.Api.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Analytics.Tests/Intelligence.TradeSystem.Analytics.Tests.csproj" />
-    <Project Path="Intelligence.TradeSystem.Analysis.Tests/Intelligence.TradeSystem.Analysis.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Application.Tests/Intelligence.TradeSystem.Application.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Exchanges.Tests/Intelligence.TradeSystem.Exchanges.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.MarketIntelligence.Tests/Intelligence.TradeSystem.MarketIntelligence.Tests.csproj" />

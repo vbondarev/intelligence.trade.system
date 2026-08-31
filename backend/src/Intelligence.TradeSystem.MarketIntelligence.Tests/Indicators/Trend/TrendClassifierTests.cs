@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.MarketIntelligence.Indicators.Trend;
 
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Trend;

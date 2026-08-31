@@ -1,7 +1,6 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 

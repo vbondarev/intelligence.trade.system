@@ -355,7 +355,7 @@ public sealed class MarketFactsEndpointTests : IClassFixture<WebApplicationFacto
     // ===========================================================================
 
     private static Mock<IMarketAnalysisService> MockService(
-        Domain.Snapshots.MarketAnalysisSnapshot snapshot)
+        MarketAnalysisSnapshot snapshot)
     {
         var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(

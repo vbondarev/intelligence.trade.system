@@ -1,1 +1,3 @@
 global using Xunit;
+global using Intelligence.TradeSystem.Domain.Snapshots;
+global using Intelligence.TradeSystem.MarketIntelligence.Snapshots;

@@ -93,4 +93,4 @@
 - If you change payload shape, inspect `LlmPayloadEndpointTests`, `SnapshotHealthWarningsBuilderTests`, and any consumers of `schemaVersion` / `analysisContext`.
 - If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for analytics/application/exchange services.
 - If you change `EntryQualityEvaluator` or `LlmTimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests`, `LlmTimeframeSummaryBuilderTests`, and `LlmPayloadMapperExtensionsTests`.
-- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.Analysis.Tests`.
+- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.MarketIntelligence.Tests`.

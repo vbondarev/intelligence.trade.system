@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Moq;
 
 namespace Intelligence.TradeSystem.Application.Tests;

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Analysis;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Mappers;

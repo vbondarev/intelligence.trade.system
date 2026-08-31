@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.MarketIntelligence\Intelligence.TradeSystem.MarketIntelligence.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
   </ItemGroup>
 
 </Project>

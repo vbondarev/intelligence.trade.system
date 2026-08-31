@@ -1,5 +1,4 @@
-﻿using Intelligence.TradeSystem.Api.Models.Payloads;
-using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 

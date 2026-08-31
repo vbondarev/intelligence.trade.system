@@ -1,7 +1,6 @@
 using System.Globalization;
 using Intelligence.TradeSystem.Api.Models.MarketFacts;
 using Intelligence.TradeSystem.Api.Models.Payloads;
-using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 

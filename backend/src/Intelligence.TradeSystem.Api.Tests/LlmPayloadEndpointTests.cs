@@ -263,7 +263,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
 
     // ─── Helpers ────────────────────────────────────────────────────────────
 
-    private static Mock<IMarketAnalysisService> MockService(Domain.Snapshots.MarketAnalysisSnapshot snapshot)
+    private static Mock<IMarketAnalysisService> MockService(MarketAnalysisSnapshot snapshot)
     {
         var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(

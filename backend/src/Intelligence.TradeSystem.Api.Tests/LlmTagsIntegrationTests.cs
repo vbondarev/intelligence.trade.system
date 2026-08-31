@@ -1,11 +1,10 @@
 using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
-using Intelligence.TradeSystem.Analysis;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 

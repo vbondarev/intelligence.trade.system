@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
 namespace Intelligence.TradeSystem.Analytics;
 

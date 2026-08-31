@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Intelligence.TradeSystem.MarketIntelligence.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
+  </ItemGroup>
+
+</Project>
