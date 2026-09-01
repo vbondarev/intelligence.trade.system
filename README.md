@@ -207,84 +207,8 @@
 
 | Метод | Маршрут | Описание |
 |-------|---------|----------|
-| `GET` | `/api/market-analysis/{symbol}/market-facts` | Canonical facts payload для downstream-агентов. Схема `market-facts/v1`. |
 | `GET` | `/api/market-analysis/{symbol}/llm-payload` | LLM-ready payload. Legacy / transitional endpoint, сохранён для совместимости. |
 | `POST` | `/api/market-analysis/snapshot` | Сырой market snapshot для отладки и проверки данных. |
-
----
-
-### Market Facts endpoint *(canonical)*
-
-```http
-GET /api/market-analysis/{symbol}/market-facts
-```
-
-Пример:
-
-```bash
-curl "http://localhost:8080/api/market-analysis/BTCUSDT/market-facts?exchange=Bybit&category=Linear&mode=Intraday"
-```
-
-Назначение endpoint'а:
-
-- фиксирует факты из backend snapshot;
-- возвращает `schemaVersion = market-facts/v1`;
-- содержит `dataQuality.status` (`ok` / `partial` / `stale`);
-- содержит детерминированный `tradeFlow.direction` (`buy_dominant` / `sell_dominant` / `neutral`);
-- содержит детерминированный `tradeFlow.label` (`aggressive_buying` / `aggressive_selling` / `mixed_aggressive_pressure` / `neutral`);
-- группирует таймфреймы в словарь `timeframes` с ключами `15m`, `1h`, `4h`, `1d`;
-- агрегирует уровни поддержки и сопротивления в `levels.supports` и `levels.resistances`;
-- предназначен как основной источник фактов для downstream-агентов.
-
-Endpoint **не содержит**:
-
-- готовое торговое решение;
-- Telegram-пост;
-- LLM-интерпретацию;
-- portfolio context;
-- aggregated context.
-
-Пример минимального ответа:
-
-```json
-{
-  "schemaVersion": "market-facts/v1",
-  "source": {
-    "exchange": "Bybit",
-    "symbol": "BTCUSDT",
-    "category": "linear"
-  },
-  "dataQuality": {
-    "status": "ok",
-    "isFresh": true,
-    "isPartial": false
-  },
-  "tradeFlow": {
-    "direction": "sell_dominant",
-    "label": "aggressive_selling"
-  },
-  "timeframes": {
-    "15m": {},
-    "1h": {},
-    "4h": {},
-    "1d": {}
-  },
-  "levels": {
-    "supports": [],
-    "resistances": []
-  }
-}
-```
-
----
-
-### `/llm-payload` vs `/market-facts`
-
-`/llm-payload` — legacy / transitional endpoint. Он возвращает LLM-optimized payload и пока сохранён для обратной совместимости.
-
-`/market-facts` — новый canonical endpoint для агентов. Он возвращает нормализованные факты и deterministic labels. Downstream-агенты должны использовать именно этот endpoint как источник фактов.
-
-> **Статус миграции:** endpoint `/market-facts` доступен и готов к использованию. Переключение OpenClaw agents с `/llm-payload` на `/market-facts` выполняется отдельной задачей. До завершения миграции оба endpoint'а продолжают работать.
 
 ---
 
@@ -301,7 +225,7 @@ GET /api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode
 ```
 
 Ответ — JSON snapshot, подготовленный для передачи в языковую модель. Схема `1.0`.
-Сохранён для совместимости. Новые downstream-агенты должны использовать `/market-facts`.
+Сохранён для совместимости.
 
 ---
 
@@ -395,13 +319,12 @@ dotnet run --project src/Intelligence.TradeSystem.AppHost
 * расчёт индикаторов;
 * сборка market snapshot;
 * формирование LLM payload;
-* формирование market-facts payload;
 * оценка качества входа;
 * формирование risk flags;
 * формирование market tags;
 * корректировка trade flow pressure score;
 * интеграция с Bybit mapping;
-* API scenarios (включая `/market-facts` и `/llm-payload`).
+* API scenarios (включая `/llm-payload`).
 
 Перед изменениями в analysis pipeline рекомендуется запускать полный набор тестов:
 

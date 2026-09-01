@@ -18,7 +18,7 @@
 
 ## What this project does
 - `Program.cs` wires controllers, Swagger, service defaults, application services, and the Bybit exchange registration.
-- `Controllers/MarketAnalysisController.cs` is the main entrypoint for legacy snapshot, LLM payload, and market-facts flows.
+- `Controllers/MarketAnalysisController.cs` is the main entrypoint for legacy snapshot and LLM payload flows.
 - `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketSnapshot` into the public LLM payload contract by calling `MarketIntelligence.Analysis.Timeframes.TimeframeSummaryBuilder` and mapping the resulting `TimeframeSummary` (analytical enums) into the existing string wire fields via `ToString()`.
 - Deterministic timeframe evaluation (`EntryQualityEvaluator`, `TimeframeSummaryBuilder`, label mappers) lives in `Intelligence.TradeSystem.MarketIntelligence/Analysis/Timeframes`, not in this project. The API only consumes the results and maps them to payload DTOs.
 
