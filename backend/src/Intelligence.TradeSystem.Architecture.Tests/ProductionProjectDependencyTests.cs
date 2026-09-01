@@ -36,6 +36,25 @@ public sealed class ProductionProjectDependencyTests
         }
     }
 
+    [Theory]
+    [InlineData(@"..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj")]
+    [InlineData("../Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj")]
+    public void NormalizeProjectReferencePath_Resolves_Windows_And_Unix_Separators(string projectReference)
+    {
+        var projectDirectory = Path.Combine("repo", "backend", "src", "Intelligence.TradeSystem.Application");
+        var expectedPath = Path.Combine(
+            "repo",
+            "backend",
+            "src",
+            "Intelligence.TradeSystem.Domain",
+            "Intelligence.TradeSystem.Domain.csproj");
+
+        var normalizedPath = NormalizeProjectReferencePath(projectReference);
+        var resolvedPath = Path.GetFullPath(normalizedPath, projectDirectory);
+
+        resolvedPath.Should().Be(Path.GetFullPath(expectedPath));
+    }
+
     private static string[] GetProjectReferences(string projectPath)
     {
         var projectDirectory = Path.GetDirectoryName(projectPath)!;
@@ -45,9 +64,15 @@ public sealed class ProductionProjectDependencyTests
             .Descendants("ProjectReference")
             .Select(reference => reference.Attribute("Include")?.Value)
             .Where(reference => !string.IsNullOrWhiteSpace(reference))
-            .Select(reference => Path.GetFileNameWithoutExtension(Path.GetFullPath(reference!, projectDirectory)))
+            .Select(reference => Path.GetFileNameWithoutExtension(
+                Path.GetFullPath(NormalizeProjectReferencePath(reference!), projectDirectory)))
             .ToArray();
     }
+
+    private static string NormalizeProjectReferencePath(string projectReference) =>
+        projectReference
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
 
     private static string FindSourceRoot()
     {
