@@ -29,10 +29,7 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = json.RootElement;
 
-        JsonContractAssertions.AssertExactPropertyNames(root,
-            "schemaVersion", "exchange", "symbol", "category", "capturedAtUtc", "analysisContext",
-            "snapshotHealth", "price", "derivatives", "orderBook", "tradeFlow", "m15", "h1", "h4",
-            "d1", "sentiment", "tags", "indicatorDiagnostics");
+        AssertRootPropertyNames(root);
 
         root.GetProperty("schemaVersion").GetString().Should().Be("1.0");
         root.GetProperty("exchange").ValueKind.Should().Be(JsonValueKind.String);
@@ -42,8 +39,7 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
         root.GetProperty("tags").ValueKind.Should().Be(JsonValueKind.Array);
         root.GetProperty("indicatorDiagnostics").ValueKind.Should().Be(JsonValueKind.Array);
 
-        foreach (var privateProperty in new[] { "portfolio", "account", "positions", "openPositions" })
-            root.TryGetProperty(privateProperty, out _).Should().BeFalse();
+        AssertNoPrivateProperties(root);
 
         AssertAnalysisContext(root.GetProperty("analysisContext"));
         AssertSnapshotHealth(root.GetProperty("snapshotHealth"));
@@ -52,6 +48,8 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
         AssertOrderBook(root.GetProperty("orderBook"));
         AssertTradeFlow(root.GetProperty("tradeFlow"));
         AssertSentiment(root.GetProperty("sentiment"));
+        AssertStringArray(root.GetProperty("tags"));
+        AssertIndicatorDiagnostics(root.GetProperty("indicatorDiagnostics"));
 
         foreach (var timeframe in new[] { "m15", "h1", "h4", "d1" })
             AssertTimeframe(root.GetProperty(timeframe));
@@ -94,16 +92,45 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
     [InlineData("Intraday")]
     [InlineData("Swing")]
     [InlineData("Portfolio")]
-    public async Task LlmPayload_V1_Always_Includes_All_Timeframes_For_Each_Analysis_Mode(string mode)
+    public async Task LlmPayload_V1_Uses_The_Complete_Public_Contract_For_Each_Analysis_Mode(string mode)
     {
-        using var client = CreateClient(ApiSnapshotTestData.CreateSnapshot());
+        var snapshot = ApiSnapshotTestData.CreateSnapshot() with
+        {
+            IndicatorDiagnostics =
+            [
+                new IndicatorDiagnosticSnapshot
+                {
+                    Timeframe = "15m",
+                    Indicator = "rsi14",
+                    Reason = "InsufficientData",
+                    IsFallback = false,
+                    Message = "15m.rsi14 unavailable: InsufficientData.",
+                },
+            ],
+        };
+
+        using var client = CreateClient(snapshot);
         using var response = await client.GetAsync($"{LlmPayloadPath}&mode={mode}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        AssertRootPropertyNames(root);
+        AssertNoPrivateProperties(root);
+        AssertAnalysisContext(root.GetProperty("analysisContext"));
+        AssertSnapshotHealth(root.GetProperty("snapshotHealth"));
+        AssertPrice(root.GetProperty("price"));
+        AssertDerivatives(root.GetProperty("derivatives"));
+        AssertOrderBook(root.GetProperty("orderBook"));
+        AssertTradeFlow(root.GetProperty("tradeFlow"));
+        AssertSentiment(root.GetProperty("sentiment"));
+        AssertStringArray(root.GetProperty("tags"));
+        AssertIndicatorDiagnostics(root.GetProperty("indicatorDiagnostics"));
+
         foreach (var timeframe in new[] { "m15", "h1", "h4", "d1" })
-            json.RootElement.GetProperty(timeframe).ValueKind.Should().Be(JsonValueKind.Object);
+            AssertTimeframe(root.GetProperty(timeframe));
     }
 
     [Fact]
@@ -135,8 +162,14 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
     {
         JsonContractAssertions.AssertExactPropertyNames(element, "analysisMode", "primaryTimeframes");
         element.GetProperty("analysisMode").ValueKind.Should().Be(JsonValueKind.String);
-        element.GetProperty("primaryTimeframes").ValueKind.Should().Be(JsonValueKind.Array);
+        AssertStringArray(element.GetProperty("primaryTimeframes"));
     }
+
+    private static void AssertRootPropertyNames(JsonElement root) =>
+        JsonContractAssertions.AssertExactPropertyNames(root,
+            "schemaVersion", "exchange", "symbol", "category", "capturedAtUtc", "analysisContext",
+            "snapshotHealth", "price", "derivatives", "orderBook", "tradeFlow", "m15", "h1", "h4",
+            "d1", "sentiment", "tags", "indicatorDiagnostics");
 
     private static void AssertSnapshotHealth(JsonElement element)
     {
@@ -184,6 +217,8 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
             "totalAskVolumeTop20", "imbalanceTop5", "imbalanceTop10", "imbalanceTop20");
         element.GetProperty("bidWalls").ValueKind.Should().Be(JsonValueKind.Array);
         element.GetProperty("askWalls").ValueKind.Should().Be(JsonValueKind.Array);
+        AssertLiquidityWalls(element.GetProperty("bidWalls"));
+        AssertLiquidityWalls(element.GetProperty("askWalls"));
         element.GetProperty("pressureLabel").ValueKind.Should().Be(JsonValueKind.String);
         element.GetProperty("liquiditySkewLabel").ValueKind.Should().Be(JsonValueKind.String);
     }
@@ -222,6 +257,7 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
                      "emaBullishAlignment", "emaBearishAlignment", "rsiOverbought", "rsiOversold" })
             element.GetProperty(flag).ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);
 
+        AssertLevelMetadata(element);
         AssertTimeframeSummary(element.GetProperty("summary"));
     }
 
@@ -233,7 +269,7 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
         element.GetProperty("isTrendConfirmed").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);
         element.GetProperty("momentumState").ValueKind.Should().Be(JsonValueKind.String);
         element.GetProperty("entryQuality").ValueKind.Should().Be(JsonValueKind.String);
-        element.GetProperty("riskFlags").ValueKind.Should().Be(JsonValueKind.Array);
+        AssertStringArray(element.GetProperty("riskFlags"));
     }
 
     private static void AssertSentiment(JsonElement element)
@@ -248,6 +284,72 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
     {
         foreach (var propertyName in propertyNames)
             JsonContractAssertions.AssertValueKind(element.GetProperty(propertyName), JsonValueKind.Number, JsonValueKind.Null);
+    }
+
+    private static void AssertLevelMetadata(JsonElement timeframe)
+    {
+        foreach (var propertyName in new[] { "support1Meta", "support2Meta", "resistance1Meta", "resistance2Meta" })
+        {
+            timeframe.TryGetProperty(propertyName, out var metadata).Should().BeTrue();
+            metadata.ValueKind.Should().Be(JsonValueKind.Object);
+            JsonContractAssertions.AssertExactPropertyNames(
+                metadata, "price", "strength", "strengthLabel", "source", "distancePct", "clusterVolume");
+            metadata.GetProperty("price").ValueKind.Should().Be(JsonValueKind.Number);
+            AssertNumberProperties(metadata, "strength", "distancePct", "clusterVolume");
+            metadata.GetProperty("strengthLabel").ValueKind.Should().Be(JsonValueKind.String);
+            metadata.GetProperty("source").ValueKind.Should().Be(JsonValueKind.String);
+        }
+    }
+
+    private static void AssertLiquidityWalls(JsonElement walls)
+    {
+        foreach (var wall in walls.EnumerateArray())
+        {
+            JsonContractAssertions.AssertExactPropertyNames(wall, "price", "size", "distancePctFromMarket");
+            AssertNumberProperties(wall, "price", "size", "distancePctFromMarket");
+        }
+    }
+
+    private static void AssertStringArray(JsonElement array)
+    {
+        array.ValueKind.Should().Be(JsonValueKind.Array);
+
+        foreach (var item in array.EnumerateArray())
+            item.ValueKind.Should().Be(JsonValueKind.String);
+    }
+
+    private static void AssertIndicatorDiagnostics(JsonElement diagnostics)
+    {
+        diagnostics.ValueKind.Should().Be(JsonValueKind.Array);
+
+        foreach (var diagnostic in diagnostics.EnumerateArray())
+        {
+            JsonContractAssertions.AssertExactPropertyNames(
+                diagnostic, "timeframe", "indicator", "reason", "isFallback", "message");
+            diagnostic.GetProperty("timeframe").ValueKind.Should().Be(JsonValueKind.String);
+            diagnostic.GetProperty("indicator").ValueKind.Should().Be(JsonValueKind.String);
+            diagnostic.GetProperty("reason").ValueKind.Should().Be(JsonValueKind.String);
+            diagnostic.GetProperty("isFallback").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);
+            diagnostic.GetProperty("message").ValueKind.Should().Be(JsonValueKind.String);
+        }
+    }
+
+    private static void AssertNoPrivateProperties(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                new[] { "portfolio", "account", "positions", "openPositions" }
+                    .Should().NotContain(property.Name);
+                AssertNoPrivateProperties(property.Value);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                AssertNoPrivateProperties(item);
+        }
     }
 
     private const string LlmPayloadPath = "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
