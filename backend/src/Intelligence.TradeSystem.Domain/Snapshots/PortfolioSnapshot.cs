@@ -11,7 +11,7 @@ public sealed record PortfolioSnapshot
     /// Используется, когда авторизованный пользовательский контекст ещё недоступен
     /// (например, в legacy-эндпоинте, работающем только с публичными рыночными данными).
     /// </summary>
-    public static PortfolioSnapshot Unavailable { get; } = new()
+    public static PortfolioSnapshot Unavailable => new()
     {
         IsAvailable = false,
         TotalEquityUsd = 0m,

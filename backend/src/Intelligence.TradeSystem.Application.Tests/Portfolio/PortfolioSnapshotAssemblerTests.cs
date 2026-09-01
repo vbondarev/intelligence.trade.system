@@ -127,6 +127,43 @@ public sealed class PortfolioSnapshotAssemblerTests
         result.OpenPositions[0].UnrealizedPnlPct.Should().Be(33.3333m);
     }
 
+    [Fact]
+    public void Maps_Nullable_Balance_Fields_To_Zero_When_Individually_Null()
+    {
+        var balance = new AccountBalance(AccountType.Unified, null, null, null, null, []);
+
+        var result = PortfolioSnapshotAssembler.Assemble(balance, positions: []);
+
+        result.TotalEquityUsd.Should().Be(0m);
+        result.AvailableBalanceUsd.Should().Be(0m);
+        result.TotalWalletBalanceUsd.Should().Be(0m);
+        result.TotalUnrealizedPnlUsd.Should().Be(0m);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-50)]
+    public void Returns_Zero_UnrealizedPnlPct_When_PositionValue_Is_Zero_Or_Negative(decimal positionValue)
+    {
+        var positions = new[] { CreatePosition(positionValue: positionValue, unrealizedPnl: 25m) };
+
+        var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
+
+        result.OpenPositions[0].UnrealizedPnlPct.Should().Be(0m);
+        result.OpenPositions[0].PositionValueUsd.Should().Be(positionValue);
+    }
+
+    [Fact]
+    public void Does_Not_Recompute_PositionValue_From_Size_Times_MarkPrice()
+    {
+        // Source PositionValue diverges from Size * MarkPrice (2 * 100 = 200) on purpose.
+        var positions = new[] { CreatePosition(size: 2m, markPrice: 100m, positionValue: 999m) };
+
+        var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);
+
+        result.OpenPositions[0].PositionValueUsd.Should().Be(999m);
+    }
+
     private static AccountBalance CreateBalance(decimal? totalEquity = 10_000m, decimal? totalWalletBalance = 9_500m, decimal? totalAvailableBalance = 7_000m, decimal? totalPerpUnrealizedPnl = 500m) =>
         new(AccountType.Unified, totalEquity, totalWalletBalance, totalAvailableBalance, totalPerpUnrealizedPnl, []);
 

@@ -334,14 +334,15 @@ public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactor
         }
     }
 
+    private static readonly string[] ForbiddenPropertyNames = ["portfolio", "account", "positions", "openPositions"];
+
     private static void AssertNoPrivateProperties(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
             foreach (var property in element.EnumerateObject())
             {
-                new[] { "portfolio", "account", "positions", "openPositions" }
-                    .Should().NotContain(property.Name);
+                ForbiddenPropertyNames.Should().NotContain(property.Name);
                 AssertNoPrivateProperties(property.Value);
             }
         }
