@@ -41,7 +41,8 @@ public sealed class ProductionProjectDependencyTests
     [InlineData("../Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj")]
     public void NormalizeProjectReferencePath_Resolves_Windows_And_Unix_Separators(string projectReference)
     {
-        var projectDirectory = Path.Combine("repo", "backend", "src", "Intelligence.TradeSystem.Application");
+        var projectDirectory = Path.GetFullPath(
+            Path.Combine("repo", "backend", "src", "Intelligence.TradeSystem.Application"));
         var expectedPath = Path.Combine(
             "repo",
             "backend",

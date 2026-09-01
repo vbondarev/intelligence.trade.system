@@ -207,12 +207,12 @@
 
 | Метод | Маршрут | Описание |
 |-------|---------|----------|
-| `GET` | `/api/market-analysis/{symbol}/llm-payload` | LLM-ready payload. Legacy / transitional endpoint, сохранён для совместимости. |
+| `GET` | `/api/market-analysis/{symbol}/llm-payload` | Получение LLM-ready payload. |
 | `POST` | `/api/market-analysis/snapshot` | Сырой market snapshot для отладки и проверки данных. |
 
 ---
 
-### Получить LLM-ready payload *(legacy / transitional)*
+### Получить LLM-ready payload
 
 ```http
 GET /api/market-analysis/{symbol}/llm-payload
@@ -225,7 +225,6 @@ GET /api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode
 ```
 
 Ответ — JSON snapshot, подготовленный для передачи в языковую модель. Схема `1.0`.
-Сохранён для совместимости.
 
 ---
 
