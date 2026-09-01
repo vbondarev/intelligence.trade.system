@@ -199,9 +199,7 @@ internal static class LlmPayloadMapperExtensions
         TimeframeAnalysisSnapshot s, bool snapshotIsFresh, string? marketRegime,
         params TimeframeAnalysisSnapshot[] higherTfs)
     {
-        var bias = PrecomputeBias(s);
-        var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTfs);
-        var r = TimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+        var r = TimeframeSummaryBuilder.BuildWithHigherTimeframes(s, snapshotIsFresh, marketRegime, higherTfs);
         return (BuildTimeframePayload(s, r), r);
     }
 
@@ -317,54 +315,4 @@ internal static class LlmPayloadMapperExtensions
         };
 
 
-    // ─── Higher-TF level resolution ─────────────────────────────────────────
-
-    /// <summary>
-    /// Pre-computes bias from snapshot fields using the same deterministic rule as
-    /// <see cref="TimeframeSummaryBuilder"/> so the correct kind of higher-TF
-    /// obstacle level can be selected (resistance for Bullish, support for Bearish)
-    /// before calling Build.
-    /// </summary>
-    private static TimeframeBias PrecomputeBias(TimeframeAnalysisSnapshot s) =>
-        s.Trend switch
-        {
-            MarketTrend.Bullish when s.EmaBullishAlignment => TimeframeBias.Bullish,
-            MarketTrend.Bearish when s.EmaBearishAlignment => TimeframeBias.Bearish,
-            _ => TimeframeBias.Neutral,
-        };
-
-    /// <summary>
-    /// Returns the nearest relevant opposite level from the supplied higher-timeframe
-    /// snapshots that acts as a potential obstacle for the given bias direction.
-    /// <para>
-    /// For <see cref="TimeframeBias.Bullish"/> — nearest Resistance1 above price.<br/>
-    /// For <see cref="TimeframeBias.Bearish"/> — nearest Support1 below price.
-    /// </para>
-    /// Only levels with a non-negative distance are considered.
-    /// A negative distance means the level is on the wrong side of price and is ignored.
-    /// Distance == 0 is valid and represents an obstacle exactly at the current price.
-    /// A null distance means the level is absent — ignored.
-    /// </summary>
-    private static NearestOppositeLevel? ResolveHigherTfOppositeLevel(
-        TimeframeBias bias, TimeframeAnalysisSnapshot[] higherTfs)
-    {
-        if (bias == TimeframeBias.Neutral || higherTfs.Length == 0) return null;
-
-        NearestOppositeLevel? best = null;
-        foreach (var htf in higherTfs)
-        {
-            var (dist, strength) = bias == TimeframeBias.Bullish
-                ? (htf.DistanceToResistance1Pct, htf.Resistance1Strength)
-                : (htf.DistanceToSupport1Pct, htf.Support1Strength);
-
-            // Skip if level is absent or on the wrong side of the price.
-            if (dist is null or < 0m) continue;
-
-            var candidate = new NearestOppositeLevel(dist.Value, strength);
-            if (best is null || dist.Value < best.DistancePct)
-                best = candidate;
-        }
-
-        return best;
-    }
 }

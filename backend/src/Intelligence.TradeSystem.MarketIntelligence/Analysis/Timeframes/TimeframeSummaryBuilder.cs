@@ -109,6 +109,26 @@ public static class TimeframeSummaryBuilder
         };
     }
 
+    /// <summary>
+    /// Строит summary с учётом ближайшего противоположного уровня со старших таймфреймов.
+    /// Для Bullish учитывается Resistance1, для Bearish — Support1.
+    /// </summary>
+    /// <param name="s">Снапшот текущего таймфрейма.</param>
+    /// <param name="snapshotIsFresh">Признак актуальности снапшота.</param>
+    /// <param name="marketRegime">Текущий рыночный режим.</param>
+    /// <param name="higherTimeframes">Снапшоты старших таймфреймов.</param>
+    public static TimeframeSummary BuildWithHigherTimeframes(
+        TimeframeAnalysisSnapshot s,
+        bool snapshotIsFresh,
+        string? marketRegime,
+        params TimeframeAnalysisSnapshot[] higherTimeframes)
+    {
+        var bias = ComputeBias(s.Trend, s.EmaBullishAlignment, s.EmaBearishAlignment);
+        var higherTfOppositeLevel = ResolveHigherTfOppositeLevel(bias, higherTimeframes);
+
+        return Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
+    }
+
     // ─── Step 1: TrendStrengthLabel ──────────────────────────────────────────
 
     private static TrendStrengthLabel ComputeTrendStrengthLabel(MarketTrend trend, decimal score) =>
@@ -496,6 +516,31 @@ public static class TimeframeSummaryBuilder
             TimeframeBias.Bearish => s.Resistance1Strength,
             _ => null,
         };
+
+    private static NearestOppositeLevel? ResolveHigherTfOppositeLevel(
+        TimeframeBias bias,
+        IReadOnlyList<TimeframeAnalysisSnapshot> higherTimeframes)
+    {
+        if (bias == TimeframeBias.Neutral)
+            return null;
+
+        NearestOppositeLevel? nearest = null;
+        foreach (var higherTimeframe in higherTimeframes)
+        {
+            var (distancePct, strength) = bias == TimeframeBias.Bullish
+                ? (higherTimeframe.DistanceToResistance1Pct, higherTimeframe.Resistance1Strength)
+                : (higherTimeframe.DistanceToSupport1Pct, higherTimeframe.Support1Strength);
+
+            if (distancePct is null or < 0m)
+                continue;
+
+            var candidate = new NearestOppositeLevel(distancePct.Value, strength);
+            if (nearest is null || candidate.DistancePct < nearest.DistancePct)
+                nearest = candidate;
+        }
+
+        return nearest;
+    }
 
     /// <summary>
     /// Возвращает ближайший противоположный уровень.

@@ -1372,4 +1372,132 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("TrendConfirmedButEntryFiltered",
             because: "trend is confirmed (Bullish + EMA aligned) but entry is filtered by higher-TF obstacle");
     }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_Bullish_UsesHigherTfResistance()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+        var higher = MakeSnapshot(distanceToResist: 0.05m, resistance1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        result.EntryQuality.Should().Be(EntryQuality.Poor);
+        result.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_Bearish_UsesHigherTfSupport()
+    {
+        var current = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false,
+            isAboveEma20: false, isAboveEma50: false, rsi14: 38m, trendStrengthScore: 0.85m,
+            volumeRatio: 1.2m, distanceToResist: 0.5m, resistance1Strength: 0.8m,
+            distanceToSupport: null, support1Strength: null);
+        var higher = MakeSnapshot(distanceToSupport: 0.05m, support1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        result.EntryQuality.Should().Be(EntryQuality.Poor);
+        result.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_Neutral_DoesNotSelectLevel()
+    {
+        var current = MakeSnapshot(trend: MarketTrend.Sideways);
+        var higher = MakeSnapshot(distanceToResist: 0.05m, resistance1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        result.EntryQuality.Should().Be(EntryQuality.Poor);
+        result.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_NegativeDistance_IsIgnored()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+        var higher = MakeSnapshot(distanceToResist: -0.05m, resistance1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        result.EntryQuality.Should().Be(EntryQuality.Good);
+        result.RiskFlags.Should().NotContain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_ZeroDistance_IsValid()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+        var higher = MakeSnapshot(distanceToResist: 0m, resistance1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        result.EntryQuality.Should().Be(EntryQuality.Poor);
+        result.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_SelectsNearestLevel()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+        var farther = MakeSnapshot(distanceToResist: 0.5m, resistance1Strength: 0.85m);
+        var nearer = MakeSnapshot(distanceToResist: 0.25m, resistance1Strength: 0.85m);
+
+        var result = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, farther, nearer);
+
+        result.EntryQuality.Should().Be(EntryQuality.Fair);
+        result.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_NoLevels_PreservesExistingResult()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+
+        var expected = TimeframeSummaryBuilder.Build(current, true, MarketRegimes.Trending);
+        var actual = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, []);
+
+        actual.EntryQuality.Should().Be(expected.EntryQuality);
+        actual.RiskFlags.Should().Equal(expected.RiskFlags);
+    }
+
+    [Fact]
+    public void BuildWithHigherTimeframes_PreservesEntryQualityAndRiskFlags()
+    {
+        var current = MakeSnapshot(emaBullish: true, isAboveEma200: true,
+            rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
+            distanceToSupport: 0.5m, support1Strength: 0.8m,
+            distanceToResist: null, resistance1Strength: null);
+        var higher = MakeSnapshot(distanceToResist: 0.25m, resistance1Strength: 0.85m);
+
+        var expected = TimeframeSummaryBuilder.Build(
+            current, true, MarketRegimes.Trending, new NearestOppositeLevel(0.25m, 0.85m));
+        var actual = TimeframeSummaryBuilder.BuildWithHigherTimeframes(
+            current, true, MarketRegimes.Trending, higher);
+
+        actual.EntryQuality.Should().Be(expected.EntryQuality);
+        actual.RiskFlags.Should().Equal(expected.RiskFlags);
+    }
 }
