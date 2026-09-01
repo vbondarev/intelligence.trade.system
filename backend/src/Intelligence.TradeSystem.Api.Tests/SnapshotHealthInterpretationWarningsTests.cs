@@ -1,10 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 
@@ -137,9 +136,9 @@ public sealed class SnapshotHealthInterpretationWarningsTests
         return CreateClientWithSnapshot(snapshot);
     }
 
-    private HttpClient CreateClientWithSnapshot(MarketAnalysisSnapshot snapshot)
+    private HttpClient CreateClientWithSnapshot(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -147,7 +146,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        return _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        return _factory.CreateClientWithMarketSnapshotService(mock.Object);
     }
 
     private static List<string> ParseWarnings(string json)

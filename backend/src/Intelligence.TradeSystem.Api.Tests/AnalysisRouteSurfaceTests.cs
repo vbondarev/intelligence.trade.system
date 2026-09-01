@@ -28,4 +28,12 @@ public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFact
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task Post_Ai_Route_Returns_NotFound()
+    {
+        using var response = await _client.PostAsync("/api/market-analysis/ai", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

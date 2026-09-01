@@ -1,11 +1,10 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 
@@ -149,9 +148,9 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketAnalysisSnapshot snapshot)
+    private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -159,7 +158,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicati
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        using var client = _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        using var client = _factory.CreateClientWithMarketSnapshotService(mock.Object);
         using var response = await client.GetAsync(Url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

@@ -1,7 +1,6 @@
-using Intelligence.TradeSystem.Api.Mappers;
+﻿using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
-using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
@@ -560,10 +559,10 @@ public sealed class LlmPayloadMapperExtensionsTests
     // ===========================================================================
 
     /// <summary>
-    /// Creates a full <see cref="MarketAnalysisSnapshot"/> with overridable TF snapshots.
+    /// Creates a full <see cref="MarketSnapshot"/> with overridable TF snapshots.
     /// All TF snapshots default to a neutral, non-constraining state unless overridden.
     /// </summary>
-    private static MarketAnalysisSnapshot MakeSnapshot(
+    private static MarketSnapshot MakeSnapshot(
         TimeframeAnalysisSnapshot? m15 = null,
         TimeframeAnalysisSnapshot? h1 = null,
         TimeframeAnalysisSnapshot? h4 = null,

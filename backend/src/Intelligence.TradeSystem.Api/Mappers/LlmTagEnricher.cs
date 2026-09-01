@@ -1,11 +1,12 @@
-﻿using Intelligence.TradeSystem.Analysis;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis;
+using Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
 /// <summary>
 /// Обогащает список тегов снапшота данными, доступными только в API-слое:
-/// health.IsFresh, warnings секций и EntryQuality из <see cref="LlmTimeframeSummaryBuilder"/>.
+/// health.IsFresh, warnings секций и EntryQuality из <see cref="TimeframeSummaryBuilder"/>.
 ///
 /// Теги добавляются поверх уже вычисленных тегов (от <c>MarketTagsBuilder</c>),
 /// получая наивысший приоритет (prepended перед base-тегами).
@@ -21,10 +22,10 @@ internal static class LlmTagEnricher
     public static List<string> Enrich(
         IReadOnlyList<string> baseTags,
         LlmSnapshotHealthPayload health,
-        LlmTimeframeSummaryResult? m15Summary,
-        LlmTimeframeSummaryResult? h1Summary,
-        LlmTimeframeSummaryResult? h4Summary,
-        LlmTimeframeSummaryResult? d1Summary,
+        TimeframeSummary? m15Summary,
+        TimeframeSummary? h1Summary,
+        TimeframeSummary? h4Summary,
+        TimeframeSummary? d1Summary,
         AnalysisMode mode)
     {
         ArgumentNullException.ThrowIfNull(baseTags);
@@ -66,7 +67,7 @@ internal static class LlmTagEnricher
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    private static void AddEntryQualityTags(List<LlmTimeframeSummaryResult> primarySummaries, List<string> all)
+    private static void AddEntryQualityTags(List<TimeframeSummary> primarySummaries, List<string> all)
     {
         var allPoor = primarySummaries.All(s => s.EntryQuality == EntryQuality.Poor);
         var anyGood = primarySummaries.Any(s => s.EntryQuality == EntryQuality.Good);
@@ -91,15 +92,15 @@ internal static class LlmTagEnricher
             TryAdd(all, MarketTagConstants.TrendConfirmedEntryFiltered);
     }
 
-    private static List<LlmTimeframeSummaryResult> GetPrimaryTfSummaries(
-        LlmTimeframeSummaryResult? m15,
-        LlmTimeframeSummaryResult? h1,
-        LlmTimeframeSummaryResult? h4,
-        LlmTimeframeSummaryResult? d1,
+    private static List<TimeframeSummary> GetPrimaryTfSummaries(
+        TimeframeSummary? m15,
+        TimeframeSummary? h1,
+        TimeframeSummary? h4,
+        TimeframeSummary? d1,
         AnalysisMode mode)
     {
         var primaryLabels = AnalysisModeDefaults.GetPrimaryTimeframes(mode);
-        var result = new List<LlmTimeframeSummaryResult>(3);
+        var result = new List<TimeframeSummary>(3);
 
         if (primaryLabels.Contains("15m", StringComparer.Ordinal) && m15 is not null) result.Add(m15);
         if (primaryLabels.Contains("1h", StringComparer.Ordinal) && h1 is not null) result.Add(h1);

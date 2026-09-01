@@ -1,43 +1,53 @@
-using Intelligence.TradeSystem.Api.Contracts;
+﻿using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
 public sealed class MarketAnalysisMapperExtensionsTests
 {
     [Fact]
-    public void ToResponse_Throws_When_Snapshot_Is_Null()
+    public void ToResponse_Throws_When_Market_Is_Null()
     {
-        var action = () => MarketAnalysisMapperExtensions.ToResponse(null!);
+        var action = () => MarketAnalysisMapperExtensions.ToResponse(null!, PortfolioSnapshot.Unavailable);
 
         action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("snapshot");
+            .WithParameterName("market");
+    }
+
+    [Fact]
+    public void ToResponse_Throws_When_Portfolio_Is_Null()
+    {
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+
+        var action = () => snapshot.ToResponse(null!);
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName("portfolio");
     }
 
     [Fact]
     public void ToResponse_Maps_All_Public_Sections_And_Stringifies_Enums()
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        var portfolio = ApiSnapshotTestData.CreatePortfolio();
 
-        MarketAnalysisResponse response = snapshot.ToResponse();
+        MarketAnalysisResponse response = snapshot.ToResponse(portfolio);
 
         response.Exchange.Should().Be(snapshot.Exchange);
         response.Symbol.Should().Be(snapshot.Symbol);
         response.Category.Should().Be(snapshot.Category);
         response.CapturedAtUtc.Should().Be(snapshot.CapturedAtUtc);
-
         response.Price.LastPrice.Should().Be(snapshot.Price.LastPrice);
         response.Derivatives.PremiumVsIndexPct.Should().Be(snapshot.Derivatives.PremiumVsIndexPct);
         response.OrderBook.TopAsks.Should().ContainSingle(level => level.Price == 65005m && level.Size == 12m);
         response.OrderBook.BidWalls.Should().ContainSingle(wall => wall.Price == 64850m && wall.DistancePctFromMarket == 0.23m);
         response.TradeFlow.HasAggressiveSellPressure.Should().Be(snapshot.TradeFlow.HasAggressiveSellPressure);
-
         response.M15.Trend.Should().Be("Bullish");
         response.H1.IsAboveEma200.Should().BeTrue();
         response.H4.EmaBullishAlignment.Should().BeTrue();
         response.D1.LastCandle.Close.Should().Be(snapshot.D1.LastCandle.Close);
-
         response.Sentiment.MarketRegime.Should().Be(snapshot.Sentiment.MarketRegime);
         response.Portfolio.OpenPositions.Should().ContainSingle(position =>
              position.Symbol == "BTCUSDT" &&
@@ -47,6 +57,6 @@ public sealed class MarketAnalysisMapperExtensionsTests
 
         response.Tags.Should().NotBeSameAs(snapshot.Tags);
         ((object)response.OrderBook.TopBids).Should().NotBeSameAs(snapshot.OrderBook.TopBids);
-        ((object)response.Portfolio.OpenPositions).Should().NotBeSameAs(snapshot.Portfolio.OpenPositions);
+        ((object)response.Portfolio.OpenPositions).Should().NotBeSameAs(portfolio.OpenPositions);
     }
 }

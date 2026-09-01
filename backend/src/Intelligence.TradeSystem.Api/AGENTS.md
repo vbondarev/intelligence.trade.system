@@ -18,22 +18,21 @@
 
 ## What this project does
 - `Program.cs` wires controllers, Swagger, service defaults, application services, and the Bybit exchange registration.
-- `Controllers/MarketAnalysisController.cs` is the main entrypoint for snapshot and LLM payload flows.
-- `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketAnalysisSnapshot` into the public LLM payload contract.
-- `Mappers/EntryQualityEvaluator.cs` computes entry quality for each timeframe summary.
-- `Mappers/LlmTimeframeSummaryBuilder.cs` builds per-timeframe LLM summaries including riskFlags and entryQuality.
+- `Controllers/MarketAnalysisController.cs` is the main entrypoint for legacy snapshot and LLM payload flows.
+- `Mappers/LlmPayloadMapperExtensions.cs` converts `MarketSnapshot` into the public LLM payload contract by calling `MarketIntelligence.Analysis.Timeframes.TimeframeSummaryBuilder` and mapping the resulting `TimeframeSummary` (analytical enums) into the existing string wire fields via `ToString()`.
+- Deterministic timeframe evaluation (`EntryQualityEvaluator`, `TimeframeSummaryBuilder`, label mappers) lives in `Intelligence.TradeSystem.MarketIntelligence/Analysis/Timeframes`, not in this project. The API only consumes the results and maps them to payload DTOs.
 
 ## Endpoint and validation patterns
-- Keep controller actions thin: validate request, call orchestration service, translate exceptions into `ProblemDetails`.
+- Keep controller actions thin: validate request, call `IMarketSnapshotService`, translate exceptions into `ProblemDetails`, and never call private exchange account APIs from market endpoints.
 - Follow the existing validation style in `MarketAnalysisController`: local helper methods, explicit required-field messages, and normalized strings via `Trim()`.
 - JSON enums are configured as strings only in `Program.cs`; do not introduce integer enum payloads.
 - Preserve the current error mapping: `ArgumentException`/`NotSupportedException` → `400`, market data availability issues → `503`, provider HTTP failures → `502`.
 
 ## Payload contract rules
-- Public payload models under `Models/Payloads` are contract-sensitive; prefer additive changes.
+- Public payload models under `Models/Payloads` are contract-sensitive; prefer additive changes. Legacy `POST /api/market-analysis/snapshot` must preserve its existing JSON shape, including the zeroed `portfolio` object from `PortfolioSnapshot.Unavailable`.
 - Follow extend-only design for public payloads and request models: add new optional fields or new endpoints/paths instead of renaming, removing, or silently reinterpreting existing fields.
 - `LlmPayloadMapperExtensions` currently fixes `SchemaVersion = "1.0"`; do not change it silently.
-- `GET /api/market-analysis/{symbol}/llm-payload` accepts only `exchange`, `category`, and `mode`.
+- `GET /api/market-analysis/{symbol}/llm-payload` accepts only `exchange`, `category`, and `mode` and remains a purely public market contract with schema version `1.0` unchanged.
 
 ## Snapshot health behavior
 - `Services/SnapshotHealthEvaluator.cs` currently reports freshness and warnings, but not partial snapshots.
@@ -43,7 +42,7 @@
   - `Swing` → `1h`, `4h`, `1d`
   - `Portfolio` → `4h`, `1d`
 
-## Mapper pipeline rules
+## Mapper pipeline rules (implemented in `MarketIntelligence/Analysis/Timeframes`, consumed by the API mapper)
 
 ### EntryQualityEvaluator invariants
 - Neutral bias → always `Poor` (immediate return; no further evaluation).
@@ -89,8 +88,8 @@
 - Do not use V1 legacy tags (`"trending"`, `"neutral"`) in new code.
 
 ## When changing code here
-- If you change an endpoint contract, update controller docs, payload/request models, mapper logic, and `Intelligence.TradeSystem.Api.Tests`.
+- If you change an endpoint contract, update controller docs, payload/request models, mapper logic, and `Intelligence.TradeSystem.Api.Tests`. Legacy `POST /api/market-analysis/snapshot` must keep returning the existing response shape, with `portfolio` mapped from `PortfolioSnapshot.Unavailable` and no `isAvailable` wire field.
 - If you change payload shape, inspect `LlmPayloadEndpointTests`, `SnapshotHealthWarningsBuilderTests`, and any consumers of `schemaVersion` / `analysisContext`.
-- If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for analytics/application/exchange services.
-- If you change `EntryQualityEvaluator` or `LlmTimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests`, `LlmTimeframeSummaryBuilderTests`, and `LlmPayloadMapperExtensionsTests`.
-- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.Analysis.Tests`.
+- If you change DI wiring in `Program.cs`, preserve `AddServiceDefaults()`, Swagger XML comments, and the current registration order for application/exchange services.
+- If you change `EntryQualityEvaluator` or `TimeframeSummaryBuilder`, run `EntryQualityEvaluatorTests` and `TimeframeSummaryBuilderTests` in `Intelligence.TradeSystem.MarketIntelligence.Tests`, plus `LlmPayloadMapperExtensionsTests` in `Intelligence.TradeSystem.Api.Tests`.
+- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, run `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `Intelligence.TradeSystem.MarketIntelligence.Tests`.

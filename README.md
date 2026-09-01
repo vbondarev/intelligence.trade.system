@@ -203,6 +203,15 @@
 
 ## API
 
+### Таблица endpoint'ов
+
+| Метод | Маршрут | Описание |
+|-------|---------|----------|
+| `GET` | `/api/market-analysis/{symbol}/llm-payload` | Получение LLM-ready payload. |
+| `POST` | `/api/market-analysis/snapshot` | Сырой market snapshot для отладки и проверки данных. |
+
+---
+
 ### Получить LLM-ready payload
 
 ```http
@@ -215,7 +224,7 @@ GET /api/market-analysis/{symbol}/llm-payload
 GET /api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode=Intraday
 ```
 
-Ответ — JSON snapshot, подготовленный для передачи в языковую модель.
+Ответ — JSON snapshot, подготовленный для передачи в языковую модель. Схема `1.0`.
 
 ---
 
@@ -314,7 +323,7 @@ dotnet run --project src/Intelligence.TradeSystem.AppHost
 * формирование market tags;
 * корректировка trade flow pressure score;
 * интеграция с Bybit mapping;
-* API scenarios.
+* API scenarios (включая `/llm-payload`).
 
 Перед изменениями в analysis pipeline рекомендуется запускать полный набор тестов:
 

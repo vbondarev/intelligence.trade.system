@@ -7,6 +7,21 @@ namespace Intelligence.TradeSystem.Domain.Snapshots;
 public sealed record PortfolioSnapshot
 {
     /// <summary>
+    /// Возвращает недоступный снимок портфеля с нулевыми значениями.
+    /// Используется, когда авторизованный пользовательский контекст ещё недоступен
+    /// (например, в legacy-эндпоинте, работающем только с публичными рыночными данными).
+    /// </summary>
+    public static PortfolioSnapshot Unavailable => new()
+    {
+        IsAvailable = false,
+        TotalEquityUsd = 0m,
+        AvailableBalanceUsd = 0m,
+        TotalWalletBalanceUsd = 0m,
+        TotalUnrealizedPnlUsd = 0m,
+        OpenPositions = [],
+    };
+
+    /// <summary>
     /// Признак доступности данных портфеля.
     /// <c>false</c> — данные временно недоступны (например, биржа вернула ошибку или истёк токен).
     /// При <c>false</c> числовые поля содержат нулевые значения.

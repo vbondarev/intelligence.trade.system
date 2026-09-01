@@ -45,4 +45,4 @@
 ## When changing code here
 - If you change Bybit request parameters or mapping behavior, inspect `Intelligence.TradeSystem.Exchanges.Tests` and `Intelligence.TradeSystem.Application.Tests`.
 - If you add a new capability to `BybitProvider`, also update `Intelligence.TradeSystem.Exchanges/StartupExtensions.cs` if the DI surface changes.
-- If you introduce new domain fields, trace the impact into `CollectedMarketData`, `MarketDataCollector`, `MarketAnalysisService`, and any downstream assemblers.
+- If you introduce new domain fields, trace the impact into `CollectedPublicMarketData`, `PublicMarketDataCollector`, `MarketSnapshotService`, and any downstream assemblers.

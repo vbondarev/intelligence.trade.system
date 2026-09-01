@@ -1,9 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
@@ -14,7 +13,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 ///
 /// Один тестовый хост переиспользуется для всего класса через
 /// <see cref="LlmMomentumStateTestFactory"/>. Каждый тест конфигурирует
-/// <see cref="ConfigurableMarketAnalysisService"/> перед HTTP-запросом.
+/// <see cref="ConfigurableMarketSnapshotService"/> перед HTTP-запросом.
 /// </summary>
 public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStateTestFactory>, IDisposable
 {
@@ -243,7 +242,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketAnalysisSnapshot snapshot)
+    private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketSnapshot snapshot)
     {
         _factory.MarketService.Configure(snapshot);
         using var response = await _client.GetAsync(Url);

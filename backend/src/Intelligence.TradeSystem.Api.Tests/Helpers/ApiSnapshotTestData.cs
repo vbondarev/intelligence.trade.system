@@ -1,5 +1,4 @@
-using Intelligence.TradeSystem.Domain.Snapshots;
-
+﻿
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 
 internal static class ApiSnapshotTestData
@@ -10,19 +9,19 @@ internal static class ApiSnapshotTestData
     /// <summary>Значение Support1ClusterVolume, используемое в тестовых снапшотах.</summary>
     public const decimal Support1ClusterVolumeValue = 52000m;
 
-    public static MarketAnalysisSnapshot CreateSnapshot() => CreateSnapshot(MarketTrend.Bullish);
+    public static MarketSnapshot CreateSnapshot() => CreateSnapshot(MarketTrend.Bullish);
 
     /// <summary>
     /// Создаёт снапшот, в котором все таймфреймы имеют указанный тренд.
     /// </summary>
-    public static MarketAnalysisSnapshot CreateSnapshot(MarketTrend trend) =>
+    public static MarketSnapshot CreateSnapshot(MarketTrend trend) =>
         CreateSnapshot(trend, overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null);
 
     /// <summary>
     /// Создаёт снапшот с явными override'ами EMA-флагов для всех таймфреймов.
     /// Используется для тестирования граничных случаев <c>isTrendConfirmed</c>.
     /// </summary>
-    public static MarketAnalysisSnapshot CreateSnapshot(
+    public static MarketSnapshot CreateSnapshot(
         MarketTrend trend,
         bool? overrideIsAboveEma200,
         bool? overrideEmaBullish,
@@ -127,30 +126,6 @@ internal static class ApiSnapshotTestData
                 TradeFlowPressureScore = 0.04m,
                 MarketRegime = "Trending",
             },
-            Portfolio = new PortfolioSnapshot
-            {
-                TotalEquityUsd = 10000m,
-                AvailableBalanceUsd = 8000m,
-                TotalWalletBalanceUsd = 9500m,
-                TotalUnrealizedPnlUsd = 500m,
-                OpenPositions =
-                [
-                    new OpenPositionSnapshot
-                    {
-                        Symbol = "BTCUSDT",
-                        Side = PositionSide.Long,
-                        Size = 0.5m,
-                        AvgPrice = 64000m,
-                        MarkPrice = 65000m,
-                        BreakEvenPrice = 64100m,
-                        LiquidationPrice = 58000m,
-                        PositionValueUsd = 32500m,
-                        Leverage = 5m,
-                        UnrealizedPnlUsd = 500m,
-                        UnrealizedPnlPct = 1.56m,
-                    },
-                ],
-            },
             Tags = ["trend", "momentum"],
         };
 
@@ -228,4 +203,29 @@ internal static class ApiSnapshotTestData
             DistanceToResistance1Pct = 0.3077m,
         };
     }
+    public static PortfolioSnapshot CreatePortfolio() =>
+        new()
+        {
+            TotalEquityUsd = 10000m,
+            AvailableBalanceUsd = 8000m,
+            TotalWalletBalanceUsd = 9500m,
+            TotalUnrealizedPnlUsd = 500m,
+            OpenPositions =
+            [
+                new OpenPositionSnapshot
+                {
+                    Symbol = "BTCUSDT",
+                    Side = PositionSide.Long,
+                    Size = 0.5m,
+                    AvgPrice = 64000m,
+                    MarkPrice = 65000m,
+                    BreakEvenPrice = 64100m,
+                    LiquidationPrice = 58000m,
+                    PositionValueUsd = 32500m,
+                    Leverage = 5m,
+                    UnrealizedPnlUsd = 500m,
+                    UnrealizedPnlPct = 1.56m,
+                },
+            ],
+        };
 }

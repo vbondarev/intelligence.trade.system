@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.Abstractions\Intelligence.TradeSystem.Abstractions.csproj" />
-    <ProjectReference Include="..\Intelligence.TradeSystem.Analysis\Intelligence.TradeSystem.Analysis.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.MarketIntelligence\Intelligence.TradeSystem.MarketIntelligence.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
   </ItemGroup>
 

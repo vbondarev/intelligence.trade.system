@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Abstractions;
@@ -6,7 +6,6 @@ using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
 
@@ -175,23 +174,29 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     // ─── нулевые уровни → Meta отсутствует в JSON ────────────────────────────
 
     [Fact]
-    public async Task Support1Meta_Is_Absent_From_Json_When_Support1_Is_Null()
+    public async Task LevelMetadata_Is_Omitted_When_Its_Nullable_Level_Is_Null()
     {
         var snapshot = CreateSnapshotWithNullLevels();
         using var client = CreateClientWithSnapshot(snapshot);
         using var response = await client.GetAsync(Url);
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var m15 = json.RootElement.GetProperty("m15");
-
-        m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
-            because: "support1==null → support1Meta must not appear in JSON");
-        m15.TryGetProperty("support2Meta", out _).Should().BeFalse(
-            because: "support2==null → support2Meta must not appear in JSON");
-        m15.TryGetProperty("resistance1Meta", out _).Should().BeFalse(
-            because: "resistance1==null → resistance1Meta must not appear in JSON");
-        m15.TryGetProperty("resistance2Meta", out _).Should().BeFalse(
-            because: "resistance2==null → resistance2Meta must not appear in JSON");
+        foreach (var timeframeName in new[] { "m15", "h1", "h4", "d1" })
+        {
+            var timeframe = json.RootElement.GetProperty(timeframeName);
+            timeframe.GetProperty("support1").ValueKind.Should().Be(JsonValueKind.Null);
+            timeframe.GetProperty("support2").ValueKind.Should().Be(JsonValueKind.Null);
+            timeframe.GetProperty("resistance1").ValueKind.Should().Be(JsonValueKind.Null);
+            timeframe.GetProperty("resistance2").ValueKind.Should().Be(JsonValueKind.Null);
+            timeframe.TryGetProperty("support1Meta", out _).Should().BeFalse(
+                because: "support1==null → support1Meta must not appear in JSON");
+            timeframe.TryGetProperty("support2Meta", out _).Should().BeFalse(
+                because: "support2==null → support2Meta must not appear in JSON");
+            timeframe.TryGetProperty("resistance1Meta", out _).Should().BeFalse(
+                because: "resistance1==null → resistance1Meta must not appear in JSON");
+            timeframe.TryGetProperty("resistance2Meta", out _).Should().BeFalse(
+                because: "resistance2==null → resistance2Meta must not appear in JSON");
+        }
     }
 
     // ─── StrengthLabel присутствует и содержит допустимое значение ───────────
@@ -350,9 +355,9 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
         return await response.Content.ReadFromJsonAsync<LlmMarketAnalysisPayload>();
     }
 
-    private HttpClient CreateClientWithSnapshot(MarketAnalysisSnapshot snapshot)
+    private HttpClient CreateClientWithSnapshot(MarketSnapshot snapshot)
     {
-        var mock = new Mock<IMarketAnalysisService>(MockBehavior.Strict);
+        var mock = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         mock.Setup(x => x.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
                 It.IsAny<string>(),
@@ -360,7 +365,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
 
-        return _factory.CreateClientWithMarketAnalysisService(mock.Object);
+        return _factory.CreateClientWithMarketSnapshotService(mock.Object);
     }
 
     private static void AssertAllTimeframes(
@@ -372,7 +377,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFacto
     }
 
     /// <summary>Снапшот с null-уровнями — имитирует ситуацию, когда детектор не нашёл уровней.</summary>
-    private static MarketAnalysisSnapshot CreateSnapshotWithNullLevels()
+    private static MarketSnapshot CreateSnapshotWithNullLevels()
     {
         var baseSnapshot = ApiSnapshotTestData.CreateSnapshot();
 
