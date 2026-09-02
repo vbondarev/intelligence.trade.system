@@ -340,6 +340,7 @@ dotnet run --project Intelligence.TradeSystem.AppHost
 
 ```bash
 cd backend
+docker network create trade-agent-network
 docker compose up --build api
 ```
 
