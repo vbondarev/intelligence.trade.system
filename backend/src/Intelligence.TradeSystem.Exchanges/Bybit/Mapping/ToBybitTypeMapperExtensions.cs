@@ -5,7 +5,7 @@ using BybitDataPeriod = Bybit.Net.Enums.DataPeriod;
 using BybitKlineInterval = Bybit.Net.Enums.KlineInterval;
 using BybitOpenInterestInterval = Bybit.Net.Enums.OpenInterestInterval;
 
-namespace Intelligence.TradeSystem.Exchanges.Bybit;
+namespace Intelligence.TradeSystem.Exchanges.Bybit.Mapping;
 
 internal static class ToBybitTypeMapperExtensions
 {

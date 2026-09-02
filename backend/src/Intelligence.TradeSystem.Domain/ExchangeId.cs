@@ -1,4 +1,4 @@
-﻿namespace Intelligence.TradeSystem.Abstractions;
+namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
 /// Идентификатор поддерживаемой биржи.

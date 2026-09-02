@@ -24,6 +24,5 @@
     <Project Path="Intelligence.TradeSystem.Exchanges.Tests/Intelligence.TradeSystem.Exchanges.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.MarketIntelligence.Tests/Intelligence.TradeSystem.MarketIntelligence.Tests.csproj" />
   </Folder>
-  <Project Path="Intelligence.TradeSystem.Abstractions/Intelligence.TradeSystem.Abstractions.csproj" />
   <Project Path="Intelligence.TradeSystem.Exchanges/Intelligence.TradeSystem.Exchanges.csproj" />
 </Solution>

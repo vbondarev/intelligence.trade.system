@@ -13,12 +13,11 @@ public sealed class ProductionProjectDependencyTests
         var expectedDependencies = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["Intelligence.TradeSystem.Domain"] = [],
-            ["Intelligence.TradeSystem.Abstractions"] = ["Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.MarketIntelligence"] = ["Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.Application"] =
-                ["Intelligence.TradeSystem.Abstractions", "Intelligence.TradeSystem.Domain", "Intelligence.TradeSystem.MarketIntelligence"],
+                ["Intelligence.TradeSystem.Domain", "Intelligence.TradeSystem.MarketIntelligence"],
             ["Intelligence.TradeSystem.Exchanges"] =
-                ["Intelligence.TradeSystem.Abstractions", "Intelligence.TradeSystem.Domain"],
+                ["Intelligence.TradeSystem.Application", "Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.Api"] =
                 ["Intelligence.TradeSystem.Application",
                  "Intelligence.TradeSystem.Exchanges", "Intelligence.TradeSystem.ServiceDefaults"],

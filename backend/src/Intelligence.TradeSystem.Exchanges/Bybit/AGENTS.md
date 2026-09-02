@@ -16,14 +16,14 @@
 - Don't log secrets or change current null/empty failure behavior without updating dependent consumers and tests.
 
 ## What this folder does
-- `BybitProvider.cs` is the single exchange adapter currently used by the application layer.
-- `ToBybitTypeMapperExtensions.cs` maps domain enums into Bybit.Net enums for outbound requests.
-- `ToDomainTypeMapperExtensions.cs` maps Bybit.Net models into normalized domain models and snapshots.
+- `Public/BybitPublicMarketProvider.cs` implements public market capabilities.
+- `PrivateAccounts/BybitPrivateAccountProvider.cs` implements account-specific private capabilities.
+- `Mapping` contains mappings between domain and Bybit.Net types.
 
 ## Provider boundaries
 - Keep Bybit-specific enums, DTO quirks, and request details inside this folder.
-- `BybitProvider` should return normalized domain models (`Ticker`, `OrderBook`, `Kline`, `FundingRateEntry`, etc.), not raw Bybit responses.
-- The application layer depends on capability interfaces, so preserve `BybitProvider` as the implementation behind `IMarketDataProvider`, `IDerivativesDataProvider`, and `IPrivateAccountProvider`.
+- Providers return normalized domain models (`Ticker`, `OrderBook`, `Kline`, `FundingRateEntry`, etc.), not raw Bybit responses.
+- The public provider implements `IMarketDataProvider` and `IDerivativesDataProvider`; private providers are created per credentials through `BybitPrivateAccountProviderFactory`.
 
 ## Current behavior to preserve
 - Failed exchange calls generally log and return `null` / empty collections instead of throwing transport-specific exceptions from the provider.
@@ -38,11 +38,11 @@
 - If you add a new mapped field, update both provider code and exchange tests together.
 
 ## Logging and diagnostics
-- Use the existing `BybitProviderLogMessages` pattern for structured logs instead of ad-hoc message strings.
+- Use the existing public/private structured log-message helpers instead of ad-hoc message strings.
 - Include symbol, category, interval, or account type in failures when those inputs are relevant.
 - Never log API keys or other secrets.
 
 ## When changing code here
 - If you change Bybit request parameters or mapping behavior, inspect `Intelligence.TradeSystem.Exchanges.Tests` and `Intelligence.TradeSystem.Application.Tests`.
-- If you add a new capability to `BybitProvider`, also update `Intelligence.TradeSystem.Exchanges/StartupExtensions.cs` if the DI surface changes.
+- If you add a new public capability, update `Intelligence.TradeSystem.Exchanges/StartupExtensions.cs` if the DI surface changes.
 - If you introduce new domain fields, trace the impact into `CollectedPublicMarketData`, `PublicMarketDataCollector`, `MarketSnapshotService`, and any downstream assemblers.

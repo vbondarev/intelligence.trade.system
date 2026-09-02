@@ -1,6 +1,5 @@
 ﻿using System.Net;
 using System.Text.Json;
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;

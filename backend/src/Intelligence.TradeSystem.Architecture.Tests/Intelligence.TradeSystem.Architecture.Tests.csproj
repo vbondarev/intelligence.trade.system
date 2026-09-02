@@ -15,10 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Intelligence.TradeSystem.Abstractions\Intelligence.TradeSystem.Abstractions.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Api\Intelligence.TradeSystem.Api.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Application\Intelligence.TradeSystem.Application.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Exchanges\Intelligence.TradeSystem.Exchanges.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.MarketIntelligence\Intelligence.TradeSystem.MarketIntelligence.csproj" />
   </ItemGroup>
 

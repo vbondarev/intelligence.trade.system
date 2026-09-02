@@ -1,9 +1,9 @@
 ﻿using System.Reflection;
 using FluentAssertions;
 using Xunit;
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Controllers;
-using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
@@ -39,5 +39,31 @@ public sealed class PublicMarketPipelineArchitectureTests
 
         parameters.Should().Contain(p => p.ParameterType == typeof(IMarketSnapshotService));
         parameters.Should().NotContain(p => p.ParameterType == typeof(IPrivateAccountProvider));
+    }
+
+    [Fact]
+    public void Application_And_Domain_Do_Not_Depend_On_BybitNet()
+    {
+        typeof(PublicMarketDataCollector).Assembly.GetReferencedAssemblies()
+            .Should().NotContain(assembly => assembly.Name == "Bybit.Net");
+        typeof(MarketSnapshot).Assembly.GetReferencedAssemblies()
+            .Should().NotContain(assembly => assembly.Name == "Bybit.Net");
+    }
+
+    [Fact]
+    public void Legacy_Bybit_Provider_Types_Are_Absent()
+    {
+        var exchangeAssembly = typeof(Intelligence.TradeSystem.Exchanges.StartupExtensions).Assembly;
+
+        exchangeAssembly.GetReferencedAssemblies()
+            .Select(assembly => assembly.Name)
+            .Should().NotContain("Intelligence.TradeSystem.Abstractions");
+
+        exchangeAssembly.GetTypes()
+            .Select(type => type.FullName)
+            .Should().NotContain(fullName => fullName != null && fullName.Contains("Intelligence.TradeSystem.Abstractions", StringComparison.Ordinal));
+        exchangeAssembly.GetTypes()
+            .Select(type => type.FullName)
+            .Should().NotContain(fullName => fullName != null && fullName.Contains("BybitProvider", StringComparison.Ordinal));
     }
 }

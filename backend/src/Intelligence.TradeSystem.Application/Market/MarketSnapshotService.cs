@@ -1,9 +1,8 @@
-﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-namespace Intelligence.TradeSystem.Application;
+namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
 /// Оркестрирует сбор сырых данных и последовательную сборку всех аналитических снапшотов.
