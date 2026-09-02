@@ -1,5 +1,5 @@
-﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Application.AI;
+using Intelligence.TradeSystem.Application.Market;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 

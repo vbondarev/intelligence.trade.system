@@ -1,5 +1,5 @@
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Application.Market;
 
 namespace Intelligence.TradeSystem.Application;
 

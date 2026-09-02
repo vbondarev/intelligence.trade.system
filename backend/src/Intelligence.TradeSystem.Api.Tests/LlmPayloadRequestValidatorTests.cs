@@ -1,4 +1,3 @@
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Validation;

@@ -1,4 +1,4 @@
-﻿using Intelligence.TradeSystem.Abstractions;
+using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Domain;
 using Moq;
 

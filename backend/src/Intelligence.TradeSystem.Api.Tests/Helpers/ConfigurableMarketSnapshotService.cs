@@ -1,4 +1,3 @@
-﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
 

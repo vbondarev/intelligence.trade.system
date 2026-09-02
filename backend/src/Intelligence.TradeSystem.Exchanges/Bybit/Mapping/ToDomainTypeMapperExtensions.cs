@@ -6,7 +6,7 @@ using BybitOrderSide = Bybit.Net.Enums.OrderSide;
 using BybitPositionSide = Bybit.Net.Enums.PositionSide;
 using BybitPositionStatus = Bybit.Net.Enums.PositionStatus;
 
-namespace Intelligence.TradeSystem.Exchanges.Bybit;
+namespace Intelligence.TradeSystem.Exchanges.Bybit.Mapping;
 
 internal static class ToDomainTypeMapperExtensions
 {

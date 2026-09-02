@@ -1,4 +1,3 @@
-﻿using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Api.Contracts;

@@ -1,4 +1,3 @@
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc;

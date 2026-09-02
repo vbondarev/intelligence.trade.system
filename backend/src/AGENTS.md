@@ -102,7 +102,7 @@
 ## Impact map
 - Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
 - If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
-- If you change exchange data collection, check `Abstractions`, `BybitProvider`, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
+- If you change exchange data collection, check Application market ports, Bybit public/private providers, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
 - If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
 - If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.

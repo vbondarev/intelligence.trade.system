@@ -1,7 +1,8 @@
 ﻿using System.Reflection;
-using Intelligence.TradeSystem.Abstractions;
 using Intelligence.TradeSystem.Api.Controllers;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Portfolio;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
