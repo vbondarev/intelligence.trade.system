@@ -4,6 +4,7 @@
     <File Path="../../README.md" />
     <File Path="../../.github/workflows/build.yml" />
     <File Path="../../.gitignore" />
+    <File Path="../../ROADMAP.md" />
     <File Path="../.editorconfig" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Build.targets" />
