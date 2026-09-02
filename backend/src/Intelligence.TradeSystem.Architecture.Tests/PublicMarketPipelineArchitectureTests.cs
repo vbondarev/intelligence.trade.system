@@ -55,10 +55,15 @@ public sealed class PublicMarketPipelineArchitectureTests
     {
         var exchangeAssembly = typeof(Intelligence.TradeSystem.Exchanges.StartupExtensions).Assembly;
 
-        var exchangeNamespace = string.Join('.', "Intelligence", "TradeSystem", "Exchanges", "Bybit");
-        var legacyNamespace = string.Join('.', "Intelligence", "TradeSystem", "Abstractions");
+        exchangeAssembly.GetReferencedAssemblies()
+            .Select(assembly => assembly.Name)
+            .Should().NotContain("Intelligence.TradeSystem.Abstractions");
 
-        exchangeAssembly.GetType($"{exchangeNamespace}.Bybit" + "Provider").Should().BeNull();
-        exchangeAssembly.GetType($"{legacyNamespace}.IBybit" + "Provider").Should().BeNull();
+        exchangeAssembly.GetTypes()
+            .Select(type => type.FullName)
+            .Should().NotContain(fullName => fullName != null && fullName.Contains("Intelligence.TradeSystem.Abstractions", StringComparison.Ordinal));
+        exchangeAssembly.GetTypes()
+            .Select(type => type.FullName)
+            .Should().NotContain(fullName => fullName != null && fullName.Contains("BybitProvider", StringComparison.Ordinal));
     }
 }

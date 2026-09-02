@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests;
@@ -65,7 +66,7 @@ public sealed class StartupExtensionsTests
     }
 
     [Fact]
-    public void Private_Providers_Are_Created_Per_Credentials_Without_DI_Registration()
+    public void Private_Provider_Leases_Are_Created_Per_Credentials_Without_DI_Registration()
     {
         var services = CreateServices();
         services.AddBybitExchange();
@@ -73,13 +74,43 @@ public sealed class StartupExtensionsTests
         using var serviceProvider = services.BuildServiceProvider(validateScopes: true);
         var factory = serviceProvider.GetRequiredService<BybitPrivateAccountProviderFactory>();
 
-        var firstProvider = factory.Create(new BybitCredentials("first-key", "first-secret"));
-        var secondProvider = factory.Create(new BybitCredentials("second-key", "second-secret"));
+        using var firstLease = factory.Create(new BybitCredentials("first-key", "first-secret"));
+        using var secondLease = factory.Create(new BybitCredentials("second-key", "second-secret"));
 
-        firstProvider.Should().BeAssignableTo<IPrivateAccountProvider>();
-        secondProvider.Should().BeAssignableTo<IPrivateAccountProvider>();
-        firstProvider.Should().NotBeSameAs(secondProvider);
+        firstLease.Provider.Should().BeAssignableTo<IPrivateAccountProvider>();
+        secondLease.Provider.Should().BeAssignableTo<IPrivateAccountProvider>();
+        firstLease.Provider.Should().NotBeSameAs(secondLease.Provider);
+        firstLease.Should().NotBeSameAs(secondLease);
         serviceProvider.GetService<IPrivateAccountProvider>().Should().BeNull();
+    }
+
+    [Fact]
+    public void Private_Provider_Lease_Disposes_Owned_Private_Client_Exactly_Once()
+    {
+        var loggerFactory = LoggerFactory.Create(_ => { });
+        var firstCredentials = new BybitCredentials("first-key", "first-secret");
+        var secondCredentials = new BybitCredentials("second-key", "second-secret");
+        var firstClient = new Mock<IBybitRestClient>();
+        var secondClient = new Mock<IBybitRestClient>();
+
+        var factory = new BybitPrivateAccountProviderFactory(
+            loggerFactory,
+            credentials => credentials == firstCredentials ? firstClient.Object : secondClient.Object);
+
+        var firstLease = factory.Create(firstCredentials);
+        var secondLease = factory.Create(secondCredentials);
+
+        firstLease.Dispose();
+        firstClient.Verify(client => client.Dispose(), Times.Once);
+        secondClient.Verify(client => client.Dispose(), Times.Never);
+
+        firstLease.Dispose();
+        firstClient.Verify(client => client.Dispose(), Times.Once);
+
+        secondLease.Dispose();
+        secondClient.Verify(client => client.Dispose(), Times.Once);
+        secondLease.Dispose();
+        secondClient.Verify(client => client.Dispose(), Times.Once);
     }
 
     [Fact]
