@@ -1,6 +1,6 @@
 using Intelligence.TradeSystem.Domain;
 
-namespace Intelligence.TradeSystem.Application;
+namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
 /// Собирает полный пакет публичных сырых рыночных данных по инструменту.

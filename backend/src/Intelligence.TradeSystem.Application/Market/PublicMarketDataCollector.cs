@@ -1,7 +1,6 @@
 using Intelligence.TradeSystem.Domain;
-using Intelligence.TradeSystem.Application.Market;
 
-namespace Intelligence.TradeSystem.Application;
+namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
 /// Тонкий orchestration-компонент, параллельно собирающий сырые публичные рыночные данные

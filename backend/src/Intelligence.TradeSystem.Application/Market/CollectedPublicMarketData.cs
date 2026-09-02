@@ -1,6 +1,6 @@
 using Intelligence.TradeSystem.Domain;
 
-namespace Intelligence.TradeSystem.Application;
+namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
 /// Нормализованный пакет сырых публичных рыночных данных,

@@ -2,7 +2,6 @@
 using FluentAssertions;
 using Xunit;
 using Intelligence.TradeSystem.Api.Controllers;
-using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain.Snapshots;

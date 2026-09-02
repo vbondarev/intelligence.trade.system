@@ -1,4 +1,3 @@
-using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Api.Tests.Helpers;

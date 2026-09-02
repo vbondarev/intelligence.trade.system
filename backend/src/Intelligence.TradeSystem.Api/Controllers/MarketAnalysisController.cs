@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
-using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Market;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
