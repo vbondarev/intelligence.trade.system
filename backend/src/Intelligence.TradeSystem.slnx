@@ -22,6 +22,7 @@
     <Project Path="Intelligence.TradeSystem.Architecture.Tests/Intelligence.TradeSystem.Architecture.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Api.Tests/Intelligence.TradeSystem.Api.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Application.Tests/Intelligence.TradeSystem.Application.Tests.csproj" />
+    <Project Path="Intelligence.TradeSystem.Domain.Tests/Intelligence.TradeSystem.Domain.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.Exchanges.Tests/Intelligence.TradeSystem.Exchanges.Tests.csproj" />
     <Project Path="Intelligence.TradeSystem.MarketIntelligence.Tests/Intelligence.TradeSystem.MarketIntelligence.Tests.csproj" />
   </Folder>
