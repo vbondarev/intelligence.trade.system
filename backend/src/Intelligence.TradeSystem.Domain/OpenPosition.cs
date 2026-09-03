@@ -26,7 +26,8 @@ public sealed record OpenPosition(
     int RiskId,
     decimal? RiskLimitValue,
     DateTimeOffset? CreatedTime,
-    DateTimeOffset? UpdatedTime)
+    DateTimeOffset? UpdatedTime,
+    int PositionIdx = 0)
 {
     /// <summary>Тикер инструмента. Например: <c>BTCUSDT</c>.</summary>
     public string Symbol { get; init; } = Symbol;
@@ -96,4 +97,7 @@ public sealed record OpenPosition(
 
     /// <summary>Время последнего обновления позиции (UTC).</summary>
     public DateTimeOffset? UpdatedTime { get; init; } = UpdatedTime;
+
+    /// <summary>Индекс позиции на бирже для one-way или hedge mode.</summary>
+    public int PositionIdx { get; init; } = PositionIdx;
 }
