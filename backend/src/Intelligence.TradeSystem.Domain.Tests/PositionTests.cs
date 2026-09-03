@@ -33,6 +33,30 @@ public sealed class PositionTests
     }
 
     [Fact]
+    public void Create_Accepts_Inverse_MarketCategory()
+    {
+        var position = Position.Create(Key, MarketCategory.Inverse, 1m, FirstDetectedAt, FirstDetectedAt);
+
+        position.MarketCategory.Should().Be(MarketCategory.Inverse);
+    }
+
+    [Fact]
+    public void Create_Rejects_Spot_MarketCategory()
+    {
+        var act = () => Position.Create(Key, MarketCategory.Spot, 1m, FirstDetectedAt, FirstDetectedAt);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Undefined_MarketCategory()
+    {
+        var act = () => Position.Create(Key, (MarketCategory)999, 1m, FirstDetectedAt, FirstDetectedAt);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Reopened_Position_With_Same_Exchange_Key_Gets_New_Id()
     {
         var first = Position.Create(Key, MarketCategory.Linear, 1m, FirstDetectedAt, FirstDetectedAt);
@@ -79,6 +103,26 @@ public sealed class PositionTests
             Key, MarketCategory.Linear, 1m, FirstDetectedAt, FirstDetectedAt, markPrice: price);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Negative_PositionValue()
+    {
+        var act = () => Position.Create(
+        Key, MarketCategory.Linear, 1m, FirstDetectedAt, FirstDetectedAt, positionValue: -100m);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_Accepts_Null_And_Zero_PositionValue()
+    {
+        var unknown = Position.Create(Key, MarketCategory.Linear, 1m, FirstDetectedAt, FirstDetectedAt);
+        var zero = Position.Create(
+        Key, MarketCategory.Linear, 1m, FirstDetectedAt, FirstDetectedAt, positionValue: 0m);
+
+        unknown.PositionValue.Should().BeNull();
+        zero.PositionValue.Should().Be(0m);
     }
 
     [Fact]

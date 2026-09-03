@@ -80,10 +80,15 @@ public sealed class Position
         if (exchangePositionKey == default)
             throw new ArgumentException("ExchangePositionKey must be initialized.", nameof(exchangePositionKey));
 
+        if (marketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
+            throw new ArgumentOutOfRangeException(
+                nameof(marketCategory), marketCategory, "Position market category must be Linear or Inverse.");
+
         if (size <= 0m)
             throw new ArgumentOutOfRangeException(nameof(size), size, "Position size must be greater than zero.");
 
         ValidateNonNegative(averageEntryPrice, nameof(averageEntryPrice));
+        ValidateNonNegative(positionValue, nameof(positionValue));
         ValidateNonNegative(markPrice, nameof(markPrice));
         ValidateNonNegative(breakEvenPrice, nameof(breakEvenPrice));
         ValidateNonNegative(liquidationPrice, nameof(liquidationPrice));

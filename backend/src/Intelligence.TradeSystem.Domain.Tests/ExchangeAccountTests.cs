@@ -45,6 +45,30 @@ public sealed class ExchangeAccountTests
     }
 
     [Fact]
+    public void Create_Rejects_Unknown_Capabilities()
+    {
+        var act = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            UserId.New(),
+            ExchangeId.Bybit,
+            capabilities: (ExchangeAccountCapabilities)4);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Undefined_ConnectionStatus()
+    {
+        var act = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            UserId.New(),
+            ExchangeId.Bybit,
+            connectionStatus: (ExchangeAccountConnectionStatus)999);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Identity_Properties_Cannot_Be_Publicly_Assigned()
     {
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.Id))!.SetMethod.Should().BeNull();

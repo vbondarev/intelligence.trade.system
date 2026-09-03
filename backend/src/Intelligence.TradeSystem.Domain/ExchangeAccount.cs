@@ -53,6 +53,13 @@ public sealed class ExchangeAccount
             throw new ArgumentOutOfRangeException(
                 nameof(connectionStatus), connectionStatus, "Connection status must be defined.");
 
+        const ExchangeAccountCapabilities allowedCapabilities =
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions;
+
+        if ((capabilities & ~allowedCapabilities) != 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(capabilities), capabilities, "Capabilities contain undefined flags.");
+
         return new ExchangeAccount(id, userId, exchangeId, connectionStatus, capabilities, lastSyncedAt, lastError);
     }
 }
