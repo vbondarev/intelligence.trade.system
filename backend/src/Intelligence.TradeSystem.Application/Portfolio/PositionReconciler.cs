@@ -36,10 +36,13 @@ public static class PositionReconciler
         var changes = new List<PositionChange>();
         var newPositions = new List<Position>();
 
-        // Freshness is a generic time-based fact independent of any particular observation's
-        // scope, so it is refreshed for every known position regardless of account/category/symbol.
+        // Freshness is independent of category and symbol scope, but reconciliation must never
+        // mutate a position belonging to a different exchange account.
         foreach (var position in trackedPositions)
         {
+            if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
+                continue;
+
             var staleChange = position.RefreshFreshness(now, staleAfter);
             if (staleChange is not null)
                 changes.Add(staleChange);
@@ -50,7 +53,7 @@ public static class PositionReconciler
             position.MarketCategory == observation.Category &&
             (observation.Symbol is null ||
              string.Equals(
-                 position.ExchangePositionKey.InstrumentId.Value, observation.Symbol,
+                 position.ExchangePositionKey.InstrumentId.Value, observation.Symbol.Trim(),
                  StringComparison.OrdinalIgnoreCase));
 
         if (observation.Status == OpenPositionsObservationStatus.Failed)
@@ -72,8 +75,8 @@ public static class PositionReconciler
         // observation. A previously closed position with a matching key must not be reopened.
         var activeByKey = trackedPositions
             .Where(position =>
-                position.ExchangePositionKey.ExchangeAccountId == exchangeAccountId &&
-                position.TrackingState != PositionTrackingState.Closed)
+                position.TrackingState != PositionTrackingState.Closed &&
+                InScope(position))
             .ToDictionary(position => position.ExchangePositionKey);
 
         var observedKeys = new HashSet<ExchangePositionKey>();
@@ -81,6 +84,23 @@ public static class PositionReconciler
 
         foreach (var observed in observation.Positions)
         {
+            if (observed.Category != observation.Category)
+            {
+                hasMappingIssues = true;
+                warnings.Add(
+                    $"Skipped {observed.Symbol} ({observed.Category}): position category does not match observation category {observation.Category}.");
+                continue;
+            }
+
+            if (observation.Symbol is not null &&
+                !string.Equals(observed.Symbol.Trim(), observation.Symbol.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                hasMappingIssues = true;
+                warnings.Add(
+                    $"Skipped {observed.Symbol} ({observed.Category}): position symbol does not match observation symbol {observation.Symbol}.");
+                continue;
+            }
+
             if (!OpenPositionKeyMapper.TryMapKey(observed, exchangeAccountId, out var key, out var warning))
             {
                 hasMappingIssues = true;
@@ -117,6 +137,21 @@ public static class PositionReconciler
             }
             else
             {
+                var latestClosedLifecycle = trackedPositions
+                    .Where(position =>
+                        position.TrackingState == PositionTrackingState.Closed &&
+                        position.ExchangePositionKey == key &&
+                        position.MarketCategory == observation.Category)
+                    .OrderByDescending(position => position.ClosedAt)
+                    .FirstOrDefault();
+
+                if (latestClosedLifecycle?.ClosedAt is { } closedAt && observation.ObservedAt <= closedAt)
+                {
+                    warnings.Add(
+                        $"Skipped {key}: observation at {observation.ObservedAt:O} is not newer than the previous lifecycle closure at {closedAt:O}.");
+                    continue;
+                }
+
                 var created = Position.Create(
                     key,
                     observed.Category,

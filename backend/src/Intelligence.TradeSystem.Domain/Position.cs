@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Domain.History;
 using Intelligence.TradeSystem.Domain.Identity;
+using System.Collections.ObjectModel;
 
 namespace Intelligence.TradeSystem.Domain;
 
@@ -16,6 +17,7 @@ namespace Intelligence.TradeSystem.Domain;
 public sealed class Position
 {
     private readonly List<PositionChange> _changes = [];
+    private readonly ReadOnlyCollection<PositionChange> _readOnlyChanges;
 
     private Position(
         PositionId id,
@@ -52,6 +54,7 @@ public sealed class Position
         FirstDetectedAt = firstDetectedAt;
         LastObservedAt = lastObservedAt;
         TrackingState = PositionTrackingState.Active;
+        _readOnlyChanges = _changes.AsReadOnly();
     }
 
     public PositionId Id { get; }
@@ -70,12 +73,13 @@ public sealed class Position
     public decimal? TrailingStop { get; private set; }
     public DateTimeOffset FirstDetectedAt { get; }
     public DateTimeOffset LastObservedAt { get; private set; }
+    public DateTimeOffset? ClosedAt { get; private set; }
 
     /// <summary>Долговременное состояние жизненного цикла позиции.</summary>
     public PositionTrackingState TrackingState { get; private set; }
 
     /// <summary>История существенных изменений позиции. Только для чтения.</summary>
-    public IReadOnlyList<PositionChange> Changes => _changes;
+    public IReadOnlyList<PositionChange> Changes => _readOnlyChanges;
 
     public static Position Create(
         ExchangePositionKey exchangePositionKey,
@@ -239,7 +243,7 @@ public sealed class Position
         if (kind is null)
             return null;
 
-        var effectiveCause = kind == PositionChangeKind.Recovered ? PositionChangeCause.ObservationRestored : cause;
+        var effectiveCause = wasRecovering ? PositionChangeCause.ObservationRestored : cause;
         var change = new PositionChange(
             Id, kind.Value, effectiveCause, observedAt, TrackingState, before, CreateSnapshot());
         _changes.Add(change);
@@ -254,6 +258,11 @@ public sealed class Position
     public PositionChange? MarkUnknown(
         DateTimeOffset asOf, PositionChangeCause cause = PositionChangeCause.PositionsObservationFailed)
     {
+        if (asOf < LastObservedAt)
+            throw new InvalidOperationException(
+                $"Observation at {asOf:O} is older than the last confirmed observation at " +
+                $"{LastObservedAt:O} for position {Id}.");
+
         if (TrackingState is PositionTrackingState.Closed or PositionTrackingState.Unknown)
             return null;
 
@@ -274,6 +283,14 @@ public sealed class Position
     public PositionChange? RefreshFreshness(
         DateTimeOffset now, TimeSpan staleAfter, PositionChangeCause cause = PositionChangeCause.FreshnessExpired)
     {
+        if (staleAfter < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(staleAfter), staleAfter, "Staleness threshold cannot be negative.");
+
+        if (now < LastObservedAt)
+            throw new InvalidOperationException(
+                $"Freshness cannot be evaluated at {now:O} before the last confirmed observation at " +
+                $"{LastObservedAt:O} for position {Id}.");
+
         if (TrackingState != PositionTrackingState.Active)
             return null;
 
@@ -307,6 +324,7 @@ public sealed class Position
 
         var snapshot = CreateSnapshot();
         TrackingState = PositionTrackingState.Closed;
+        ClosedAt = observedAt;
         var change = new PositionChange(Id, PositionChangeKind.Closed, cause, observedAt, TrackingState, snapshot, snapshot);
         _changes.Add(change);
         return change;

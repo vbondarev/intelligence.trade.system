@@ -148,6 +148,17 @@ public sealed class PositionLifecycleTests
     }
 
     [Fact]
+    public void MarkUnknown_Rejects_Observation_Older_Than_LastObservedAt()
+    {
+        var position = CreatePosition(at: T0.AddMinutes(5));
+
+        var act = () => position.MarkUnknown(T0.AddMinutes(1), PositionChangeCause.PartialObservation);
+
+        act.Should().Throw<InvalidOperationException>();
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
     public void Failed_Observation_Marks_Unknown_Not_Closed()
     {
         var position = CreatePosition();
@@ -186,6 +197,32 @@ public sealed class PositionLifecycleTests
     }
 
     [Fact]
+    public void Recovery_With_Size_Increase_Records_Increased_With_ObservationRestored_Cause()
+    {
+        var position = CreatePosition();
+        position.MarkUnknown(T0.AddMinutes(1));
+
+        var change = position.ApplyObservation(2m, T0.AddMinutes(2), averageEntryPrice: 100m, leverage: 2m);
+
+        change!.Kind.Should().Be(PositionChangeKind.Increased);
+        change.Cause.Should().Be(PositionChangeCause.ObservationRestored);
+        change.TrackingStateAfter.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
+    public void Recovery_With_Material_Update_Records_Updated_With_ObservationRestored_Cause()
+    {
+        var position = CreatePosition();
+        position.RefreshFreshness(T0.AddHours(2), TimeSpan.FromHours(1));
+
+        var change = position.ApplyObservation(1m, T0.AddHours(3), averageEntryPrice: 110m, leverage: 2m);
+
+        change!.Kind.Should().Be(PositionChangeKind.Updated);
+        change.Cause.Should().Be(PositionChangeCause.ObservationRestored);
+        change.TrackingStateAfter.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
     public void RefreshFreshness_Marks_Stale_When_Older_Than_Threshold()
     {
         var position = CreatePosition();
@@ -206,6 +243,26 @@ public sealed class PositionLifecycleTests
 
         change.Should().BeNull();
         position.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
+    public void RefreshFreshness_Rejects_Negative_StaleAfter()
+    {
+        var position = CreatePosition();
+
+        var act = () => position.RefreshFreshness(T0, TimeSpan.FromTicks(-1));
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void RefreshFreshness_Rejects_Now_Before_LastObservedAt()
+    {
+        var position = CreatePosition(at: T0.AddMinutes(1));
+
+        var act = () => position.RefreshFreshness(T0, TimeSpan.Zero);
+
+        act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
@@ -243,6 +300,7 @@ public sealed class PositionLifecycleTests
 
         second.Should().BeNull();
         position.Changes.Should().HaveCount(2); // New + one Closed
+        position.ClosedAt.Should().Be(T0.AddMinutes(1));
     }
 
     [Fact]
@@ -273,6 +331,17 @@ public sealed class PositionLifecycleTests
 
         property.PropertyType.Should().Be<IReadOnlyList<PositionChange>>();
         property.SetMethod.Should().BeNull();
+    }
+
+    [Fact]
+    public void Changes_Cannot_Be_Cast_To_A_Mutable_List()
+    {
+        var position = CreatePosition();
+
+        var mutableChanges = position.Changes as List<PositionChange>;
+
+        mutableChanges.Should().BeNull();
+        position.Changes.Should().ContainSingle();
     }
 
     [Fact]

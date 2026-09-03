@@ -129,6 +129,34 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
+    public void Observation_Older_Than_Previous_Lifecycle_Closure_Does_Not_Create_New_Position()
+    {
+        var closed = CreateTrackedPosition(AccountA);
+        closed.Close(T0.AddMinutes(2));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1), [CreateOpenPosition()]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Observation_At_Previous_Lifecycle_Closure_Does_Not_Create_New_Position()
+    {
+        var closed = CreateTrackedPosition(AccountA);
+        closed.Close(T0.AddMinutes(2));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(2), [CreateOpenPosition()]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void New_Observed_Position_Without_Existing_Match_Is_Created()
     {
         var observation = OpenPositionsObservation.Complete(
@@ -171,6 +199,62 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
+    public void Complete_Observation_With_Position_From_Different_Category_Does_Not_Infer_Closed()
+    {
+        var linear = CreateTrackedPosition(AccountA, symbol: "BTCUSDT");
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1),
+            [CreateOpenPosition(category: MarketCategory.Inverse)]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [linear], observation, T0.AddMinutes(1), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+        linear.TrackingState.Should().Be(PositionTrackingState.Unknown);
+    }
+
+    [Fact]
+    public void Complete_Symbol_Scoped_Observation_With_Other_Symbol_Does_Not_Infer_Closed()
+    {
+        var btc = CreateTrackedPosition(AccountA, symbol: "BTCUSDT");
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, "BTCUSDT", T0.AddMinutes(1),
+            [CreateOpenPosition(symbol: "ETHUSDT")]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+        btc.TrackingState.Should().Be(PositionTrackingState.Unknown);
+    }
+
+    [Fact]
+    public void Old_Failed_Observation_Does_Not_Override_Newer_Confirmed_State()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddHours(1));
+        var observation = OpenPositionsObservation.Failed(
+            MarketCategory.Linear, null, T0.AddMinutes(30), "boom");
+
+        var act = () => PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(1), StaleAfter);
+
+        act.Should().Throw<InvalidOperationException>();
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
+    public void Old_Partial_Observation_Does_Not_Override_Newer_Confirmed_State()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddHours(1));
+        var observation = OpenPositionsObservation.Partial(
+            MarketCategory.Linear, null, T0.AddMinutes(30), []);
+
+        var act = () => PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(1), StaleAfter);
+
+        act.Should().Throw<InvalidOperationException>();
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    [Fact]
     public void RefreshFreshness_Is_Applied_Regardless_Of_Observation_Scope()
     {
         var position = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");
@@ -179,5 +263,18 @@ public sealed class PositionReconcilerTests
         PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(2), StaleAfter);
 
         position.TrackingState.Should().Be(PositionTrackingState.Stale);
+    }
+
+    [Fact]
+    public void Reconcile_Account_A_Does_Not_Mark_Account_B_Stale()
+    {
+        var positionA = CreateTrackedPosition(AccountA);
+        var positionB = CreateTrackedPosition(AccountB);
+        var observation = OpenPositionsObservation.Partial(MarketCategory.Inverse, null, T0.AddHours(2), []);
+
+        PositionReconciler.Reconcile(AccountA, [positionA, positionB], observation, T0.AddHours(2), StaleAfter);
+
+        positionA.TrackingState.Should().Be(PositionTrackingState.Stale);
+        positionB.TrackingState.Should().Be(PositionTrackingState.Active);
     }
 }
