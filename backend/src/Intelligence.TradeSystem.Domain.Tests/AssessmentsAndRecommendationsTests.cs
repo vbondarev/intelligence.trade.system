@@ -75,21 +75,53 @@ public sealed class AssessmentsAndRecommendationsTests
     }
 
     [Fact]
-    public void Assessment_Timestamp_Boundaries_Are_Explicit()
+    public void Assessment_CreatedAt_Before_PositionObservedAt_Is_Rejected()
     {
-        FluentActions.Invoking(() => CreateAssessmentAt(Inputs.PositionObservedAt.AddTicks(-1)))
-            .Should().Throw<ArgumentException>();
+        var inputs = CreateInputVersions(
+            ObservedAt.AddTicks(1), ObservedAt, ObservedAt);
         FluentActions.Invoking(() => PositionAssessment.Create(
-            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
-            Inputs.PortfolioCalculatedAt.AddTicks(-1), Inputs.MarketCapturedAt.AddHours(1)))
+            inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            ObservedAt, ObservedAt.AddHours(1)))
             .Should().Throw<ArgumentException>();
-        FluentActions.Invoking(() => PositionAssessment.Create(
-            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
-            Inputs.MarketCapturedAt.AddTicks(-1), Inputs.MarketCapturedAt.AddHours(1)))
-            .Should().Throw<ArgumentException>();
+    }
 
+    [Fact]
+    public void Assessment_CreatedAt_Before_PortfolioCalculatedAt_Is_Rejected()
+    {
+        var inputs = CreateInputVersions(
+            ObservedAt, ObservedAt.AddTicks(1), ObservedAt);
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            ObservedAt, ObservedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Assessment_CreatedAt_Before_MarketCapturedAt_Is_Rejected()
+    {
+        var inputs = CreateInputVersions(
+            ObservedAt, ObservedAt, ObservedAt.AddTicks(1));
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            ObservedAt, ObservedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Assessment_CreatedAt_Equal_To_All_Input_Timestamps_Is_Allowed()
+    {
+        var inputs = CreateInputVersions(ObservedAt, ObservedAt, ObservedAt);
+        var assessment = PositionAssessment.Create(
+            inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            ObservedAt, ObservedAt.AddHours(1));
+
+        assessment.CreatedAt.Should().Be(ObservedAt);
+    }
+
+    [Fact]
+    public void Assessment_ValidUntil_Boundaries_Are_Rejected()
+    {
         var assessment = CreateAssessmentAt(Inputs.MarketCapturedAt);
-        assessment.CreatedAt.Should().Be(Inputs.MarketCapturedAt);
         FluentActions.Invoking(() => PositionAssessment.Create(
             Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
             assessment.CreatedAt, assessment.CreatedAt))
@@ -280,6 +312,23 @@ public sealed class AssessmentsAndRecommendationsTests
     }
 
     [Fact]
+    public void Dismissed_Recommendation_Cannot_Be_Superseded()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var current = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        current.Dismiss(current.CreatedAt);
+        var successor = CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, current.CreatedAt.AddMinutes(1));
+
+        FluentActions.Invoking(() => current.SupersedeBy(successor))
+            .Should().Throw<InvalidOperationException>();
+
+        current.Status.Should().Be(RecommendationStatus.Dismissed);
+        current.SupersededAt.Should().BeNull();
+        current.SupersededByRecommendationId.Should().BeNull();
+    }
+
+    [Fact]
     public void Supersede_Requires_Newer_Same_Position_Successor_And_Is_Idempotent()
     {
         var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
@@ -464,6 +513,14 @@ public sealed class AssessmentsAndRecommendationsTests
         PositionAssessment.Create(
             Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
             createdAt, Inputs.MarketCapturedAt.AddHours(1));
+
+    private static PositionAssessmentInputVersions CreateInputVersions(
+        DateTimeOffset positionObservedAt,
+        DateTimeOffset portfolioCalculatedAt,
+        DateTimeOffset marketCapturedAt) =>
+        new(
+            PositionId.New(), ExchangeAccountId.New(), InstrumentId.From("BTCUSDT"),
+            positionObservedAt, portfolioCalculatedAt, marketCapturedAt);
 
     private static PositionAssessment CreateAssessment(
         PositionAssessmentInputVersions inputVersions, RiskIncreasePolicyResult result) =>
