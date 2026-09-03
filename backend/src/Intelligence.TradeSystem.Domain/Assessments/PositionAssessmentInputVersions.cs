@@ -47,4 +47,14 @@ public readonly record struct PositionAssessmentInputVersions
         DateTimeOffset marketCapturedAt) =>
         new(positionId, exchangeAccountId, instrumentId, positionObservedAt,
             portfolioCalculatedAt, marketCapturedAt);
+
+    public void Validate()
+    {
+        if (PositionId == default)
+            throw new ArgumentException("PositionId must be initialized.", nameof(PositionId));
+        if (ExchangeAccountId == default)
+            throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(ExchangeAccountId));
+        if (InstrumentId.Value is null)
+            throw new ArgumentException("InstrumentId must be initialized.", nameof(InstrumentId));
+    }
 }

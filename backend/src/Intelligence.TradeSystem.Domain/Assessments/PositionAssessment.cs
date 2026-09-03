@@ -44,6 +44,7 @@ public sealed class PositionAssessment
     {
         ArgumentNullException.ThrowIfNull(portfolioRiskResult);
         ArgumentNullException.ThrowIfNull(additionalReasonCodes);
+        inputVersions.Validate();
         ValidateRuleVersion(ruleVersion);
 
         if (createdAt < inputVersions.PositionObservedAt ||
@@ -55,10 +56,13 @@ public sealed class PositionAssessment
         if (!Enum.IsDefined(portfolioRiskResult.Decision))
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskResult));
 
-        var reasons = portfolioRiskResult.ReasonCodes
-            .Concat(additionalReasonCodes)
-            .Distinct()
-            .ToArray();
+        var additionalReasons = additionalReasonCodes.Distinct().ToArray();
+        ValidateReasons(additionalReasons);
+        if (additionalReasons.Any(ReasonCodeClassification.IsPortfolioRiskReason))
+            throw new ArgumentException(
+                "Portfolio risk reasons must come from RiskIncreasePolicyResult.", nameof(additionalReasonCodes));
+
+        var reasons = portfolioRiskResult.ReasonCodes.Concat(additionalReasons).Distinct().ToArray();
         ValidateReasons(reasons);
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(additionalReasonCodes));

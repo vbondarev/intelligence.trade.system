@@ -71,11 +71,19 @@ public sealed class Recommendation
         if (string.IsNullOrWhiteSpace(policyVersion.Value))
             throw new ArgumentException("PolicyVersion must be initialized.", nameof(policyVersion));
 
-        var reasons = reasonCodes.Distinct().ToArray();
+        var specificReasons = reasonCodes.Distinct().ToArray();
+        if (specificReasons.Any(reason => !Enum.IsDefined(reason)))
+            throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
+        if (specificReasons.Any(ReasonCodeClassification.IsPortfolioRiskReason))
+            throw new ArgumentException(
+                "Portfolio risk reasons must be inherited from the assessment.", nameof(reasonCodes));
+
+        var reasons = assessment.ReasonCodes
+            .Concat(specificReasons)
+            .Distinct()
+            .ToArray();
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
-        if (reasons.Any(reason => !Enum.IsDefined(reason)))
-            throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
 
         return new(
             RecommendationId.New(), assessment.Id, assessment.PositionId, recommendedAction, addDecision,
@@ -84,9 +92,9 @@ public sealed class Recommendation
 
     public void Acknowledge(DateTimeOffset at)
     {
-        EnsureNotPastValidity(at, "Acknowledge");
         if (Status == RecommendationStatus.Acknowledged)
             return;
+        EnsureNotPastValidity(at, "Acknowledge");
         EnsureStatus(RecommendationStatus.Active, "Acknowledge");
         Status = RecommendationStatus.Acknowledged;
         AcknowledgedAt = at;
@@ -94,10 +102,12 @@ public sealed class Recommendation
 
     public void Dismiss(DateTimeOffset at)
     {
-        EnsureNotPastValidity(at, "Dismiss");
         if (Status == RecommendationStatus.Dismissed)
             return;
+        EnsureNotPastValidity(at, "Dismiss");
         EnsureStatus("Dismiss", RecommendationStatus.Active, RecommendationStatus.Acknowledged);
+        if (AcknowledgedAt.HasValue && at < AcknowledgedAt.Value)
+            throw new InvalidOperationException("DismissedAt cannot precede AcknowledgedAt.");
         Status = RecommendationStatus.Dismissed;
         DismissedAt = at;
     }
