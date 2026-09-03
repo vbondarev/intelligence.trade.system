@@ -82,6 +82,126 @@ public sealed class PortfolioStateTests
     }
 
     [Fact]
+    public void CalculatedAt_Before_CapitalObservedAt_Is_Rejected()
+    {
+        FluentActions.Invoking(() => PortfolioState.Create(
+                Account, [], new PortfolioCapitalState(100m, 50m, T0.AddMinutes(2)),
+                T0.AddMinutes(1), TimeSpan.FromMinutes(5)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Missing_CapitalObservedAt_Makes_Portfolio_NotFresh()
+    {
+        var state = PortfolioState.Create(
+            Account, [], new PortfolioCapitalState(100m, 50m, null), T0.AddMinutes(1), TimeSpan.FromMinutes(5));
+
+        state.IsComplete.Should().BeTrue();
+        state.IsFresh.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Zero_Equity_Makes_Portfolio_Incomplete_And_Blocks_RiskIncrease()
+    {
+        var state = CreateState([], equity: 0m, available: 0m);
+        var result = PortfolioRiskPolicy.EvaluateRiskIncrease(
+            state, new PortfolioRiskPolicySettings(0m, 0m, 0m));
+
+        state.FreeCapitalPercent.Should().BeNull();
+        state.GrossExposureToEquityPercent.Should().BeNull();
+        state.IsComplete.Should().BeFalse();
+        result.Decision.Should().Be(RiskIncreaseDecision.Blocked);
+        result.ReasonCodes.Should().Contain(ReasonCode.PortfolioDataIncomplete);
+        result.ReasonCodes.Should().NotContain(ReasonCode.RiskWithinLimits);
+    }
+
+    [Fact]
+    public void Complete_When_Equity_Is_Positive_And_All_Required_Data_Is_Known()
+    {
+        var state = CreateState([CreatePosition(PositionSide.Long, 10m, 1m)]);
+
+        state.IsComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Missing_Equity_Or_AvailableCapital_Makes_Portfolio_Incomplete()
+    {
+        CreateState([], equity: null, available: 0m).IsComplete.Should().BeFalse();
+        CreateState([], equity: 100m, available: null).IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Freshness_Is_Independent_From_Completeness()
+    {
+        var incomplete = CreateState([CreatePosition(PositionSide.Long, null, 1m)]);
+        var stalePosition = CreatePosition(PositionSide.Long, 10m, 1m);
+        stalePosition.RefreshFreshness(T0.AddMinutes(10), TimeSpan.FromMinutes(5));
+        var stale = CreateState([stalePosition]);
+
+        incomplete.IsFresh.Should().BeTrue();
+        incomplete.IsComplete.Should().BeFalse();
+        stale.IsFresh.Should().BeFalse();
+        stale.IsComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Exactly_At_Stale_Threshold_Is_Fresh_But_Older_Is_Not()
+    {
+        var exactly = PortfolioState.Create(
+            Account, [], new PortfolioCapitalState(100m, 50m, T0),
+            T0.AddMinutes(5), TimeSpan.FromMinutes(5));
+        var older = PortfolioState.Create(
+            Account, [], new PortfolioCapitalState(100m, 50m, T0),
+            T0.AddMinutes(5).AddTicks(1), TimeSpan.FromMinutes(5));
+
+        exactly.IsFresh.Should().BeTrue();
+        older.IsFresh.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CalculatedAt_Before_PositionLastObservedAt_Is_Rejected()
+    {
+        var position = CreatePosition(PositionSide.Long, 10m, 1m);
+
+        FluentActions.Invoking(() => PortfolioState.Create(
+                Account, [position], new PortfolioCapitalState(100m, 50m, T0),
+                T0.AddTicks(-1), TimeSpan.FromMinutes(5)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void GrossExposure_To_Equity_Can_Exceed_One_Hundred_Percent()
+    {
+        var state = CreateState([CreatePosition(PositionSide.Long, 250m, 1m)]);
+
+        state.GrossExposureToEquityPercent.Should().Be(250m);
+    }
+
+    [Fact]
+    public void Unknown_Side_Exposure_Does_Not_Become_Zero()
+    {
+        var unknownLongValue = CreatePosition(PositionSide.Long, null, 1m);
+        var knownShort = CreatePosition(PositionSide.Short, 10m, 1m);
+        var state = CreateState([unknownLongValue, knownShort]);
+
+        state.LongExposure.Should().BeNull();
+        state.ShortExposure.Should().Be(10m);
+        state.NetExposure.Should().BeNull();
+    }
+
+    [Fact]
+    public void Closed_Position_From_Other_Account_Is_Rejected()
+    {
+        var key = ExchangePositionKey.Create(
+            ExchangeAccountId.New(), InstrumentId.From("ETHUSDT"), PositionSide.Long, 0);
+        var position = Position.Create(key, MarketCategory.Linear, 1m, T0, T0);
+        position.Close(T0.AddMinutes(1));
+
+        FluentActions.Invoking(() => CreateState([position]))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void No_Positions_Have_Zero_Exposure_And_Pnl()
     {
         var state = CreateState([]);
@@ -124,8 +244,8 @@ public sealed class PortfolioStateTests
 
     private static PortfolioState CreateState(
         IEnumerable<Position> positions,
-        decimal equity = 100m,
-        decimal available = 60m,
+        decimal? equity = 100m,
+        decimal? available = 60m,
         TimeSpan? staleAfter = null) =>
         PortfolioState.Create(
             Account,

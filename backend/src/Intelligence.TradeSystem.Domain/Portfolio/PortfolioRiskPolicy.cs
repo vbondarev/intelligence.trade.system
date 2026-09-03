@@ -26,11 +26,8 @@ public static class PortfolioRiskPolicy
             reasons.Add(ReasonCode.ConcentrationLimitExceeded);
 
         if (reasons.Count == 0)
-        {
-            reasons.Add(ReasonCode.RiskWithinLimits);
-            return new RiskIncreasePolicyResult(RiskIncreaseDecision.Allowed, reasons);
-        }
+            return RiskIncreasePolicyResult.Allowed();
 
-        return new RiskIncreasePolicyResult(RiskIncreaseDecision.Blocked, reasons);
+        return RiskIncreasePolicyResult.Blocked(reasons);
     }
 }

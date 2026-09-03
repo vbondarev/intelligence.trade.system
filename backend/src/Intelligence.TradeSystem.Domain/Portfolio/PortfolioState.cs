@@ -64,7 +64,7 @@ public sealed class PortfolioState
                 : null;
         }
 
-        IsComplete = capital.TotalEquity.HasValue &&
+        IsComplete = capital.TotalEquity > 0m &&
             capital.AvailableCapital.HasValue &&
             values.All(p => p.PositionValue.HasValue && p.UnrealizedPnl.HasValue);
         IsFresh = capital.ObservedAt.HasValue &&
@@ -109,6 +109,9 @@ public sealed class PortfolioState
             throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
         if (staleAfter < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(staleAfter), staleAfter, "StaleAfter cannot be negative.");
+        if (capital.ObservedAt.HasValue && calculatedAt < capital.ObservedAt.Value)
+            throw new ArgumentException(
+                "CalculatedAt cannot precede the capital observation.", nameof(calculatedAt));
 
         var sourcePositions = positions.ToArray();
         foreach (var position in sourcePositions)
