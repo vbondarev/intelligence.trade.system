@@ -7,7 +7,12 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// </summary>
 public interface IPrivateAccountProvider
 {
-    Task<IReadOnlyList<OpenPosition>> GetOpenPositionsAsync(
+    /// <summary>
+    /// Запрашивает открытые позиции для заданной области (scope). Результат явно различает
+    /// успешный снимок без позиций от неудачной попытки получить данные — см.
+    /// <see cref="OpenPositionsObservation"/>.
+    /// </summary>
+    Task<OpenPositionsObservation> GetOpenPositionsAsync(
         MarketCategory category,
         string? symbol = null,
         CancellationToken cancellationToken = default);
