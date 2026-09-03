@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Decisions;
 
 namespace Intelligence.TradeSystem.Domain.Tests;
 

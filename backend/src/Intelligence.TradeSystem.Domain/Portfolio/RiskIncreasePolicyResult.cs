@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Intelligence.TradeSystem.Domain.Decisions;
 
 namespace Intelligence.TradeSystem.Domain.Portfolio;
 
@@ -26,6 +27,9 @@ public sealed record RiskIncreasePolicyResult
             throw new ArgumentException("At least one blocking reason is required.", nameof(reasonCodes));
         if (distinctReasons.Any(reason => !Enum.IsDefined(reason)))
             throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
+        if (distinctReasons.Any(reason => !ReasonCodeClassification.IsPortfolioRiskReason(reason)))
+            throw new ArgumentException(
+                "Blocked results can contain only portfolio risk reasons.", nameof(reasonCodes));
         if (distinctReasons.Contains(ReasonCode.RiskWithinLimits))
             throw new ArgumentException(
                 "Blocked results cannot contain RiskWithinLimits.", nameof(reasonCodes));

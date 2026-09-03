@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Decisions;
 
 namespace Intelligence.TradeSystem.Domain.Tests;
 
@@ -41,6 +42,31 @@ public sealed class RiskIncreasePolicyResultTests
         var result = RiskIncreasePolicyResult.Allowed();
 
         result.ReasonCodes.Should().NotContain(ReasonCode.PortfolioDataIncomplete);
+    }
+
+    [Fact]
+    public void Portfolio_Risk_Reason_Classification_Is_Explicit()
+    {
+        Enum.GetValues<ReasonCode>()
+        .Should()
+        .OnlyContain(reason => ReasonCodeClassification.IsPortfolioRiskReason(reason));
+    }
+
+    [Fact]
+    public void Blocked_Accepts_All_Current_Blocking_Portfolio_Reasons()
+    {
+        var reasons = new[]
+        {
+        ReasonCode.PortfolioDataIncomplete,
+        ReasonCode.PortfolioDataStale,
+        ReasonCode.InsufficientFreeCapital,
+        ReasonCode.GrossExposureLimitExceeded,
+        ReasonCode.ConcentrationLimitExceeded,
+        };
+
+        var result = RiskIncreasePolicyResult.Blocked(reasons);
+
+        result.ReasonCodes.Should().BeEquivalentTo(reasons);
     }
 
     [Fact]
