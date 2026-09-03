@@ -136,6 +136,10 @@ public sealed class Recommendation
         ExpiredAt = now;
     }
 
+    /// <summary>
+    /// Determines effectiveness in the current lifecycle state at a point in time.
+    /// This is not a historical lifecycle reconstruction query.
+    /// </summary>
     public bool IsEffectiveAt(DateTimeOffset at) =>
         Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged &&
         CreatedAt <= at && at < ValidUntil;
@@ -151,7 +155,7 @@ public sealed class Recommendation
     private void EnsureStatus(string operation, params RecommendationStatus[] allowed)
     {
         if (!allowed.Contains(Status))
-            throw new InvalidOperationException($"Recommendation cannot transition from {Status}.");
+            throw new InvalidOperationException($"{operation} cannot transition recommendation from {Status}.");
     }
 
     private void EnsureStatus(RecommendationStatus expected, string operation) => EnsureStatus(operation, expected);

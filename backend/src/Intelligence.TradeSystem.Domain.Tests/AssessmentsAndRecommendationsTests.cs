@@ -34,11 +34,9 @@ public sealed class AssessmentsAndRecommendationsTests
     [Fact]
     public void Assessment_Copies_Inputs_And_Deduplicates_ReadOnly_Reasons()
     {
-        var reasons = new List<ReasonCode> { ReasonCode.RiskWithinLimits };
         var assessment = PositionAssessment.Create(
             Inputs, new RuleVersion("assessment-v1"), RiskIncreasePolicyResult.Allowed(),
             [], Inputs.MarketCapturedAt, Inputs.MarketCapturedAt.AddHours(1));
-        reasons.Add(ReasonCode.PortfolioDataStale);
 
         assessment.PositionId.Should().Be(Inputs.PositionId);
         assessment.RuleVersion.Value.Should().Be("assessment-v1");
@@ -46,6 +44,71 @@ public sealed class AssessmentsAndRecommendationsTests
         assessment.ReasonCodes.Should().NotBeAssignableTo<List<ReasonCode>>();
         assessment.IsValidAt(assessment.CreatedAt).Should().BeTrue();
         assessment.IsValidAt(assessment.ValidUntil).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Decision_Vocabularies_Are_Explicit_And_Separate()
+    {
+        Enum.GetValues<PositionAction>().Should().Equal(
+            PositionAction.Hold, PositionAction.Watch, PositionAction.ProtectProfit,
+            PositionAction.Reduce, PositionAction.Close, PositionAction.MoveStop,
+            PositionAction.TakePartialProfit);
+        Enum.GetValues<AddDecision>().Should().Equal(
+            AddDecision.NotEvaluated, AddDecision.DoNotAdd, AddDecision.AddAllowed);
+        Enum.GetValues<RiskIncreaseDecision>().Should().Equal(
+            RiskIncreaseDecision.Allowed, RiskIncreaseDecision.Blocked);
+    }
+
+    [Fact]
+    public void Typed_Ids_And_Created_Entities_Are_Unique()
+    {
+        PositionAssessmentId.New().Should().NotBe(PositionAssessmentId.New());
+        RecommendationId.New().Should().NotBe(RecommendationId.New());
+
+        var firstAssessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var secondAssessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        firstAssessment.Id.Should().NotBe(secondAssessment.Id);
+
+        var firstRecommendation = CreateRecommendation(firstAssessment, AddDecision.NotEvaluated);
+        var secondRecommendation = CreateRecommendation(firstAssessment, AddDecision.NotEvaluated);
+        firstRecommendation.Id.Should().NotBe(secondRecommendation.Id);
+    }
+
+    [Fact]
+    public void Assessment_Timestamp_Boundaries_Are_Explicit()
+    {
+        FluentActions.Invoking(() => CreateAssessmentAt(Inputs.PositionObservedAt.AddTicks(-1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            Inputs.PortfolioCalculatedAt.AddTicks(-1), Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            Inputs.MarketCapturedAt.AddTicks(-1), Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+
+        var assessment = CreateAssessmentAt(Inputs.MarketCapturedAt);
+        assessment.CreatedAt.Should().Be(Inputs.MarketCapturedAt);
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            assessment.CreatedAt, assessment.CreatedAt))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            assessment.CreatedAt, assessment.CreatedAt.AddTicks(-1)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Assessment_IsValidAt_Covers_All_Boundaries()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        assessment.IsValidAt(assessment.CreatedAt).Should().BeTrue();
+        assessment.IsValidAt(assessment.CreatedAt.AddTicks(1)).Should().BeTrue();
+        assessment.IsValidAt(assessment.CreatedAt.AddTicks(-1)).Should().BeFalse();
+        assessment.IsValidAt(assessment.ValidUntil).Should().BeFalse();
+        assessment.IsValidAt(assessment.ValidUntil.AddTicks(1)).Should().BeFalse();
     }
 
     [Fact]
@@ -66,6 +129,32 @@ public sealed class AssessmentsAndRecommendationsTests
     {
         FluentActions.Invoking(() => PositionAssessment.Create(
             default, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            Inputs.MarketCapturedAt, Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Individual_Default_Input_Identities_Are_Rejected()
+    {
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            new PositionAssessmentInputVersions(
+                default, Inputs.ExchangeAccountId, Inputs.InstrumentId,
+                Inputs.PositionObservedAt, Inputs.PortfolioCalculatedAt, Inputs.MarketCapturedAt),
+            new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            Inputs.MarketCapturedAt, Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            new PositionAssessmentInputVersions(
+                Inputs.PositionId, default, Inputs.InstrumentId,
+                Inputs.PositionObservedAt, Inputs.PortfolioCalculatedAt, Inputs.MarketCapturedAt),
+            new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            Inputs.MarketCapturedAt, Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => PositionAssessment.Create(
+            new PositionAssessmentInputVersions(
+                Inputs.PositionId, Inputs.ExchangeAccountId, default,
+                Inputs.PositionObservedAt, Inputs.PortfolioCalculatedAt, Inputs.MarketCapturedAt),
+            new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
             Inputs.MarketCapturedAt, Inputs.MarketCapturedAt.AddHours(1)))
             .Should().Throw<ArgumentException>();
     }
@@ -131,7 +220,49 @@ public sealed class AssessmentsAndRecommendationsTests
     }
 
     [Fact]
-    public void Dismiss_Cannot_Precede_Acknowledgement_And_Is_Idempotent()
+    public void Recommendation_Creation_Boundaries_Are_Explicit()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        FluentActions.Invoking(() => CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, assessment.CreatedAt.AddTicks(-1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, assessment.ValidUntil))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => Recommendation.Create(
+            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            [], assessment.CreatedAt.AddMinutes(1), assessment.CreatedAt.AddMinutes(1)))
+            .Should().Throw<ArgumentException>();
+        Recommendation.Create(
+            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil)
+            .ValidUntil.Should().Be(assessment.ValidUntil);
+        FluentActions.Invoking(() => Recommendation.Create(
+            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil.AddTicks(1)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Undefined_Recommendation_Values_Are_Rejected()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        FluentActions.Invoking(() => Recommendation.Create(
+            assessment, (PositionAction)999, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
+            .Should().Throw<ArgumentOutOfRangeException>();
+        FluentActions.Invoking(() => Recommendation.Create(
+            assessment, PositionAction.Hold, (AddDecision)999, new RuleVersion("v1"),
+            [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
+            .Should().Throw<ArgumentOutOfRangeException>();
+        FluentActions.Invoking(() => Recommendation.Create(
+            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            [(ReasonCode)999], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
+            .Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Acknowledged_Recommendation_Cannot_Be_Dismissed_Before_AcknowledgedAt()
     {
         var recommendation = CreateRecommendation(
             CreateAssessment(RiskIncreasePolicyResult.Allowed()), AddDecision.NotEvaluated);
@@ -140,6 +271,9 @@ public sealed class AssessmentsAndRecommendationsTests
 
         FluentActions.Invoking(() => recommendation.Dismiss(recommendation.CreatedAt.AddMinutes(1)))
             .Should().Throw<InvalidOperationException>();
+        var dismissedAgain = FluentActions.Invoking(
+            () => recommendation.Dismiss(recommendation.CreatedAt.AddMinutes(1)));
+        dismissedAgain.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain("Dismiss");
         recommendation.Dismiss(acknowledgedAt);
         recommendation.Dismiss(recommendation.ValidUntil.AddHours(1));
         recommendation.DismissedAt.Should().Be(acknowledgedAt);
@@ -185,6 +319,34 @@ public sealed class AssessmentsAndRecommendationsTests
         var differentPosition = CreateRecommendation(differentAssessment, AddDecision.NotEvaluated);
         FluentActions.Invoking(() => current.SupersedeBy(differentPosition))
             .Should().Throw<InvalidOperationException>();
+
+        var atBoundary = CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, current.ValidUntil, assessment.ValidUntil);
+        FluentActions.Invoking(() => current.SupersedeBy(atBoundary))
+            .Should().Throw<InvalidOperationException>();
+        var afterBoundary = CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, current.ValidUntil.AddTicks(1), assessment.ValidUntil);
+        FluentActions.Invoking(() => current.SupersedeBy(afterBoundary))
+            .Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Supersede_Requires_Successor_Not_Before_Acknowledgement()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var current = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        var acknowledgedAt = current.CreatedAt.AddMinutes(5);
+        current.Acknowledge(acknowledgedAt);
+
+        var beforeAcknowledgement = CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, current.CreatedAt.AddMinutes(2));
+        FluentActions.Invoking(() => current.SupersedeBy(beforeAcknowledgement))
+            .Should().Throw<InvalidOperationException>();
+
+        var atAcknowledgement = CreateRecommendation(
+            assessment, AddDecision.NotEvaluated, acknowledgedAt);
+        current.SupersedeBy(atAcknowledgement);
+        current.SupersededAt.Should().Be(acknowledgedAt);
     }
 
     [Fact]
@@ -199,11 +361,19 @@ public sealed class AssessmentsAndRecommendationsTests
         expired.ExpireIfDue(expired.ValidUntil);
         FluentActions.Invoking(() => expired.Acknowledge(expired.CreatedAt)).Should().Throw<InvalidOperationException>();
         FluentActions.Invoking(() => expired.Dismiss(expired.CreatedAt)).Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => expired.SupersedeBy(
+            CreateRecommendation(assessment, AddDecision.NotEvaluated, expired.CreatedAt.AddMinutes(1))))
+            .Should().Throw<InvalidOperationException>();
 
         var superseded = CreateRecommendation(assessment, AddDecision.NotEvaluated);
         var successor = CreateRecommendation(assessment, AddDecision.NotEvaluated, superseded.CreatedAt.AddMinutes(1));
         superseded.SupersedeBy(successor);
+        FluentActions.Invoking(() => superseded.Acknowledge(superseded.CreatedAt))
+            .Should().Throw<InvalidOperationException>();
         FluentActions.Invoking(() => superseded.Dismiss(superseded.CreatedAt)).Should().Throw<InvalidOperationException>();
+        var acknowledgeSuperseded = FluentActions.Invoking(
+            () => superseded.Acknowledge(superseded.CreatedAt));
+        acknowledgeSuperseded.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain("Acknowledge");
     }
 
     [Fact]
@@ -220,8 +390,80 @@ public sealed class AssessmentsAndRecommendationsTests
         recommendation.IsEffectiveAt(recommendation.ValidUntil).Should().BeFalse();
     }
 
+    [Fact]
+    public void Acknowledged_Recommendation_Expires_At_Validity_Boundary()
+    {
+        var recommendation = CreateRecommendation(
+            CreateAssessment(RiskIncreasePolicyResult.Allowed()), AddDecision.NotEvaluated);
+        recommendation.Acknowledge(recommendation.CreatedAt);
+        recommendation.ExpireIfDue(recommendation.ValidUntil);
+
+        recommendation.Status.Should().Be(RecommendationStatus.Expired);
+        recommendation.ExpiredAt.Should().Be(recommendation.ValidUntil);
+    }
+
+    [Fact]
+    public void Recommendations_Do_Not_Expire_Before_Due_And_Terminal_Expiry_Is_Idempotent()
+    {
+        var active = CreateRecommendation(
+            CreateAssessment(RiskIncreasePolicyResult.Allowed()), AddDecision.NotEvaluated);
+        active.ExpireIfDue(active.ValidUntil.AddTicks(-1));
+        active.Status.Should().Be(RecommendationStatus.Active);
+        active.ExpiredAt.Should().BeNull();
+
+        var dismissed = CreateRecommendation(
+            CreateAssessment(RiskIncreasePolicyResult.Allowed()), AddDecision.NotEvaluated);
+        dismissed.Dismiss(dismissed.CreatedAt);
+        dismissed.ExpireIfDue(dismissed.ValidUntil.AddMinutes(1));
+        dismissed.Status.Should().Be(RecommendationStatus.Dismissed);
+        dismissed.ExpiredAt.Should().BeNull();
+
+        var supersededAssessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var superseded = CreateRecommendation(supersededAssessment, AddDecision.NotEvaluated);
+        var successor = CreateRecommendation(
+            supersededAssessment, AddDecision.NotEvaluated, superseded.CreatedAt.AddMinutes(1));
+        superseded.SupersedeBy(successor);
+        superseded.ExpireIfDue(superseded.ValidUntil.AddMinutes(1));
+        superseded.Status.Should().Be(RecommendationStatus.Superseded);
+        superseded.ExpiredAt.Should().BeNull();
+    }
+
+    [Fact]
+    public void Recommendation_IsEffectiveAt_Uses_Current_Status_Not_History()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var active = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        active.IsEffectiveAt(active.CreatedAt).Should().BeTrue();
+        active.IsEffectiveAt(active.CreatedAt.AddTicks(-1)).Should().BeFalse();
+        active.IsEffectiveAt(active.ValidUntil).Should().BeFalse();
+        active.IsEffectiveAt(active.ValidUntil.AddTicks(1)).Should().BeFalse();
+
+        var acknowledged = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        acknowledged.Acknowledge(acknowledged.CreatedAt);
+        acknowledged.IsEffectiveAt(acknowledged.CreatedAt).Should().BeTrue();
+
+        var dismissed = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        dismissed.Dismiss(dismissed.CreatedAt);
+        dismissed.IsEffectiveAt(dismissed.CreatedAt).Should().BeFalse();
+        dismissed.IsEffectiveAt(dismissed.CreatedAt.AddTicks(-1)).Should().BeFalse();
+
+        var superseded = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        var successor = CreateRecommendation(assessment, AddDecision.NotEvaluated, superseded.CreatedAt.AddMinutes(1));
+        superseded.SupersedeBy(successor);
+        superseded.IsEffectiveAt(superseded.CreatedAt).Should().BeFalse();
+
+        var expired = CreateRecommendation(assessment, AddDecision.NotEvaluated);
+        expired.ExpireIfDue(expired.ValidUntil);
+        expired.IsEffectiveAt(expired.CreatedAt).Should().BeFalse();
+    }
+
     private static PositionAssessment CreateAssessment(RiskIncreasePolicyResult result) =>
         CreateAssessment(Inputs, result);
+
+    private static PositionAssessment CreateAssessmentAt(DateTimeOffset createdAt) =>
+        PositionAssessment.Create(
+            Inputs, new RuleVersion("v1"), RiskIncreasePolicyResult.Allowed(), [],
+            createdAt, Inputs.MarketCapturedAt.AddHours(1));
 
     private static PositionAssessment CreateAssessment(
         PositionAssessmentInputVersions inputVersions, RiskIncreasePolicyResult result) =>
@@ -234,8 +476,12 @@ public sealed class AssessmentsAndRecommendationsTests
 
     private static Recommendation CreateRecommendation(
         PositionAssessment assessment, AddDecision addDecision, DateTimeOffset createdAt) =>
+        CreateRecommendation(assessment, addDecision, createdAt, assessment.ValidUntil.AddMinutes(-1));
+
+    private static Recommendation CreateRecommendation(
+        PositionAssessment assessment, AddDecision addDecision, DateTimeOffset createdAt, DateTimeOffset validUntil) =>
         Recommendation.Create(
             assessment, PositionAction.Hold, addDecision, new RuleVersion("policy-v1"),
             [], createdAt,
-            assessment.ValidUntil.AddMinutes(-1));
+            validUntil);
 }
