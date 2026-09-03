@@ -39,7 +39,8 @@ internal static class ToDomainTypeMapperExtensions
             p.RiskId,
             p.RiskLimitValue,
             p.CreateTime.HasValue ? new DateTimeOffset(p.CreateTime.Value, TimeSpan.Zero) : null,
-            p.UpdateTime.HasValue ? new DateTimeOffset(p.UpdateTime.Value, TimeSpan.Zero) : null);
+            p.UpdateTime.HasValue ? new DateTimeOffset(p.UpdateTime.Value, TimeSpan.Zero) : null,
+            (int)p.PositionIdx);
 
     public static LongShortRatioEntry MapLongShortRatioEntry(
         this BybitLongShortRatio e, string symbol, MarketCategory category) =>
