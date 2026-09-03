@@ -1,4 +1,4 @@
-namespace Intelligence.TradeSystem.Domain.Portfolio;
+namespace Intelligence.TradeSystem.Domain.Decisions;
 
 public enum ReasonCode
 {

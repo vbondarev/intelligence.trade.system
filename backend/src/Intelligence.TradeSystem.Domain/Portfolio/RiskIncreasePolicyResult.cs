@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Intelligence.TradeSystem.Domain.Decisions;
 
 namespace Intelligence.TradeSystem.Domain.Portfolio;
 
