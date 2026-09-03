@@ -36,18 +36,6 @@ public static class PositionReconciler
         var changes = new List<PositionChange>();
         var newPositions = new List<Position>();
 
-        // Freshness is independent of category and symbol scope, but reconciliation must never
-        // mutate a position belonging to a different exchange account.
-        foreach (var position in trackedPositions)
-        {
-            if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
-                continue;
-
-            var staleChange = position.RefreshFreshness(now, staleAfter);
-            if (staleChange is not null)
-                changes.Add(staleChange);
-        }
-
         bool InScope(Position position) =>
             position.ExchangePositionKey.ExchangeAccountId == exchangeAccountId &&
             position.MarketCategory == observation.Category &&
@@ -55,6 +43,21 @@ public static class PositionReconciler
              string.Equals(
                  position.ExchangePositionKey.InstrumentId.Value, observation.Symbol.Trim(),
                  StringComparison.OrdinalIgnoreCase));
+
+        void RefreshAccountFreshness()
+        {
+            // Freshness is independent of category and symbol scope, but reconciliation must
+            // never mutate a position belonging to a different exchange account.
+            foreach (var position in trackedPositions.Concat(newPositions))
+            {
+                if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
+                    continue;
+
+                var staleChange = position.RefreshFreshness(now, staleAfter);
+                if (staleChange is not null)
+                    changes.Add(staleChange);
+            }
+        }
 
         if (observation.Status == OpenPositionsObservationStatus.Failed)
         {
@@ -68,6 +71,7 @@ public static class PositionReconciler
                     changes.Add(change);
             }
 
+            RefreshAccountFreshness();
             return new PositionReconciliationResult(newPositions, changes, warnings);
         }
 
@@ -92,20 +96,20 @@ public static class PositionReconciler
                 continue;
             }
 
-            if (observation.Symbol is not null &&
-                !string.Equals(observed.Symbol.Trim(), observation.Symbol.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                hasMappingIssues = true;
-                warnings.Add(
-                    $"Skipped {observed.Symbol} ({observed.Category}): position symbol does not match observation symbol {observation.Symbol}.");
-                continue;
-            }
-
             if (!OpenPositionKeyMapper.TryMapKey(observed, exchangeAccountId, out var key, out var warning))
             {
                 hasMappingIssues = true;
                 if (warning is not null)
                     warnings.Add(warning);
+                continue;
+            }
+
+            if (observation.Symbol is not null &&
+                !string.Equals(key.InstrumentId.Value, observation.Symbol.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                hasMappingIssues = true;
+                warnings.Add(
+                    $"Skipped {observed.Symbol} ({observed.Category}): position symbol does not match observation symbol {observation.Symbol}.");
                 continue;
             }
 
@@ -196,6 +200,7 @@ public static class PositionReconciler
                 changes.Add(change);
         }
 
+        RefreshAccountFreshness();
         return new PositionReconciliationResult(newPositions, changes, warnings);
     }
 }

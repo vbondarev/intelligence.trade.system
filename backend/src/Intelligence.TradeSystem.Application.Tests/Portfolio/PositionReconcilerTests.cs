@@ -184,6 +184,23 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
+    public void Fresh_Observation_Does_Not_Create_Artificial_Stale_And_Recovered_Changes()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddHours(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddHours(12), [CreateOpenPosition()]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(12), StaleAfter);
+
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.LastObservedAt.Should().Be(T0.AddHours(12));
+        result.Changes.Should().NotContain(change =>
+            change.Kind == PositionChangeKind.MarkedStale ||
+            change.Kind == PositionChangeKind.Recovered);
+        result.Changes.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Unmappable_Position_In_An_Otherwise_Complete_Observation_Prevents_Closing()
     {
         var tracked = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");
@@ -224,6 +241,23 @@ public sealed class PositionReconcilerTests
         var result = PositionReconciler.Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+        btc.TrackingState.Should().Be(PositionTrackingState.Unknown);
+    }
+
+    [Fact]
+    public void Complete_Observation_With_Missing_Position_Symbol_Does_Not_Throw_Or_Infer_Closed()
+    {
+        var btc = CreateTrackedPosition(AccountA, symbol: "BTCUSDT");
+        var invalid = CreateOpenPosition(symbol: null!);
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, "BTCUSDT", T0.AddMinutes(1), [invalid]);
+        PositionReconciliationResult? result = null;
+
+        var act = () => result = PositionReconciler.Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
+
+        act.Should().NotThrow();
+        result!.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
         btc.TrackingState.Should().Be(PositionTrackingState.Unknown);
     }
