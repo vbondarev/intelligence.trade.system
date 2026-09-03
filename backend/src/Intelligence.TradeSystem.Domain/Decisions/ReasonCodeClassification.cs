@@ -1,6 +1,6 @@
 namespace Intelligence.TradeSystem.Domain.Decisions;
 
-internal static class ReasonCodeClassification
+public static class ReasonCodeClassification
 {
     public static bool IsPortfolioRiskReason(ReasonCode reason) => reason is
         ReasonCode.PortfolioDataIncomplete or

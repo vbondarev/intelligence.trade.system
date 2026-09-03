@@ -79,6 +79,7 @@ public sealed class Recommendation
                 "Portfolio risk reasons must be inherited from the assessment.", nameof(reasonCodes));
 
         var reasons = assessment.ReasonCodes
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
             .Concat(specificReasons)
             .Distinct()
             .ToArray();

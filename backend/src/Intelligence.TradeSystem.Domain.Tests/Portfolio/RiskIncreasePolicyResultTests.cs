@@ -45,6 +45,31 @@ public sealed class RiskIncreasePolicyResultTests
     }
 
     [Fact]
+    public void Portfolio_Risk_Reason_Classification_Is_Explicit()
+    {
+        Enum.GetValues<ReasonCode>()
+        .Should()
+        .OnlyContain(reason => ReasonCodeClassification.IsPortfolioRiskReason(reason));
+    }
+
+    [Fact]
+    public void Blocked_Accepts_All_Current_Blocking_Portfolio_Reasons()
+    {
+        var reasons = new[]
+        {
+        ReasonCode.PortfolioDataIncomplete,
+        ReasonCode.PortfolioDataStale,
+        ReasonCode.InsufficientFreeCapital,
+        ReasonCode.GrossExposureLimitExceeded,
+        ReasonCode.ConcentrationLimitExceeded,
+        };
+
+        var result = RiskIncreasePolicyResult.Blocked(reasons);
+
+        result.ReasonCodes.Should().BeEquivalentTo(reasons);
+    }
+
+    [Fact]
     public void ReasonCodes_Are_Actually_ReadOnly()
     {
         var result = RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]);
