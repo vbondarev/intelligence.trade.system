@@ -6,11 +6,13 @@ namespace Intelligence.TradeSystem.Domain.Identity;
 /// Ключ сопоставления наблюдаемой на бирже позиции с бизнес-позицией системы.
 /// </summary>
 /// <remarks>
-/// Это не замена <see cref="PositionId"/>. <see cref="PositionId"/> — идентичность сделки
-/// внутри Intelligence.TradeSystem, устойчивая к повторному открытию позиции.
-/// <see cref="ExchangePositionKey"/> — снимок координат позиции на бирже (аккаунт,
-/// инструмент, направление и <c>positionIdx</c>), используемый только для сопоставления
-/// с текущим состоянием биржи. Два ключа равны только при совпадении всех компонентов.
+/// Это не замена <see cref="PositionId"/>. <see cref="PositionId"/> — внутренний
+/// идентификатор одного жизненного цикла позиции: он не переиспользуется при её повторном
+/// открытии. <see cref="ExchangePositionKey"/> — ключ для сопоставления текущей наблюдаемой
+/// на бирже позиции (аккаунт, инструмент, направление и <c>positionIdx</c>) с бизнес-позицией
+/// системы. Совпадающий <see cref="ExchangePositionKey"/> после закрытия и последующего
+/// повторного открытия позиции не означает совпадающий <see cref="PositionId"/>.
+/// Два ключа равны только при совпадении всех компонентов.
 /// </remarks>
 public readonly record struct ExchangePositionKey
 {
@@ -44,13 +46,32 @@ public readonly record struct ExchangePositionKey
     /// <summary>
     /// Создаёт ключ сопоставления позиции с биржей.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="positionIdx"/> отрицателен.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="exchangeAccountId"/> или <paramref name="instrumentId"/> не инициализированы
+    /// (переданы значением по умолчанию для соответствующего typed identifier).
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="positionSide"/> равен <see cref="PositionSide.Unknown"/> или не является
+    /// определённым значением <see cref="PositionSide"/>, либо <paramref name="positionIdx"/> отрицателен.
+    /// </exception>
     public static ExchangePositionKey Create(
         ExchangeAccountId exchangeAccountId,
         InstrumentId instrumentId,
         PositionSide positionSide,
         int positionIdx)
     {
+        if (exchangeAccountId == default)
+            throw new ArgumentException(
+                "ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
+
+        if (instrumentId.Value is null)
+            throw new ArgumentException(
+                "InstrumentId must be initialized.", nameof(instrumentId));
+
+        if (positionSide is not (PositionSide.Long or PositionSide.Short))
+            throw new ArgumentOutOfRangeException(
+                nameof(positionSide), positionSide, "PositionSide must be either Long or Short.");
+
         if (positionIdx < 0)
             throw new ArgumentOutOfRangeException(
                 nameof(positionIdx), positionIdx, "PositionIdx cannot be negative.");

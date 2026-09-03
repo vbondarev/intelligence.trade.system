@@ -5,10 +5,12 @@ namespace Intelligence.TradeSystem.Domain.Identity;
 /// Intelligence.TradeSystem.
 /// </summary>
 /// <remarks>
-/// <see cref="PositionId"/> не является функцией от символа, стороны или <c>positionIdx</c>.
-/// Если позиция была закрыта, а затем на том же инструменте и с той же стороной снова
-/// открыта новая позиция — это два разных <see cref="PositionId"/>, даже если внешний
-/// ключ сопоставления с биржей (см. <see cref="ExchangePositionKey"/>) выглядит одинаково.
+/// <see cref="PositionId"/> идентифицирует один жизненный цикл позиции и не
+/// переиспользуется при её повторном открытии. Он не является функцией от символа,
+/// стороны или <c>positionIdx</c>. Если позиция была закрыта, а затем на том же
+/// инструменте и с той же стороной снова открыта новая позиция — это два разных
+/// <see cref="PositionId"/>, даже если ключ сопоставления с биржей (см.
+/// <see cref="ExchangePositionKey"/>) выглядит одинаково.
 /// </remarks>
 public readonly record struct PositionId
 {

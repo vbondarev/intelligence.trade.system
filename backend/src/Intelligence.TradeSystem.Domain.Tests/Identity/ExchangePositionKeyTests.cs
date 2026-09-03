@@ -78,4 +78,44 @@ public sealed class ExchangePositionKeyTests
 
         act.Should().NotThrow();
     }
+
+    [Fact]
+    public void Create_Rejects_Default_ExchangeAccountId()
+    {
+        var act = () => ExchangePositionKey.Create(
+            default,
+            InstrumentId.From("BTCUSDT"),
+            PositionSide.Long,
+            1);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Default_InstrumentId()
+    {
+        var act = () => ExchangePositionKey.Create(
+            ExchangeAccountId.New(),
+            default,
+            PositionSide.Long,
+            1);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Unknown_PositionSide()
+    {
+        var act = () => CreateKey(side: PositionSide.Unknown);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_Rejects_Undefined_PositionSide()
+    {
+        var act = () => CreateKey(side: (PositionSide)999);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
 }
