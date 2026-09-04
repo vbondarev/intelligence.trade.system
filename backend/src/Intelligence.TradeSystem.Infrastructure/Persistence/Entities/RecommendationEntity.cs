@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Domain.Decisions;
+﻿using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Recommendations;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
@@ -19,4 +19,5 @@ public sealed class RecommendationEntity
     public DateTimeOffset? SupersededAt { get; set; }
     public DateTimeOffset? ExpiredAt { get; set; }
     public Guid? SupersededByRecommendationId { get; set; }
+    public long Version { get; set; }
 }

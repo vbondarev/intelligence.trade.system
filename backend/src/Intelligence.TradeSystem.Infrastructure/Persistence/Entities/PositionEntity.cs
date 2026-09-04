@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Domain;
+﻿using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
@@ -26,4 +26,5 @@ public sealed class PositionEntity
     public DateTimeOffset LastObservedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public PositionTrackingState TrackingState { get; set; }
+    public long Version { get; set; }
 }
