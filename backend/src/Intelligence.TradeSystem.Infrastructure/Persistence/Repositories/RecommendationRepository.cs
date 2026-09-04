@@ -19,15 +19,21 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
 
         if (entity is null) return null;
 
-        var assessment = await dbContext.PositionAssessments
+        var assessmentEntity = await dbContext.PositionAssessments
             .AsNoTracking()
             .SingleOrDefaultAsync(
                 candidate => candidate.Id == entity.AssessmentId,
                 cancellationToken);
-        if (assessment is null)
+        if (assessmentEntity is null)
             throw new InvalidOperationException(
                 $"Recommendation {id} references missing assessment {entity.AssessmentId}.");
 
+        var assessmentReasons = await dbContext.PositionAssessmentReasons
+            .AsNoTracking()
+            .Where(reason => reason.PositionAssessmentId == assessmentEntity.Id)
+            .OrderBy(reason => reason.Sequence)
+            .ToArrayAsync(cancellationToken);
+        var assessment = PositionAssessmentMapper.ToDomain(assessmentEntity, assessmentReasons);
         var reasons = await dbContext.RecommendationReasons
             .AsNoTracking()
             .Where(reason => reason.RecommendationId == id.Value)

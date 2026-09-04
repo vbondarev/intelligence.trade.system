@@ -44,7 +44,7 @@ internal static class PositionChangeMapper
             PositionId.FromGuid(entity.PositionId),
             entity.Kind,
             entity.Cause,
-            entity.OccurredAt,
+            PersistenceDateTime.ToUtc(entity.OccurredAt),
             entity.TrackingStateAfter,
             ToSnapshot(
                 entity.BeforeSize,
@@ -78,7 +78,7 @@ internal static class PositionChangeMapper
                entity.Sequence == expected.Sequence &&
                entity.Kind == expected.Kind &&
                entity.Cause == expected.Cause &&
-               entity.OccurredAt == expected.OccurredAt &&
+               PersistenceDateTime.ToUtc(entity.OccurredAt) == expected.OccurredAt &&
                entity.TrackingStateAfter == expected.TrackingStateAfter &&
                entity.BeforeSize == expected.BeforeSize &&
                entity.BeforeAverageEntryPrice == expected.BeforeAverageEntryPrice &&
@@ -117,8 +117,7 @@ internal static class PositionChangeMapper
         decimal? stopLoss,
         decimal? trailingStop)
     {
-        if (!size.HasValue)
-            return null;
+        if (!size.HasValue) return null;
 
         return new PositionStateSnapshot(
             size.Value,

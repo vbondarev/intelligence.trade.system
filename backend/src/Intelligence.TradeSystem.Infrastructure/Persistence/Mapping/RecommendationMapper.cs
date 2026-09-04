@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
@@ -39,32 +40,33 @@ internal static class RecommendationMapper
     public static Recommendation ToDomain(
         RecommendationEntity entity,
         IReadOnlyCollection<RecommendationReasonEntity> reasons,
-        PositionAssessmentEntity assessment)
+        PositionAssessment assessment)
     {
         ArgumentNullException.ThrowIfNull(reasons);
         ArgumentNullException.ThrowIfNull(assessment);
+        if (entity.AssessmentId != assessment.Id.Value)
+            throw new InvalidOperationException(
+                $"Recommendation {entity.Id} references a different position assessment.");
+        if (entity.PositionId != assessment.PositionId.Value)
+            throw new InvalidOperationException(
+                $"Recommendation {entity.Id} references a different position.");
 
         return Recommendation.Restore(
             RecommendationId.FromGuid(entity.Id),
-            PositionAssessmentId.FromGuid(entity.AssessmentId),
-            PositionId.FromGuid(entity.PositionId),
+            assessment,
             entity.RecommendedAction,
             entity.AddDecision,
             RuleVersion.From(entity.PolicyVersion),
             reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode),
-            entity.CreatedAt,
-            entity.ValidUntil,
+            PersistenceDateTime.ToUtc(entity.CreatedAt),
+            PersistenceDateTime.ToUtc(entity.ValidUntil),
             entity.Status,
-            entity.AcknowledgedAt,
-            entity.DismissedAt,
-            entity.SupersededAt,
-            entity.ExpiredAt,
+            PersistenceDateTime.ToUtc(entity.AcknowledgedAt),
+            PersistenceDateTime.ToUtc(entity.DismissedAt),
+            PersistenceDateTime.ToUtc(entity.SupersededAt),
+            PersistenceDateTime.ToUtc(entity.ExpiredAt),
             entity.SupersededByRecommendationId is { } successor
                 ? RecommendationId.FromGuid(successor)
-                : null,
-            PositionId.FromGuid(assessment.PositionId),
-            assessment.PortfolioRiskDecision,
-            assessment.CreatedAt,
-            assessment.ValidUntil);
+                : null);
     }
 }

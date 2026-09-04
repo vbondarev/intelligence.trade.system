@@ -16,4 +16,20 @@ public sealed record PositionStateSnapshot(
     decimal? UnrealizedPnl,
     decimal? TakeProfit,
     decimal? StopLoss,
-    decimal? TrailingStop);
+    decimal? TrailingStop)
+{
+    /// <summary>
+    /// Сравнивает только поля, которые могут породить существенное изменение позиции.
+    /// PositionValue, MarkPrice и UnrealizedPnl обновляются наблюдением без записи истории.
+    /// </summary>
+    public bool HasSameMaterialStateAs(PositionStateSnapshot other) =>
+        other is not null &&
+        Size == other.Size &&
+        AverageEntryPrice == other.AverageEntryPrice &&
+        Leverage == other.Leverage &&
+        BreakEvenPrice == other.BreakEvenPrice &&
+        LiquidationPrice == other.LiquidationPrice &&
+        TakeProfit == other.TakeProfit &&
+        StopLoss == other.StopLoss &&
+        TrailingStop == other.TrailingStop;
+}

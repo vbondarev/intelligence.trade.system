@@ -116,6 +116,101 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Dynamic_observation_updates_current_position_without_creating_history()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var historyCount = position.Changes.Count;
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            var repository = new PositionRepository(dbContext);
+            await repository.SaveAsync(position);
+
+            var change = position.ApplyObservation(
+                position.Size,
+                T0.AddMinutes(1),
+                averageEntryPrice: position.AverageEntryPrice,
+                positionValue: 2000.000000000000000001m,
+                leverage: position.Leverage,
+                markPrice: 222.222222222222222222m,
+                breakEvenPrice: position.BreakEvenPrice,
+                liquidationPrice: position.LiquidationPrice,
+                unrealizedPnl: -7.777777777777777777m,
+                takeProfit: position.TakeProfit,
+                stopLoss: position.StopLoss,
+                trailingStop: position.TrailingStop);
+
+            Assert.Null(change);
+            Assert.Equal(historyCount, position.Changes.Count);
+            await repository.SaveAsync(position);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(position.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(position.Id, reloaded!.Id);
+        Assert.Equal(2000.000000000000000001m, reloaded.PositionValue);
+        Assert.Equal(222.222222222222222222m, reloaded.MarkPrice);
+        Assert.Equal(-7.777777777777777777m, reloaded.UnrealizedPnl);
+        Assert.Equal(position.AverageEntryPrice, reloaded.AverageEntryPrice);
+        Assert.Equal(position.Leverage, reloaded.Leverage);
+        Assert.Equal(position.TrackingState, reloaded.TrackingState);
+        Assert.Equal(historyCount, reloaded.Changes.Count);
+        Assert.Equal(position.Changes.ToArray(), reloaded.Changes.ToArray());
+    }
+
+    [Fact]
+    public async Task SubMicrosecond_position_timestamps_are_canonical_and_save_is_repeatable()
+    {
+        var account = CreateAccount();
+        var timestamp = T0.AddTicks(7);
+        var position = Position.Create(
+            ExchangePositionKey.Create(account.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 1),
+            MarketCategory.Linear,
+            1m,
+            timestamp,
+            timestamp,
+            averageEntryPrice: 100m,
+            leverage: 2m);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            var repository = new PositionRepository(dbContext);
+            await repository.SaveAsync(position);
+
+            var observedAt = timestamp.AddMinutes(1);
+            var change = position.ApplyObservation(
+                position.Size,
+                observedAt,
+                averageEntryPrice: 101m,
+                leverage: position.Leverage);
+            Assert.NotNull(change);
+            await repository.SaveAsync(position);
+
+            var persistedHistory = await dbContext.PositionChanges
+                .Where(item => item.PositionId == position.Id.Value)
+                .OrderBy(item => item.Sequence)
+                .ToArrayAsync();
+            Assert.Equal(CanonicalTimestamp(timestamp), persistedHistory[0].OccurredAt);
+            Assert.Equal(CanonicalTimestamp(observedAt), persistedHistory[1].OccurredAt);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(position.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(2, reloaded!.Changes.Count);
+        Assert.Equal(CanonicalTimestamp(timestamp), reloaded.Changes[0].OccurredAt);
+        Assert.Equal(CanonicalTimestamp(timestamp.AddMinutes(1)), reloaded.Changes[1].OccurredAt);
+        Assert.Equal(CanonicalTimestamp(timestamp), reloaded.FirstDetectedAt);
+        Assert.Equal(CanonicalTimestamp(timestamp.AddMinutes(1)), reloaded.LastObservedAt);
+    }
+
+    [Fact]
     public async Task Closed_lifecycle_can_be_followed_by_a_new_lifecycle_with_the_same_exchange_key()
     {
         var account = CreateAccount();
@@ -310,7 +405,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 T0.AddMinutes(1),
                 T0.AddMinutes(2)),
             new RuleVersion("assessment-v1"),
-            RiskIncreasePolicyResult.Allowed(),
+            RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]),
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
@@ -343,6 +438,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(recommendation.AddDecision, reloaded.AddDecision);
         Assert.Equal(recommendation.PolicyVersion, reloaded.PolicyVersion);
         Assert.Equal(recommendation.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+        Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
         Assert.Equal(RecommendationStatus.Acknowledged, reloaded.Status);
         Assert.Equal(recommendation.AcknowledgedAt, reloaded.AcknowledgedAt);
         Assert.Null(reloaded.DismissedAt);
@@ -411,6 +507,13 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             takeProfit: 120.123456789012345678m,
             stopLoss: 90.123456789012345678m,
             trailingStop: 95.123456789012345678m);
+
+    private static DateTimeOffset CanonicalTimestamp(DateTimeOffset value)
+    {
+        var utc = value.ToUniversalTime();
+        var ticks = utc.Ticks - utc.Ticks % TimeSpan.TicksPerMicrosecond;
+        return new DateTimeOffset(ticks, TimeSpan.Zero);
+    }
 
     private static async Task<string> ReadColumnType(
         TradeSystemDbContext dbContext,

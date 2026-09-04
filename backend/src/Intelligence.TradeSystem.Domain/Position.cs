@@ -247,8 +247,9 @@ public sealed class Position
         if (history[^1].TrackingStateAfter != trackingState)
             throw new ArgumentException("The latest position change does not match the tracking state.", nameof(changes));
 
-        if (history[^1].After != position.CreateSnapshot())
-            throw new ArgumentException("The latest position change does not match the current state.", nameof(changes));
+        if (!history[^1].After.HasSameMaterialStateAs(position.CreateSnapshot()))
+            throw new ArgumentException(
+                "The latest position change does not match the current material state.", nameof(changes));
 
         position._changes.AddRange(history);
         return position;

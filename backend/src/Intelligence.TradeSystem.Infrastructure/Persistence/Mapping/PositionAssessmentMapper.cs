@@ -45,12 +45,12 @@ internal static class PositionAssessmentMapper
                 PositionId.FromGuid(entity.PositionId),
                 ExchangeAccountId.FromGuid(entity.ExchangeAccountId),
                 InstrumentId.From(entity.InstrumentId),
-                entity.PositionObservedAt,
-                entity.PortfolioCalculatedAt,
-                entity.MarketCapturedAt),
+                PersistenceDateTime.ToUtc(entity.PositionObservedAt),
+                PersistenceDateTime.ToUtc(entity.PortfolioCalculatedAt),
+                PersistenceDateTime.ToUtc(entity.MarketCapturedAt)),
             RuleVersion.From(entity.RuleVersion),
-            entity.CreatedAt,
-            entity.ValidUntil,
+            PersistenceDateTime.ToUtc(entity.CreatedAt),
+            PersistenceDateTime.ToUtc(entity.ValidUntil),
             entity.PortfolioRiskDecision,
             reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode));
     }

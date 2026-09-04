@@ -96,6 +96,7 @@ public sealed class Recommendation
             .ToArray();
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
+        ValidateReasonInheritance(assessment, reasons);
 
         return new(
             RecommendationId.New(), assessment.Id, assessment.PositionId, recommendedAction, addDecision,
@@ -108,8 +109,7 @@ public sealed class Recommendation
     /// </summary>
     public static Recommendation Restore(
         RecommendationId id,
-        PositionAssessmentId assessmentId,
-        PositionId positionId,
+        PositionAssessment assessment,
         PositionAction recommendedAction,
         AddDecision addDecision,
         RuleVersion policyVersion,
@@ -121,34 +121,24 @@ public sealed class Recommendation
         DateTimeOffset? dismissedAt,
         DateTimeOffset? supersededAt,
         DateTimeOffset? expiredAt,
-        RecommendationId? supersededByRecommendationId,
-        PositionId assessmentPositionId,
-        RiskIncreaseDecision assessmentPortfolioRiskDecision,
-        DateTimeOffset assessmentCreatedAt,
-        DateTimeOffset assessmentValidUntil)
+        RecommendationId? supersededByRecommendationId)
     {
+        ArgumentNullException.ThrowIfNull(assessment);
         ArgumentNullException.ThrowIfNull(reasonCodes);
         if (id == default)
             throw new ArgumentException("RecommendationId must be initialized.", nameof(id));
-        if (assessmentId == default)
-            throw new ArgumentException("PositionAssessmentId must be initialized.", nameof(assessmentId));
-        if (positionId == default)
-            throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
-        if (assessmentPositionId != positionId)
-            throw new ArgumentException("Recommendation position must match its assessment.", nameof(positionId));
 
         ValidateEnum(recommendedAction, nameof(recommendedAction));
         ValidateEnum(addDecision, nameof(addDecision));
         ValidateEnum(status, nameof(status));
-        ValidateEnum(assessmentPortfolioRiskDecision, nameof(assessmentPortfolioRiskDecision));
         if (addDecision == AddDecision.AddAllowed &&
-            assessmentPortfolioRiskDecision == RiskIncreaseDecision.Blocked)
+            assessment.PortfolioRiskDecision == RiskIncreaseDecision.Blocked)
             throw new InvalidOperationException("A blocked portfolio risk decision cannot produce AddAllowed.");
         if (string.IsNullOrWhiteSpace(policyVersion.Value))
             throw new ArgumentException("PolicyVersion must be initialized.", nameof(policyVersion));
-        if (createdAt < assessmentCreatedAt || createdAt >= assessmentValidUntil)
+        if (createdAt < assessment.CreatedAt || createdAt >= assessment.ValidUntil)
             throw new ArgumentException("CreatedAt must be within the assessment validity window.", nameof(createdAt));
-        if (validUntil <= createdAt || validUntil > assessmentValidUntil)
+        if (validUntil <= createdAt || validUntil > assessment.ValidUntil)
             throw new ArgumentException("Recommendation validity window is invalid.", nameof(validUntil));
 
         var reasons = reasonCodes.ToArray();
@@ -158,6 +148,7 @@ public sealed class Recommendation
             throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
         if (reasons.Distinct().Count() != reasons.Length)
             throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
+        ValidateReasonInheritance(assessment, reasons);
 
         ValidateLifecycle(
             id,
@@ -172,8 +163,8 @@ public sealed class Recommendation
 
         return new(
             id,
-            assessmentId,
-            positionId,
+            assessment.Id,
+            assessment.PositionId,
             recommendedAction,
             addDecision,
             policyVersion,
@@ -261,6 +252,29 @@ public sealed class Recommendation
     {
         if (!Enum.IsDefined(value))
             throw new ArgumentOutOfRangeException(name, value, "Value must be defined.");
+    }
+
+    private static void ValidateReasonInheritance(
+        PositionAssessment assessment,
+        IReadOnlyList<ReasonCode> reasons)
+    {
+        var inheritedReasons = assessment.ReasonCodes
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .ToArray();
+        var persistedInheritedReasons = reasons
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .ToArray();
+
+        if (!persistedInheritedReasons.SequenceEqual(inheritedReasons))
+            throw new ArgumentException(
+                "Recommendation portfolio-risk reasons must match its assessment.");
+
+        var specificReasons = reasons
+            .Where(reason => !ReasonCodeClassification.IsPortfolioRiskReason(reason))
+            .ToArray();
+        if (!reasons.SequenceEqual(inheritedReasons.Concat(specificReasons)))
+            throw new ArgumentException(
+                "Recommendation reasons must contain inherited reasons before specific reasons.");
     }
 
     private static void ValidateLifecycle(

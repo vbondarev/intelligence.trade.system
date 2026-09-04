@@ -88,7 +88,7 @@ internal static class PortfolioStateMapper
                     position.MarkPrice,
                     position.LiquidationPrice,
                     position.Leverage,
-                    position.LastObservedAt);
+                    PersistenceDateTime.ToUtc(position.LastObservedAt));
             })
             .ToArray();
 
@@ -98,9 +98,9 @@ internal static class PortfolioStateMapper
             new PortfolioCapitalState(
                 entity.TotalEquity,
                 entity.AvailableCapital,
-                entity.CapitalObservedAt,
+                PersistenceDateTime.ToUtc(entity.CapitalObservedAt),
                 entity.TotalWalletBalance),
-            entity.CalculatedAt,
+            PersistenceDateTime.ToUtc(entity.CalculatedAt),
             entity.StaleAfter);
     }
 }

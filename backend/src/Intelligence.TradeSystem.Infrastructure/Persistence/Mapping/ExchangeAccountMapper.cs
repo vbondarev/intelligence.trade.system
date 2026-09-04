@@ -24,6 +24,6 @@ internal static class ExchangeAccountMapper
             entity.ExchangeId,
             entity.ConnectionStatus,
             entity.Capabilities,
-            entity.LastSyncedAt,
+            PersistenceDateTime.ToUtc(entity.LastSyncedAt),
             entity.LastError);
 }
