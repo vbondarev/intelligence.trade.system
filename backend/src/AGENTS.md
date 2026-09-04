@@ -59,6 +59,12 @@
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
 - Stage B domain state can be persisted, but it is not exposed through a user API or connected to synchronization; do not treat persistence as a completed user workflow.
 
+## Authentication architecture
+- The Web MVP authentication decision is documented in `docs/adr/0001-authentication-strategy.md`.
+- Browser authentication uses ASP.NET Core Identity with a secure HttpOnly cookie; do not invent custom JWT/refresh-token infrastructure without a new ADR.
+- Domain `UserId` is the stable business identifier and must not be replaced with email, username, or display name.
+- Cookie-authenticated state-changing endpoints require CSRF protection, and REST plus browser SignalR must use the same authenticated principal.
+
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.
 - Stage B types in the `Intelligence.TradeSystem.Domain` project root and its `History`, `Portfolio`, `Assessments`, `Recommendations`, `Decisions`, and `Identity` directories are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.

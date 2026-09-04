@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 1.6
+Версия документа: 1.7
 Дата актуализации: 4 сентября 2026 года  
-Проверенная ветка: `task/53-add-optimistic-concurrency` (база `develop`)
-Последний учтённый PR: C3 — [#54 «#53: Добавлена оптимистическая конкурентность и защита от потери обновлений»](https://github.com/vbondarev/intelligence.trade.system/pull/54)
+Проверенная ветка: `task/55-add-authentication-adr` (база `develop`)
+Последний учтённый PR: C-05 — [#55 «Принят ADR по способу аутентификации пользователей»](https://github.com/vbondarev/intelligence.trade.system/pull/55)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -32,6 +32,7 @@
 7. Детерминированное ядро формирует оценку и действие; ИИ только объясняет готовое решение.
 8. Схема `llm-payload` версии `1.0` сохраняется для изолированного публичного сценария BTC Daily Check до отдельного решения о его миграции.
 9. Автоматическое открытие, усреднение и закрытие сделок не входят в первый MVP.
+10. Для первого Web MVP принят ASP.NET Core Identity с cookie authentication и защищённой HttpOnly cookie; REST и будущий browser SignalR должны использовать один authenticated principal.
 
 ## 3. Обозначения статуса
 
@@ -157,7 +158,7 @@
 | C-02 | Подключить PostgreSQL и миграции | ✅ | Чистая PostgreSQL база разворачивается первой содержательной migration; design-time factory поддерживает list/update |
 | C-03 | Сохранять аккаунты, позиции, версии, портфели, оценки и рекомендации | ✅ | Состояние и история восстанавливаются после перезапуска через Application repository ports |
 | C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
-| C-05 | Принять отдельное ADR по способу входа | ⬜ | Один способ авторизации работает для REST и SignalR |
+| C-05 | Принять отдельное ADR по способу входа | ✅ | ADR принят: для Web MVP выбран единый способ аутентификации, совместимый с REST и browser SignalR; runtime-интеграция проверяется при реализации пользовательского API и SignalR |
 | C-06 | Реализовать разграничение данных по `UserId` | ⬜ | Пользователь не может получить чужие данные |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
@@ -443,6 +444,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-04 | 1.7 | Принят ADR-0001 по аутентификации пользователей (C-05): для первого Web MVP выбраны ASP.NET Core Identity и secure HttpOnly cookie, с единым authenticated principal для REST и будущего browser SignalR; зафиксированы CSRF, cookie security, стабильный `UserId`, публичные и приватные endpoints, а также отложенные native/OIDC-сценарии. Runtime auth, user isolation, Bybit security и SignalR остаются отдельными этапами. |
 | 2026-09-04 | 1.6 | Реализована оптимистическая конкурентность (C-04): persistence-neutral ConcurrencyVersion/Versioned<T> и ConcurrencyConflictException в Application; GetByIdAsync/SaveAsync репозиториев ExchangeAccount, Position и Recommendation переведены на compare-and-swap по версии (без retry); добавлена миграция AddConcurrencyVersion с безопасным backfill существующих строк; добавлены детерминированные PostgreSQL-тесты на конфликт версий, откат истории позиции при устаревшей записи, dynamic-only обновления, последовательные версии, blind overwrite и удалённую строку. C-04 завершён; auth, user isolation и security остаются в следующих PR. |
 | 2026-09-04 | 1.5 | В PR #52 исправлены восстановление dynamic-only состояния позиции, канонизация PostgreSQL timestamps и валидация inherited reasons для Assessment/Recommendation. C-02 и C-03 остаются завершёнными, C-08 выполнен частично; concurrency, auth, user isolation и security остаются в следующих PR. |
 | 2026-09-04 | 1.4 | Добавлено постоянное relational-хранение доменного состояния: migrations, repository ports, persistence entities, explicit rehydration и PostgreSQL Testcontainers round-trip tests. C-02 и C-03 завершены, C-08 выполнен частично; concurrency, auth и user isolation остаются в следующих PR. |
