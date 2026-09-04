@@ -173,6 +173,7 @@ Backend API — источник бизнес-истины
 | `Intelligence.TradeSystem.Application` | Прикладные сценарии и порты для внешних возможностей |
 | `Intelligence.TradeSystem.MarketIntelligence` | Расчёты, признаки и снимки публичного рынка |
 | `Intelligence.TradeSystem.Exchanges` | Реализации интеграций с биржами; сейчас основной adapter — Bybit |
+| `Intelligence.TradeSystem.Infrastructure` | PostgreSQL/EF Core и техническая граница постоянного хранения |
 | `Intelligence.TradeSystem.Api` | HTTP API и composition root |
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
@@ -305,6 +306,7 @@ Endpoint сохраняется ради совместимости и отла�
 - .NET 10 SDK;
 - доступ к интернету для получения публичных данных Bybit;
 - Docker — если используется контейнерный запуск;
+- PostgreSQL — если используется Docker Compose или Aspire;
 - внешняя Docker-сеть `trade-agent-network` — для текущего `backend/compose.yaml`.
 
 Публичный рыночный анализ не должен требовать пользовательских API-ключей Bybit. Приватные credentials понадобятся только для будущих сценариев чтения конкретного аккаунта.
@@ -351,7 +353,7 @@ docker network create trade-agent-network
 docker compose up --build api
 ```
 
-API-контейнер публикуется на порту `8080`.
+Команда запускает API и PostgreSQL в общей сети `trade-agent-network`. API-контейнер публикуется на порту `8080`.
 
 ---
 
@@ -415,7 +417,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 - основной фактически работающий внешний сценарий сейчас — публичный рыночный анализ;
 - бизнес-домен этапа B работает только в памяти и пока не подключён к пользовательскому API;
 - полноценного пользовательского аккаунта и периодической синхронизации позиций пока нет;
-- PostgreSQL и постоянное хранение ещё не реализованы;
+- инфраструктурная граница PostgreSQL и базовый EF Core `DbContext` подготовлены, но схема и постоянное хранение доменных сущностей ещё не реализованы;
 - детерминированный сервис, который формирует оценки и рекомендации из рыночного и портфельного контекста, ещё не реализован;
 - React-клиент ещё не создан;
 - BTC Daily Check остаётся отдельным экспериментальным публичным сценарием;
