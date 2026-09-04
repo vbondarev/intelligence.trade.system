@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Domain;
+﻿using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 
@@ -11,4 +11,5 @@ public sealed class ExchangeAccountEntity
     public ExchangeAccountCapabilities Capabilities { get; set; }
     public DateTimeOffset? LastSyncedAt { get; set; }
     public string? LastError { get; set; }
+    public long Version { get; set; }
 }

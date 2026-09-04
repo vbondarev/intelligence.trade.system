@@ -1,3 +1,4 @@
+﻿using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Recommendations;
@@ -9,7 +10,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : IRecommendationRepository
 {
-    public async Task<Recommendation?> GetByIdAsync(
+    public async Task<Versioned<Recommendation>?> GetByIdAsync(
         RecommendationId id,
         CancellationToken cancellationToken = default)
     {
@@ -40,11 +41,13 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             .OrderBy(reason => reason.Sequence)
             .ToArrayAsync(cancellationToken);
 
-        return RecommendationMapper.ToDomain(entity, reasons, assessment);
+        return new Versioned<Recommendation>(
+            RecommendationMapper.ToDomain(entity, reasons, assessment), new ConcurrencyVersion(entity.Version));
     }
 
-    public async Task SaveAsync(
+    public async Task<ConcurrencyVersion> SaveAsync(
         Recommendation recommendation,
+        ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(recommendation);
@@ -64,6 +67,13 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
                 .SingleOrDefaultAsync(entity => entity.Id == mapped.Id, cancellationToken);
         }
 
+        if (expectedVersion is null && existing is not null)
+            throw new ConcurrencyConflictException(
+                $"Recommendation {recommendation.Id} already exists and cannot be inserted again.");
+        if (expectedVersion is not null && existing is null)
+            throw new ConcurrencyConflictException(
+                $"Recommendation {recommendation.Id} was deleted concurrently and cannot be updated.");
+
         var persistedReasons = existing is null
             ? []
             : await dbContext.RecommendationReasons
@@ -77,18 +87,45 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
                 recommendation.ReasonCodes,
                 recommendation.Id);
 
+        ConcurrencyVersion newVersion;
         if (existing is null)
+        {
+            newVersion = ConcurrencyVersion.Initial;
+            mapped.Version = newVersion.Value;
             dbContext.Recommendations.Add(mapped);
-        else if (tracked is not null)
-            tracked.CurrentValues.SetValues(mapped);
+        }
         else
-            dbContext.Recommendations.Update(mapped);
+        {
+            newVersion = expectedVersion!.Value.Next();
+            mapped.Version = newVersion.Value;
+            if (tracked is not null)
+            {
+                tracked.CurrentValues.SetValues(mapped);
+                tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
+            }
+            else
+            {
+                dbContext.Recommendations.Update(mapped);
+                var entry = dbContext.Entry(mapped);
+                entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
+            }
+        }
 
         if (existing is null)
             dbContext.RecommendationReasons.AddRange(
                 RecommendationMapper.ToReasonEntities(recommendation));
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException(
+                $"Recommendation {recommendation.Id} was modified or deleted concurrently.", exception);
+        }
+
+        return newVersion;
     }
 
     private static void EnsureReasonsMatch(

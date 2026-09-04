@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+﻿using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -8,7 +8,8 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
 {
     public void Configure(EntityTypeBuilder<RecommendationEntity> builder)
     {
-        builder.ToTable("recommendations");
+        builder.ToTable("recommendations", table => table.HasCheckConstraint(
+            "ck_recommendations_version_positive", "version > 0"));
         builder.HasKey(recommendation => recommendation.Id);
 
         builder.Property(recommendation => recommendation.Id)
@@ -61,6 +62,13 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
         builder.Property(recommendation => recommendation.SupersededByRecommendationId)
             .HasColumnName("superseded_by_recommendation_id")
             .HasColumnType("uuid");
+
+        builder.Property(recommendation => recommendation.Version)
+            .HasColumnName("version")
+            .HasColumnType("bigint")
+            .HasDefaultValue(1L)
+            .IsConcurrencyToken()
+            .IsRequired();
 
         builder.HasOne<PositionAssessmentEntity>()
             .WithMany()

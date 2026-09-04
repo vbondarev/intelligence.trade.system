@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+﻿using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -8,8 +8,11 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<PositionEnt
 {
     public void Configure(EntityTypeBuilder<PositionEntity> builder)
     {
-        builder.ToTable("positions", table => table.HasCheckConstraint(
-            "ck_positions_position_idx_non_negative", "position_idx >= 0"));
+        builder.ToTable("positions", table =>
+        {
+            table.HasCheckConstraint("ck_positions_position_idx_non_negative", "position_idx >= 0");
+            table.HasCheckConstraint("ck_positions_version_positive", "version > 0");
+        });
         builder.HasKey(position => position.Id);
 
         builder.Property(position => position.Id)
@@ -60,6 +63,13 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<PositionEnt
             .HasColumnName("tracking_state")
             .HasConversion<string>()
             .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(position => position.Version)
+            .HasColumnName("version")
+            .HasColumnType("bigint")
+            .HasDefaultValue(1L)
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.HasOne<ExchangeAccountEntity>()

@@ -1,3 +1,4 @@
+﻿using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -9,7 +10,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositionRepository
 {
-    public async Task<Position?> GetByIdAsync(
+    public async Task<Versioned<Position>?> GetByIdAsync(
         PositionId id,
         CancellationToken cancellationToken = default)
     {
@@ -25,11 +26,13 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             .OrderBy(change => change.Sequence)
             .ToArrayAsync(cancellationToken);
 
-        return PositionMapper.ToDomain(entity, changes);
+        return new Versioned<Position>(
+            PositionMapper.ToDomain(entity, changes), new ConcurrencyVersion(entity.Version));
     }
 
-    public async Task SaveAsync(
+    public async Task<ConcurrencyVersion> SaveAsync(
         Position position,
+        ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(position);
@@ -48,6 +51,13 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                 .AsNoTracking()
                 .SingleOrDefaultAsync(entity => entity.Id == mapped.Id, cancellationToken);
         }
+
+        if (expectedVersion is null && existing is not null)
+            throw new ConcurrencyConflictException(
+                $"Position {position.Id} already exists and cannot be inserted again.");
+        if (expectedVersion is not null && existing is null)
+            throw new ConcurrencyConflictException(
+                $"Position {position.Id} was deleted concurrently and cannot be updated.");
 
         var persistedChanges = existing is null
             ? []
@@ -69,17 +79,32 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                     $"Position {position.Id} history is not an append-only continuation.");
         }
 
+        // The version CAS check is set up before any new history rows are staged, so a
+        // failed concurrency check rolls back the whole SaveChanges call and no history
+        // is appended by a stale writer.
+        ConcurrencyVersion newVersion;
         if (existing is null)
         {
+            newVersion = ConcurrencyVersion.Initial;
+            mapped.Version = newVersion.Value;
             dbContext.Positions.Add(mapped);
-        }
-        else if (tracked is not null)
-        {
-            PositionMapper.ApplyToEntity(tracked.Entity, position);
         }
         else
         {
-            dbContext.Positions.Update(mapped);
+            newVersion = expectedVersion!.Value.Next();
+            mapped.Version = newVersion.Value;
+            if (tracked is not null)
+            {
+                PositionMapper.ApplyToEntity(tracked.Entity, position);
+                tracked.Entity.Version = mapped.Version;
+                tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
+            }
+            else
+            {
+                dbContext.Positions.Update(mapped);
+                var entry = dbContext.Entry(mapped);
+                entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
+            }
         }
 
         var newChanges = position.Changes
@@ -88,6 +113,16 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                 change, persistedChanges.Length + index + 1));
         dbContext.PositionChanges.AddRange(newChanges);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException(
+                $"Position {position.Id} was modified or deleted concurrently.", exception);
+        }
+
+        return newVersion;
     }
 }

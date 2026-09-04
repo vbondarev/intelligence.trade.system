@@ -1,4 +1,4 @@
-using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+﻿using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -8,7 +8,8 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
 {
     public void Configure(EntityTypeBuilder<ExchangeAccountEntity> builder)
     {
-        builder.ToTable("exchange_accounts");
+        builder.ToTable("exchange_accounts", table => table.HasCheckConstraint(
+            "ck_exchange_accounts_version_positive", "version > 0"));
         builder.HasKey(account => account.Id);
 
         builder.Property(account => account.Id)
@@ -39,5 +40,11 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
         builder.Property(account => account.LastError)
             .HasColumnName("last_error")
             .HasMaxLength(2000);
+        builder.Property(account => account.Version)
+            .HasColumnName("version")
+            .HasColumnType("bigint")
+            .HasDefaultValue(1L)
+            .IsConcurrencyToken()
+            .IsRequired();
     }
 }
