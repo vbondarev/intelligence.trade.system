@@ -7,29 +7,37 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
-        .WithDatabase("tradesystem")
+    private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
+        .WithDatabase("tradesystem_migrations")
         .WithUsername("tradesystem")
         .WithPassword("tradesystem")
         .Build();
 
-    public Task InitializeAsync() => _postgres.StartAsync();
+    public Task InitializeAsync() => postgres.StartAsync();
 
-    public async Task DisposeAsync() => await _postgres.DisposeAsync();
+    public async Task DisposeAsync() => await postgres.DisposeAsync();
 
     [Fact]
-    public async Task DbContext_connects_to_the_PostgreSql_container()
+    public async Task Migrations_apply_to_an_empty_database_without_pending_migrations()
     {
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
             .UseNpgsql(
-                _postgres.GetConnectionString(),
+                postgres.GetConnectionString(),
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(
                     typeof(TradeSystemDbContext).Assembly.GetName().Name))
             .Options;
 
         await using var dbContext = new TradeSystemDbContext(options);
 
-        Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
-        Assert.True(await dbContext.Database.CanConnectAsync());
+        Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());
+        await dbContext.Database.MigrateAsync();
+        Assert.NotEmpty(await dbContext.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+
+        await dbContext.Database.MigrateAsync("0");
+        Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());
+
+        await dbContext.Database.MigrateAsync();
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
     }
 }

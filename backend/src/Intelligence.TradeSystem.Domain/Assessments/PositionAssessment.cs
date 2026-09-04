@@ -64,6 +64,7 @@ public sealed class PositionAssessment
 
         var reasons = portfolioRiskResult.ReasonCodes.Concat(additionalReasons).Distinct().ToArray();
         ValidateReasons(reasons);
+        ValidatePortfolioRiskConsistency(portfolioRiskResult.Decision, reasons);
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(additionalReasonCodes));
 
@@ -74,6 +75,52 @@ public sealed class PositionAssessment
             createdAt,
             validUntil,
             portfolioRiskResult.Decision,
+            new ReadOnlyCollection<ReasonCode>(reasons));
+    }
+
+    /// <summary>
+    /// Восстанавливает ранее сохранённую оценку с исходным идентификатором и входными версиями.
+    /// </summary>
+    public static PositionAssessment Restore(
+        PositionAssessmentId id,
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RiskIncreaseDecision portfolioRiskDecision,
+        IEnumerable<ReasonCode> reasonCodes)
+    {
+        ArgumentNullException.ThrowIfNull(reasonCodes);
+        if (id == default)
+            throw new ArgumentException("PositionAssessmentId must be initialized.", nameof(id));
+
+        inputVersions.Validate();
+        ValidateRuleVersion(ruleVersion);
+
+        if (createdAt < inputVersions.PositionObservedAt ||
+            createdAt < inputVersions.PortfolioCalculatedAt ||
+            createdAt < inputVersions.MarketCapturedAt)
+            throw new ArgumentException("CreatedAt cannot precede an input observation.", nameof(createdAt));
+        if (validUntil <= createdAt)
+            throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
+        if (!Enum.IsDefined(portfolioRiskDecision))
+            throw new ArgumentOutOfRangeException(nameof(portfolioRiskDecision));
+
+        var reasons = reasonCodes.ToArray();
+        ValidateReasons(reasons);
+        if (reasons.Length == 0)
+            throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
+        if (reasons.Distinct().Count() != reasons.Length)
+            throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
+        ValidatePortfolioRiskConsistency(portfolioRiskDecision, reasons);
+
+        return new(
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
+            portfolioRiskDecision,
             new ReadOnlyCollection<ReasonCode>(reasons));
     }
 
@@ -89,5 +136,28 @@ public sealed class PositionAssessment
     {
         if (reasons.Any(reason => !Enum.IsDefined(reason)))
             throw new ArgumentOutOfRangeException(nameof(reasons), "Reason code must be defined.");
+    }
+
+    private static void ValidatePortfolioRiskConsistency(
+        RiskIncreaseDecision decision,
+        IEnumerable<ReasonCode> reasons)
+    {
+        var portfolioRiskReasons = reasons
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .ToArray();
+
+        switch (decision)
+        {
+            case RiskIncreaseDecision.Allowed:
+                if (!portfolioRiskReasons.SequenceEqual(RiskIncreasePolicyResult.Allowed().ReasonCodes))
+                    throw new ArgumentException(
+                        "Allowed assessments must contain exactly the RiskWithinLimits reason.");
+                break;
+            case RiskIncreaseDecision.Blocked:
+                _ = RiskIncreasePolicyResult.Blocked(portfolioRiskReasons);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(decision), decision, "Risk decision must be defined.");
+        }
     }
 }

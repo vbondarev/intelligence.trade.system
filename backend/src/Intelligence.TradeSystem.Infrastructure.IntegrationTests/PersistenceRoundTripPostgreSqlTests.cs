@@ -1,0 +1,573 @@
+using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Assessments;
+using Intelligence.TradeSystem.Domain.Decisions;
+using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Recommendations;
+using Intelligence.TradeSystem.Domain.Snapshots;
+using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
+
+[Collection("PostgreSql")]
+public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixture)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task DbContext_connects_to_the_PostgreSql_container()
+    {
+        await using var dbContext = await CreateMigratedContext();
+
+        Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
+        Assert.True(await dbContext.Database.CanConnectAsync());
+    }
+
+    [Fact]
+    public async Task ExchangeAccount_round_trips_through_a_new_context()
+    {
+        var account = CreateAccount();
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            var repository = new ExchangeAccountRepository(dbContext);
+            await repository.SaveAsync(account);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new ExchangeAccountRepository(reloadedContext).GetByIdAsync(account.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(account.Id, reloaded!.Id);
+        Assert.Equal(account.UserId, reloaded.UserId);
+        Assert.Equal(account.ExchangeId, reloaded.ExchangeId);
+        Assert.Equal(account.ConnectionStatus, reloaded.ConnectionStatus);
+        Assert.Equal(account.Capabilities, reloaded.Capabilities);
+        Assert.Equal(account.LastSyncedAt, reloaded.LastSyncedAt);
+        Assert.Equal(account.LastError, reloaded.LastError);
+    }
+
+    [Fact]
+    public async Task Position_round_trips_with_append_only_history_and_exact_decimals()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            var repository = new PositionRepository(dbContext);
+            await repository.SaveAsync(position);
+
+            position.ApplyObservation(
+                2.123456789012345678m,
+                T0.AddMinutes(1),
+                averageEntryPrice: 101.123456789012345678m,
+                positionValue: 2469.135802469135802468m,
+                leverage: 3.25m,
+                markPrice: 102.123456789012345678m,
+                unrealizedPnl: -12.345678901234567890m);
+            position.MarkUnknown(T0.AddMinutes(2));
+            position.ApplyObservation(
+                1.5m,
+                T0.AddMinutes(3),
+                averageEntryPrice: 100.5m,
+                positionValue: 1800.000000000000000001m,
+                leverage: 3m,
+                markPrice: 99.5m,
+                unrealizedPnl: -0.000000000000000001m);
+            position.Close(T0.AddMinutes(4));
+            await repository.SaveAsync(position);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(position.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(position.Id, reloaded!.Id);
+        Assert.Equal(position.ExchangePositionKey, reloaded.ExchangePositionKey);
+        Assert.Equal(position.MarketCategory, reloaded.MarketCategory);
+        Assert.Equal(position.Size, reloaded.Size);
+        Assert.Equal(position.AverageEntryPrice, reloaded.AverageEntryPrice);
+        Assert.Equal(position.PositionValue, reloaded.PositionValue);
+        Assert.Equal(position.Leverage, reloaded.Leverage);
+        Assert.Equal(position.MarkPrice, reloaded.MarkPrice);
+        Assert.Equal(position.BreakEvenPrice, reloaded.BreakEvenPrice);
+        Assert.Equal(position.LiquidationPrice, reloaded.LiquidationPrice);
+        Assert.Equal(position.UnrealizedPnl, reloaded.UnrealizedPnl);
+        Assert.Equal(position.TakeProfit, reloaded.TakeProfit);
+        Assert.Equal(position.StopLoss, reloaded.StopLoss);
+        Assert.Equal(position.TrailingStop, reloaded.TrailingStop);
+        Assert.Equal(position.FirstDetectedAt, reloaded.FirstDetectedAt);
+        Assert.Equal(position.LastObservedAt, reloaded.LastObservedAt);
+        Assert.Equal(position.ClosedAt, reloaded.ClosedAt);
+        Assert.Equal(position.TrackingState, reloaded.TrackingState);
+        Assert.Equal(position.Changes.ToArray(), reloaded.Changes.ToArray());
+
+        var persistedHistory = await reloadedContext.PositionChanges
+            .Where(change => change.PositionId == position.Id.Value)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync();
+        Assert.Equal(position.Changes.Count, persistedHistory.Length);
+        Assert.Equal(Enumerable.Range(1, position.Changes.Count), persistedHistory.Select(change => change.Sequence));
+    }
+
+    [Fact]
+    public async Task Dynamic_observation_updates_current_position_without_creating_history()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var historyCount = position.Changes.Count;
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            var repository = new PositionRepository(dbContext);
+            await repository.SaveAsync(position);
+
+            var change = position.ApplyObservation(
+                position.Size,
+                T0.AddMinutes(1),
+                averageEntryPrice: position.AverageEntryPrice,
+                positionValue: 2000.000000000000000001m,
+                leverage: position.Leverage,
+                markPrice: 222.222222222222222222m,
+                breakEvenPrice: position.BreakEvenPrice,
+                liquidationPrice: position.LiquidationPrice,
+                unrealizedPnl: -7.777777777777777777m,
+                takeProfit: position.TakeProfit,
+                stopLoss: position.StopLoss,
+                trailingStop: position.TrailingStop);
+
+            Assert.Null(change);
+            Assert.Equal(historyCount, position.Changes.Count);
+            await repository.SaveAsync(position);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(position.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(position.Id, reloaded!.Id);
+        Assert.Equal(2000.000000000000000001m, reloaded.PositionValue);
+        Assert.Equal(222.222222222222222222m, reloaded.MarkPrice);
+        Assert.Equal(-7.777777777777777777m, reloaded.UnrealizedPnl);
+        Assert.Equal(position.AverageEntryPrice, reloaded.AverageEntryPrice);
+        Assert.Equal(position.Leverage, reloaded.Leverage);
+        Assert.Equal(position.TrackingState, reloaded.TrackingState);
+        Assert.Equal(historyCount, reloaded.Changes.Count);
+        Assert.Equal(position.Changes.ToArray(), reloaded.Changes.ToArray());
+    }
+
+    [Fact]
+    public async Task SubMicrosecond_position_timestamps_are_canonical_and_save_is_repeatable()
+    {
+        var account = CreateAccount();
+        var timestamp = T0.AddTicks(7);
+        var position = Position.Create(
+            ExchangePositionKey.Create(account.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 1),
+            MarketCategory.Linear,
+            1m,
+            timestamp,
+            timestamp,
+            averageEntryPrice: 100m,
+            leverage: 2m);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            var repository = new PositionRepository(dbContext);
+            await repository.SaveAsync(position);
+
+            var observedAt = timestamp.AddMinutes(1);
+            var change = position.ApplyObservation(
+                position.Size,
+                observedAt,
+                averageEntryPrice: 101m,
+                leverage: position.Leverage);
+            Assert.NotNull(change);
+            await repository.SaveAsync(position);
+
+            var persistedHistory = await dbContext.PositionChanges
+                .Where(item => item.PositionId == position.Id.Value)
+                .OrderBy(item => item.Sequence)
+                .ToArrayAsync();
+            Assert.Equal(CanonicalTimestamp(timestamp), persistedHistory[0].OccurredAt);
+            Assert.Equal(CanonicalTimestamp(observedAt), persistedHistory[1].OccurredAt);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(position.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(2, reloaded!.Changes.Count);
+        Assert.Equal(CanonicalTimestamp(timestamp), reloaded.Changes[0].OccurredAt);
+        Assert.Equal(CanonicalTimestamp(timestamp.AddMinutes(1)), reloaded.Changes[1].OccurredAt);
+        Assert.Equal(CanonicalTimestamp(timestamp), reloaded.FirstDetectedAt);
+        Assert.Equal(CanonicalTimestamp(timestamp.AddMinutes(1)), reloaded.LastObservedAt);
+    }
+
+    [Fact]
+    public async Task Closed_lifecycle_can_be_followed_by_a_new_lifecycle_with_the_same_exchange_key()
+    {
+        var account = CreateAccount();
+        var first = CreatePosition(account.Id);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            await new PositionRepository(dbContext).SaveAsync(first);
+        }
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            var repository = new PositionRepository(dbContext);
+            var loaded = await repository.GetByIdAsync(first.Id);
+            Assert.NotNull(loaded);
+            loaded!.Close(T0.AddMinutes(1));
+            await repository.SaveAsync(loaded);
+        }
+
+        var second = Position.Create(
+            first.ExchangePositionKey,
+            MarketCategory.Linear,
+            2m,
+            T0.AddMinutes(2),
+            T0.AddMinutes(2),
+            averageEntryPrice: 110m,
+            leverage: 2m);
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new PositionRepository(dbContext).SaveAsync(second);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.Equal(
+            2,
+            await verificationContext.Positions.CountAsync(position =>
+                position.ExchangeAccountId == account.Id.Value &&
+                position.InstrumentId == first.ExchangePositionKey.InstrumentId.Value));
+    }
+
+    [Fact]
+    public async Task Active_exchange_key_is_unique_but_closed_rows_do_not_block_reopening()
+    {
+        var account = CreateAccount();
+        var first = CreatePosition(account.Id);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            await new PositionRepository(dbContext).SaveAsync(first);
+        }
+
+        var duplicate = Position.Create(
+            first.ExchangePositionKey,
+            MarketCategory.Linear,
+            3m,
+            T0.AddMinutes(1),
+            T0.AddMinutes(1));
+        await using (var duplicateContext = await CreateMigratedContext())
+        {
+            var exception = await Assert.ThrowsAsync<DbUpdateException>(
+                () => new PositionRepository(duplicateContext).SaveAsync(duplicate));
+            Assert.NotNull(exception);
+        }
+
+        await using (var closeContext = await CreateMigratedContext())
+        {
+            var repository = new PositionRepository(closeContext);
+            var loaded = await repository.GetByIdAsync(first.Id);
+            Assert.NotNull(loaded);
+            loaded!.Close(T0.AddMinutes(2));
+            await repository.SaveAsync(loaded);
+        }
+
+        var reopened = Position.Create(
+            first.ExchangePositionKey,
+            MarketCategory.Linear,
+            4m,
+            T0.AddMinutes(3),
+            T0.AddMinutes(3));
+        await using var reopenContext = await CreateMigratedContext();
+        await new PositionRepository(reopenContext).SaveAsync(reopened);
+    }
+
+    [Fact]
+    public async Task PortfolioState_keeps_snapshot_history_and_returns_the_latest_snapshot()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+        await new PositionRepository(dbContext).SaveAsync(position);
+        var repository = new PortfolioStateRepository(dbContext);
+
+        var first = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1000m, 800m, T0, 1000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var second = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1100m, 700m, T0.AddMinutes(2), 1100m),
+            T0.AddMinutes(3),
+            TimeSpan.FromMinutes(5));
+
+        await repository.SaveAsync(first);
+        await repository.SaveAsync(second);
+
+        var stateCount = await dbContext.PortfolioStates.CountAsync(state =>
+            state.ExchangeAccountId == account.Id.Value);
+        Assert.Equal(2, stateCount);
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var latest = await new PortfolioStateRepository(reloadedContext).GetLatestAsync(account.Id);
+
+        Assert.NotNull(latest);
+        Assert.Equal(second.CalculatedAt, latest!.CalculatedAt);
+        Assert.Equal(second.StaleAfter, latest.StaleAfter);
+        Assert.Equal(second.Capital, latest.Capital);
+        Assert.Equal(second.Positions.ToArray(), latest.Positions.ToArray());
+        Assert.Equal(second.GrossExposure, latest.GrossExposure);
+        Assert.Equal(second.LongExposure, latest.LongExposure);
+        Assert.Equal(second.ShortExposure, latest.ShortExposure);
+        Assert.Equal(second.NetExposure, latest.NetExposure);
+        Assert.Equal(second.TotalUnrealizedPnl, latest.TotalUnrealizedPnl);
+        Assert.Equal(second.UsedCapital, latest.UsedCapital);
+        Assert.Equal(second.FreeCapital, latest.FreeCapital);
+        Assert.Equal(second.FreeCapitalPercent, latest.FreeCapitalPercent);
+        Assert.Equal(second.GrossExposureToEquityPercent, latest.GrossExposureToEquityPercent);
+        Assert.Equal(second.LargestPositionConcentrationPercent, latest.LargestPositionConcentrationPercent);
+        Assert.Equal(second.LargestPositionId, latest.LargestPositionId);
+        Assert.Equal(second.IsComplete, latest.IsComplete);
+        Assert.Equal(second.IsFresh, latest.IsFresh);
+    }
+
+    [Fact]
+    public async Task PositionAssessment_round_trips_input_versions_reasons_and_rule_version()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var inputVersions = new PositionAssessmentInputVersions(
+            position.Id,
+            account.Id,
+            position.ExchangePositionKey.InstrumentId,
+            T0.AddMinutes(3),
+            T0.AddMinutes(4),
+            T0.AddMinutes(5));
+        var assessment = PositionAssessment.Create(
+            inputVersions,
+            new RuleVersion("assessment-v7"),
+            RiskIncreasePolicyResult.Blocked(
+                [ReasonCode.InsufficientFreeCapital, ReasonCode.GrossExposureLimitExceeded]),
+            [],
+            T0.AddMinutes(6),
+            T0.AddHours(1));
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            await new PositionRepository(dbContext).SaveAsync(position);
+            await new PositionAssessmentRepository(dbContext).SaveAsync(assessment);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new PositionAssessmentRepository(reloadedContext).GetByIdAsync(assessment.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(assessment.Id, reloaded!.Id);
+        Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
+        Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);
+        Assert.Equal(assessment.CreatedAt, reloaded.CreatedAt);
+        Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
+        Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
+        Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+    }
+
+    [Fact]
+    public async Task Recommendation_round_trips_after_a_lifecycle_transition()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var assessment = PositionAssessment.Create(
+            new PositionAssessmentInputVersions(
+                position.Id,
+                account.Id,
+                position.ExchangePositionKey.InstrumentId,
+                T0,
+                T0.AddMinutes(1),
+                T0.AddMinutes(2)),
+            new RuleVersion("assessment-v1"),
+            RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]),
+            [],
+            T0.AddMinutes(3),
+            T0.AddHours(1));
+        var recommendation = Recommendation.Create(
+            assessment,
+            PositionAction.Reduce,
+            AddDecision.DoNotAdd,
+            new RuleVersion("policy-v3"),
+            [],
+            T0.AddMinutes(4),
+            T0.AddMinutes(30));
+        recommendation.Acknowledge(T0.AddMinutes(5));
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account);
+            await new PositionRepository(dbContext).SaveAsync(position);
+            await new PositionAssessmentRepository(dbContext).SaveAsync(assessment);
+            await new RecommendationRepository(dbContext).SaveAsync(recommendation);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new RecommendationRepository(reloadedContext).GetByIdAsync(recommendation.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(recommendation.Id, reloaded!.Id);
+        Assert.Equal(recommendation.AssessmentId, reloaded.AssessmentId);
+        Assert.Equal(recommendation.PositionId, reloaded.PositionId);
+        Assert.Equal(recommendation.RecommendedAction, reloaded.RecommendedAction);
+        Assert.Equal(recommendation.AddDecision, reloaded.AddDecision);
+        Assert.Equal(recommendation.PolicyVersion, reloaded.PolicyVersion);
+        Assert.Equal(recommendation.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+        Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+        Assert.Equal(RecommendationStatus.Acknowledged, reloaded.Status);
+        Assert.Equal(recommendation.AcknowledgedAt, reloaded.AcknowledgedAt);
+        Assert.Null(reloaded.DismissedAt);
+        Assert.Null(reloaded.SupersededAt);
+        Assert.Null(reloaded.ExpiredAt);
+    }
+
+    [Fact]
+    public async Task Critical_columns_use_relational_postgresql_types()
+    {
+        await using var dbContext = await CreateMigratedContext();
+
+        Assert.Equal("uuid", await ReadColumnType(dbContext, "positions", "position_id"));
+        Assert.Equal("uuid", await ReadColumnType(dbContext, "positions", "exchange_account_id"));
+        Assert.Equal("numeric", await ReadColumnType(dbContext, "positions", "position_value"));
+        Assert.Equal("numeric", await ReadColumnType(dbContext, "position_changes", "after_size"));
+        Assert.Equal("timestamp with time zone", await ReadColumnType(dbContext, "positions", "last_observed_at"));
+        Assert.Equal("NO", await ReadColumnNullability(dbContext, "positions", "size"));
+    }
+
+    [Fact]
+    public async Task Position_foreign_key_rejects_an_orphan_position()
+    {
+        var orphan = CreatePosition(ExchangeAccountId.New());
+        await using var dbContext = await CreateMigratedContext();
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => new PositionRepository(dbContext).SaveAsync(orphan));
+    }
+
+    private async Task<TradeSystemDbContext> CreateMigratedContext()
+    {
+        var context = fixture.CreateContext();
+        await context.Database.MigrateAsync();
+        return context;
+    }
+
+    private static ExchangeAccount CreateAccount() =>
+        ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            UserId.New(),
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Connected,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
+            T0.AddMinutes(-1),
+            "last successful read");
+
+    private static Position CreatePosition(ExchangeAccountId accountId) =>
+        Position.Create(
+            ExchangePositionKey.Create(
+                accountId,
+                InstrumentId.From("BTCUSDT"),
+                PositionSide.Long,
+                1),
+            MarketCategory.Linear,
+            1.123456789012345678m,
+            T0,
+            T0,
+            averageEntryPrice: 100.123456789012345678m,
+            positionValue: 1234.567890123456789012m,
+            leverage: 2m,
+            markPrice: 101.123456789012345678m,
+            breakEvenPrice: 99.123456789012345678m,
+            liquidationPrice: 50.123456789012345678m,
+            unrealizedPnl: -1.123456789012345678m,
+            takeProfit: 120.123456789012345678m,
+            stopLoss: 90.123456789012345678m,
+            trailingStop: 95.123456789012345678m);
+
+    private static DateTimeOffset CanonicalTimestamp(DateTimeOffset value)
+    {
+        var utc = value.ToUniversalTime();
+        var ticks = utc.Ticks - utc.Ticks % TimeSpan.TicksPerMicrosecond;
+        return new DateTimeOffset(ticks, TimeSpan.Zero);
+    }
+
+    private static async Task<string> ReadColumnType(
+        TradeSystemDbContext dbContext,
+        string tableName,
+        string columnName)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = @table_name AND column_name = @column_name
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@table_name";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@column_name";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        var value = await command.ExecuteScalarAsync();
+        return Assert.IsType<string>(value);
+    }
+
+    private static async Task<string> ReadColumnNullability(
+        TradeSystemDbContext dbContext,
+        string tableName,
+        string columnName)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = @table_name AND column_name = @column_name
+            """;
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@table_name";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@column_name";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        var value = await command.ExecuteScalarAsync();
+        return Assert.IsType<string>(value);
+    }
+}

@@ -157,6 +157,55 @@ public sealed class AssessmentsAndRecommendationsTests
     }
 
     [Fact]
+    public void Assessment_Restore_Validates_Risk_Reason_Consistency()
+    {
+        var allowed = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+        var restoredAllowed = PositionAssessment.Restore(
+            allowed.Id,
+            allowed.InputVersions,
+            allowed.RuleVersion,
+            allowed.CreatedAt,
+            allowed.ValidUntil,
+            allowed.PortfolioRiskDecision,
+            allowed.ReasonCodes);
+
+        restoredAllowed.Id.Should().Be(allowed.Id);
+        restoredAllowed.ReasonCodes.Should().Equal(ReasonCode.RiskWithinLimits);
+
+        FluentActions.Invoking(() => PositionAssessment.Restore(
+               PositionAssessmentId.New(),
+               Inputs,
+               new RuleVersion("v1"),
+               Inputs.MarketCapturedAt,
+               Inputs.MarketCapturedAt.AddHours(1),
+               RiskIncreaseDecision.Allowed,
+               [ReasonCode.InsufficientFreeCapital]))
+            .Should().Throw<ArgumentException>();
+
+        var blocked = CreateAssessment(
+            RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]));
+        FluentActions.Invoking(() => PositionAssessment.Restore(
+               PositionAssessmentId.New(),
+               blocked.InputVersions,
+               blocked.RuleVersion,
+               blocked.CreatedAt,
+               blocked.ValidUntil,
+               RiskIncreaseDecision.Blocked,
+               [ReasonCode.RiskWithinLimits]))
+            .Should().Throw<ArgumentException>();
+
+        var restoredBlocked = PositionAssessment.Restore(
+            blocked.Id,
+            blocked.InputVersions,
+            blocked.RuleVersion,
+            blocked.CreatedAt,
+            blocked.ValidUntil,
+            blocked.PortfolioRiskDecision,
+            blocked.ReasonCodes);
+        restoredBlocked.ReasonCodes.Should().Equal(ReasonCode.PortfolioDataStale);
+    }
+
+    [Fact]
     public void Default_Input_Versions_Are_Rejected_At_Assessment_Boundary()
     {
         FluentActions.Invoking(() => PositionAssessment.Create(
@@ -249,6 +298,41 @@ public sealed class AssessmentsAndRecommendationsTests
             [ReasonCode.RiskWithinLimits], assessment.CreatedAt.AddMinutes(1),
             assessment.ValidUntil.AddMinutes(-1)))
             .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Recommendation_Restore_Requires_Assessment_Reason_Inheritance()
+    {
+        var assessment = CreateAssessment(
+            RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]));
+        var recommendation = CreateRecommendation(assessment, AddDecision.DoNotAdd);
+
+        var restored = RestoreRecommendation(recommendation, assessment);
+        restored.Id.Should().Be(recommendation.Id);
+        restored.AssessmentId.Should().Be(assessment.Id);
+        restored.PositionId.Should().Be(assessment.PositionId);
+        restored.ReasonCodes.Should().Equal(assessment.ReasonCodes);
+
+        recommendation.Acknowledge(recommendation.CreatedAt.AddMinutes(1));
+        var restoredAcknowledged = RestoreRecommendation(recommendation, assessment);
+        restoredAcknowledged.Status.Should().Be(RecommendationStatus.Acknowledged);
+        restoredAcknowledged.AcknowledgedAt.Should().Be(recommendation.AcknowledgedAt);
+
+        FluentActions.Invoking(() => RestoreRecommendation(
+               recommendation,
+               assessment,
+               []))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => RestoreRecommendation(
+               recommendation,
+               assessment,
+               [ReasonCode.PortfolioDataStale, ReasonCode.RiskWithinLimits]))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => RestoreRecommendation(
+               recommendation,
+               assessment,
+               addDecision: AddDecision.AddAllowed))
+            .Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
@@ -541,4 +625,25 @@ public sealed class AssessmentsAndRecommendationsTests
             assessment, PositionAction.Hold, addDecision, new RuleVersion("policy-v1"),
             [], createdAt,
             validUntil);
+
+    private static Recommendation RestoreRecommendation(
+        Recommendation recommendation,
+        PositionAssessment assessment,
+        IEnumerable<ReasonCode>? reasonCodes = null,
+        AddDecision? addDecision = null) =>
+        Recommendation.Restore(
+            recommendation.Id,
+            assessment,
+            recommendation.RecommendedAction,
+            addDecision ?? recommendation.AddDecision,
+            recommendation.PolicyVersion,
+            reasonCodes ?? recommendation.ReasonCodes,
+            recommendation.CreatedAt,
+            recommendation.ValidUntil,
+            recommendation.Status,
+            recommendation.AcknowledgedAt,
+            recommendation.DismissedAt,
+            recommendation.SupersededAt,
+            recommendation.ExpiredAt,
+            recommendation.SupersededByRecommendationId);
 }
