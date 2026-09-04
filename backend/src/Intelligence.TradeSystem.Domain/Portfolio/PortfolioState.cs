@@ -154,6 +154,73 @@ public sealed class PortfolioState
             staleAfter);
     }
 
+    /// <summary>
+    /// Восстанавливает сохранённый snapshot портфеля, сохраняя порядок входящих
+    /// position snapshots и не создавая новые доменные объекты.
+    /// </summary>
+    public static PortfolioState Restore(
+        ExchangeAccountId exchangeAccountId,
+        IEnumerable<PortfolioPositionState> positions,
+        PortfolioCapitalState capital,
+        DateTimeOffset calculatedAt,
+        TimeSpan staleAfter)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+        ArgumentNullException.ThrowIfNull(capital);
+
+        if (exchangeAccountId == default)
+            throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
+        if (staleAfter < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(staleAfter), staleAfter, "StaleAfter cannot be negative.");
+        if (capital.ObservedAt.HasValue && calculatedAt < capital.ObservedAt.Value)
+            throw new ArgumentException(
+                "CalculatedAt cannot precede the capital observation.", nameof(calculatedAt));
+
+        var snapshots = positions.ToArray();
+        foreach (var position in snapshots)
+        {
+            ArgumentNullException.ThrowIfNull(position);
+            if (position.PositionId == default)
+                throw new ArgumentException("Portfolio position must have a PositionId.", nameof(positions));
+            if (position.ExchangePositionKey == default ||
+                position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
+                throw new ArgumentException(
+                    "All positions must belong to the portfolio account.", nameof(positions));
+            if (position.ExchangePositionKey.PositionSide != position.PositionSide)
+                throw new ArgumentException("Position side must match ExchangePositionKey.", nameof(positions));
+            if (position.MarketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
+                throw new ArgumentOutOfRangeException(
+                    nameof(positions), position.MarketCategory, "Position market category is invalid.");
+            if (!Enum.IsDefined(position.PositionSide) || position.PositionSide == PositionSide.Unknown)
+                throw new ArgumentOutOfRangeException(
+                    nameof(positions), position.PositionSide, "Position side is invalid.");
+            if (!Enum.IsDefined(position.TrackingState) ||
+                position.TrackingState == PositionTrackingState.Closed)
+                throw new ArgumentOutOfRangeException(
+                    nameof(positions), position.TrackingState, "Portfolio position tracking state is invalid.");
+            if (position.Size <= 0m)
+                throw new ArgumentOutOfRangeException(
+                    nameof(positions), position.Size, "Portfolio position size must be positive.");
+            if (position.PositionValue is < 0m ||
+                position.AverageEntryPrice is < 0m ||
+                position.MarkPrice is < 0m ||
+                position.LiquidationPrice is < 0m)
+                throw new ArgumentOutOfRangeException(nameof(positions), "Position values cannot be negative.");
+            if (position.Leverage is <= 0m)
+                throw new ArgumentOutOfRangeException(nameof(positions), "Leverage must be positive.");
+            if (calculatedAt < position.LastObservedAt)
+                throw new ArgumentException(
+                    "CalculatedAt cannot precede an included position observation.", nameof(calculatedAt));
+        }
+
+        return new PortfolioState(
+            exchangeAccountId,
+            new ReadOnlyCollection<PortfolioPositionState>(snapshots),
+            capital,
+            calculatedAt,
+            staleAfter);
+    }
+
     private static decimal? SumKnown(IEnumerable<decimal?> values)
     {
         var materialized = values.ToArray();

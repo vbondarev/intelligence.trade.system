@@ -1,4 +1,9 @@
+using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +31,11 @@ public static class StartupExtensions
         services
             .AddHealthChecks()
             .AddDbContextCheck<TradeSystemDbContext>("postgresql");
+        services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
+        services.AddScoped<IPositionRepository, PositionRepository>();
+        services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
+        services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();
+        services.AddScoped<IRecommendationRepository, RecommendationRepository>();
 
         return services;
     }

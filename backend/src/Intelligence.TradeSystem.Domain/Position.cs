@@ -35,7 +35,9 @@ public sealed class Position
         decimal? stopLoss,
         decimal? trailingStop,
         DateTimeOffset firstDetectedAt,
-        DateTimeOffset lastObservedAt)
+        DateTimeOffset lastObservedAt,
+        PositionTrackingState trackingState,
+        DateTimeOffset? closedAt)
     {
         Id = id;
         ExchangePositionKey = exchangePositionKey;
@@ -53,7 +55,8 @@ public sealed class Position
         TrailingStop = trailingStop;
         FirstDetectedAt = firstDetectedAt;
         LastObservedAt = lastObservedAt;
-        TrackingState = PositionTrackingState.Active;
+        TrackingState = trackingState;
+        ClosedAt = closedAt;
         _readOnlyChanges = _changes.AsReadOnly();
     }
 
@@ -99,34 +102,26 @@ public sealed class Position
         decimal? trailingStop = null,
         PositionChangeCause cause = PositionChangeCause.InitialObservation)
     {
-        if (exchangePositionKey == default)
-            throw new ArgumentException("ExchangePositionKey must be initialized.", nameof(exchangePositionKey));
-
-        if (marketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
-            throw new ArgumentOutOfRangeException(
-                nameof(marketCategory), marketCategory, "Position market category must be Linear or Inverse.");
-
-        if (size <= 0m)
-            throw new ArgumentOutOfRangeException(nameof(size), size, "Position size must be greater than zero.");
-
-        ValidateNonNegative(averageEntryPrice, nameof(averageEntryPrice));
-        ValidateNonNegative(positionValue, nameof(positionValue));
-        ValidateNonNegative(markPrice, nameof(markPrice));
-        ValidateNonNegative(breakEvenPrice, nameof(breakEvenPrice));
-        ValidateNonNegative(liquidationPrice, nameof(liquidationPrice));
-        ValidateNonNegative(takeProfit, nameof(takeProfit));
-        ValidateNonNegative(stopLoss, nameof(stopLoss));
-        ValidateNonNegative(trailingStop, nameof(trailingStop));
-
-        if (leverage is <= 0m)
-            throw new ArgumentOutOfRangeException(nameof(leverage), leverage, "Leverage must be greater than zero.");
-
-        if (lastObservedAt < firstDetectedAt)
-            throw new ArgumentException(
-                "LastObservedAt must be greater than or equal to FirstDetectedAt.", nameof(lastObservedAt));
+        var id = PositionId.New();
+        ValidateState(
+            id,
+            exchangePositionKey,
+            marketCategory,
+            size,
+            averageEntryPrice,
+            positionValue,
+            leverage,
+            markPrice,
+            breakEvenPrice,
+            liquidationPrice,
+            takeProfit,
+            stopLoss,
+            trailingStop,
+            firstDetectedAt,
+            lastObservedAt);
 
         var position = new Position(
-            PositionId.New(),
+            id,
             exchangePositionKey,
             marketCategory,
             size,
@@ -141,12 +136,121 @@ public sealed class Position
             stopLoss,
             trailingStop,
             firstDetectedAt,
-            lastObservedAt);
+            lastObservedAt,
+            PositionTrackingState.Active,
+            null);
 
         var snapshot = position.CreateSnapshot();
         position._changes.Add(new PositionChange(
             position.Id, PositionChangeKind.New, cause, lastObservedAt, position.TrackingState, null, snapshot));
 
+        return position;
+    }
+
+    /// <summary>
+    /// Восстанавливает ранее сохранённый жизненный цикл позиции без генерации нового
+    /// идентификатора и без создания новых записей истории.
+    /// </summary>
+    public static Position Restore(
+        PositionId id,
+        ExchangePositionKey exchangePositionKey,
+        MarketCategory marketCategory,
+        decimal size,
+        DateTimeOffset firstDetectedAt,
+        DateTimeOffset lastObservedAt,
+        PositionTrackingState trackingState,
+        DateTimeOffset? closedAt,
+        IEnumerable<PositionChange> changes,
+        decimal? averageEntryPrice = null,
+        decimal? positionValue = null,
+        decimal? leverage = null,
+        decimal? markPrice = null,
+        decimal? breakEvenPrice = null,
+        decimal? liquidationPrice = null,
+        decimal? unrealizedPnl = null,
+        decimal? takeProfit = null,
+        decimal? stopLoss = null,
+        decimal? trailingStop = null)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        ValidateState(
+            id,
+            exchangePositionKey,
+            marketCategory,
+            size,
+            averageEntryPrice,
+            positionValue,
+            leverage,
+            markPrice,
+            breakEvenPrice,
+            liquidationPrice,
+            takeProfit,
+            stopLoss,
+            trailingStop,
+            firstDetectedAt,
+            lastObservedAt);
+
+        if (!Enum.IsDefined(trackingState))
+            throw new ArgumentOutOfRangeException(nameof(trackingState), trackingState, "Tracking state must be defined.");
+
+        if (trackingState == PositionTrackingState.Closed && closedAt is null)
+            throw new ArgumentException("Closed positions must have ClosedAt.", nameof(closedAt));
+
+        if (trackingState != PositionTrackingState.Closed && closedAt is not null)
+            throw new ArgumentException("Only closed positions can have ClosedAt.", nameof(closedAt));
+
+        if (closedAt is { } closed && closed < lastObservedAt)
+            throw new ArgumentException("ClosedAt cannot precede LastObservedAt.", nameof(closedAt));
+
+        var history = changes.ToArray();
+        if (history.Length == 0)
+            throw new ArgumentException("Position history cannot be empty.", nameof(changes));
+
+        var position = new Position(
+            id,
+            exchangePositionKey,
+            marketCategory,
+            size,
+            averageEntryPrice,
+            positionValue,
+            leverage,
+            markPrice,
+            breakEvenPrice,
+            liquidationPrice,
+            unrealizedPnl,
+            takeProfit,
+            stopLoss,
+            trailingStop,
+            firstDetectedAt,
+            lastObservedAt,
+            trackingState,
+            closedAt);
+
+        DateTimeOffset? previousOccurredAt = null;
+        for (var index = 0; index < history.Length; index++)
+        {
+            var change = history[index];
+            ArgumentNullException.ThrowIfNull(change);
+
+            if (change.PositionId != id)
+                throw new ArgumentException("Position history contains a different PositionId.", nameof(changes));
+
+            if (previousOccurredAt is { } previous && change.OccurredAt < previous)
+                throw new ArgumentException("Position history must be ordered by OccurredAt.", nameof(changes));
+
+            if (index == 0 && change.Kind != PositionChangeKind.New)
+                throw new ArgumentException("Position history must start with a New change.", nameof(changes));
+
+            previousOccurredAt = change.OccurredAt;
+        }
+
+        if (history[^1].TrackingStateAfter != trackingState)
+            throw new ArgumentException("The latest position change does not match the tracking state.", nameof(changes));
+
+        if (history[^1].After != position.CreateSnapshot())
+            throw new ArgumentException("The latest position change does not match the current state.", nameof(changes));
+
+        position._changes.AddRange(history);
         return position;
     }
 
@@ -342,6 +446,53 @@ public sealed class Position
         TakeProfit,
         StopLoss,
         TrailingStop);
+
+    private static void ValidateState(
+        PositionId id,
+        ExchangePositionKey exchangePositionKey,
+        MarketCategory marketCategory,
+        decimal size,
+        decimal? averageEntryPrice,
+        decimal? positionValue,
+        decimal? leverage,
+        decimal? markPrice,
+        decimal? breakEvenPrice,
+        decimal? liquidationPrice,
+        decimal? takeProfit,
+        decimal? stopLoss,
+        decimal? trailingStop,
+        DateTimeOffset firstDetectedAt,
+        DateTimeOffset lastObservedAt)
+    {
+        if (id == default)
+            throw new ArgumentException("PositionId must be initialized.", nameof(id));
+
+        if (exchangePositionKey == default)
+            throw new ArgumentException("ExchangePositionKey must be initialized.", nameof(exchangePositionKey));
+
+        if (marketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
+            throw new ArgumentOutOfRangeException(
+                nameof(marketCategory), marketCategory, "Position market category must be Linear or Inverse.");
+
+        if (size <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(size), size, "Position size must be greater than zero.");
+
+        ValidateNonNegative(averageEntryPrice, nameof(averageEntryPrice));
+        ValidateNonNegative(positionValue, nameof(positionValue));
+        ValidateNonNegative(markPrice, nameof(markPrice));
+        ValidateNonNegative(breakEvenPrice, nameof(breakEvenPrice));
+        ValidateNonNegative(liquidationPrice, nameof(liquidationPrice));
+        ValidateNonNegative(takeProfit, nameof(takeProfit));
+        ValidateNonNegative(stopLoss, nameof(stopLoss));
+        ValidateNonNegative(trailingStop, nameof(trailingStop));
+
+        if (leverage is <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(leverage), leverage, "Leverage must be greater than zero.");
+
+        if (lastObservedAt < firstDetectedAt)
+            throw new ArgumentException(
+                "LastObservedAt must be greater than or equal to FirstDetectedAt.", nameof(lastObservedAt));
+    }
 
     private static void ValidateNonNegative(decimal? value, string parameterName)
     {

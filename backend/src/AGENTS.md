@@ -44,7 +44,7 @@
 - Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface; `Infrastructure` is composed by `Api` and depends inward on `Application` / `Domain`.
 - Stage B domain foundations are implemented in `Intelligence.TradeSystem.Domain`: typed identities, `ExchangeAccount`, `Position` lifecycle and `PositionChange` history, `PortfolioState` and portfolio risk policy, `PositionAssessment`, `Recommendation`, and separate decision vocabularies.
 - Position snapshot reconciliation and portfolio assembly live in `Intelligence.TradeSystem.Application/Portfolio`; they orchestrate domain behavior without adding persistence concerns.
-- These stage B foundations are currently in-memory only; `Infrastructure` currently provides only the PostgreSQL/EF Core connection point. User persistence, authentication, account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
+- Stage B foundations can now be persisted through Application repository ports implemented by Infrastructure. User authentication, account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
 - `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
 - Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
 - `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate legacy `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
@@ -57,11 +57,13 @@
 ## Current constraints
 - Orchestration is currently `Bybit`-only; both `PublicMarketDataCollector` and `MarketSnapshotService` reject other exchanges.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
-- Stage B domain state is not persisted or exposed through a user API yet; do not treat in-memory entities as a completed user workflow.
+- Stage B domain state can be persisted, but it is not exposed through a user API or connected to synchronization; do not treat persistence as a completed user workflow.
 
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.
 - Stage B types in the `Intelligence.TradeSystem.Domain` project root and its `History`, `Portfolio`, `Assessments`, `Recommendations`, `Decisions`, and `Identity` directories are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.
+- EF Core and persistence entities belong only to `Intelligence.TradeSystem.Infrastructure`; Domain and Application must remain persistence-ignorant. Domain rehydration must use explicit restore APIs that preserve typed IDs, timestamps, lifecycle state, and append-only history.
+- Production PostgreSQL schema evolves through migrations. Do not add automatic migration execution to API startup, and do not introduce optimistic concurrency before the dedicated C3 work.
 - Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
 - If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
 - Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`, and `GET /api/market-analysis/{symbol}/llm-payload` remains a purely public market contract. Legacy `POST /api/market-analysis/snapshot` still returns a `portfolio` object sourced from `PortfolioSnapshot.Unavailable` (zeroed values, no `isAvailable` field on the wire).

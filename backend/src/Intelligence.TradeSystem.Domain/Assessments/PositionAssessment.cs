@@ -77,6 +77,51 @@ public sealed class PositionAssessment
             new ReadOnlyCollection<ReasonCode>(reasons));
     }
 
+    /// <summary>
+    /// Восстанавливает ранее сохранённую оценку с исходным идентификатором и входными версиями.
+    /// </summary>
+    public static PositionAssessment Restore(
+        PositionAssessmentId id,
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RiskIncreaseDecision portfolioRiskDecision,
+        IEnumerable<ReasonCode> reasonCodes)
+    {
+        ArgumentNullException.ThrowIfNull(reasonCodes);
+        if (id == default)
+            throw new ArgumentException("PositionAssessmentId must be initialized.", nameof(id));
+
+        inputVersions.Validate();
+        ValidateRuleVersion(ruleVersion);
+
+        if (createdAt < inputVersions.PositionObservedAt ||
+            createdAt < inputVersions.PortfolioCalculatedAt ||
+            createdAt < inputVersions.MarketCapturedAt)
+            throw new ArgumentException("CreatedAt cannot precede an input observation.", nameof(createdAt));
+        if (validUntil <= createdAt)
+            throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
+        if (!Enum.IsDefined(portfolioRiskDecision))
+            throw new ArgumentOutOfRangeException(nameof(portfolioRiskDecision));
+
+        var reasons = reasonCodes.ToArray();
+        ValidateReasons(reasons);
+        if (reasons.Length == 0)
+            throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
+        if (reasons.Distinct().Count() != reasons.Length)
+            throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
+
+        return new(
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
+            portfolioRiskDecision,
+            new ReadOnlyCollection<ReasonCode>(reasons));
+    }
+
     public bool IsValidAt(DateTimeOffset at) => CreatedAt <= at && at < ValidUntil;
 
     private static void ValidateRuleVersion(RuleVersion version)
