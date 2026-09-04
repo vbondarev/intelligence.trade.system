@@ -40,11 +40,14 @@
 - Do not infer that `Intelligence.TradeSystem.Ai` or `Intelligence.TradeSystem.Ai.Tests` are ready for use; both are currently empty placeholder projects with no source files.
 
 ## Big picture
-- This solution builds structured crypto market snapshots and LLM-ready JSON payloads; the primary exchange is Bybit.
+- This solution combines public crypto market analysis with a pure business domain for accompanying already-open positions; the primary exchange is Bybit.
 - Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface.
+- Stage B domain foundations are implemented in `Intelligence.TradeSystem.Domain`: typed identities, `ExchangeAccount`, `Position` lifecycle and `PositionChange` history, `PortfolioState` and portfolio risk policy, `PositionAssessment`, `Recommendation`, and separate decision vocabularies.
+- Position snapshot reconciliation and portfolio assembly live in `Intelligence.TradeSystem.Application/Portfolio`; they orchestrate domain behavior without adding persistence concerns.
+- These stage B foundations are currently in-memory only. User persistence, authentication, account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
 - `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
 - Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
-- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
+- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate legacy `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
 - `MarketRegimePolicy` (in `MarketIntelligence/Analysis`) is the single source of market regime classification; no other classifier exists.
 
 ## Request and data flow
@@ -54,9 +57,11 @@
 ## Current constraints
 - Orchestration is currently `Bybit`-only; both `PublicMarketDataCollector` and `MarketSnapshotService` reject other exchanges.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
+- Stage B domain state is not persisted or exposed through a user API yet; do not treat in-memory entities as a completed user workflow.
 
 ## Contract-sensitive areas
-- Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and `PortfolioSnapshotAssembler` now lives in `Intelligence.TradeSystem.Application/Portfolio`.
+- Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.
+- Stage B types in the `Intelligence.TradeSystem.Domain` project root and its `History`, `Portfolio`, `Assessments`, `Recommendations`, `Decisions`, and `Identity` directories are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.
 - Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
 - If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
 - Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`, and `GET /api/market-analysis/{symbol}/llm-payload` remains a purely public market contract. Legacy `POST /api/market-analysis/snapshot` still returns a `portfolio` object sourced from `PortfolioSnapshot.Unavailable` (zeroed values, no `isAvailable` field on the wire).
@@ -67,6 +72,9 @@
 - If you change API payload/request models, review controller validation, `ProblemDetails` mapping, schema/version assumptions, and API tests together.
 - If you change indicator-derived values, review downstream snapshot fields, payload mapping, analytics output, and indicator/analysis tests together.
 - If you change exchange-mapped fields, review provider mapping, normalized domain models, application orchestration, and exchange/application tests together.
+- If you change `Position`, its lifecycle, or reconciliation behavior, review `PositionChange`, `PositionReconciler`, and the corresponding Domain/Application tests together.
+- If you change `PortfolioState` or portfolio risk policy, review portfolio aggregation, risk decisions, reason-code classification, and Domain tests together.
+- If you change `PositionAssessment` or `Recommendation`, preserve input-version traceability, validity windows, lifecycle transitions, and the separation between `PositionAction`, `AddDecision`, and `RiskIncreaseDecision`.
 - For public or wire-visible contracts, prefer extend-only changes: add new fields or new paths instead of renaming/removing existing members or silently changing established semantics.
 - If a change is intentionally breaking, make the breaking impact explicit in the same change set and update dependent consumers, tests, and version/schema assumptions together.
 - Prefer additive contract evolution; if a breaking change is truly required, make every dependent layer explicit in the same change set.
@@ -88,6 +96,7 @@
   - Individual `*.csproj` files should keep only project-specific deltas rather than duplicating shared settings.
 - Shared project settings: `net10.0`, C# `14`, nullable enabled, centralized package versions via `Directory.Packages.props`.
 - Shared build behavior is defined through `Directory.Build.props` and `Directory.Build.targets`.
+- `Intelligence.TradeSystem.Domain.Tests` is the primary suite for stage B domain invariants; keep it in the solution and update it with domain behavior changes.
 - Verified from `backend/src`:
   - `dotnet build .\Intelligence.TradeSystem.slnx --no-restore`
   - `dotnet test .\Intelligence.TradeSystem.slnx --no-build --logger "console;verbosity=minimal"`
@@ -103,6 +112,9 @@
 - Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
 - If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check Application market ports, Bybit public/private providers, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
+- If you change position identity, lifecycle, or reconciliation, check `Intelligence.TradeSystem.Domain/Position.cs`, `Intelligence.TradeSystem.Domain/History`, `Intelligence.TradeSystem.Application/Portfolio/PositionReconciler.cs`, `Intelligence.TradeSystem.Domain.Tests`, and `Intelligence.TradeSystem.Application.Tests`.
+- If you change portfolio aggregation or risk rules, check `Intelligence.TradeSystem.Domain/Portfolio`, `Intelligence.TradeSystem.Application/Portfolio/PortfolioStateAssembler.cs`, `ReasonCodeClassification`, and `Intelligence.TradeSystem.Domain.Tests`.
+- If you change assessments or recommendations, check `Intelligence.TradeSystem.Domain/Assessments`, `Intelligence.TradeSystem.Domain/Recommendations`, `Intelligence.TradeSystem.Domain/Decisions`, and `Intelligence.TradeSystem.Domain.Tests/AssessmentsAndRecommendationsTests.cs`.
 - If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
 - If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.
