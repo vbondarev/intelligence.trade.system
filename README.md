@@ -92,7 +92,7 @@
 - legacy `POST /api/market-analysis/snapshot`, сохраняемый для совместимости;
 - типизированные идентификаторы пользователя, биржевого аккаунта, позиции и инструмента;
 - `ExchangeAccount`, `Position` и устойчивая идентичность биржевой позиции с учётом `positionIdx`;
-- переходы позиции `New`, `Updated`, `Increased`, `Reduced`, `Closed`, `Unknown`, `Stale` и `Recovered`;
+- существенные изменения позиции `New`, `Updated`, `Increased`, `Reduced`, `Closed`, `MarkedUnknown`, `MarkedStale` и `Recovered`, а также состояния отслеживания `Active`, `Unknown`, `Stale` и `Closed`;
 - безопасная сверка снимков и неизменяемая история существенных изменений `PositionChange`;
 - `PortfolioState`, агрегирование портфеля и базовая политика увеличения риска;
 - неизменяемый `PositionAssessment` и жизненный цикл `Recommendation`;

@@ -61,7 +61,7 @@
 
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.
-- Stage B types in `Domain/Accounts`, `Domain/Positions`, `Domain/Portfolio`, `Domain/Assessments`, `Domain/Recommendations`, `Domain/Decisions`, and `Domain/Identity` are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.
+- Stage B types in the `Intelligence.TradeSystem.Domain` project root and its `History`, `Portfolio`, `Assessments`, `Recommendations`, `Decisions`, and `Identity` directories are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.
 - Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
 - If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
 - Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`, and `GET /api/market-analysis/{symbol}/llm-payload` remains a purely public market contract. Legacy `POST /api/market-analysis/snapshot` still returns a `portfolio` object sourced from `PortfolioSnapshot.Unavailable` (zeroed values, no `isAvailable` field on the wire).
@@ -112,9 +112,9 @@
 - Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
 - If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
 - If you change exchange data collection, check Application market ports, Bybit public/private providers, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
-- If you change position identity, lifecycle, or reconciliation, check `Domain/Positions`, `Application/Portfolio/PositionReconciler`, `Domain.Tests`, and `Application.Tests`.
-- If you change portfolio aggregation or risk rules, check `Domain/Portfolio`, `Application/Portfolio/PortfolioStateAssembler`, `ReasonCodeClassification`, and `Domain.Tests`.
-- If you change assessments or recommendations, check `Domain/Assessments`, `Domain/Recommendations`, `Domain/Decisions`, and `AssessmentsAndRecommendationsTests`.
+- If you change position identity, lifecycle, or reconciliation, check `Intelligence.TradeSystem.Domain/Position.cs`, `Intelligence.TradeSystem.Domain/History`, `Intelligence.TradeSystem.Application/Portfolio/PositionReconciler.cs`, `Intelligence.TradeSystem.Domain.Tests`, and `Intelligence.TradeSystem.Application.Tests`.
+- If you change portfolio aggregation or risk rules, check `Intelligence.TradeSystem.Domain/Portfolio`, `Intelligence.TradeSystem.Application/Portfolio/PortfolioStateAssembler.cs`, `ReasonCodeClassification`, and `Intelligence.TradeSystem.Domain.Tests`.
+- If you change assessments or recommendations, check `Intelligence.TradeSystem.Domain/Assessments`, `Intelligence.TradeSystem.Domain/Recommendations`, `Intelligence.TradeSystem.Domain/Decisions`, and `Intelligence.TradeSystem.Domain.Tests/AssessmentsAndRecommendationsTests.cs`.
 - If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
 - If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.
