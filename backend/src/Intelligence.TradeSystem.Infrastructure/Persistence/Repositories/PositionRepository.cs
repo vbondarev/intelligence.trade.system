@@ -64,13 +64,67 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             throw new ConcurrencyConflictException(
                 $"Position {position.Id} was modified concurrently.");
 
-        var persistedChanges = existing is null
-            ? []
-            : await dbContext.PositionChanges
-                .AsNoTracking()
-                .Where(change => change.PositionId == mapped.Id)
-                .OrderBy(change => change.Sequence)
-                .ToArrayAsync(cancellationToken);
+        if (existing is null)
+        {
+            await using var insertTransaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            var insertVersion = ConcurrencyVersion.Initial;
+            mapped.Version = insertVersion.Value;
+            dbContext.Positions.Add(mapped);
+
+            dbContext.PositionChanges.AddRange(
+                position.Changes.Select((change, index) => PositionChangeMapper.ToEntity(change, index + 1)));
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await insertTransaction.CommitAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception)
+                when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
+                    exception,
+                    "PK_positions"))
+            {
+                await insertTransaction.RollbackAsync(CancellationToken.None);
+                throw new ConcurrencyConflictException(
+                    $"Position {position.Id} was inserted concurrently.", exception);
+            }
+
+            return insertVersion;
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var newVersion = expectedVersion!.Value.Next();
+        mapped.Version = newVersion.Value;
+        if (tracked is not null)
+        {
+            PositionMapper.ApplyToEntity(tracked.Entity, position);
+            tracked.Entity.Version = mapped.Version;
+            tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
+        }
+        else
+        {
+            dbContext.Positions.Update(mapped);
+            var entry = dbContext.Entry(mapped);
+            entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
+        }
+
+        // Acquire CAS ownership before reading or staging any new history rows.
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            throw new ConcurrencyConflictException(
+                $"Position {position.Id} was modified or deleted concurrently.", exception);
+        }
+
+        var persistedChanges = await dbContext.PositionChanges
+            .AsNoTracking()
+            .Where(change => change.PositionId == mapped.Id)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync(cancellationToken);
 
         if (persistedChanges.Length > position.Changes.Count)
             throw new InvalidOperationException(
@@ -89,59 +143,6 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             .Select((change, index) => PositionChangeMapper.ToEntity(
                 change, persistedChanges.Length + index + 1))
             .ToArray();
-
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        ConcurrencyVersion newVersion;
-        if (existing is null)
-        {
-            newVersion = ConcurrencyVersion.Initial;
-            mapped.Version = newVersion.Value;
-            dbContext.Positions.Add(mapped);
-
-            dbContext.PositionChanges.AddRange(newChanges);
-            try
-            {
-                await dbContext.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-            }
-            catch (DbUpdateException exception)
-                when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
-                    exception,
-                    "PK_positions"))
-            {
-                await transaction.RollbackAsync(CancellationToken.None);
-                throw new ConcurrencyConflictException(
-                    $"Position {position.Id} was inserted concurrently.", exception);
-            }
-
-            return newVersion;
-        }
-
-        newVersion = expectedVersion!.Value.Next();
-        mapped.Version = newVersion.Value;
-        if (tracked is not null)
-        {
-            PositionMapper.ApplyToEntity(tracked.Entity, position);
-            tracked.Entity.Version = mapped.Version;
-            tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
-        }
-        else
-        {
-            dbContext.Positions.Update(mapped);
-            var entry = dbContext.Entry(mapped);
-            entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
-        }
-
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException exception)
-        {
-            await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConcurrencyConflictException(
-                $"Position {position.Id} was modified or deleted concurrently.", exception);
-        }
 
         if (newChanges.Length > 0)
         {

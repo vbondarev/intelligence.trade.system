@@ -825,6 +825,140 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task A_stale_writer_paused_after_position_read_conflicts_at_cas_before_history_validation()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+        }
+
+        await using var readerAContext = await CreateMigratedContext();
+        var readerA = await new PositionRepository(readerAContext).GetByIdAsync(position.Id);
+        await using var readerBContext = await CreateMigratedContext();
+        var readerB = await new PositionRepository(readerBContext).GetByIdAsync(position.Id);
+        Assert.NotNull(readerA);
+        Assert.NotNull(readerB);
+
+        var positionA = readerA!.Value;
+        var positionB = readerB!.Value;
+        var observedAt = T0.AddMinutes(1);
+        positionA.ApplyObservation(
+            2m,
+            observedAt,
+            averageEntryPrice: 105m,
+            positionValue: 2100m,
+            leverage: positionA.Leverage);
+        positionB.ApplyObservation(
+            3m,
+            observedAt,
+            averageEntryPrice: 110m,
+            positionValue: 3300m,
+            leverage: positionB.Leverage);
+
+        var pause = new PositionLookupPauseInterceptor();
+        await using var writerBContext = CreateContext(pause);
+        var writerBTask = new PositionRepository(writerBContext)
+            .SaveAsync(positionB, readerB.Version);
+        await pause.PositionLookupReached.WaitAsync(TimeSpan.FromSeconds(30));
+
+        await using var writerAContext = await CreateMigratedContext();
+        var versionAfterA = await new PositionRepository(writerAContext)
+            .SaveAsync(positionA, readerA.Version);
+        Assert.Equal(new ConcurrencyVersion(2), versionAfterA);
+
+        pause.ReleasePositionLookup();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => writerBTask);
+
+        await using var verificationContext = await CreateMigratedContext();
+        var current = await new PositionRepository(verificationContext).GetByIdAsync(position.Id);
+        Assert.NotNull(current);
+        Assert.Equal(new ConcurrencyVersion(2), current!.Version);
+        Assert.Equal(positionA.Size, current.Value.Size);
+        Assert.Equal(positionA.AverageEntryPrice, current.Value.AverageEntryPrice);
+        Assert.Equal(2, current.Value.Changes.Count);
+        Assert.Equal(2m, current.Value.Changes[1].After.Size);
+        Assert.Equal(105m, current.Value.Changes[1].After.AverageEntryPrice);
+
+        var persistedHistory = await verificationContext.PositionChanges
+            .Where(change => change.PositionId == position.Id.Value)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync();
+        Assert.Equal(2, persistedHistory.Length);
+        Assert.Equal(
+            Enumerable.Range(1, 2),
+            persistedHistory.Select(change => change.Sequence));
+        Assert.Equal(2m, persistedHistory[1].AfterSize);
+        Assert.Equal(105m, persistedHistory[1].AfterAverageEntryPrice);
+    }
+
+    [Fact]
+    public async Task Invalid_history_after_a_successful_cas_rolls_back_the_position_update()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var loaded = await new PositionRepository(readerContext).GetByIdAsync(position.Id);
+        Assert.NotNull(loaded);
+
+        var invalidInitialChange = loaded!.Value.Changes[0] with
+        {
+            Cause = PositionChangeCause.ExchangeObservation,
+        };
+        var invalidPosition = Position.Restore(
+            loaded.Value.Id,
+            loaded.Value.ExchangePositionKey,
+            loaded.Value.MarketCategory,
+            loaded.Value.Size,
+            loaded.Value.FirstDetectedAt,
+            loaded.Value.LastObservedAt,
+            loaded.Value.TrackingState,
+            loaded.Value.ClosedAt,
+            [invalidInitialChange],
+            loaded.Value.AverageEntryPrice,
+            loaded.Value.PositionValue,
+            loaded.Value.Leverage,
+            loaded.Value.MarkPrice,
+            loaded.Value.BreakEvenPrice,
+            loaded.Value.LiquidationPrice,
+            loaded.Value.UnrealizedPnl,
+            loaded.Value.TakeProfit,
+            loaded.Value.StopLoss,
+            loaded.Value.TrailingStop);
+
+        await using var writerContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new PositionRepository(writerContext)
+                .SaveAsync(invalidPosition, loaded.Version));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var current = await new PositionRepository(verificationContext).GetByIdAsync(position.Id);
+        Assert.NotNull(current);
+        Assert.Equal(ConcurrencyVersion.Initial, current!.Version);
+        Assert.Equal(position.Size, current.Value.Size);
+        Assert.Single(current.Value.Changes);
+        Assert.Equal(PositionChangeCause.InitialObservation, current.Value.Changes[0].Cause);
+
+        var persistedHistory = await verificationContext.PositionChanges
+            .Where(change => change.PositionId == position.Id.Value)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync();
+        Assert.Single(persistedHistory);
+        Assert.Equal(PositionChangeCause.InitialObservation, persistedHistory[0].Cause);
+    }
+
+    [Fact]
     public async Task A_stale_dynamic_only_position_update_conflicts_without_changing_history()
     {
         var account = CreateAccount();
@@ -1187,5 +1321,37 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         private static bool IsExchangeAccountLookup(DbCommand command) =>
             command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) &&
             command.CommandText.Contains("exchange_accounts", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class PositionLookupPauseInterceptor : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource<bool> positionLookupReached =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> releasePositionLookup =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task PositionLookupReached => positionLookupReached.Task;
+
+        public void ReleasePositionLookup() => releasePositionLookup.TrySetResult(true);
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsPositionLookup(command))
+            {
+                positionLookupReached.TrySetResult(true);
+                await releasePositionLookup.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+
+        private static bool IsPositionLookup(DbCommand command) =>
+            command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) &&
+            command.CommandText.Contains("positions", StringComparison.OrdinalIgnoreCase) &&
+            !command.CommandText.Contains("position_changes", StringComparison.OrdinalIgnoreCase);
     }
 }
