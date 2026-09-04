@@ -9,6 +9,9 @@ using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
+using System.Data.Common;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -173,6 +176,41 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(position.TrackingState, reloadedPosition.TrackingState);
         Assert.Equal(historyCount, reloadedPosition.Changes.Count);
         Assert.Equal(position.Changes.ToArray(), reloadedPosition.Changes.ToArray());
+    }
+
+    [Fact]
+    public async Task Sequential_position_saves_increment_the_version_by_one()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext).SaveAsync(account, expectedVersion: null);
+        var repository = new PositionRepository(dbContext);
+
+        var version = await repository.SaveAsync(position, expectedVersion: null);
+        Assert.Equal(new ConcurrencyVersion(1), version);
+
+        position.ApplyObservation(
+            2m,
+            T0.AddMinutes(1),
+            averageEntryPrice: 105m,
+            leverage: position.Leverage);
+        version = await repository.SaveAsync(position, version);
+        Assert.Equal(new ConcurrencyVersion(2), version);
+
+        position.ApplyObservation(
+            3m,
+            T0.AddMinutes(2),
+            averageEntryPrice: 110m,
+            leverage: position.Leverage);
+        version = await repository.SaveAsync(position, version);
+        Assert.Equal(new ConcurrencyVersion(3), version);
+
+        var reloaded = await repository.GetByIdAsync(position.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(new ConcurrencyVersion(3), reloaded!.Version);
+        Assert.Equal(3, reloaded.Value.Changes.Count);
     }
 
     [Fact]
@@ -511,7 +549,11 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         parameter.Value = account.Id.Value;
         command.Parameters.Add(parameter);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => command.ExecuteNonQueryAsync());
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => command.ExecuteNonQueryAsync());
+
+        Assert.Equal("23514", exception.SqlState);
+        Assert.Equal("ck_exchange_accounts_version_positive", exception.ConstraintName);
     }
 
     [Fact]
@@ -526,6 +568,96 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         await using var otherContext = await CreateMigratedContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new ExchangeAccountRepository(otherContext).SaveAsync(account, expectedVersion: null));
+    }
+
+    [Fact]
+    public async Task Position_blind_insert_conflicts_when_the_row_already_exists()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var existing = await new PositionRepository(readerContext).GetByIdAsync(position.Id);
+        Assert.NotNull(existing);
+
+        await using var insertContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => new PositionRepository(insertContext)
+                .SaveAsync(existing!.Value, expectedVersion: null));
+    }
+
+    [Fact]
+    public async Task Recommendation_blind_insert_conflicts_when_the_row_already_exists()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var assessment = CreateAssessment(account, position);
+        var recommendation = Recommendation.Create(
+            assessment,
+            PositionAction.Reduce,
+            AddDecision.DoNotAdd,
+            new RuleVersion("policy-v4"),
+            [],
+            T0.AddMinutes(4),
+            T0.AddMinutes(30));
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(recommendation, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var existing = await new RecommendationRepository(readerContext)
+            .GetByIdAsync(recommendation.Id);
+        Assert.NotNull(existing);
+
+        await using var insertContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => new RecommendationRepository(insertContext)
+                .SaveAsync(existing!.Value, expectedVersion: null));
+    }
+
+    [Fact]
+    public async Task Concurrent_insert_writers_produce_exactly_one_winner_and_one_conflict()
+    {
+        var account = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            Assert.True(await setupContext.Database.CanConnectAsync());
+        }
+
+        var barrier = new ExchangeAccountLookupBarrier();
+        await using var writerAContext = CreateContext(barrier);
+        await using var writerBContext = CreateContext(barrier);
+
+        var outcomes = await Task.WhenAll(
+            CaptureSaveOutcome(() =>
+                new ExchangeAccountRepository(writerAContext).SaveAsync(account, expectedVersion: null)),
+            CaptureSaveOutcome(() =>
+                new ExchangeAccountRepository(writerBContext).SaveAsync(account, expectedVersion: null)));
+
+        Assert.Equal(1, outcomes.Count(outcome => outcome is ConcurrencyVersion));
+        Assert.Single(outcomes.OfType<ConcurrencyConflictException>());
+        Assert.All(outcomes, outcome => Assert.True(
+            outcome is ConcurrencyVersion or ConcurrencyConflictException));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persisted = await verificationContext.ExchangeAccounts
+            .SingleAsync(item => item.Id == account.Id.Value);
+        Assert.Equal(1L, persisted.Version);
+        Assert.Equal(
+            1,
+            await verificationContext.ExchangeAccounts.CountAsync(item => item.Id == account.Id.Value));
     }
 
     [Fact]
@@ -637,8 +769,18 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var positionB = readerB.Value;
 
         var observedAt = T0.AddMinutes(1);
-        positionA.ApplyObservation(2m, observedAt, averageEntryPrice: 105m, leverage: positionA.Leverage);
-        positionB.ApplyObservation(2m, observedAt, averageEntryPrice: 105m, leverage: positionB.Leverage);
+        positionA.ApplyObservation(
+            2m,
+            observedAt,
+            averageEntryPrice: 105m,
+            positionValue: 2100m,
+            leverage: positionA.Leverage);
+        positionB.ApplyObservation(
+            3m,
+            observedAt,
+            averageEntryPrice: 110m,
+            positionValue: 3300m,
+            leverage: positionB.Leverage);
         Assert.Equal(positionA.Changes.Count, positionB.Changes.Count);
 
         await using var writerAContext = await CreateMigratedContext();
@@ -652,8 +794,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(writerBContext).SaveAsync(positionB, readerB.Version));
 
-        // The stale writer's rejected update must not leave behind the history row it
-        // staged: the row count must be exactly what writer A committed, not duplicated.
+        // The stale writer's rejected update must not leave behind its divergent history row:
+        // the row count and values must be exactly what writer A committed.
         var historyAfterFailedWriterB = await CountPositionChanges(position.Id);
         Assert.Equal(historyAfterA, historyAfterFailedWriterB);
 
@@ -662,6 +804,151 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(current);
         Assert.Equal(versionAfterA, current!.Version);
         Assert.Equal(positionA.Size, current.Value.Size);
+        Assert.Equal(positionA.AverageEntryPrice, current.Value.AverageEntryPrice);
+        Assert.Equal(2, current.Value.Changes.Count);
+        Assert.Equal(2m, current.Value.Changes[1].After.Size);
+        Assert.Equal(105m, current.Value.Changes[1].After.AverageEntryPrice);
+        Assert.Equal(
+            Enumerable.Range(1, 2),
+            current.Value.Changes.Select((_, index) => index + 1));
+
+        var persistedHistory = await verificationContext.PositionChanges
+            .Where(change => change.PositionId == position.Id.Value)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync();
+        Assert.Equal(2, persistedHistory.Length);
+        Assert.Equal(
+            Enumerable.Range(1, 2),
+            persistedHistory.Select(change => change.Sequence));
+        Assert.Equal(2m, persistedHistory[1].AfterSize);
+        Assert.Equal(105m, persistedHistory[1].AfterAverageEntryPrice);
+    }
+
+    [Fact]
+    public async Task A_stale_dynamic_only_position_update_conflicts_without_changing_history()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+        }
+
+        await using var readerAContext = await CreateMigratedContext();
+        var readerA = await new PositionRepository(readerAContext).GetByIdAsync(position.Id);
+        await using var readerBContext = await CreateMigratedContext();
+        var readerB = await new PositionRepository(readerBContext).GetByIdAsync(position.Id);
+        Assert.NotNull(readerA);
+        Assert.NotNull(readerB);
+
+        var historyCount = readerA!.Value.Changes.Count;
+        var dynamicChangeA = readerA.Value.ApplyObservation(
+            readerA.Value.Size,
+            T0.AddMinutes(1),
+            averageEntryPrice: readerA.Value.AverageEntryPrice,
+            positionValue: 2000m,
+            leverage: readerA.Value.Leverage,
+            markPrice: 222m,
+            breakEvenPrice: readerA.Value.BreakEvenPrice,
+            liquidationPrice: readerA.Value.LiquidationPrice,
+            unrealizedPnl: -7m,
+            takeProfit: readerA.Value.TakeProfit,
+            stopLoss: readerA.Value.StopLoss,
+            trailingStop: readerA.Value.TrailingStop);
+        var dynamicChangeB = readerB!.Value.ApplyObservation(
+            readerB.Value.Size,
+            T0.AddMinutes(1),
+            averageEntryPrice: readerB.Value.AverageEntryPrice,
+            positionValue: 3000m,
+            leverage: readerB.Value.Leverage,
+            markPrice: 333m,
+            breakEvenPrice: readerB.Value.BreakEvenPrice,
+            liquidationPrice: readerB.Value.LiquidationPrice,
+            unrealizedPnl: -8m,
+            takeProfit: readerB.Value.TakeProfit,
+            stopLoss: readerB.Value.StopLoss,
+            trailingStop: readerB.Value.TrailingStop);
+        Assert.Null(dynamicChangeA);
+        Assert.Null(dynamicChangeB);
+
+        await using var writerAContext = await CreateMigratedContext();
+        var versionAfterA = await new PositionRepository(writerAContext)
+            .SaveAsync(readerA.Value, readerA.Version);
+        Assert.Equal(readerA.Version.Next(), versionAfterA);
+
+        await using var writerBContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => new PositionRepository(writerBContext).SaveAsync(readerB.Value, readerB.Version));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var current = await new PositionRepository(verificationContext).GetByIdAsync(position.Id);
+        Assert.NotNull(current);
+        Assert.Equal(versionAfterA, current!.Version);
+        Assert.Equal(2000m, current.Value.PositionValue);
+        Assert.Equal(222m, current.Value.MarkPrice);
+        Assert.Equal(-7m, current.Value.UnrealizedPnl);
+        Assert.Equal(historyCount, current.Value.Changes.Count);
+        Assert.Equal(
+            Enumerable.Range(1, historyCount),
+            current.Value.Changes.Select((_, index) => index + 1));
+    }
+
+    [Fact]
+    public async Task A_stale_recommendation_lifecycle_update_conflicts()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var assessment = CreateAssessment(account, position);
+        var recommendation = Recommendation.Create(
+            assessment,
+            PositionAction.Reduce,
+            AddDecision.DoNotAdd,
+            new RuleVersion("policy-v4"),
+            [],
+            T0.AddMinutes(4),
+            T0.AddMinutes(30));
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(recommendation, expectedVersion: null);
+        }
+
+        await using var readerAContext = await CreateMigratedContext();
+        var readerA = await new RecommendationRepository(readerAContext)
+            .GetByIdAsync(recommendation.Id);
+        await using var readerBContext = await CreateMigratedContext();
+        var readerB = await new RecommendationRepository(readerBContext)
+            .GetByIdAsync(recommendation.Id);
+        Assert.NotNull(readerA);
+        Assert.NotNull(readerB);
+
+        readerA!.Value.Acknowledge(T0.AddMinutes(5));
+        readerB!.Value.Dismiss(T0.AddMinutes(5));
+
+        await using var writerAContext = await CreateMigratedContext();
+        var versionAfterA = await new RecommendationRepository(writerAContext)
+            .SaveAsync(readerA.Value, readerA.Version);
+        Assert.Equal(readerA.Version.Next(), versionAfterA);
+
+        await using var writerBContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => new RecommendationRepository(writerBContext)
+                .SaveAsync(readerB.Value, readerB.Version));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var current = await new RecommendationRepository(verificationContext)
+            .GetByIdAsync(recommendation.Id);
+        Assert.NotNull(current);
+        Assert.Equal(versionAfterA, current!.Version);
+        Assert.Equal(RecommendationStatus.Acknowledged, current.Value.Status);
+        Assert.Equal(T0.AddMinutes(5), current.Value.AcknowledgedAt);
+        Assert.Null(current.Value.DismissedAt);
     }
 
     [Fact]
@@ -713,6 +1000,15 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         return await dbContext.PositionChanges.CountAsync(change => change.PositionId == id.Value);
     }
 
+    private TradeSystemDbContext CreateContext(DbCommandInterceptor interceptor) =>
+        new(new DbContextOptionsBuilder<TradeSystemDbContext>()
+            .UseNpgsql(
+                fixture.ConnectionString,
+                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
+                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
+            .AddInterceptors(interceptor)
+            .Options);
+
     private async Task<TradeSystemDbContext> CreateMigratedContext()
     {
         var context = fixture.CreateContext();
@@ -729,6 +1025,23 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0.AddMinutes(-1),
             "last successful read");
+
+    private static PositionAssessment CreateAssessment(
+        ExchangeAccount account,
+        Position position) =>
+        PositionAssessment.Create(
+            new PositionAssessmentInputVersions(
+                position.Id,
+                account.Id,
+                position.ExchangePositionKey.InstrumentId,
+                T0,
+                T0.AddMinutes(1),
+                T0.AddMinutes(2)),
+            new RuleVersion("assessment-v1"),
+            RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]),
+            [],
+            T0.AddMinutes(3),
+            T0.AddHours(1));
 
     private static Position CreatePosition(ExchangeAccountId accountId) =>
         Position.Create(
@@ -813,5 +1126,66 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
 
         var value = await command.ExecuteScalarAsync();
         return Assert.IsType<string>(value);
+    }
+
+    private static async Task<object> CaptureSaveOutcome(
+        Func<Task<ConcurrencyVersion>> save)
+    {
+        try
+        {
+            return await save();
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private sealed class ExchangeAccountLookupBarrier : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource<bool> lookupsStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> lookupsCompleted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int startedCount;
+        private int completedCount;
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsExchangeAccountLookup(command))
+            {
+                if (Interlocked.Increment(ref startedCount) == 2)
+                    lookupsStarted.TrySetResult(true);
+
+                await lookupsStarted.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsExchangeAccountLookup(command))
+            {
+                if (Interlocked.Increment(ref completedCount) == 2)
+                    lookupsCompleted.TrySetResult(true);
+
+                await lookupsCompleted.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+
+        private static bool IsExchangeAccountLookup(DbCommand command) =>
+            command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) &&
+            command.CommandText.Contains("exchange_accounts", StringComparison.OrdinalIgnoreCase);
     }
 }

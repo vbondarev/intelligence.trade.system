@@ -30,7 +30,7 @@ public readonly record struct ConcurrencyVersion
         Value = value;
     }
 
-    /// <summary>Версия только что созданной (ещё не сохранённой) сущности.</summary>
+    /// <summary>Начальная версия успешно сохранённой строки.</summary>
     public static ConcurrencyVersion Initial => new(1);
 
     /// <summary>Следующая версия после успешного CAS-обновления.</summary>

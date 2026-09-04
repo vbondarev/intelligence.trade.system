@@ -88,6 +88,16 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             throw new ConcurrencyConflictException(
                 $"ExchangeAccount {account.Id} was modified or deleted concurrently.", exception);
         }
+        catch (DbUpdateException exception)
+            when (existing is null &&
+                  expectedVersion is null &&
+                  PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
+                      exception,
+                      "PK_exchange_accounts"))
+        {
+            throw new ConcurrencyConflictException(
+                $"ExchangeAccount {account.Id} was inserted concurrently.", exception);
+        }
 
         return newVersion;
     }

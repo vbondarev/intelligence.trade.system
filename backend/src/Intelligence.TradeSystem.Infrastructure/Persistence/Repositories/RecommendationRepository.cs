@@ -124,6 +124,16 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             throw new ConcurrencyConflictException(
                 $"Recommendation {recommendation.Id} was modified or deleted concurrently.", exception);
         }
+        catch (DbUpdateException exception)
+            when (existing is null &&
+                  expectedVersion is null &&
+                  PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
+                      exception,
+                      "PK_recommendations"))
+        {
+            throw new ConcurrencyConflictException(
+                $"Recommendation {recommendation.Id} was inserted concurrently.", exception);
+        }
 
         return newVersion;
     }
