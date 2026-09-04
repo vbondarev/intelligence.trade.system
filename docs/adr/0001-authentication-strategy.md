@@ -5,7 +5,7 @@
 
 ## Контекст
 
-Проект выходит из этапа B и уже имеет постоянное хранение доменного состояния и оптимистическую конкурентность C-04. Пользовательская система, вход и разграничение данных пока не реализованы. Основной клиент первого Web MVP — React browser application; backend остаётся владельцем пользовательской сессии.
+Проект находится на этапе C — хранение, безопасность и пользователи. C-01—C-04 уже завершены: создан Infrastructure, подключён PostgreSQL, реализовано постоянное хранение доменного состояния и добавлена оптимистическая конкурентность. Пользовательская система, вход и разграничение данных пока не реализованы. Основной клиент первого Web MVP — React browser application; backend остаётся владельцем пользовательской сессии.
 
 В этом ADR различаются:
 
@@ -31,7 +31,7 @@ ASP.NET Core Identity выбирается как стандартная инф�
 
 Самодельные `CustomPasswordHasher`, `CustomUserPasswordTable` и `CustomSessionCrypto` не проектируются.
 
-Это решение фиксирует архитектуру, а не реализацию. В C-05 не добавляются Identity packages, `AspNet*` schema, migrations, login endpoints, authentication middleware, изменения `Program.cs` или временный SignalR Hub.
+Это решение фиксирует архитектуру, а не реализацию. В C-05 не добавляются Identity packages, `AspNet*` schema, migrations, login endpoints, authentication middleware, изменения `Program.cs` или временный SignalR Hub. Полная runtime-реализация принятого решения закреплена за отдельным шагом C-05A.
 
 ## Границы решения
 
@@ -43,7 +43,7 @@ ASP.NET Core Identity выбирается как стандартная инф�
 - шифрование, отзыв и ротация ключей Bybit — C-07;
 - пользовательский REST API — F-03;
 - SignalR и пользовательские группы — F-04;
-- Identity schema, migrations и runtime authentication configuration.
+- Identity schema, migrations, runtime authentication configuration, login/logout/current-user и CSRF foundation — C-05A.
 
 ## Основной Web-сценарий
 
@@ -64,6 +64,20 @@ stable UserId
 ```
 
 Backend владеет сессией и её жизненным циклом. Cookie не является бизнес-идентичностью пользователя и не меняет независимость Domain от ASP.NET Core.
+
+## Следующий runtime step: C-05A
+
+C-05A реализует основу аутентификации, не включая user isolation из C-06. Его scope должен включать:
+
+- Identity user model, EF stores, PostgreSQL Identity persistence и migration;
+- регистрацию ASP.NET Core Identity, authentication middleware и authorization middleware foundation;
+- secure HttpOnly cookie session с production security settings;
+- минимальный lifecycle создания пользователя (registration endpoint либо явно выбранный MVP bootstrap mechanism), login, logout и current-user endpoint;
+- стабильный `Guid` и `NameIdentifier`/subject claim, преобразуемый в Domain `UserId`;
+- anti-forgery runtime foundation для cookie-authenticated state-changing requests;
+- необходимые integration/API tests.
+
+Конкретный способ создания пользователя должен быть явно выбран до реализации C-05A, но не проектируется в деталях настоящего ADR. C-05A отвечает на вопрос «кто пользователь?», а C-06 отдельно отвечает на вопрос, какие данные этому пользователю разрешено читать и изменять.
 
 ## REST
 
@@ -145,7 +159,7 @@ React должен получать anti-forgery token предусмотрен�
 - disabled или revoked user не должен бесконечно сохранять доступ по старой session;
 - lifecycle должен допускать принудительную инвалидизацию sessions, включая изменение security stamp и закрытие/переподключение будущих SignalR connections.
 
-Конкретные expiration значения не выбираются в ADR и должны задаваться configuration, а не Domain.
+Конкретные expiration значения не выбираются в ADR и должны задаваться configuration, а не Domain. Их runtime configuration и проверка lifecycle относятся к C-05A.
 
 ## Рассмотренные альтернативы
 
@@ -186,9 +200,10 @@ React должен получать anti-forgery token предусмотрен�
 
 ## Отложенные решения
 
-- Identity user type, schema, EF stores и migrations;
-- login, register, logout и current-user endpoints;
-- точные cookie expiration/SameSite settings и anti-forgery endpoint/header contract;
+- Identity user type, schema, EF stores и migrations — C-05A;
+- минимальный user creation/registration или bootstrap lifecycle, login, logout и current-user endpoints — C-05A;
+- authentication/authorization middleware, secure cookie configuration, stable claim mapping и CSRF runtime foundation — C-05A;
+- точные cookie expiration/SameSite settings и anti-forgery endpoint/header contract — C-05A;
 - реализация `ICurrentUserContext` и C-06 authorization/data scoping;
 - SignalR Hub, groups, reconnect and invalidation behavior — F-04;
 - encryption, revoke и rotation для Bybit credentials — C-07;
@@ -199,11 +214,13 @@ React должен получать anti-forgery token предусмотрен�
 ## Связанные этапы roadmap
 
 - **C-04** — база этого решения: persistence и optimistic concurrency уже приняты в `develop`.
-- **C-05** — это ADR; runtime authentication implementation выполняется позже.
+- **C-05** — это ADR по authentication strategy; runtime-код здесь не реализуется.
+- **C-05A** — реализация ASP.NET Core Identity persistence, middleware, secure cookie session, user creation/login/logout/current-user, stable `UserId` claim mapping и CSRF foundation.
 - **C-06** — authorization и изоляция данных по `UserId`.
 - **C-07** — защита credentials Bybit.
-- **F-03** — пользовательский REST API.
+- **F-03** — business REST API поверх готовой authentication foundation.
 - **F-04** — SignalR и пользовательские группы с тем же authenticated principal.
+- **G-01** — React login UI поверх backend authentication.
 
 ## Источники
 

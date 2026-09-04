@@ -62,6 +62,7 @@
 ## Authentication architecture
 - The Web MVP authentication decision is documented in `docs/adr/0001-authentication-strategy.md`.
 - Browser authentication uses ASP.NET Core Identity with a secure HttpOnly cookie; do not invent custom JWT/refresh-token infrastructure without a new ADR.
+- Runtime implementation of ADR-0001 belongs to roadmap step C-05A; C-06 starts from an authenticated stable `UserId` and owns data isolation/authorization.
 - Domain `UserId` is the stable business identifier and must not be replaced with email, username, or display name.
 - Cookie-authenticated state-changing endpoints require CSRF protection, and REST plus browser SignalR must use the same authenticated principal.
 

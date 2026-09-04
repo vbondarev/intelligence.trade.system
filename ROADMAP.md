@@ -3,7 +3,7 @@
 Версия документа: 1.7
 Дата актуализации: 4 сентября 2026 года  
 Проверенная ветка: `task/55-add-authentication-adr` (база `develop`)
-Последний учтённый PR: C-05 — [#55 «Принят ADR по способу аутентификации пользователей»](https://github.com/vbondarev/intelligence.trade.system/pull/55)
+Последний учтённый PR: C-05 — [#56 «#55: Принят ADR по способу аутентификации пользователей»](https://github.com/vbondarev/intelligence.trade.system/pull/56)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -97,7 +97,7 @@
 
 ### Пока отсутствует
 
-- ⬜ Пользователи, вход в систему и разграничение данных.
+- ⬜ Пользователи, вход в систему и разграничение данных; основу аутентификации реализует C-05A, изоляцию данных — C-06.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ⬜ Безопасное хранение ключей Bybit.
 - ⬜ Подключение биржевого аккаунта через пользовательский сценарий.
@@ -159,6 +159,7 @@
 | C-03 | Сохранять аккаунты, позиции, версии, портфели, оценки и рекомендации | ✅ | Состояние и история восстанавливаются после перезапуска через Application repository ports |
 | C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
 | C-05 | Принять отдельное ADR по способу входа | ✅ | ADR принят: для Web MVP выбран единый способ аутентификации, совместимый с REST и browser SignalR; runtime-интеграция проверяется при реализации пользовательского API и SignalR |
+| C-05A | Реализовать основу аутентификации пользователей | ⬜ | ASP.NET Core Identity подключён к PostgreSQL; работают создание пользователя/вход, logout, current-user, secure HttpOnly cookie, CSRF foundation и формирование стабильного `UserId` в `ClaimsPrincipal`; публичные market endpoints остаются anonymous |
 | C-06 | Реализовать разграничение данных по `UserId` | ⬜ | Пользователь не может получить чужие данные |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
@@ -372,7 +373,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
 | 1 | Добавить оптимистическую конкурентность и оставшиеся persistence-тесты | C-04, C-08 |
-| 2 | Добавить авторизацию, изоляцию пользователей и защищённые ключи Bybit | C-05 — C-07 |
+| 2 | Реализовать аутентификацию, изоляцию пользователей и защищённые ключи Bybit | C-05A, C-06, C-07 |
 | 3 | Реализовать подключение биржевого аккаунта | D-01 |
 | 4 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
 | 5 | Добавить общий кэш публичных снимков рынка | D-07 |
@@ -444,7 +445,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-04 | 1.7 | Принят ADR-0001 по аутентификации пользователей (C-05): для первого Web MVP выбраны ASP.NET Core Identity и secure HttpOnly cookie, с единым authenticated principal для REST и будущего browser SignalR; зафиксированы CSRF, cookie security, стабильный `UserId`, публичные и приватные endpoints, а также отложенные native/OIDC-сценарии. Runtime auth, user isolation, Bybit security и SignalR остаются отдельными этапами. |
+| 2026-09-04 | 1.7 | Принят ADR-0001 по аутентификации пользователей (C-05): для первого Web MVP выбраны ASP.NET Core Identity и secure HttpOnly cookie, с единым authenticated principal для REST и будущего browser SignalR; зафиксированы CSRF, cookie security, стабильный `UserId`, публичные и приватные endpoints, а также отложенные native/OIDC-сценарии. Runtime authentication выделена в отдельный следующий шаг C-05A; C-06 остаётся отдельным этапом UserId isolation. |
 | 2026-09-04 | 1.6 | Реализована оптимистическая конкурентность (C-04): persistence-neutral ConcurrencyVersion/Versioned<T> и ConcurrencyConflictException в Application; GetByIdAsync/SaveAsync репозиториев ExchangeAccount, Position и Recommendation переведены на compare-and-swap по версии (без retry); добавлена миграция AddConcurrencyVersion с безопасным backfill существующих строк; добавлены детерминированные PostgreSQL-тесты на конфликт версий, откат истории позиции при устаревшей записи, dynamic-only обновления, последовательные версии, blind overwrite и удалённую строку. C-04 завершён; auth, user isolation и security остаются в следующих PR. |
 | 2026-09-04 | 1.5 | В PR #52 исправлены восстановление dynamic-only состояния позиции, канонизация PostgreSQL timestamps и валидация inherited reasons для Assessment/Recommendation. C-02 и C-03 остаются завершёнными, C-08 выполнен частично; concurrency, auth, user isolation и security остаются в следующих PR. |
 | 2026-09-04 | 1.4 | Добавлено постоянное relational-хранение доменного состояния: migrations, repository ports, persistence entities, explicit rehydration и PostgreSQL Testcontainers round-trip tests. C-02 и C-03 завершены, C-08 выполнен частично; concurrency, auth и user isolation остаются в следующих PR. |
