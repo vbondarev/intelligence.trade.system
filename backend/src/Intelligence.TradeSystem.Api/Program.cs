@@ -7,6 +7,7 @@ using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Exchanges;
+using Intelligence.TradeSystem.Infrastructure;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -36,6 +37,7 @@ public partial class Program
         });
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
+        builder.Services.AddInfrastructure(builder.Configuration);
         var freshnessOptions = builder.Configuration
             .GetSection(SnapshotFreshnessOptions.SectionName)
             .Get<SnapshotFreshnessOptions>() ?? SnapshotFreshnessOptions.Default;

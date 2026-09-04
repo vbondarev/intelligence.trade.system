@@ -15,12 +15,19 @@ public sealed class ProductionProjectDependencyTests
             ["Intelligence.TradeSystem.Domain"] = [],
             ["Intelligence.TradeSystem.MarketIntelligence"] = ["Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.Application"] =
-                ["Intelligence.TradeSystem.Domain", "Intelligence.TradeSystem.MarketIntelligence"],
-            ["Intelligence.TradeSystem.Exchanges"] =
-                ["Intelligence.TradeSystem.Application", "Intelligence.TradeSystem.Domain"],
+                [
+                    "Intelligence.TradeSystem.Domain",
+                    "Intelligence.TradeSystem.MarketIntelligence"
+                ],
+            ["Intelligence.TradeSystem.Exchanges"] = ["Intelligence.TradeSystem.Application", "Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.Api"] =
-                ["Intelligence.TradeSystem.Application",
-                 "Intelligence.TradeSystem.Exchanges", "Intelligence.TradeSystem.ServiceDefaults"],
+                [
+                    "Intelligence.TradeSystem.Application",
+                    "Intelligence.TradeSystem.Exchanges",
+                    "Intelligence.TradeSystem.Infrastructure",
+                    "Intelligence.TradeSystem.ServiceDefaults"
+                ],
+            ["Intelligence.TradeSystem.Infrastructure"] = ["Intelligence.TradeSystem.Application", "Intelligence.TradeSystem.Domain"],
             ["Intelligence.TradeSystem.ServiceDefaults"] = [],
             ["Intelligence.TradeSystem.AppHost"] = ["Intelligence.TradeSystem.Api"],
         };

@@ -8,12 +8,17 @@
   <ItemGroup>
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.Application\Intelligence.TradeSystem.Application.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Exchanges\Intelligence.TradeSystem.Exchanges.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Infrastructure\Intelligence.TradeSystem.Infrastructure.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.ServiceDefaults\Intelligence.TradeSystem.ServiceDefaults.csproj" />
   </ItemGroup>
 
