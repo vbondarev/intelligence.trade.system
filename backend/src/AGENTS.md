@@ -60,11 +60,14 @@
 - Stage B domain state can be persisted, but it is not exposed through a user API or connected to synchronization; do not treat persistence as a completed user workflow.
 
 ## Authentication architecture
-- The Web MVP authentication decision is documented in `docs/adr/0001-authentication-strategy.md`.
-- Browser authentication uses ASP.NET Core Identity with a secure HttpOnly cookie; do not invent custom JWT/refresh-token infrastructure without a new ADR.
-- Runtime implementation of ADR-0001 belongs to roadmap step C-05A; C-06 starts from an authenticated stable `UserId` and owns data isolation/authorization.
-- Domain `UserId` is the stable business identifier and must not be replaced with email, username, or display name.
-- Cookie-authenticated state-changing endpoints require CSRF protection, and REST plus browser SignalR must use the same authenticated principal.
+- The current authentication decision is documented in `docs/adr/0002-universal-api-authentication-strategy.md`; ADR-0001 is retained as historical context and is superseded.
+- `Intelligence.TradeSystem.Api` is client-agnostic. Protected `/api/v1/*` endpoints use OAuth 2.0/OpenID Connect with Bearer access tokens; signed JWT is the target access-token format for the first MVP.
+- OAuth/OIDC is the protocol and identity contract, Bearer is the presentation scheme, and JWT is only the token format. The API is a resource server; token issuance belongs to a separately selected authorization server.
+- Do not implement a custom `POST /login` → homemade JWT/refresh-token protocol, `JwtTokenService`, `RefreshTokenRepository`, or custom token rotation/authorization protocol.
+- A browser cookie is not the authentication contract of the main API. It is allowed only at a browser/BFF boundary; React, mobile, desktop, CLI, and future clients use the same business API.
+- Domain `UserId` is a stable `Guid` business identifier and must not depend on email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, or a concrete identity provider. Map stable `sub` to `UserId`, or map provider-controlled `issuer + sub` to an internal `UserId(Guid)` when the provider does not allow controlling the subject.
+- Public market endpoints remain anonymous. C-05/C-05A establish authenticated identity; C-06 owns authorization, ownership, user isolation, and cross-user protection.
+- Future SignalR uses the same Bearer identity model as REST; do not create a separate SignalR identity model.
 
 ## Contract-sensitive areas
 - Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.

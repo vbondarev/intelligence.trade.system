@@ -1,7 +1,10 @@
 # ADR-0001: Способ аутентификации пользователей
 
-Статус: Accepted  
+Статус: Superseded
+Superseded by ADR-0002: [Аутентификация универсального API через OAuth 2.0 / OpenID Connect](0002-universal-api-authentication-strategy.md)
 Дата: 4 сентября 2026 года
+
+После принятия ADR-0001 было уточнено фундаментальное требование: основной API должен быть client-agnostic и одинаково доступен Web, mobile, desktop, CLI и другим клиентам. Cookie-only authentication не подходит как универсальный authentication contract.
 
 ## Контекст
 
