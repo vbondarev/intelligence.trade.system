@@ -192,6 +192,8 @@ Intelligence.TradeSystem.Api (resource server)
 
 Это архитектурный выбор, а не уже реализованный runtime: в текущем репозитории ещё нет Identity host, OAuth/OIDC endpoints, JWT Bearer middleware или auth migrations.
 
+Для login BFF использует Authorization Code + PKCE (`S256`). API получает подписанные JWT access tokens и валидирует их через стандартный OIDC discovery/JWKS.
+
 React рассматривается как browser-клиент через BFF:
 
 ```text

@@ -258,7 +258,7 @@ React
   ↓
 BFF
   ↓
-Authorization Code
+Authorization Code + PKCE (S256)
   ↓
 Authorization Server
   ↓
@@ -269,7 +269,7 @@ Bearer JWT
 TradeSystem.Api
 ```
 
-Browser JavaScript не получает access token или refresh token. BFF использует secure HttpOnly session cookie; автоматическая cookie boundary сохраняет CSRF requirement ADR-0002. BFF не содержит business logic и не заменяет API.
+Browser JavaScript не получает access token или refresh token. BFF является confidential client, но client authentication не отменяет PKCE: для first-party BFF используется Authorization Code + PKCE с `S256` как дополнительная защита authorization code flow. BFF использует secure HttpOnly session cookie; автоматическая cookie boundary сохраняет CSRF requirement ADR-0002. BFF не содержит business logic и не заменяет API.
 
 ### Mobile
 
@@ -327,7 +327,27 @@ Client Credentials
 
 ## Access tokens и discovery
 
-В соответствии с ADR-0002 первый MVP использует signed JWT access tokens. `Intelligence.TradeSystem.Api` в C-05A обязан проверять:
+В соответствии с ADR-0002 первый MVP использует **signed JWT access token без access-token encryption**. Формат access token — подписанный JWS, концептуально `application/at+jwt`, а не encrypted JWT:
+
+```text
+Authorization Server
+        ↓
+signed JWT access token (JWS / application/at+jwt)
+        ↓
+OIDC discovery / JWKS
+        ↓
+Intelligence.TradeSystem.Api
+        ↓
+standard JwtBearer validation
+```
+
+Это решение означает, что access tokens первого MVP не требуют encryption. При реализации OpenIddict C-05A обязан явно настроить поведение, совместимое с этой схемой: access-token encryption должна быть отключена именно для access tokens (например, через актуальный эквивалент `DisableAccessTokenEncryption()`). Если OpenIddict использует encryption по умолчанию, C-05A должен переопределить это поведение либо выбрать другой явно документированный standards-compatible механизм.
+
+Это не запрещает OpenIddict защищать другие protocol artifacts стандартными механизмами: authorization codes, refresh tokens и device codes могут использовать предусмотренные OpenIddict encryption/protection mechanisms.
+
+`Intelligence.TradeSystem.Api` должен валидировать access token через стандартную конфигурацию issuer/discovery/JWKS и `JwtBearer`. API не получает private signing key и не получает symmetric/shared encryption secret только ради расшифровки access token.
+
+`Intelligence.TradeSystem.Api` в C-05A обязан проверять:
 
 - signature;
 - issuer;
@@ -337,7 +357,7 @@ Client Credentials
 - required claims;
 - required scopes.
 
-Unsigned JWT не допускаются. Encrypted JWT не является обязательным требованием первого MVP без отдельной причины. Bearer access token передаётся только по TLS; в токен не помещаются password, API keys, Bybit secret, sensitive personal data или security stamp.
+Unsigned JWT и encrypted access tokens первого MVP не допускаются. Bearer access token передаётся только по TLS; в токен не помещаются password, API keys, Bybit secret, sensitive personal data или security stamp.
 
 Issuer — стабильная публичная identity Authorization Server и является deployment configuration. Production issuer не должен быть `http://localhost:5000`; конкретный production URL сейчас не фиксируется.
 
@@ -346,6 +366,21 @@ Issuer — стабильная публичная identity Authorization Server
 Для user login используется стандартный OIDC scope `openid`. `profile` и `email` подключаются только при необходимости. API scope сначала ограничивается минимальным scope, необходимым для проверки authentication boundary, например `trade.api`; полный каталог granular scopes относится к C-06/F.
 
 Authorization Server публикует стандартные OIDC discovery metadata и JWKS. При обычном production deployment API получает public verification material через Authority/issuer → discovery → JWKS. API не хранит private signing key и не зависит от вручную захардкоженного public key как от нормального production механизма.
+
+## Self-contained access-token revocation
+
+Первый MVP использует short-lived self-contained JWT access tokens и server-managed refresh tokens/authorization state. OpenIddict управляет refresh-token protocol и authorization grants.
+
+При logout, revoke или compromise:
+
+- refresh token и/или authorization grant может быть отозван;
+- новые access tokens после revoke не должны выдаваться;
+- уже выданный self-contained JWT не становится гарантированно недействительным мгновенно;
+- если API не выполняет introspection или дополнительную stateful revocation check, такой JWT может оставаться валидным до своего `exp`.
+
+Access-token lifetime должен быть достаточно коротким, чтобы ограничить окно после revoke, но конкретное значение относится к C-05A и configuration/security policy и этим ADR не фиксируется.
+
+Immediate access-token revocation требует отдельного решения и approved mechanism, например token introspection, reference/opaque tokens или stateful revocation check. Этот ADR не вводит такой механизм и не создаёт впечатление, что logout мгновенно аннулирует уже выданный JWT на всех resource servers.
 
 ## Signing keys
 
@@ -414,11 +449,13 @@ C-05A больше не выбирает Authorization Server: выбор при
 - отдельный `Intelligence.TradeSystem.Identity` host или эквивалентную отдельную application boundary;
 - ASP.NET Core Identity + OpenIddict;
 - отдельную Identity/Authorization persistence и отдельный EF migration stream;
+- signed non-encrypted JWT access tokens, with OpenIddict access-token encryption explicitly disabled;
+- standard `JwtBearer` validation through issuer/audience and OIDC discovery/JWKS;
 - JWT Bearer resource-server configuration в `Intelligence.TradeSystem.Api`;
 - issuer, audience, signature, lifetime и required-claims validation;
 - минимальный scope contract;
 - stable user-delegated `sub`, совпадающий с Domain `UserId` Guid;
-- Authorization Code + PKCE для соответствующего public-client proof;
+- Authorization Code + PKCE (S256) для соответствующего public-client proof;
 - отсутствие password grant и custom token protocol;
 - persistent production signing credentials, discovery/JWKS и rotation-ready key configuration;
 - anonymous public market endpoints;

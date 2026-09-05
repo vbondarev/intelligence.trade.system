@@ -144,4 +144,7 @@
 - User-delegated `sub` maps to the stable Domain `UserId` Guid without email-based mapping.
 - Client Credentials principals are machine principals and must not become Domain users.
 - Production signing private keys belong only to the Authorization Server; API validation uses public discovery/JWKS material and supports key rotation.
+- First-MVP access tokens are signed, non-encrypted JWTs; the API uses standard discovery/JWKS and does not receive a private signing key or access-token decryption secret.
+- The BFF uses Authorization Code + PKCE with `S256`; browser JavaScript never receives access or refresh tokens.
 - Password grant, implicit flow, and custom JWT/refresh-token protocols are prohibited.
+- Self-contained JWT revoke/logout is not guaranteed to invalidate an already issued token immediately; use a short-lived access-token principle, with exact lifetime and any immediate-revocation mechanism deferred to C-05A/security policy.
