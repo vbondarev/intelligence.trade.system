@@ -3,7 +3,7 @@
 Версия документа: 1.9
 Дата актуализации: 5 сентября 2026 года
 Проверенная ветка: `task/60-add-authorization-server-adr` (база `develop`)
-Последний учтённый PR: C-05 — [#59 «#58: Пересмотрена стратегия аутентификации универсального API»](https://github.com/vbondarev/intelligence.trade.system/pull/59)
+Последний учтённый PR: C-05 — [#61 «#60: Выбран OAuth/OIDC Authorization Server»](https://github.com/vbondarev/intelligence.trade.system/pull/61)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -161,7 +161,7 @@
 | C-03 | Сохранять аккаунты, позиции, версии, портфели, оценки и рекомендации | ✅ | Состояние и история восстанавливаются после перезапуска через Application repository ports |
 | C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
 | C-05 | Принять ADR по универсальной стратегии аутентификации | ✅ | Принят client-agnostic contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API; browser cookie допускается только на BFF boundary |
-| C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ⬜ | ASP.NET Core Identity + OpenIddict, отдельная Identity persistence, Authorization Code + PKCE и signed non-encrypted JWT; `Api` проверяет issuer/audience/discovery/JWKS; stable `sub` → Domain `UserId`; integration tests; public endpoints anonymous. См. ADR-0003 |
+| C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ⬜ | ASP.NET Core Identity + OpenIddict, отдельная Identity persistence, Authorization Code + PKCE и signed non-encrypted JWT; `Api` проверяет issuer/audience/discovery/JWKS; stable user-delegated `sub` → Domain `UserId`; Client Credentials остаётся machine principal; integration tests; public endpoints anonymous. См. ADR-0003 |
 | C-06 | Реализовать разграничение данных по `UserId` | ⬜ | Пользователь не может получить чужие данные |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
@@ -448,7 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-05 | 1.9 | ADR-0003: ASP.NET Core Identity + OpenIddict выбран как self-hosted Authorization Server; Identity boundary отделена от resource server; Identity/OpenIddict persistence отделена от business persistence; C-05A больше не выбирает provider, а реализует принятое решение. Обновлены README, AGENTS и ближайшая очередь runtime PR; номер нового PR не фиксируется до его создания. |
+| 2026-09-05 | 1.9 | ADR-0003: ASP.NET Core Identity + OpenIddict выбран как self-hosted Authorization Server; Identity boundary отделена от resource server; Identity/OpenIddict persistence отделена от business persistence; C-05A больше не выбирает provider, а реализует принятое решение. Обновлены README, AGENTS и ближайшая очередь runtime PR; решение зафиксировано в PR #61. |
 | 2026-09-05 | 1.8 | ADR-0001 сохранён как историческое решение и помечен Superseded; принят ADR-0002 по client-agnostic authentication contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API. Зафиксированы границы Authorization Server и Resource Server, user-delegated `sub` → Domain `UserId`; machine/service principals отделены от Domain users, React → BFF → API, Authorization Code + PKCE для public clients, Device Authorization/PKCE для CLI, Client Credentials для будущих machine clients, anonymous public market endpoints и отдельная ответственность C-06 за authorization/isolation. C-05A переработан под выбор Authorization Server и JWT Bearer foundation; BFF закреплён за G-01. |
 | 2026-09-04 | 1.7 | Принят ADR-0001 по аутентификации пользователей (C-05): для первого Web MVP выбраны ASP.NET Core Identity и secure HttpOnly cookie, с единым authenticated principal для REST и будущего browser SignalR; зафиксированы CSRF, cookie security, стабильный `UserId`, публичные и приватные endpoints, а также отложенные native/OIDC-сценарии. Runtime authentication выделена в отдельный следующий шаг C-05A; C-06 остаётся отдельным этапом UserId isolation. |
 | 2026-09-04 | 1.6 | Реализована оптимистическая конкурентность (C-04): persistence-neutral ConcurrencyVersion/Versioned<T> и ConcurrencyConflictException в Application; GetByIdAsync/SaveAsync репозиториев ExchangeAccount, Position и Recommendation переведены на compare-and-swap по версии (без retry); добавлена миграция AddConcurrencyVersion с безопасным backfill существующих строк; добавлены детерминированные PostgreSQL-тесты на конфликт версий, откат истории позиции при устаревшей записи, dynamic-only обновления, последовательные версии, blind overwrite и удалённую строку. C-04 завершён; auth, user isolation и security остаются в следующих PR. |
