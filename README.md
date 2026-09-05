@@ -180,6 +180,18 @@ OAuth 2.0 / OpenID Connect
        signed JWT
 ```
 
+Выбранный и запланированный Authorization Server для runtime-этапа C-05A:
+
+```text
+ASP.NET Core Identity + OpenIddict
+       ↓
+Intelligence.TradeSystem.Identity
+       ↓
+Intelligence.TradeSystem.Api (resource server)
+```
+
+Это архитектурный выбор, а не уже реализованный runtime: в текущем репозитории ещё нет Identity host, OAuth/OIDC endpoints, JWT Bearer middleware или auth migrations.
+
 React рассматривается как browser-клиент через BFF:
 
 ```text
@@ -188,7 +200,7 @@ React → BFF → Bearer JWT → Intelligence.TradeSystem.Api
 
 Secure HttpOnly cookie может использоваться только между React и BFF для browser session и не является authentication contract основного API. Если BFF использует автоматически отправляемую cookie, ему нужна явная CSRF-защита: одного `HttpOnly` недостаточно. Mobile, desktop и CLI используют OAuth/OIDC и Bearer для того же API; предпочтительный сценарий для public clients — Authorization Code + PKCE, а для CLI также возможен Device Authorization Flow.
 
-Конкретный Authorization Server пока не выбран. Кандидаты и границы решения описаны в [ADR-0002](docs/adr/0002-universal-api-authentication-strategy.md). Публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous.
+Выбор зафиксирован в [ADR-0003](docs/adr/0003-authorization-server-selection.md), который дополняет [ADR-0002](docs/adr/0002-universal-api-authentication-strategy.md). Публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous.
 
 ### Основные backend-проекты
 
