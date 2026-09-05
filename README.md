@@ -186,7 +186,7 @@ React рассматривается как browser-клиент через BFF:
 React → BFF → Bearer JWT → Intelligence.TradeSystem.Api
 ```
 
-Secure HttpOnly cookie может использоваться только между React и BFF для browser session и не является authentication contract основного API. Mobile, desktop и CLI используют OAuth/OIDC и Bearer для того же API; предпочтительный сценарий для public clients — Authorization Code + PKCE, а для CLI также возможен Device Authorization Flow.
+Secure HttpOnly cookie может использоваться только между React и BFF для browser session и не является authentication contract основного API. Если BFF использует автоматически отправляемую cookie, ему нужна явная CSRF-защита: одного `HttpOnly` недостаточно. Mobile, desktop и CLI используют OAuth/OIDC и Bearer для того же API; предпочтительный сценарий для public clients — Authorization Code + PKCE, а для CLI также возможен Device Authorization Flow.
 
 Конкретный Authorization Server пока не выбран. Кандидаты и границы решения описаны в [ADR-0002](docs/adr/0002-universal-api-authentication-strategy.md). Публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous.
 

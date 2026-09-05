@@ -95,9 +95,21 @@ email + password
 
 Публичные endpoints явно остаются anonymous; наличие JWT contract для защищённого API не меняет этот режим.
 
-### Идентичность пользователя и Domain `UserId`
+### Идентичность пользователя и machine/client identity
 
-Основной стабильный identity claim OAuth/OIDC — `sub`. Email, username и display name не являются бизнес-идентификатором и не используются как `UserId`.
+User identity и machine/client identity являются разными видами authenticated principal. Валидность access token сама по себе не означает, что его subject можно представить как Domain user.
+
+#### User-delegated access token
+
+Для access token, представляющего пользователя, используется основной стабильный identity claim OAuth/OIDC — `sub`:
+
+```text
+sub
+  ↓
+user identity
+  ↓
+Domain UserId
+```
 
 Предпочтительное направление первого MVP:
 
@@ -105,15 +117,29 @@ email + password
 sub == Domain UserId Guid
 ```
 
-если выбранный authorization server позволяет контролировать subject identifier. Если конкретный IdP использует собственный `sub`, на API/Application boundary должно существовать явное сопоставление:
+если выбранный authorization server позволяет контролировать subject identifier. Если внешний IdP владеет `sub`, на API/Application boundary должно существовать явное сопоставление:
 
 ```text
-issuer + subject
+issuer + sub
         ↓
 internal UserId(Guid)
 ```
 
-Это сопоставление не реализуется в C-05. Domain `UserId` остаётся `Guid` и не зависит от email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie или конкретного identity provider. Authentication boundary преобразует внешнюю identity в typed `UserId`, не протаскивая OAuth/OIDC-типы в Domain.
+#### Machine / Client Credentials token
+
+Для access token, полученного через `Client Credentials`, subject представляет не пользователя, а machine/client identity:
+
+```text
+subject/client identity
+          ↓
+service principal / machine identity
+```
+
+Machine identity не равна user identity и не должна автоматически преобразовываться в Domain `UserId`. Такой token не получает автоматически доступ к user-owned resources. В частности, `/api/v1/accounts`, `/api/v1/positions`, `/api/v1/portfolio` и `/api/v1/recommendations` не должны считать service principal пользователем только потому, что token валиден.
+
+Будущий service-to-service access требует отдельной authorization model/policy. C-06 должен различать user principal и machine principal; полноценная service-account модель в этом PR не проектируется.
+
+Domain `UserId` остаётся `Guid` и не зависит от email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, machine identity или конкретного identity provider. Только user-delegated identity boundary может преобразовывать внешнюю user identity в typed `UserId`, не протаскивая OAuth/OIDC-типы в Domain. Это сопоставление не реализуется в C-05.
 
 ### Клиенты
 
@@ -135,6 +161,12 @@ Intelligence.TradeSystem.Api
 
 BFF — browser-specific adapter для session/token mediation. Он не является source of truth, не содержит торговую бизнес-логику, не рассчитывает assessments/recommendations, не создаёт отдельную модель пользователей и не заменяет основной API. BFF не реализуется этим PR; его реализация входит в G-01 вместе с React shell и OAuth/OIDC login flow.
 
+#### CSRF на BFF boundary
+
+Если BFF использует автоматически отправляемую browser cookie, BFF обязан иметь явную CSRF-защиту. Одного `HttpOnly` недостаточно: state-changing BFF requests не должны полагаться только на наличие cookie.
+
+Конкретный механизм выбирается при реализации G-01. Допустим стандартный anti-forgery token/header либо другой явно обоснованный эквивалентный механизм. Эта CSRF-защита относится только к cookie-based browser/BFF boundary и не является частью Bearer contract `/api/v1/*`.
+
 Для mobile и desktop public clients предпочтителен стандартный:
 
 ```text
@@ -145,7 +177,7 @@ Client secret не хранится внутри mobile или desktop прил�
 
 Для CLI не фиксируется username/password → token как основной flow. После выбора authorization server допустимы стандартные варианты, например Device Authorization Flow или Authorization Code + PKCE.
 
-Для будущих machine clients предусматривается стандартный `Client Credentials`. Service accounts и service-to-service runtime не реализуются сейчас, но архитектура API не должна им препятствовать.
+Для будущих machine clients предусматривается стандартный `Client Credentials`. Service accounts и service-to-service runtime не реализуются сейчас, но архитектура API не должна им препятствовать; machine principal не получает user authorization автоматически.
 
 ### SignalR
 
@@ -208,8 +240,8 @@ C-05A должен реализовать основу OAuth/OIDC-аутенти
 - настроить OAuth/OIDC integration;
 - настроить JWT Bearer resource server;
 - настроить issuer, audience и signing validation;
-- обеспечить stable authenticated `sub`;
-- связать subject с Domain `UserId` (`sub == Guid` либо явное `issuer + subject → UserId(Guid)` mapping);
+- обеспечить stable authenticated user `sub`;
+- связать user subject с Domain `UserId` (`sub == Guid` либо явное `issuer + subject → UserId(Guid)` mapping);
 - добавить integration tests;
 - оставить публичные endpoints anonymous.
 
@@ -223,6 +255,7 @@ C-05A не должен добавлять самодельный token protocol
 - стандартное разделение Authorization Server и Resource Server;
 - API не зависит от конкретного клиента или способа browser session;
 - Domain сохраняет независимость от OAuth/OIDC, JWT, ClaimsPrincipal и IdP;
+- user и machine principals не смешиваются автоматически;
 - будущие PKCE, Device Authorization и Client Credentials не требуют отдельной бизнес-логики API;
 - BFF ограничен browser boundary и не становится вторым backend source of truth.
 
@@ -232,6 +265,7 @@ C-05A не должен добавлять самодельный token protocol
 - JWT validation требует корректной настройки signature, issuer, audience, lifetime и claims/scopes;
 - BFF добавляет browser-specific deployment boundary;
 - mapping внешнего `issuer + sub` к внутреннему `UserId` требует явной политики, если IdP не позволяет контролировать subject;
+- machine access требует отдельной authorization policy и не может выводиться только из валидности token;
 - authenticated identity ещё не означает authorization: C-06 обязателен для user isolation.
 
 ## Связанные этапы roadmap

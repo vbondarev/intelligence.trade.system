@@ -65,7 +65,9 @@
 - OAuth/OIDC is the protocol and identity contract, Bearer is the presentation scheme, and JWT is only the token format. The API is a resource server; token issuance belongs to a separately selected authorization server.
 - Do not implement a custom `POST /login` → homemade JWT/refresh-token protocol, `JwtTokenService`, `RefreshTokenRepository`, or custom token rotation/authorization protocol.
 - A browser cookie is not the authentication contract of the main API. It is allowed only at a browser/BFF boundary; React, mobile, desktop, CLI, and future clients use the same business API.
-- Domain `UserId` is a stable `Guid` business identifier and must not depend on email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, or a concrete identity provider. Map stable `sub` to `UserId`, or map provider-controlled `issuer + sub` to an internal `UserId(Guid)` when the provider does not allow controlling the subject.
+- Any automatically sent browser cookie at a BFF boundary requires explicit CSRF protection; `HttpOnly` alone is insufficient. This is separate from the Bearer contract of `/api/v1/*`.
+- Domain `UserId` is a stable `Guid` business identifier and must not depend on email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, machine identity, or a concrete identity provider. For user-delegated tokens, map stable `sub` to `UserId`, or map provider-controlled `issuer + sub` to an internal `UserId(Guid)` when the provider does not allow controlling the subject.
+- A Client Credentials subject is a machine/service principal, not a Domain user; it must not automatically receive user-owned data. C-06 must distinguish user and machine principals and own the separate authorization policy.
 - Public market endpoints remain anonymous. C-05/C-05A establish authenticated identity; C-06 owns authorization, ownership, user isolation, and cross-user protection.
 - Future SignalR uses the same Bearer identity model as REST; do not create a separate SignalR identity model.
 
