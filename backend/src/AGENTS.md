@@ -60,7 +60,7 @@
 - Stage B domain state can be persisted, but it is not exposed through a user API or connected to synchronization; do not treat persistence as a completed user workflow.
 
 ## Authentication architecture
-- The current authentication decision is documented in `docs/adr/0002-universal-api-authentication-strategy.md`; ADR-0001 is retained as historical context and is superseded.
+- The universal API authentication contract is documented in `docs/adr/0002-universal-api-authentication-strategy.md`; ADR-0001 is retained as historical context and is superseded. The concrete Authorization Server selection is documented in `docs/adr/0003-authorization-server-selection.md`, which complements ADR-0002.
 - `Intelligence.TradeSystem.Api` is client-agnostic. Protected `/api/v1/*` endpoints use OAuth 2.0/OpenID Connect with Bearer access tokens; signed JWT is the target access-token format for the first MVP.
 - OAuth/OIDC is the protocol and identity contract, Bearer is the presentation scheme, and JWT is only the token format. The API is a resource server; token issuance belongs to a separately selected authorization server.
 - Do not implement a custom `POST /login` → homemade JWT/refresh-token protocol, `JwtTokenService`, `RefreshTokenRepository`, or custom token rotation/authorization protocol.
@@ -135,3 +135,13 @@
 - If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
 - If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.
 - If you change higher-TF level wiring in `LlmPayloadMapperExtensions`, review `LlmPayloadMapperExtensionsTests` in `Api.Tests`.
+
+## Authorization Server rules
+- ADR-0003 documents the selected ASP.NET Core Identity + OpenIddict Authorization Server and its separate `Intelligence.TradeSystem.Identity` boundary.
+- `Intelligence.TradeSystem.Api` remains a resource server and must not issue its own user tokens.
+- Identity/OpenIddict persistence uses a separate DbContext and EF migration stream from `TradeSystemDbContext`; the preferred topology is a separate PostgreSQL database.
+- Domain and Application business code must not depend on ASP.NET Core Identity or OpenIddict.
+- User-delegated `sub` maps to the stable Domain `UserId` Guid without email-based mapping.
+- Client Credentials principals are machine principals and must not become Domain users.
+- Production signing private keys belong only to the Authorization Server; API validation uses public discovery/JWKS material and supports key rotation.
+- Password grant, implicit flow, and custom JWT/refresh-token protocols are prohibited.

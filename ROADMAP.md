@@ -1,8 +1,8 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 1.8
+Версия документа: 1.9
 Дата актуализации: 5 сентября 2026 года
-Проверенная ветка: `task/58-revise-authentication-strategy` (база `develop`)
+Проверенная ветка: `task/60-add-authorization-server-adr` (база `develop`)
 Последний учтённый PR: C-05 — [#59 «#58: Пересмотрена стратегия аутентификации универсального API»](https://github.com/vbondarev/intelligence.trade.system/pull/59)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
@@ -34,7 +34,7 @@
 9. Автоматическое открытие, усреднение и закрытие сделок не входят в первый MVP.
 10. `Intelligence.TradeSystem.Api` — client-agnostic resource server: один business API `/api/v1/*` используется Web, mobile, desktop, CLI и будущими клиентами.
 11. Для защищённого API приняты OAuth 2.0 / OpenID Connect, Bearer access tokens и signed JWT как целевой формат access token первого MVP; browser cookie допускается только на BFF boundary.
-12. Конкретный Authorization Server пока не выбран и должен быть явно зафиксирован в начале C-05A либо отдельным ADR после сравнения кандидатов.
+12. Выбранный и запланированный Authorization Server — ASP.NET Core Identity + OpenIddict; решение зафиксировано в ADR-0003. Runtime implementation остаётся задачей C-05A.
 
 ## 3. Обозначения статуса
 
@@ -99,7 +99,7 @@
 
 ### Пока отсутствует
 
-- ⬜ OAuth/OIDC-аутентификация пользователей и разграничение данных; основу resource-server authentication реализует C-05A, изоляцию данных — C-06.
+- ⬜ OAuth/OIDC-аутентификация пользователей и разграничение данных; выбранный стек ASP.NET Core Identity + OpenIddict зафиксирован ADR-0003, resource-server foundation реализует C-05A, изоляцию данных — C-06.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ⬜ Безопасное хранение ключей Bybit.
 - ⬜ Подключение биржевого аккаунта через пользовательский сценарий.
@@ -161,7 +161,7 @@
 | C-03 | Сохранять аккаунты, позиции, версии, портфели, оценки и рекомендации | ✅ | Состояние и история восстанавливаются после перезапуска через Application repository ports |
 | C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
 | C-05 | Принять ADR по универсальной стратегии аутентификации | ✅ | Принят client-agnostic contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API; browser cookie допускается только на BFF boundary |
-| C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ⬜ | Выбран и зафиксирован Authorization Server; настроен JWT Bearer resource server с issuer/audience/signing validation; stable user-delegated `sub` связан с Domain `UserId`; добавлены integration tests; публичные market endpoints остаются anonymous |
+| C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ⬜ | Реализован ASP.NET Core Identity + OpenIddict Authorization Server; `Intelligence.TradeSystem.Api` настроен как JWT Bearer resource server с issuer/audience/signature/lifetime validation; stable user-delegated `sub` соответствует Domain `UserId`; integration tests подтверждают OAuth/OIDC flow; публичные market endpoints остаются anonymous |
 | C-06 | Реализовать разграничение данных по `UserId` | ⬜ | Пользователь не может получить чужие данные |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
@@ -250,7 +250,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
-| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ⬜ | Работают React shell, BFF/session integration, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session |
+| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ⬜ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session |
 | G-02 | Реализовать подключение Bybit только для чтения | ⬜ | Пользователь может добавить, проверить и отключить аккаунт |
 | G-03 | Реализовать сводку портфеля и список позиций | ⬜ | Видны PnL, риск, свежесть, состояние синхронизации, позиции под наблюдением и критические позиции |
 | G-04 | Реализовать страницу позиции | ⬜ | Видны параметры сделки, график, ключевые уровни, рыночные показатели, оценка, рекомендация, причины и условия пересмотра |
@@ -374,22 +374,21 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Добавить оптимистическую конкурентность и оставшиеся persistence-тесты | C-04, C-08 |
-| 2 | Реализовать основу OAuth/OIDC-аутентификации универсального API | C-05A |
-| 3 | Реализовать изоляцию данных по `UserId` | C-06 |
-| 4 | Реализовать защиту ключей Bybit | C-07 |
-| 5 | Реализовать подключение биржевого аккаунта | D-01 |
-| 6 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
-| 7 | Добавить общий кэш публичных снимков рынка | D-07 |
-| 8 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
-| 9 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
-| 10 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
-| 11 | Создать адаптивную React-панель | G-01 — G-08 |
-| 12 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 13 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
-| 14 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 15 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 16 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Реализовать ASP.NET Core Identity + OpenIddict и JWT Bearer foundation | C-05A |
+| 2 | Реализовать изоляцию данных по `UserId` | C-06 |
+| 3 | Реализовать защиту ключей Bybit | C-07 |
+| 4 | Реализовать подключение биржевого аккаунта | D-01 |
+| 5 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
+| 6 | Добавить общий кэш публичных снимков рынка | D-07 |
+| 7 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
+| 8 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
+| 9 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
+| 10 | Создать адаптивную React-панель | G-01 — G-08 |
+| 11 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 12 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
+| 13 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 14 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 15 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
 Этап B завершён и больше не входит в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
@@ -449,6 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-05 | 1.9 | ADR-0003: ASP.NET Core Identity + OpenIddict выбран как self-hosted Authorization Server; Identity boundary отделена от resource server; Identity/OpenIddict persistence отделена от business persistence; C-05A больше не выбирает provider, а реализует принятое решение. Обновлены README, AGENTS и ближайшая очередь runtime PR; номер нового PR не фиксируется до его создания. |
 | 2026-09-05 | 1.8 | ADR-0001 сохранён как историческое решение и помечен Superseded; принят ADR-0002 по client-agnostic authentication contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API. Зафиксированы границы Authorization Server и Resource Server, user-delegated `sub` → Domain `UserId`; machine/service principals отделены от Domain users, React → BFF → API, Authorization Code + PKCE для public clients, Device Authorization/PKCE для CLI, Client Credentials для будущих machine clients, anonymous public market endpoints и отдельная ответственность C-06 за authorization/isolation. C-05A переработан под выбор Authorization Server и JWT Bearer foundation; BFF закреплён за G-01. |
 | 2026-09-04 | 1.7 | Принят ADR-0001 по аутентификации пользователей (C-05): для первого Web MVP выбраны ASP.NET Core Identity и secure HttpOnly cookie, с единым authenticated principal для REST и будущего browser SignalR; зафиксированы CSRF, cookie security, стабильный `UserId`, публичные и приватные endpoints, а также отложенные native/OIDC-сценарии. Runtime authentication выделена в отдельный следующий шаг C-05A; C-06 остаётся отдельным этапом UserId isolation. |
 | 2026-09-04 | 1.6 | Реализована оптимистическая конкурентность (C-04): persistence-neutral ConcurrencyVersion/Versioned<T> и ConcurrencyConflictException в Application; GetByIdAsync/SaveAsync репозиториев ExchangeAccount, Position и Recommendation переведены на compare-and-swap по версии (без retry); добавлена миграция AddConcurrencyVersion с безопасным backfill существующих строк; добавлены детерминированные PostgreSQL-тесты на конфликт версий, откат истории позиции при устаревшей записи, dynamic-only обновления, последовательные версии, blind overwrite и удалённую строку. C-04 завершён; auth, user isolation и security остаются в следующих PR. |
