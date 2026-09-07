@@ -95,37 +95,37 @@ public sealed class MarketSnapshotService : IMarketSnapshotService
     {
         if (collectedData.Ticker is null)
         {
-            throw new InvalidOperationException($"Failed to collect ticker for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect ticker for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.OrderBook is null)
         {
-            throw new InvalidOperationException($"Failed to collect order book for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect order book for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.Trades.Count == 0)
         {
-            throw new InvalidOperationException($"Failed to collect recent trades for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect recent trades for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.M15Klines.Count == 0)
         {
-            throw new InvalidOperationException($"Failed to collect 15m klines for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect 15m klines for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.H1Klines.Count == 0)
         {
-            throw new InvalidOperationException($"Failed to collect 1h klines for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect 1h klines for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.H4Klines.Count == 0)
         {
-            throw new InvalidOperationException($"Failed to collect 4h klines for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect 4h klines for symbol '{collectedData.Symbol}'.");
         }
 
         if (collectedData.D1Klines.Count == 0)
         {
-            throw new InvalidOperationException($"Failed to collect 1d klines for symbol '{collectedData.Symbol}'.");
+            throw new MarketDataUnavailableException($"Failed to collect 1d klines for symbol '{collectedData.Symbol}'.");
         }
     }
 }

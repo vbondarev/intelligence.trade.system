@@ -4,6 +4,7 @@ using FluentValidation;
 using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Authentication;
+using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
@@ -12,6 +13,7 @@ using Intelligence.TradeSystem.Exchanges;
 using Intelligence.TradeSystem.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Intelligence.TradeSystem.Api;
@@ -29,6 +31,36 @@ public partial class Program
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
             });
+        builder.Services.AddProblemDetails(options =>
+        {
+            options.CustomizeProblemDetails = ApiProblemDetails.Customize;
+        });
+        builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+        builder.Services.Configure<ExceptionHandlerOptions>(options =>
+        {
+            options.SuppressDiagnosticsCallback = context =>
+                ApiExceptionHandler.ShouldSuppressDiagnostics(
+                    context.Exception,
+                    context.HttpContext.RequestAborted.IsCancellationRequested);
+        });
+        builder.Services.Configure<ApiBehaviorOptions>(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+               var detail = context.ModelState.Values
+                       .SelectMany(state => state.Errors)
+                       .Select(error => error.ErrorMessage)
+                       .FirstOrDefault(message => !string.IsNullOrWhiteSpace(message))
+                   ?? "The request could not be processed.";
+               var problemDetails =
+                   ApiProblemDetails.CreateValidation(context.HttpContext, detail);
+               ApiProblemDetails.AddModelStateErrors(
+                   problemDetails,
+                   context.ModelState);
+
+               return new BadRequestObjectResult(problemDetails);
+            };
+        });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
         {
@@ -61,6 +93,8 @@ public partial class Program
         builder.Services.AddScoped<ICurrentUserContext, ClaimsPrincipalCurrentUserContext>();
 
         var app = builder.Build();
+
+        app.UseExceptionHandler();
 
         if (app.Environment.IsDevelopment())
         {
