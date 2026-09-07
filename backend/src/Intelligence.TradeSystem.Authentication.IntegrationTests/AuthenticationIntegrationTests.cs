@@ -863,7 +863,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         string oldSigningCertificatePath,
         string newSigningCertificatePath,
         string signingCertificatePassword)
-        : WebApplicationFactory<Intelligence.TradeSystem.Identity.Program>
+        : WebApplicationFactory<Intelligence.TradeSystem.Identity.IdentityApplicationMarker>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
