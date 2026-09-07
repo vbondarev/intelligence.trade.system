@@ -10,6 +10,9 @@ public static class Program
             .WithDataVolume();
         var businessDatabase = database.AddDatabase("TradeSystem");
         var identityDatabase = database.AddDatabase("TradeSystemIdentity");
+        var credentialProtectionKey = builder.AddParameter(
+            "tradeCredentialKey",
+            secret: true);
 
         var identityMigrations = builder
             .AddProject<Projects.Intelligence_TradeSystem_Identity_Migrations>("identity-migrations")
@@ -38,6 +41,8 @@ public static class Program
             .WithEnvironment("Authentication__Issuer", "http://localhost:8081")
             .WithEnvironment("Authentication__MetadataAddress", identityEndpoint)
             .WithEnvironment("Authentication__BackchannelBaseAddress", identityEndpoint)
+            .WithEnvironment("CredentialProtection__ActiveKeyId", "local-v1")
+            .WithEnvironment("CredentialProtection__Keys__local-v1", credentialProtectionKey)
             .WithExternalHttpEndpoints()
             .WithUrl("/swagger", "Swagger");
 

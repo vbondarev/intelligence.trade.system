@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 2.2
+Версия документа: 2.3
 Дата актуализации: 7 сентября 2026 года
-Проверенная ветка: `task/64-enforce-user-data-isolation` (PR #65, база `develop` после PR #63)
+Проверенная ветка: `task/66-protect-bybit-credentials` (база `develop` после merge PR #65)
 Последний учтённый PR: [#65 «#64: Реализовано разграничение данных пользователей по UserId.»](https://github.com/vbondarev/intelligence.trade.system/pull/65)
-Текущий активный этап: **C — хранение, безопасность и пользователи**  
+Текущий следующий этап: **D-01 — подключение биржевого аккаунта**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -51,7 +51,7 @@
 |---|---|---|
 | A | Архитектурный фундамент | ✅ Завершён |
 | B | Бизнес-домен аккаунта, позиции, оценки и рекомендации | ✅ Завершён |
-| C | Хранение, безопасность и пользователи | 🚧 Текущий этап |
+| C | Хранение, безопасность и пользователи | 🟡 C-08 частично |
 | D | Подключение Bybit и синхронизация | 🟡 Есть транспортные заготовки |
 | E | Оценка позиции и рекомендации | ⬜ Не начат |
 | F | Пользовательский API и SignalR | ⬜ Не начат |
@@ -103,7 +103,7 @@
 - ✅ Основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
 - ✅ Изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
-- ⬜ Безопасное хранение ключей Bybit.
+- ✅ Безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
 - ⬜ Подключение биржевого аккаунта через пользовательский сценарий.
 - ⬜ Периодическая синхронизация аккаунта и позиций.
 - ⬜ Пользовательский workflow чтения и синхронизации сохранённых позиций, оценок и рекомендаций.
@@ -154,7 +154,7 @@
 
 ### Этап C. Добавить хранение, безопасность и пользователей
 
-Статус этапа: 🚧 Текущий этап.
+Статус этапа: 🟡 C-08 частично; C-07 завершён.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -165,7 +165,7 @@
 | C-05 | Принять ADR по универсальной стратегии аутентификации | ✅ | Принят client-agnostic contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API; browser cookie допускается только на BFF boundary |
 | C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ✅ | Реализованы explicit migration lifecycle, отдельные Identity/OpenIddict persistence и deployable host, Authorization Code + PKCE (S256), signed short-lived non-encrypted JWT, public issuer/internal backchannel для discovery/JWKS, discovery scopes, lockout, overlapping signing keys, JwtBearer validation, Compose-level protected Bearer smoke и PostgreSQL integration tests; stable user-delegated `sub` → Domain `UserId`, public endpoints anonymous. См. ADR-0003 |
 | C-06 | Реализовать разграничение данных по `UserId` | ✅ | User-delegated `sub` сопоставляется с Domain `UserId`; user-owned операции изолированы по владельцу и подтверждены PostgreSQL и Bearer E2E-тестами |
-| C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
+| C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ✅ | Ключи не хранятся открыто и не попадают в ответы и логи; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
 
 ### Этап D. Подключить аккаунт Bybit только для чтения и синхронизацию
@@ -448,6 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-07 | 2.3 | В Issue #66 реализована защита Bybit credentials: AES-256-GCM payload с AAD user/account identity, внешний key ring, CAS rotate/revoke/reprotect, PostgreSQL security tests и безопасная Compose/CI/Aspire конфигурация. Следующий этап — D-01; C-08 остаётся частично выполненным. |
 | 2026-09-07 | 2.2 | В Issue #64 и PR #65 реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
 | 2026-09-07 | 2.1 | В PR #63 завершено исправление C-05A: добавлены explicit Identity migration runner и Compose/Aspire ordering, lockout policy/tests, public issuer и internal metadata separation, overlapping signing certificates/JWKS rollover, explicit short access-token lifetime, runtime auth smoke и обновлены migration/Docker/CI instructions. Следующим этапом остаётся C-06. |
 | 2026-09-07 | 2.0 | Реализован C-05A: отдельный Identity host на ASP.NET Core Identity + OpenIddict, отдельная PostgreSQL persistence и migration stream, Authorization Code + PKCE (S256), signed JWT access tokens, discovery/JWKS, независимая JwtBearer validation в Api и PostgreSQL integration proof. Следующим этапом остаётся C-06. |

@@ -7,6 +7,8 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 {
+    private const string C06Migration = "20260907131212_AddUserIsolationIndexes";
+
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_migrations")
         .WithUsername("tradesystem")
@@ -87,6 +89,58 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
             var version = (long)(await selectCommand.ExecuteScalarAsync())!;
 
             Assert.Equal(1L, version);
+        }
+    }
+
+    [Fact]
+    public async Task Credential_migration_preserves_existing_account_data()
+    {
+        var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
+            .UseNpgsql(
+                postgres.GetConnectionString(),
+                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
+                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
+            .Options;
+
+        await using (var dbContext = new TradeSystemDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync(C06Migration);
+
+            var connection = dbContext.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+                await connection.OpenAsync();
+
+            await using var insertCommand = connection.CreateCommand();
+            insertCommand.CommandText = """
+                INSERT INTO exchange_accounts (
+                    exchange_account_id, user_id, exchange_id, connection_status, capabilities,
+                    last_synced_at, last_error, version)
+                VALUES (
+                    '33333333-3333-3333-3333-333333333333',
+                    '44444444-4444-4444-4444-444444444444',
+                    'Bybit', 'Connected', 3, NULL, NULL, 1)
+                """;
+            await insertCommand.ExecuteNonQueryAsync();
+        }
+
+        await using (var dbContext = new TradeSystemDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+
+            var account = await dbContext.ExchangeAccounts
+                .SingleAsync(row => row.Id == Guid.Parse("33333333-3333-3333-3333-333333333333"));
+            Assert.Equal(Guid.Parse("44444444-4444-4444-4444-444444444444"), account.UserId);
+            Assert.True(await dbContext.Database
+                .SqlQueryRaw<bool>(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = 'exchange_account_credentials')
+                    AS "Value"
+                    """)
+                .SingleAsync());
         }
     }
 }

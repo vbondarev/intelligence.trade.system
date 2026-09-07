@@ -47,6 +47,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     private const string CertificatePassword = "integration-certificate-password";
     private const string PrincipalTypeClaim = "trade_principal_type";
     private const string UserPrincipalType = "user";
+    private static readonly string CredentialProtectionKey =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_identity")
@@ -892,6 +894,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             builder.UseSetting("Authentication:BackchannelBaseAddress", BackchannelBaseAddress);
             builder.UseSetting("Authentication:Audience", Audience);
             builder.UseSetting("ConnectionStrings:TradeSystem", businessConnectionString);
+            builder.UseSetting("CredentialProtection:ActiveKeyId", "integration-v1");
+            builder.UseSetting("CredentialProtection:Keys:integration-v1", CredentialProtectionKey);
             builder.ConfigureTestServices(services =>
             {
                 services.AddControllers()

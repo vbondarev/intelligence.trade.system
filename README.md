@@ -363,6 +363,25 @@ Endpoint сохраняется ради совместимости и отла�
 
 Публичный рыночный анализ не должен требовать пользовательских API-ключей Bybit. Приватные credentials понадобятся только для будущих сценариев чтения конкретного аккаунта.
 
+### Защита credentials Bybit
+
+Пары `apiKey`/`apiSecret` хранятся только как один authenticated-encrypted payload в PostgreSQL. `ExchangeAccount` не содержит credentials, а master keys не сохраняются в TradeSystem database, логах, ответах API или репозитории. User-scoped store поддерживает создание, чтение, локальную замену пары (`Rotate`), локальный отзыв (`Revoke`) и отдельную перепротекцию существующей строки новым active master key (`Reprotect`). `Revoke` удаляет локальный доступ системы и не удаляет API key на стороне Bybit.
+
+Для локального запуска задайте явный 32-байтный ключ в Base64; ключ не генерируется автоматически при старте:
+
+```bash
+export CredentialProtection__ActiveKeyId=local-v1
+export CredentialProtection__Keys__local-v1='<base64-32-byte-key>'
+```
+
+Ключ можно сгенерировать без вывода значения в журнал:
+
+```bash
+export CredentialProtection__Keys__local-v1="$(openssl rand -base64 32)"
+```
+
+Для Compose используется переменная `TRADE_CREDENTIAL_KEY`; `compose.yaml` не содержит ключа. При rollover добавьте новый key id в deployment configuration, оставьте старый key id доступным для чтения, выполните `Reprotect` для всех строк и только после этого удаляйте старый key из key ring. Удаление старого ключа раньше перепротекции делает соответствующие строки нечитаемыми. CI создаёт disposable 32-байтный ключ во время workflow и маскирует его.
+
 ### Восстановление зависимостей
 
 Из корня репозитория:
@@ -457,6 +476,7 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - API-контрактов, включая `llm-payload` 1.0;
 - прикладных сервисов;
 - PostgreSQL migrations и persistence через Testcontainers;
+- PostgreSQL credential security tests: authenticated encryption, tamper/AAD protection, CAS rotation/revocation, key rollover and cascade deletion;
 - PostgreSQL user-isolation and real Bearer OAuth/OIDC E2E tests;
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
