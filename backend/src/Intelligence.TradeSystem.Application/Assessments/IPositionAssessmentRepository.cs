@@ -6,8 +6,12 @@ namespace Intelligence.TradeSystem.Application.Assessments;
 public interface IPositionAssessmentRepository
 {
     Task<PositionAssessment?> GetByIdAsync(
+        UserId userId,
         PositionAssessmentId id,
         CancellationToken cancellationToken = default);
 
-    Task SaveAsync(PositionAssessment assessment, CancellationToken cancellationToken = default);
+    Task SaveAsync(
+        UserId userId,
+        PositionAssessment assessment,
+        CancellationToken cancellationToken = default);
 }

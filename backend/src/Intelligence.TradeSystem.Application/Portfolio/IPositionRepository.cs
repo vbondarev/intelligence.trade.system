@@ -6,11 +6,16 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 
 public interface IPositionRepository
 {
-    Task<Versioned<Position>?> GetByIdAsync(PositionId id, CancellationToken cancellationToken = default);
+    Task<Versioned<Position>?> GetByIdAsync(
+        UserId userId,
+        PositionId id,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Атомарно сохраняет позицию вместе с новыми записями в append-only истории.
+    /// Атомарно сохраняет позицию в указанном user scope вместе с новыми записями
+    /// в append-only истории.
     /// </summary>
+    /// <param name="userId">Владелец прикладной операции.</param>
     /// <param name="position">Позиция для сохранения.</param>
     /// <param name="expectedVersion">
     /// Версия, под которой был прочитан агрегат перед изменением, или <c>null</c>, если
@@ -25,9 +30,11 @@ public interface IPositionRepository
     /// </remarks>
     /// <exception cref="ConcurrencyConflictException">
     /// Ожидаемая версия не совпала с фактической, либо строка уже существует при вставке,
-    /// либо строка была удалена другим писателем.
+    /// либо агрегат недоступен в указанном user scope. Эта ошибка не различает отсутствующий
+    /// и чужой ресурс.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         Position position,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

@@ -7,11 +7,14 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 public interface IExchangeAccountRepository
 {
     Task<Versioned<ExchangeAccount>?> GetByIdAsync(
-        ExchangeAccountId id, CancellationToken cancellationToken = default);
+        UserId userId,
+        ExchangeAccountId id,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Сохраняет аккаунт с CAS-проверкой оптимистической конкурентности.
+    /// Сохраняет аккаунт в указанном user scope с CAS-проверкой оптимистической конкурентности.
     /// </summary>
+    /// <param name="userId">Владелец прикладной операции.</param>
     /// <param name="account">Аккаунт для сохранения.</param>
     /// <param name="expectedVersion">
     /// Версия, под которой был прочитан агрегат перед изменением, или <c>null</c>, если
@@ -20,9 +23,11 @@ public interface IExchangeAccountRepository
     /// <returns>Версия, под которой агрегат теперь сохранён.</returns>
     /// <exception cref="ConcurrencyConflictException">
     /// Ожидаемая версия не совпала с фактической, либо строка уже существует при вставке,
-    /// либо строка была удалена другим писателем.
+    /// либо агрегат недоступен в указанном user scope. Эта ошибка не различает отсутствующий
+    /// и чужой ресурс.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         ExchangeAccount account,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

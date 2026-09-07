@@ -7,18 +7,17 @@ using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Exchanges;
 using Intelligence.TradeSystem.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Intelligence.TradeSystem.Api;
 
 public partial class Program
 {
-    private const string SubjectClaim = "sub";
-    private const string ScopeClaim = "scope";
-
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
@@ -58,6 +57,8 @@ public partial class Program
         builder.Services.AddSingleton<ISnapshotHealthEvaluator, SnapshotHealthEvaluator>();
         builder.Services.AddScoped<IValidator<SnapshotAnalysisRequest>, SnapshotAnalysisRequestValidator>();
         builder.Services.AddScoped<IValidator<LlmPayloadRequest>, LlmPayloadRequestValidator>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<ICurrentUserContext, ClaimsPrincipalCurrentUserContext>();
 
         var app = builder.Build();
 
@@ -156,15 +157,20 @@ public partial class Program
 
         builder.Services.AddAuthorization(options =>
         {
-            options.AddPolicy("TradeApi", policy =>
-            {
-                policy.RequireAuthenticatedUser();
-                policy.RequireAssertion(context =>
-                    context.User.FindAll(ScopeClaim)
-                        .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                        .Contains("trade.api", StringComparer.Ordinal));
-                policy.RequireClaim(SubjectClaim);
-            });
+            var tradeApi = new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .RequireAssertion(context => TradeAuthorization.HasApiScope(context.User))
+                .Build();
+            var tradeUser = new AuthorizationPolicyBuilder(tradeApi)
+                .RequireClaim(
+                    TradeAuthorization.PrincipalTypeClaim,
+                    TradeAuthorization.UserPrincipalType)
+                .RequireAssertion(context =>
+                    TradeAuthorization.TryGetUserId(context.User, out _))
+                .Build();
+
+            options.AddPolicy(TradeAuthorization.ApiPolicy, tradeApi);
+            options.AddPolicy(TradeAuthorization.UserPolicy, tradeUser);
         });
     }
 }

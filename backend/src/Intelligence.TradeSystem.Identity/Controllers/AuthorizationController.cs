@@ -13,6 +13,9 @@ public sealed class AuthorizationController(
     UserManager<ApplicationUser> userManager,
     IOpenIddictScopeManager scopeManager) : Controller
 {
+    private const string PrincipalTypeClaim = "trade_principal_type";
+    private const string UserPrincipalType = "user";
+
     [HttpGet("~/connect/authorize")]
     public async Task<IActionResult> Authorize()
     {
@@ -40,13 +43,17 @@ public sealed class AuthorizationController(
 
         identity.SetClaim(OpenIddictConstants.Claims.Subject, user.Id.ToString());
         identity.SetClaim(OpenIddictConstants.Claims.Name, user.UserName ?? user.Id.ToString());
+        identity.SetClaim(PrincipalTypeClaim, UserPrincipalType);
         identity.SetScopes(request.GetScopes());
         identity.SetResources(await scopeManager.ListResourcesAsync(request.GetScopes()).ToListAsync());
-        identity.SetDestinations(static _ =>
-        [
-            OpenIddictConstants.Destinations.AccessToken,
-            OpenIddictConstants.Destinations.IdentityToken
-        ]);
+        identity.SetDestinations(static claim =>
+            claim.Type == PrincipalTypeClaim
+                ? [OpenIddictConstants.Destinations.AccessToken]
+                :
+                [
+                    OpenIddictConstants.Destinations.AccessToken,
+                    OpenIddictConstants.Destinations.IdentityToken
+                ]);
 
         return SignIn(
             new ClaimsPrincipal(identity),

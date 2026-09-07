@@ -9,12 +9,18 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 public sealed class PortfolioStateRepository(TradeSystemDbContext dbContext) : IPortfolioStateRepository
 {
     public async Task<PortfolioState?> GetLatestAsync(
+        UserId userId,
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default)
     {
+        EnsureUserId(userId);
         var entity = await dbContext.PortfolioStates
             .AsNoTracking()
-            .Where(state => state.ExchangeAccountId == exchangeAccountId.Value)
+            .Where(state =>
+                state.ExchangeAccountId == exchangeAccountId.Value &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == state.ExchangeAccountId &&
+                    account.UserId == userId.Value))
             .OrderByDescending(state => state.CalculatedAt)
             .ThenByDescending(state => state.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -31,11 +37,66 @@ public sealed class PortfolioStateRepository(TradeSystemDbContext dbContext) : I
     }
 
     public async Task SaveAsync(
+        UserId userId,
         PortfolioState state,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(state);
+        EnsureUserId(userId);
+        if (!await dbContext.ExchangeAccounts.AnyAsync(
+                account =>
+                    account.Id == state.ExchangeAccountId.Value &&
+                    account.UserId == userId.Value,
+                cancellationToken))
+        {
+            throw new InvalidOperationException(
+                "A portfolio state can only be saved within its owning user scope.");
+        }
+
+        var requestedPositionIds = state.Positions
+            .Select(position => position.PositionId.Value)
+            .ToArray();
+        if (requestedPositionIds.Distinct().Count() != requestedPositionIds.Length)
+        {
+            throw new InvalidOperationException(
+                "A portfolio state cannot contain duplicate position identifiers.");
+        }
+
+        if (state.Positions.Any(position =>
+                position.ExchangePositionKey.ExchangeAccountId != state.ExchangeAccountId))
+        {
+            throw new InvalidOperationException(
+                "All portfolio positions must reference the portfolio exchange account.");
+        }
+
+        if (requestedPositionIds.Length > 0)
+        {
+            var ownedPositionIds = await dbContext.Positions
+                .AsNoTracking()
+                .Where(position =>
+                    requestedPositionIds.Contains(position.Id) &&
+                    position.ExchangeAccountId == state.ExchangeAccountId.Value &&
+                    dbContext.ExchangeAccounts.Any(account =>
+                        account.Id == position.ExchangeAccountId &&
+                        account.UserId == userId.Value))
+                .Select(position => position.Id)
+                .ToArrayAsync(cancellationToken);
+
+            if (ownedPositionIds.Length != requestedPositionIds.Length ||
+                !ownedPositionIds.ToHashSet().SetEquals(requestedPositionIds))
+            {
+                throw new InvalidOperationException(
+                    "A portfolio state contains a position outside the requested user scope.");
+            }
+        }
+
         dbContext.PortfolioStates.Add(PortfolioStateMapper.ToEntity(state));
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void EnsureUserId(UserId userId)
+    {
+        if (userId == default)
+            throw new ArgumentException("UserId must be initialized.", nameof(userId));
     }
 }

@@ -46,5 +46,8 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
             .HasDefaultValue(1L)
             .IsConcurrencyToken()
             .IsRequired();
+
+        builder.HasIndex(account => account.UserId)
+            .HasDatabaseName("ix_exchange_accounts_user_id");
     }
 }

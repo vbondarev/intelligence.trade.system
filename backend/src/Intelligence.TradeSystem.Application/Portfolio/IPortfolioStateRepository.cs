@@ -6,8 +6,12 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 public interface IPortfolioStateRepository
 {
     Task<PortfolioState?> GetLatestAsync(
+        UserId userId,
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default);
 
-    Task SaveAsync(PortfolioState state, CancellationToken cancellationToken = default);
+    Task SaveAsync(
+        UserId userId,
+        PortfolioState state,
+        CancellationToken cancellationToken = default);
 }

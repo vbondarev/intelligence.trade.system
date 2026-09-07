@@ -2,7 +2,6 @@
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
-using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,12 +10,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : IExchangeAccountRepository
 {
     public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
+        UserId userId,
         ExchangeAccountId id,
         CancellationToken cancellationToken = default)
     {
+        EnsureUserId(userId);
         var entity = await dbContext.ExchangeAccounts
             .AsNoTracking()
-            .SingleOrDefaultAsync(account => account.Id == id.Value, cancellationToken);
+            .SingleOrDefaultAsync(
+                account => account.Id == id.Value && account.UserId == userId.Value,
+                cancellationToken);
 
         return entity is null
             ? null
@@ -25,80 +28,80 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
     }
 
     public async Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         ExchangeAccount account,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
+        EnsureUserId(userId);
+        if (account.UserId != userId)
+        {
+            throw new InvalidOperationException(
+                "An exchange account can only be saved within its owning user scope.");
+        }
+
         var mapped = ExchangeAccountMapper.ToEntity(account);
-        var tracked = dbContext.ChangeTracker
-            .Entries<ExchangeAccountEntity>()
-            .SingleOrDefault(entry => entry.Entity.Id == mapped.Id);
 
-        ExchangeAccountEntity? existing;
-        if (tracked is not null)
+        if (expectedVersion is null)
         {
-            existing = tracked.Entity;
-        }
-        else
-        {
-            existing = await dbContext.ExchangeAccounts
-                .AsNoTracking()
-                .SingleOrDefaultAsync(entity => entity.Id == mapped.Id, cancellationToken);
-        }
+            if (await dbContext.ExchangeAccounts.AnyAsync(
+                    entity => entity.Id == mapped.Id && entity.UserId == userId.Value,
+                    cancellationToken))
+            {
+                throw new ConcurrencyConflictException(
+                    $"ExchangeAccount {account.Id} already exists and cannot be inserted again.");
+            }
 
-        if (expectedVersion is null && existing is not null)
-            throw new ConcurrencyConflictException(
-                $"ExchangeAccount {account.Id} already exists and cannot be inserted again.");
-        if (expectedVersion is not null && existing is null)
-            throw new ConcurrencyConflictException(
-                $"ExchangeAccount {account.Id} was deleted concurrently and cannot be updated.");
-
-        ConcurrencyVersion newVersion;
-        if (existing is null)
-        {
-            newVersion = ConcurrencyVersion.Initial;
-            mapped.Version = newVersion.Value;
+            mapped.Version = ConcurrencyVersion.Initial.Value;
             dbContext.ExchangeAccounts.Add(mapped);
-        }
-        else
-        {
-            newVersion = expectedVersion!.Value.Next();
-            mapped.Version = newVersion.Value;
-            if (tracked is not null)
+
+            try
             {
-                tracked.CurrentValues.SetValues(mapped);
-                tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
+                await dbContext.SaveChangesAsync(cancellationToken);
             }
-            else
+            catch (DbUpdateException exception)
+                when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
+                    exception,
+                    "PK_exchange_accounts"))
             {
-                dbContext.Attach(mapped);
-                var entry = dbContext.Entry(mapped);
-                entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
-                entry.State = EntityState.Modified;
+                throw new ConcurrencyConflictException(
+                    $"ExchangeAccount {account.Id} was inserted concurrently.", exception);
             }
+
+            return ConcurrencyVersion.Initial;
         }
 
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException exception)
+        var newVersion = expectedVersion.Value.Next();
+        var affected = await dbContext.ExchangeAccounts
+            .Where(entity =>
+                entity.Id == mapped.Id &&
+                entity.UserId == userId.Value &&
+                entity.Version == expectedVersion.Value.Value)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(entity => entity.ExchangeId, mapped.ExchangeId)
+                    .SetProperty(entity => entity.ConnectionStatus, mapped.ConnectionStatus)
+                    .SetProperty(entity => entity.Capabilities, mapped.Capabilities)
+                    .SetProperty(entity => entity.LastSyncedAt, mapped.LastSyncedAt)
+                    .SetProperty(entity => entity.LastError, mapped.LastError)
+                    .SetProperty(entity => entity.Version, newVersion.Value),
+                cancellationToken);
+
+        if (affected != 1)
         {
             throw new ConcurrencyConflictException(
-                $"ExchangeAccount {account.Id} was modified or deleted concurrently.", exception);
-        }
-        catch (DbUpdateException exception)
-            when (existing is null &&
-                  expectedVersion is null &&
-                  PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
-                      exception,
-                      "PK_exchange_accounts"))
-        {
-            throw new ConcurrencyConflictException(
-                $"ExchangeAccount {account.Id} was inserted concurrently.", exception);
+                $"ExchangeAccount {account.Id} was modified or deleted concurrently.");
         }
 
         return newVersion;
+    }
+
+    private static void EnsureUserId(UserId userId)
+    {
+        if (userId == default)
+        {
+            throw new ArgumentException("UserId must be initialized.", nameof(userId));
+        }
     }
 }

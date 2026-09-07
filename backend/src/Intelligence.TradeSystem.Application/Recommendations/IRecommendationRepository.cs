@@ -7,11 +7,14 @@ namespace Intelligence.TradeSystem.Application.Recommendations;
 public interface IRecommendationRepository
 {
     Task<Versioned<Recommendation>?> GetByIdAsync(
+        UserId userId,
         RecommendationId id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Сохраняет рекомендацию с CAS-проверкой оптимистической конкурентности.
+    /// Сохраняет рекомендацию в указанном user scope с CAS-проверкой оптимистической
+    /// конкурентности.
     /// </summary>
+    /// <param name="userId">Владелец прикладной операции.</param>
     /// <param name="recommendation">Рекомендация для сохранения.</param>
     /// <param name="expectedVersion">
     /// Версия, под которой был прочитан агрегат перед изменением, или <c>null</c>, если
@@ -20,9 +23,11 @@ public interface IRecommendationRepository
     /// <returns>Версия, под которой агрегат теперь сохранён.</returns>
     /// <exception cref="ConcurrencyConflictException">
     /// Ожидаемая версия не совпала с фактической, либо строка уже существует при вставке,
-    /// либо строка была удалена другим писателем.
+    /// либо связанный агрегат недоступен в указанном user scope. Эта ошибка не различает
+    /// отсутствующий и чужой ресурс.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         Recommendation recommendation,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

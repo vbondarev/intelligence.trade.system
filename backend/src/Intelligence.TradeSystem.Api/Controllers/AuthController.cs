@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -5,14 +6,15 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
-[Authorize(Policy = "TradeApi")]
-public sealed class AuthController : ControllerBase
+[Authorize(Policy = "TradeUser")]
+public sealed class AuthController(ICurrentUserContext currentUserContext) : ControllerBase
 {
     [HttpGet("me")]
     public IActionResult GetCurrentPrincipal() =>
         Ok(new
         {
-            Subject = User.FindFirst("sub")?.Value,
-            Authenticated = User.Identity?.IsAuthenticated == true
+            UserId = currentUserContext.UserId.Value,
+            Subject = currentUserContext.UserId.Value.ToString(),
+            Authenticated = true,
         });
 }
