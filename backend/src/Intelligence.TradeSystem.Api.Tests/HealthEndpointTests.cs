@@ -20,7 +20,11 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     public async Task Health_Endpoints_Are_Available_By_Default_In_Production(string path)
     {
         using var client = _factory
-            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production))
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(Environments.Production);
+                builder.UseSetting("Authentication:Authority", "https://identity.test");
+            })
             .CreateClient();
 
         using var response = await client.GetAsync(path);

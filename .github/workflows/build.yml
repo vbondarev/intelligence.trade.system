@@ -62,6 +62,9 @@ jobs:
       - name: Docker build API
         run: docker build -f backend/src/Intelligence.TradeSystem.Api/Dockerfile -t intelligence-trade-system-api:ci backend
 
+      - name: Docker build Identity
+        run: docker build -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
+
       - name: Run API container
         run: |
           docker run -d \

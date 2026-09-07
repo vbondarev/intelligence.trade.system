@@ -28,8 +28,9 @@ public sealed class ProductionProjectDependencyTests
                     "Intelligence.TradeSystem.ServiceDefaults"
                 ],
             ["Intelligence.TradeSystem.Infrastructure"] = ["Intelligence.TradeSystem.Application", "Intelligence.TradeSystem.Domain"],
+            ["Intelligence.TradeSystem.Identity"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.ServiceDefaults"] = [],
-            ["Intelligence.TradeSystem.AppHost"] = ["Intelligence.TradeSystem.Api"],
+            ["Intelligence.TradeSystem.AppHost"] = ["Intelligence.TradeSystem.Api", "Intelligence.TradeSystem.Identity"],
         };
 
         foreach (var (projectName, expectedReferences) in expectedDependencies)

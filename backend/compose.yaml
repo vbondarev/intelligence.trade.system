@@ -7,6 +7,7 @@
       POSTGRES_PASSWORD: tradesystem_dev_password
     volumes:
       - trade-system-postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tradesystem -d tradesystem"]
       interval: 5s
@@ -25,14 +26,38 @@
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
+      - Authentication__Authority=http://identity:8080
+      - Authentication__Audience=intelligence-trade-api
       - ConnectionStrings__TradeSystem=Host=postgres;Port=5432;Database=tradesystem;Username=tradesystem;Password=tradesystem_dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_started
+    networks:
+      trade-agent-network:
+        aliases:
+          - intelligence-trade-api
+
+  identity:
+    container_name: intelligence-trade-identity
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Identity/Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
+      - Identity__Issuer=http://identity:8080
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       trade-agent-network:
         aliases:
-          - intelligence-trade-api
+          - intelligence-trade-identity
 
 volumes:
   trade-system-postgres-data:

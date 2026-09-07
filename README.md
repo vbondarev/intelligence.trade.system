@@ -74,7 +74,7 @@
 
 ## Текущее состояние
 
-Этапы A и B завершены. Проект умеет анализировать публичный рынок и содержит чистый бизнес-домен сопровождения аккаунта, позиции, портфеля, оценки и рекомендации. Доменное состояние теперь может сохраняться в PostgreSQL через прикладные repository ports и восстанавливаться после перезапуска, но полноценный пользовательский сценарий ещё не связан с авторизацией, подключением аккаунта и периодической синхронизацией.
+Этапы A и B завершены. Основа C-05A также реализована: отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, а `Api` проверяет signed JWT через OIDC discovery/JWKS. Полноценный пользовательский сценарий всё ещё не включает регистрацию, подключение аккаунта, периодическую синхронизацию или изоляцию данных C-06.
 
 ### Уже реализовано
 
@@ -84,6 +84,9 @@
 - создание приватного provider для конкретных credentials без глобального authenticated client;
 - нейтральные прикладные интерфейсы `IMarketDataProvider`, `IDerivativesDataProvider`, `IPrivateAccountProvider`;
 - отдельный модуль `Intelligence.TradeSystem.MarketIntelligence`;
+- отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
+- `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
+- integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - анализ интервалов `15m`, `1h`, `4h`, `1d`;
 - расчёт EMA, RSI, ATR, SMA, упрощённого профиля объёма и классификации тренда;
 - обработка стакана, потока сделок, funding, open interest и long/short ratio;
@@ -180,7 +183,7 @@ OAuth 2.0 / OpenID Connect
        signed JWT
 ```
 
-Выбранный и запланированный Authorization Server для runtime-этапа C-05A:
+Реализованный Authorization Server:
 
 ```text
 ASP.NET Core Identity + OpenIddict
@@ -190,7 +193,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Это архитектурный выбор, а не уже реализованный runtime: в текущем репозитории ещё нет Identity host, OAuth/OIDC endpoints, JWT Bearer middleware или auth migrations.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF, user isolation и Bybit onboarding ещё не реализованы.
 
 Для login BFF использует Authorization Code + PKCE (`S256`). API получает подписанные JWT access tokens и валидирует их через стандартный OIDC discovery/JWKS.
 
@@ -213,6 +216,7 @@ Secure HttpOnly cookie может использоваться только ме
 | `Intelligence.TradeSystem.MarketIntelligence` | Расчёты, признаки и снимки публичного рынка |
 | `Intelligence.TradeSystem.Exchanges` | Реализации интеграций с биржами; сейчас основной adapter — Bybit |
 | `Intelligence.TradeSystem.Infrastructure` | PostgreSQL/EF Core и техническая граница постоянного хранения |
+| `Intelligence.TradeSystem.Identity` | Отдельный ASP.NET Core Identity + OpenIddict Authorization Server |
 | `Intelligence.TradeSystem.Api` | HTTP API и composition root |
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
