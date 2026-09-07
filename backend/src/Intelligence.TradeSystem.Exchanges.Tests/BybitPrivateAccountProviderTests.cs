@@ -184,7 +184,14 @@ public sealed class BybitPrivateAccountProviderTests
         var act = () => CreateProvider(trading)
             .GetOpenPositionsAsync(MarketCategory.Linear, cancellationToken: cancellation.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+        exception.Which.CancellationToken.Should().Be(cancellation.Token);
+    }
+
+    [Fact]
+    public void Default_ExchangeFailureKind_Is_Unknown()
+    {
+        default(ExchangeFailureKind).Should().Be(ExchangeFailureKind.Unknown);
     }
 
     [Fact]
@@ -259,8 +266,11 @@ public sealed class BybitPrivateAccountProviderTests
     [InlineData("10003", ErrorType.Unauthorized, ExchangeFailureKind.InvalidCredentials, false)]
     [InlineData("10005", ErrorType.Unauthorized, ExchangeFailureKind.PermissionDenied, false)]
     [InlineData("10006", ErrorType.RateLimitRequest, ExchangeFailureKind.RateLimited, true)]
+    [InlineData("missing-credentials", ErrorType.MissingCredentials, ExchangeFailureKind.InvalidCredentials, false)]
     [InlineData("timeout", ErrorType.Timeout, ExchangeFailureKind.Timeout, true)]
     [InlineData("network", ErrorType.NetworkError, ExchangeFailureKind.Unavailable, true)]
+    [InlineData("deserialization", ErrorType.DeserializationFailed, ExchangeFailureKind.InvalidResponse, false)]
+    [InlineData("10016", ErrorType.SystemError, ExchangeFailureKind.Unavailable, true)]
     [InlineData("unknown-code", ErrorType.Unknown, ExchangeFailureKind.Unknown, false)]
     public async Task GetWalletBalanceAsync_Maps_Provider_Failure(
         string providerCode,
@@ -304,7 +314,8 @@ public sealed class BybitPrivateAccountProviderTests
         var act = () => CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
             .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+        exception.Which.CancellationToken.Should().Be(cancellation.Token);
         account.Verify(a => a.GetBalancesAsync(
             BybitAccountType.Unified,
             null,
@@ -330,7 +341,31 @@ public sealed class BybitPrivateAccountProviderTests
         var act = () => CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
             .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+        exception.Which.CancellationToken.Should().Be(cancellation.Token);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Propagates_Cancellation_Without_Attaching_NonCancelled_Token()
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                cancellation.Token))
+            .ReturnsAsync(CreateProviderError<BybitResponse<BybitBalance>>(
+                "cancelled",
+                ErrorType.CancellationRequested));
+
+        var act = () => CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
+
+        var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+        exception.Which.CancellationToken.Should().Be(default(CancellationToken));
+        exception.Which.CancellationToken.IsCancellationRequested.Should().BeFalse();
     }
 
     private static BybitPrivateAccountProvider CreateProvider(

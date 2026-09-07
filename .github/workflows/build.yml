@@ -41,10 +41,13 @@ jobs:
         run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
 
       - name: Test
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
 
-      - name: Coverage
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --no-build --collect:"XPlat Code Coverage" --results-directory backend/TestResults/coverage
+      - name: Verify coverage
+        shell: bash
+        run: |
+          coverage_count="$(find backend/TestResults -type f -name coverage.cobertura.xml | wc -l)"
+          test "$coverage_count" -gt 0
 
       - name: Upload test results
         if: always()
@@ -52,8 +55,8 @@ jobs:
         with:
           name: test-results
           path: |
-            **/TestResults/*.trx
             backend/TestResults/**/*.trx
+            **/TestResults/*.trx
           if-no-files-found: ignore
 
       - name: Upload coverage
@@ -62,7 +65,7 @@ jobs:
         with:
           name: backend-coverage
           path: backend/TestResults/**/coverage.cobertura.xml
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   docker-build:
     runs-on: ubuntu-latest

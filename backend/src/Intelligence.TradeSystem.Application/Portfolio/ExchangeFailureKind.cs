@@ -5,11 +5,11 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// </summary>
 public enum ExchangeFailureKind
 {
-    InvalidCredentials = 0,
-    PermissionDenied = 1,
-    RateLimited = 2,
-    Timeout = 3,
-    Unavailable = 4,
-    InvalidResponse = 5,
-    Unknown = 6,
+    Unknown = 0,
+    InvalidCredentials = 1,
+    PermissionDenied = 2,
+    RateLimited = 3,
+    Timeout = 4,
+    Unavailable = 5,
+    InvalidResponse = 6,
 }

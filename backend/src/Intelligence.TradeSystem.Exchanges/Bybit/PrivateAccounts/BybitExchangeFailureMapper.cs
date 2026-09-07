@@ -10,7 +10,8 @@ internal static class BybitExchangeFailureMapper
     {
         if (error?.ErrorType == ErrorType.CancellationRequested)
         {
-            throw new OperationCanceledException(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new OperationCanceledException();
         }
     }
 
