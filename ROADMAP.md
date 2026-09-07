@@ -1,8 +1,8 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 2.1
+Версия документа: 2.2
 Дата актуализации: 7 сентября 2026 года
-Проверенная ветка: `task/62-implement-oauth-oidc-authentication` (PR #63, база `develop` после PR #61)
+Проверенная ветка: `task/64-enforce-user-data-isolation` (следующий PR после #63, база `develop` после PR #63)
 Последний учтённый PR: [#63 «#62: Реализована основа OAuth/OIDC-аутентификации универсального API»](https://github.com/vbondarev/intelligence.trade.system/pull/63)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
@@ -34,7 +34,7 @@
 9. Автоматическое открытие, усреднение и закрытие сделок не входят в первый MVP.
 10. `Intelligence.TradeSystem.Api` — client-agnostic resource server: один business API `/api/v1/*` используется Web, mobile, desktop, CLI и будущими клиентами.
 11. Для защищённого API приняты OAuth 2.0 / OpenID Connect, Bearer access tokens и signed JWT как целевой формат access token первого MVP; browser cookie допускается только на BFF boundary.
-12. Authorization Server реализован как отдельный ASP.NET Core Identity + OpenIddict host; `Api` использует JwtBearer discovery/JWKS. User isolation остаётся C-06.
+12. Authorization Server реализован как отдельный ASP.NET Core Identity + OpenIddict host; `Api` использует JwtBearer discovery/JWKS. User isolation C-06 реализована на Application/Infrastructure boundary.
 13. User-delegated `sub` сопоставляется со стабильным Domain `UserId`; machine principal не является Domain user.
 
 ## 3. Обозначения статуса
@@ -100,7 +100,8 @@
 
 ### Пока отсутствует
 
-- ✅ Основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server; изоляция данных остаётся C-06.
+- ✅ Основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
+- ✅ Изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ⬜ Безопасное хранение ключей Bybit.
 - ⬜ Подключение биржевого аккаунта через пользовательский сценарий.
@@ -163,7 +164,7 @@
 | C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
 | C-05 | Принять ADR по универсальной стратегии аутентификации | ✅ | Принят client-agnostic contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API; browser cookie допускается только на BFF boundary |
 | C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ✅ | Реализованы explicit migration lifecycle, отдельные Identity/OpenIddict persistence и deployable host, Authorization Code + PKCE (S256), signed short-lived non-encrypted JWT, public issuer/internal backchannel для discovery/JWKS, discovery scopes, lockout, overlapping signing keys, JwtBearer validation, Compose-level protected Bearer smoke и PostgreSQL integration tests; stable user-delegated `sub` → Domain `UserId`, public endpoints anonymous. См. ADR-0003 |
-| C-06 | Реализовать разграничение данных по `UserId` | ⬜ | Пользователь не может получить чужие данные |
+| C-06 | Реализовать разграничение данных по `UserId` | ✅ | User-delegated `sub` сопоставляется с Domain `UserId`; user-owned операции изолированы по владельцу и подтверждены PostgreSQL и Bearer E2E-тестами |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ⬜ | Ключи не хранятся открыто и не попадают в ответы или логи |
 | C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
 
@@ -375,21 +376,19 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Реализовать изоляцию данных по `UserId` | C-06 |
-| 2 | Реализовать защиту ключей Bybit | C-07 |
-| 3 | Реализовать защиту ключей Bybit | C-07 |
-| 4 | Реализовать подключение биржевого аккаунта | D-01 |
-| 5 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
-| 6 | Добавить общий кэш публичных снимков рынка | D-07 |
-| 7 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
-| 8 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
-| 9 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
-| 10 | Создать адаптивную React-панель | G-01 — G-08 |
-| 11 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 12 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
-| 13 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 14 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 15 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Реализовать защиту ключей Bybit | C-07 |
+| 2 | Реализовать подключение биржевого аккаунта | D-01 |
+| 3 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
+| 4 | Добавить общий кэш публичных снимков рынка | D-07 |
+| 5 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
+| 6 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
+| 7 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
+| 8 | Создать адаптивную React-панель | G-01 — G-08 |
+| 9 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 10 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
+| 11 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 12 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 13 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
 Этап B завершён и больше не входит в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
@@ -449,6 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-07 | 2.2 | Реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
 | 2026-09-07 | 2.1 | В PR #63 завершено исправление C-05A: добавлены explicit Identity migration runner и Compose/Aspire ordering, lockout policy/tests, public issuer и internal metadata separation, overlapping signing certificates/JWKS rollover, explicit short access-token lifetime, runtime auth smoke и обновлены migration/Docker/CI instructions. Следующим этапом остаётся C-06. |
 | 2026-09-07 | 2.0 | Реализован C-05A: отдельный Identity host на ASP.NET Core Identity + OpenIddict, отдельная PostgreSQL persistence и migration stream, Authorization Code + PKCE (S256), signed JWT access tokens, discovery/JWKS, независимая JwtBearer validation в Api и PostgreSQL integration proof. Следующим этапом остаётся C-06. |
 | 2026-09-05 | 1.9 | ADR-0003: ASP.NET Core Identity + OpenIddict выбран как self-hosted Authorization Server; Identity boundary отделена от resource server; Identity/OpenIddict persistence отделена от business persistence; C-05A больше не выбирает provider, а реализует принятое решение. Обновлены README, AGENTS и ближайшая очередь runtime PR; решение зафиксировано в PR #61. |

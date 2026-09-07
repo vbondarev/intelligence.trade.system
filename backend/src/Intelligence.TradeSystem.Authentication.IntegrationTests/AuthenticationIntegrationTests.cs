@@ -9,10 +9,14 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
 using Intelligence.TradeSystem.Api.Authentication;
+using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Migrations;
 using Intelligence.TradeSystem.Identity.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -38,10 +42,19 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     private const string RedirectUri = "http://client.test/callback";
     private const string Username = "integration-user";
     private const string Password = "Integration-password-123";
+    private const string SecondUsername = "integration-user-b";
+    private const string SecondPassword = "Integration-password-456";
     private const string CertificatePassword = "integration-certificate-password";
+    private const string PrincipalTypeClaim = "trade_principal_type";
+    private const string UserPrincipalType = "user";
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_identity")
+        .WithUsername("tradesystem")
+        .WithPassword("tradesystem")
+        .Build();
+    private readonly PostgreSqlContainer businessPostgres = new PostgreSqlBuilder("postgres:16-alpine")
+        .WithDatabase("tradesystem")
         .WithUsername("tradesystem")
         .WithPassword("tradesystem")
         .Build();
@@ -51,10 +64,12 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     private IdentityWebApplicationFactory identityFactory = null!;
     private ApiWebApplicationFactory apiFactory = null!;
     private Guid userId;
+    private Guid secondUserId;
 
     public async Task InitializeAsync()
     {
         await postgres.StartAsync();
+        await businessPostgres.StartAsync();
         oldCertificatePath = CreateSigningCertificate(
             "old",
             DateTimeOffset.UtcNow.AddHours(-2),
@@ -73,8 +88,11 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             CertificatePassword);
         _ = identityFactory.Server;
         await SeedIdentityAsync();
+        await ApplyBusinessMigrationsAsync();
 
-        apiFactory = new ApiWebApplicationFactory(identityFactory);
+        apiFactory = new ApiWebApplicationFactory(
+            identityFactory,
+            businessPostgres.GetConnectionString());
         _ = apiFactory.Server;
     }
 
@@ -93,6 +111,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         }
 
         await postgres.DisposeAsync();
+        await businessPostgres.DisposeAsync();
     }
 
     public void Dispose()
@@ -205,6 +224,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         jwt.Issuer.Should().Be(Issuer);
         jwt.Audiences.Should().Contain(Audience);
         jwt.Claims.Single(claim => claim.Type == "scope").Value.Should().Contain("trade.api");
+        jwt.Claims.Single(claim => claim.Type == PrincipalTypeClaim).Value.Should().Be(UserPrincipalType);
         jwt.ValidTo.Should().BeAfter(DateTime.UtcNow);
         var issuedAt = DateTimeOffset.FromUnixTimeSeconds(
             long.Parse(
@@ -344,7 +364,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task Auth_me_returns_only_the_authenticated_subject()
+    public async Task Auth_me_returns_only_the_current_user_id()
     {
         var token = await IssueAccessTokenAsync();
         using var client = apiFactory.CreateClient();
@@ -354,11 +374,91 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("userId").GetGuid().Should().Be(userId);
         body.RootElement.GetProperty("subject").GetString().Should().Be(userId.ToString());
         body.RootElement.GetProperty("authenticated").GetBoolean().Should().BeTrue();
         body.RootElement.EnumerateObject().Select(property => property.Name)
             .Should()
-            .BeEquivalentTo(["subject", "authenticated"]);
+            .BeEquivalentTo(["userId", "subject", "authenticated"]);
+    }
+
+    [Fact]
+    public async Task Real_authorization_code_tokens_isolate_known_business_account_ids()
+    {
+        var accountA = CreateBusinessAccount(userId);
+        var accountB = CreateBusinessAccount(secondUserId);
+        await using (var context = await CreateBusinessContextAsync())
+        {
+            var repository = new ExchangeAccountRepository(context);
+            await repository.SaveAsync(accountA.UserId, accountA, expectedVersion: null);
+            await repository.SaveAsync(accountB.UserId, accountB, expectedVersion: null);
+        }
+
+        var tokenA = await IssueAccessTokenAsync(Username, Password);
+        var tokenB = await IssueAccessTokenAsync(SecondUsername, SecondPassword);
+
+        var ownA = await GetAccountWithTokenAsync(accountA.Id, tokenA.AccessToken);
+        ownA.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var body = JsonDocument.Parse(await ownA.Content.ReadAsStringAsync()))
+        {
+            body.RootElement.GetProperty("accountId").GetGuid().Should().Be(accountA.Id.Value);
+            body.RootElement.GetProperty("userId").GetGuid().Should().Be(userId);
+        }
+
+        var ownB = await GetAccountWithTokenAsync(accountB.Id, tokenB.AccessToken);
+        ownB.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await GetAccountWithTokenAsync(accountB.Id, tokenA.AccessToken))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await GetAccountWithTokenAsync(accountA.Id, tokenB.AccessToken))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("machine")]
+    public async Task TradeUser_rejects_a_non_user_token_while_TradeApi_accepts_it(
+        string? principalType)
+    {
+        using var client = apiFactory.CreateClient();
+        var token = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            principalType: principalType);
+
+        (await GetWithTokenAsync(client, token)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public async Task TradeUser_rejects_a_user_marker_with_an_invalid_subject(string subject)
+    {
+        using var client = apiFactory.CreateClient();
+        var token = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            subject: subject,
+            principalType: UserPrincipalType);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Auth_me_without_a_token_is_unauthorized()
+    {
+        using var client = apiFactory.CreateClient();
+
+        (await client.GetAsync("/api/v1/auth/me"))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -431,9 +531,11 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         (await client.GetAsync("/alive")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private async Task<(string AccessToken, string CodeVerifier)> IssueAccessTokenAsync()
+    private async Task<(string AccessToken, string CodeVerifier)> IssueAccessTokenAsync(
+        string username = Username,
+        string password = Password)
     {
-        var authorization = await IssueAuthorizationCodeAsync();
+        var authorization = await IssueAuthorizationCodeAsync(username, password);
         using var client = CreateIdentityClient();
         var tokenResponse = await client.PostAsync(
             "/connect/token",
@@ -453,7 +555,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             authorization.CodeVerifier);
     }
 
-    private async Task<(string Code, string CodeVerifier)> IssueAuthorizationCodeAsync()
+    private async Task<(string Code, string CodeVerifier)> IssueAuthorizationCodeAsync(
+        string username = Username,
+        string password = Password)
     {
         using var client = CreateIdentityClient();
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -493,8 +597,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             {
                 ["__RequestVerificationToken"] = antiforgeryToken,
                 ["returnUrl"] = returnUrl,
-                ["username"] = Username,
-                ["password"] = Password,
+                ["username"] = username,
+                ["password"] = password,
             }));
         loginPost.StatusCode.Should().Be(HttpStatusCode.Redirect);
 
@@ -516,6 +620,18 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     private async Task<HttpResponseMessage> GetWithTokenAsync(HttpClient client, string token)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/test-only/protected");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return await client.SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> GetAccountWithTokenAsync(
+        ExchangeAccountId accountId,
+        string token)
+    {
+        using var client = apiFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/test-only/accounts/{accountId.Value:D}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await client.SendAsync(request);
     }
@@ -546,21 +662,29 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         string audience,
         DateTime expires,
         string scope = "trade.api",
-        string? signingCertificatePath = null)
+        string? signingCertificatePath = null,
+        string? subject = null,
+        string? principalType = null)
     {
         using var certificate = X509CertificateLoader.LoadPkcs12FromFile(
             signingCertificatePath ?? newCertificatePath,
             CertificatePassword,
             X509KeyStorageFlags.EphemeralKeySet);
+        var claims = new List<System.Security.Claims.Claim>
+        {
+            new("sub", subject ?? userId.ToString()),
+            new("scope", scope),
+        };
+        if (principalType is not null)
+        {
+            claims.Add(new(PrincipalTypeClaim, principalType));
+        }
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = issuer,
             Audience = audience,
-            Subject = new System.Security.Claims.ClaimsIdentity(
-            [
-                new("sub", userId.ToString()),
-                new("scope", scope),
-            ]),
+            Subject = new System.Security.Claims.ClaimsIdentity(claims),
             Expires = expires,
             NotBefore = expires < DateTime.UtcNow
                 ? expires.AddMinutes(-10)
@@ -589,6 +713,24 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
                     typeof(IdentityDbContext).Assembly.GetName().Name))
             .Options);
 
+    private async Task<TradeSystemDbContext> CreateBusinessContextAsync()
+    {
+        var context = new TradeSystemDbContext(
+            new DbContextOptionsBuilder<TradeSystemDbContext>()
+                .UseNpgsql(
+                    businessPostgres.GetConnectionString(),
+                    npgsqlOptions => npgsqlOptions.MigrationsAssembly(
+                        typeof(TradeSystemDbContext).Assembly.GetName().Name))
+                .Options);
+        await context.Database.MigrateAsync();
+        return context;
+    }
+
+    private async Task ApplyBusinessMigrationsAsync()
+    {
+        await using var context = await CreateBusinessContextAsync();
+    }
+
     private async Task SeedIdentityAsync()
     {
         using var scope = identityFactory.Services.CreateScope();
@@ -601,6 +743,16 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         var userResult = await userManager.CreateAsync(user, Password);
         userResult.Succeeded.Should().BeTrue(string.Join(", ", userResult.Errors.Select(error => error.Description)));
         userId = user.Id;
+
+        var secondUser = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = SecondUsername,
+        };
+        var secondUserResult = await userManager.CreateAsync(secondUser, SecondPassword);
+        secondUserResult.Succeeded.Should().BeTrue(
+            string.Join(", ", secondUserResult.Errors.Select(error => error.Description)));
+        secondUserId = secondUser.Id;
 
         var applicationManager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
         await applicationManager.CreateAsync(new OpenIddictApplicationDescriptor
@@ -623,6 +775,14 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             }
         });
     }
+
+    private static ExchangeAccount CreateBusinessAccount(Guid ownerId) =>
+        ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            UserId.FromGuid(ownerId),
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Connected,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes)
@@ -719,7 +879,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         }
     }
 
-    private sealed class ApiWebApplicationFactory(IdentityWebApplicationFactory identityFactory)
+    private sealed class ApiWebApplicationFactory(
+        IdentityWebApplicationFactory identityFactory,
+        string businessConnectionString)
         : WebApplicationFactory<Intelligence.TradeSystem.Api.Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -729,10 +891,12 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             builder.UseSetting("Authentication:MetadataAddress", MetadataAddress);
             builder.UseSetting("Authentication:BackchannelBaseAddress", BackchannelBaseAddress);
             builder.UseSetting("Authentication:Audience", Audience);
+            builder.UseSetting("ConnectionStrings:TradeSystem", businessConnectionString);
             builder.ConfigureTestServices(services =>
             {
                 services.AddControllers()
-                    .AddApplicationPart(typeof(TestOnlyProtectedController).Assembly);
+                    .AddApplicationPart(typeof(TestOnlyProtectedController).Assembly)
+                    .AddApplicationPart(typeof(TestOnlyUserAccountController).Assembly);
                 services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
                     options.BackchannelHttpHandler = new PublicIssuerBackchannelHandler(

@@ -74,7 +74,7 @@
 
 ## Текущее состояние
 
-Этапы A и B завершены. Основа C-05A также реализована: отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, а `Api` проверяет signed JWT через OIDC discovery/JWKS. Полноценный пользовательский сценарий всё ещё не включает регистрацию, подключение аккаунта, периодическую синхронизацию или изоляцию данных C-06.
+Этапы A и B завершены. Основа C-05A и изоляция C-06 реализованы: отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, а user-owned persistence операции явно ограничены владельцем.
 
 ### Уже реализовано
 
@@ -87,6 +87,9 @@
 - отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
 - `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
 - integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
+- сопоставление user-delegated OIDC `sub` со стабильным Domain `UserId` и явная маркировка user principal;
+- user-scoped Application repository contracts для аккаунтов, позиций, портфелей, оценок и рекомендаций;
+- PostgreSQL ownership predicates и integration/E2E tests, скрывающие cross-user access по известным идентификаторам;
 - анализ интервалов `15m`, `1h`, `4h`, `1d`;
 - расчёт EMA, RSI, ATR, SMA, упрощённого профиля объёма и классификации тренда;
 - обработка стакана, потока сделок, funding, open interest и long/short ratio;
@@ -118,7 +121,6 @@
 
 ### Ещё не реализовано
 
-- изоляция данных по пользователю, ownership и бизнес-авторизация C-06;
 - безопасное хранение API-ключей Bybit;
 - пользовательский сценарий подключения биржевого аккаунта;
 - периодическая синхронизация аккаунта и позиций;
@@ -193,7 +195,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF, user isolation и Bybit onboarding ещё не реализованы.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF и Bybit onboarding ещё не реализованы. User isolation выполняется на Application/Infrastructure boundary, но полный user-facing CRUD ещё относится к этапу F.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 
@@ -201,7 +203,7 @@ Identity host и отдельный migration stream реализованы. Log
 
 Для login BFF использует Authorization Code + PKCE (`S256`). API получает подписанные JWT access tokens и валидирует их через стандартный OIDC discovery/JWKS.
 
-Минимальный защищённый `GET /api/v1/auth/me` возвращает только `subject` и признак аутентификации; он не выполняет business authorization C-06.
+Минимальный защищённый `GET /api/v1/auth/me` возвращает проверенный `userId`; user-owned операции используют тот же validated user-delegated principal.
 
 React рассматривается как browser-клиент через BFF:
 
@@ -455,6 +457,7 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - API-контрактов, включая `llm-payload` 1.0;
 - прикладных сервисов;
 - PostgreSQL migrations и persistence через Testcontainers;
+- PostgreSQL user-isolation and real Bearer OAuth/OIDC E2E tests;
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
@@ -468,20 +471,18 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этап B завершён. Текущий активный этап — **C: хранение, безопасность и пользователи**.
+Этапы B и C-06 завершены. Текущий активный этап — **C: хранение, безопасность и пользователи**.
 
 Основная ближайшая последовательность:
 
-1. реализация аутентификации пользователей;
-2. изоляция данных по `UserId`;
-3. безопасное хранение ключей Bybit;
-4. подключение Bybit-аккаунта и периодическая синхронизация;
-5. детерминированная оценка позиции и политика рекомендаций;
-6. пользовательский REST API и SignalR;
-7. React-панель;
-8. непрерывное наблюдение и Telegram-уведомления;
-9. измерение качества рекомендаций;
-10. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
+1. безопасное хранение ключей Bybit;
+2. подключение Bybit-аккаунта и периодическая синхронизация;
+3. детерминированная оценка позиции и политика рекомендаций;
+4. пользовательский REST API и SignalR;
+5. React-панель;
+6. непрерывное наблюдение и Telegram-уведомления;
+7. измерение качества рекомендаций;
+8. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
 
 ---
 

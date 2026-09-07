@@ -7,7 +7,9 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 public interface IExchangeAccountRepository
 {
     Task<Versioned<ExchangeAccount>?> GetByIdAsync(
-        ExchangeAccountId id, CancellationToken cancellationToken = default);
+        UserId userId,
+        ExchangeAccountId id,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Сохраняет аккаунт с CAS-проверкой оптимистической конкурентности.
@@ -23,6 +25,7 @@ public interface IExchangeAccountRepository
     /// либо строка была удалена другим писателем.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         ExchangeAccount account,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

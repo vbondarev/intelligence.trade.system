@@ -7,6 +7,7 @@ namespace Intelligence.TradeSystem.Application.Recommendations;
 public interface IRecommendationRepository
 {
     Task<Versioned<Recommendation>?> GetByIdAsync(
+        UserId userId,
         RecommendationId id, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -23,6 +24,7 @@ public interface IRecommendationRepository
     /// либо строка была удалена другим писателем.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         Recommendation recommendation,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

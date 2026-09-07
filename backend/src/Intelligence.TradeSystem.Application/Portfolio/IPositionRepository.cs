@@ -6,7 +6,10 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 
 public interface IPositionRepository
 {
-    Task<Versioned<Position>?> GetByIdAsync(PositionId id, CancellationToken cancellationToken = default);
+    Task<Versioned<Position>?> GetByIdAsync(
+        UserId userId,
+        PositionId id,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Атомарно сохраняет позицию вместе с новыми записями в append-only истории.
@@ -28,6 +31,7 @@ public interface IPositionRepository
     /// либо строка была удалена другим писателем.
     /// </exception>
     Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         Position position,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);

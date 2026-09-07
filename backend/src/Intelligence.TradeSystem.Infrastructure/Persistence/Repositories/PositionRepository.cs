@@ -2,7 +2,6 @@
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
-using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,18 +10,33 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositionRepository
 {
     public async Task<Versioned<Position>?> GetByIdAsync(
+        UserId userId,
         PositionId id,
         CancellationToken cancellationToken = default)
     {
+        EnsureUserId(userId);
+
         var entity = await dbContext.Positions
             .AsNoTracking()
-            .SingleOrDefaultAsync(position => position.Id == id.Value, cancellationToken);
+            .SingleOrDefaultAsync(
+                position =>
+                    position.Id == id.Value &&
+                    dbContext.ExchangeAccounts.Any(account =>
+                        account.Id == position.ExchangeAccountId &&
+                        account.UserId == userId.Value),
+                cancellationToken);
 
         if (entity is null) return null;
 
         var changes = await dbContext.PositionChanges
             .AsNoTracking()
-            .Where(change => change.PositionId == id.Value)
+            .Where(change =>
+                change.PositionId == id.Value &&
+                dbContext.Positions.Any(position =>
+                    position.Id == change.PositionId &&
+                    dbContext.ExchangeAccounts.Any(account =>
+                        account.Id == position.ExchangeAccountId &&
+                        account.UserId == userId.Value)))
             .OrderBy(change => change.Sequence)
             .ToArrayAsync(cancellationToken);
 
@@ -31,40 +45,21 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
     }
 
     public async Task<ConcurrencyVersion> SaveAsync(
+        UserId userId,
         Position position,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(position);
+        EnsureUserId(userId);
+
         var mapped = PositionMapper.ToEntity(position);
-        var tracked = dbContext.ChangeTracker.Entries<PositionEntity>()
-            .SingleOrDefault(entry => entry.Entity.Id == mapped.Id);
+        var accountIsOwned = await dbContext.ExchangeAccounts.AnyAsync(
+            account => account.Id == mapped.ExchangeAccountId && account.UserId == userId.Value,
+            cancellationToken);
+        if (!accountIsOwned) throw UnavailablePositionConflict(position.Id);
 
-        PositionEntity? existing;
-        if (tracked is not null)
-        {
-            existing = tracked.Entity;
-        }
-        else
-        {
-            existing = await dbContext.Positions
-                .AsNoTracking()
-                .SingleOrDefaultAsync(entity => entity.Id == mapped.Id, cancellationToken);
-        }
-
-        if (expectedVersion is null && existing is not null)
-            throw new ConcurrencyConflictException(
-                $"Position {position.Id} already exists and cannot be inserted again.");
-        if (expectedVersion is not null && existing is null)
-            throw new ConcurrencyConflictException(
-                $"Position {position.Id} was deleted concurrently and cannot be updated.");
-        if (expectedVersion is not null &&
-            existing is not null &&
-            existing.Version != expectedVersion.Value.Value)
-            throw new ConcurrencyConflictException(
-                $"Position {position.Id} was modified concurrently.");
-
-        if (existing is null)
+        if (expectedVersion is null)
         {
             await using var insertTransaction =
                 await dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -85,44 +80,73 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                     "PK_positions"))
             {
                 await insertTransaction.RollbackAsync(CancellationToken.None);
-                throw new ConcurrencyConflictException(
-                    $"Position {position.Id} was inserted concurrently.", exception);
+                throw UnavailablePositionConflict(position.Id, exception);
             }
 
             return insertVersion;
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var newVersion = expectedVersion!.Value.Next();
-        mapped.Version = newVersion.Value;
-        if (tracked is not null)
-        {
-            PositionMapper.ApplyToEntity(tracked.Entity, position);
-            tracked.Entity.Version = mapped.Version;
-            tracked.Property(entry => entry.Version).OriginalValue = expectedVersion.Value.Value;
-        }
-        else
-        {
-            dbContext.Positions.Update(mapped);
-            var entry = dbContext.Entry(mapped);
-            entry.Property(e => e.Version).OriginalValue = expectedVersion.Value.Value;
-        }
+        var ownedPositionId = await dbContext.Positions
+            .AsNoTracking()
+            .Where(entity =>
+                entity.Id == mapped.Id &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == entity.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .Select(entity => (Guid?)entity.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (ownedPositionId is null)
+            throw UnavailablePositionConflict(position.Id);
 
-        // Acquire CAS ownership before reading or staging any new history rows.
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException exception)
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var newVersion = expectedVersion.Value.Next();
+
+        // Acquire the ownership and version CAS before reading or staging history rows.
+        var affected = await dbContext.Positions
+            .Where(entity =>
+                entity.Id == mapped.Id &&
+                entity.ExchangeAccountId == mapped.ExchangeAccountId &&
+                entity.Version == expectedVersion.Value.Value &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == entity.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(entity => entity.MarketCategory, mapped.MarketCategory)
+                    .SetProperty(entity => entity.Size, mapped.Size)
+                    .SetProperty(entity => entity.AverageEntryPrice, mapped.AverageEntryPrice)
+                    .SetProperty(entity => entity.PositionValue, mapped.PositionValue)
+                    .SetProperty(entity => entity.Leverage, mapped.Leverage)
+                    .SetProperty(entity => entity.MarkPrice, mapped.MarkPrice)
+                    .SetProperty(entity => entity.BreakEvenPrice, mapped.BreakEvenPrice)
+                    .SetProperty(entity => entity.LiquidationPrice, mapped.LiquidationPrice)
+                    .SetProperty(entity => entity.UnrealizedPnl, mapped.UnrealizedPnl)
+                    .SetProperty(entity => entity.TakeProfit, mapped.TakeProfit)
+                    .SetProperty(entity => entity.StopLoss, mapped.StopLoss)
+                    .SetProperty(entity => entity.TrailingStop, mapped.TrailingStop)
+                    .SetProperty(entity => entity.FirstDetectedAt, mapped.FirstDetectedAt)
+                    .SetProperty(entity => entity.LastObservedAt, mapped.LastObservedAt)
+                    .SetProperty(entity => entity.ClosedAt, mapped.ClosedAt)
+                    .SetProperty(entity => entity.TrackingState, mapped.TrackingState)
+                    .SetProperty(entity => entity.Version, newVersion.Value),
+                cancellationToken);
+
+        if (affected != 1)
         {
             await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConcurrencyConflictException(
-                $"Position {position.Id} was modified or deleted concurrently.", exception);
+            throw UnavailablePositionConflict(position.Id);
         }
 
         var persistedChanges = await dbContext.PositionChanges
             .AsNoTracking()
-            .Where(change => change.PositionId == mapped.Id)
+            .Where(change =>
+                change.PositionId == mapped.Id &&
+                dbContext.Positions.Any(entity =>
+                    entity.Id == change.PositionId &&
+                    entity.ExchangeAccountId == mapped.ExchangeAccountId &&
+                    dbContext.ExchangeAccounts.Any(account =>
+                        account.Id == entity.ExchangeAccountId &&
+                        account.UserId == userId.Value)))
             .OrderBy(change => change.Sequence)
             .ToArrayAsync(cancellationToken);
 
@@ -152,5 +176,18 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
 
         await transaction.CommitAsync(cancellationToken);
         return newVersion;
+    }
+
+    private static ConcurrencyConflictException UnavailablePositionConflict(
+        PositionId id,
+        Exception? innerException = null) =>
+        innerException is null
+            ? new($"Position {id} is unavailable in the requested user scope.")
+            : new($"Position {id} is unavailable in the requested user scope.", innerException);
+
+    private static void EnsureUserId(UserId userId)
+    {
+        if (userId == default)
+            throw new ArgumentException("UserId must be initialized.", nameof(userId));
     }
 }

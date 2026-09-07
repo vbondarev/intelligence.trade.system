@@ -19,8 +19,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.Api\Intelligence.TradeSystem.Api.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Application\Intelligence.TradeSystem.Application.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Identity\Intelligence.TradeSystem.Identity.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Identity.Migrations\Intelligence.TradeSystem.Identity.Migrations.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Infrastructure\Intelligence.TradeSystem.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
