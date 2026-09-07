@@ -2,8 +2,8 @@
 
 Версия документа: 2.2
 Дата актуализации: 7 сентября 2026 года
-Проверенная ветка: `task/64-enforce-user-data-isolation` (следующий PR после #63, база `develop` после PR #63)
-Последний учтённый PR: [#63 «#62: Реализована основа OAuth/OIDC-аутентификации универсального API»](https://github.com/vbondarev/intelligence.trade.system/pull/63)
+Проверенная ветка: `task/64-enforce-user-data-isolation` (PR #65, база `develop` после PR #63)
+Последний учтённый PR: [#65 «#64: Реализовано разграничение данных пользователей по UserId.»](https://github.com/vbondarev/intelligence.trade.system/pull/65)
 Текущий активный этап: **C — хранение, безопасность и пользователи**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -448,7 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-07 | 2.2 | Реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
+| 2026-09-07 | 2.2 | В Issue #64 и PR #65 реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
 | 2026-09-07 | 2.1 | В PR #63 завершено исправление C-05A: добавлены explicit Identity migration runner и Compose/Aspire ordering, lockout policy/tests, public issuer и internal metadata separation, overlapping signing certificates/JWKS rollover, explicit short access-token lifetime, runtime auth smoke и обновлены migration/Docker/CI instructions. Следующим этапом остаётся C-06. |
 | 2026-09-07 | 2.0 | Реализован C-05A: отдельный Identity host на ASP.NET Core Identity + OpenIddict, отдельная PostgreSQL persistence и migration stream, Authorization Code + PKCE (S256), signed JWT access tokens, discovery/JWKS, независимая JwtBearer validation в Api и PostgreSQL integration proof. Следующим этапом остаётся C-06. |
 | 2026-09-05 | 1.9 | ADR-0003: ASP.NET Core Identity + OpenIddict выбран как self-hosted Authorization Server; Identity boundary отделена от resource server; Identity/OpenIddict persistence отделена от business persistence; C-05A больше не выбирает provider, а реализует принятое решение. Обновлены README, AGENTS и ближайшая очередь runtime PR; решение зафиксировано в PR #61. |

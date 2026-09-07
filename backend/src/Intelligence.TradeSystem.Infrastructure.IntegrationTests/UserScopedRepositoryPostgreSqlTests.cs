@@ -158,6 +158,183 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Portfolio_state_rejects_a_foreign_position_reference_and_creates_no_rows()
+    {
+        var owner = CreateAggregateSet("BTCUSDT");
+        var foreign = CreateAggregateSet("ETHUSDT");
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(foreign.Account.UserId, foreign.Account, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Position, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(foreign.Account.UserId, foreign.Position, expectedVersion: null);
+
+        var crafted = PortfolioState.Restore(
+            owner.Account.Id,
+            [CreatePortfolioPositionState(foreign.Position, owner.Account.Id)],
+            new PortfolioCapitalState(1000m, 800m, T0, 1000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        await AssertForeignWriteRejected(
+            () => new PortfolioStateRepository(dbContext)
+                .SaveAsync(owner.Account.UserId, crafted));
+
+        Assert.False(await dbContext.PortfolioStates
+            .AnyAsync(state => state.ExchangeAccountId == owner.Account.Id.Value));
+        Assert.False(await dbContext.PortfolioPositionStates
+            .AnyAsync(state =>
+                state.PositionId == foreign.Position.Id.Value &&
+                state.ExchangeAccountId == owner.Account.Id.Value));
+    }
+
+    [Fact]
+    public async Task Portfolio_state_rejects_duplicate_position_ids_before_persistence()
+    {
+        var owner = CreateAggregateSet("BTCUSDT");
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Position, expectedVersion: null);
+
+        var snapshot = CreatePortfolioPositionState(owner.Position, owner.Account.Id);
+        var crafted = PortfolioState.Restore(
+            owner.Account.Id,
+            [snapshot, snapshot],
+            new PortfolioCapitalState(1000m, 800m, T0, 1000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        await AssertForeignWriteRejected(
+            () => new PortfolioStateRepository(dbContext)
+                .SaveAsync(owner.Account.UserId, crafted));
+
+        Assert.False(await dbContext.PortfolioStates
+            .AnyAsync(state => state.ExchangeAccountId == owner.Account.Id.Value));
+    }
+
+    [Fact]
+    public async Task Tracked_foreign_position_assessment_cannot_bypass_user_scope()
+    {
+        var owner = CreateAggregateSet("BTCUSDT");
+        var foreign = CreateAggregateSet("ETHUSDT");
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(foreign.Account.UserId, foreign.Account, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Position, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(foreign.Account.UserId, foreign.Position, expectedVersion: null);
+
+        var repository = new PositionAssessmentRepository(dbContext);
+        await repository.SaveAsync(owner.Account.UserId, owner.Assessment);
+        Assert.Contains(
+            dbContext.ChangeTracker.Entries<PositionAssessmentEntity>(),
+            entry => entry.Entity.Id == owner.Assessment.Id.Value);
+
+        var crafted = PositionAssessment.Restore(
+            owner.Assessment.Id,
+            new PositionAssessmentInputVersions(
+                foreign.Position.Id,
+                foreign.Account.Id,
+                foreign.Position.ExchangePositionKey.InstrumentId,
+                T0,
+                T0.AddMinutes(1),
+                T0.AddMinutes(2)),
+            new RuleVersion("foreign-rule"),
+            owner.Assessment.CreatedAt,
+            owner.Assessment.ValidUntil,
+            owner.Assessment.PortfolioRiskDecision,
+            owner.Assessment.ReasonCodes);
+
+        await AssertForeignWriteRejected(
+            () => repository.SaveAsync(foreign.Account.UserId, crafted));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persisted = await verificationContext.PositionAssessments
+            .SingleAsync(assessment => assessment.Id == owner.Assessment.Id.Value);
+        Assert.Equal(owner.Assessment.PositionId.Value, persisted.PositionId);
+        Assert.Equal(owner.Assessment.InputVersions.ExchangeAccountId.Value, persisted.ExchangeAccountId);
+        Assert.Equal(owner.Assessment.RuleVersion.Value, persisted.RuleVersion);
+        Assert.Equal(owner.Assessment.ReasonCodes, await verificationContext.PositionAssessmentReasons
+            .Where(reason => reason.PositionAssessmentId == owner.Assessment.Id.Value)
+            .OrderBy(reason => reason.Sequence)
+            .Select(reason => reason.ReasonCode)
+            .ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Position_assessment_cannot_be_reparented_to_another_position_of_the_same_user()
+    {
+        var owner = CreateAggregateSet("BTCUSDT");
+        var secondPosition = Position.Create(
+            ExchangePositionKey.Create(
+                owner.Account.Id,
+                InstrumentId.From("ETHUSDT"),
+                PositionSide.Long,
+                0),
+            MarketCategory.Linear,
+            1m,
+            T0,
+            T0,
+            averageEntryPrice: 100m,
+            positionValue: 100m,
+            leverage: 2m,
+            markPrice: 100m,
+            unrealizedPnl: 0m);
+
+        await using var dbContext = await CreateMigratedContext();
+        await new ExchangeAccountRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, owner.Position, expectedVersion: null);
+        await new PositionRepository(dbContext)
+            .SaveAsync(owner.Account.UserId, secondPosition, expectedVersion: null);
+
+        var repository = new PositionAssessmentRepository(dbContext);
+        await repository.SaveAsync(owner.Account.UserId, owner.Assessment);
+
+        var crafted = PositionAssessment.Restore(
+            owner.Assessment.Id,
+            new PositionAssessmentInputVersions(
+                secondPosition.Id,
+                owner.Account.Id,
+                secondPosition.ExchangePositionKey.InstrumentId,
+                T0,
+                T0.AddMinutes(1),
+                T0.AddMinutes(2)),
+            new RuleVersion("reparented-rule"),
+            owner.Assessment.CreatedAt,
+            owner.Assessment.ValidUntil,
+            owner.Assessment.PortfolioRiskDecision,
+            owner.Assessment.ReasonCodes);
+
+        await AssertForeignWriteRejected(
+            () => repository.SaveAsync(owner.Account.UserId, crafted));
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persisted = await verificationContext.PositionAssessments
+            .SingleAsync(assessment => assessment.Id == owner.Assessment.Id.Value);
+        Assert.Equal(owner.Assessment.PositionId.Value, persisted.PositionId);
+        Assert.Equal(owner.Assessment.InputVersions.ExchangeAccountId.Value, persisted.ExchangeAccountId);
+        Assert.Equal(owner.Assessment.RuleVersion.Value, persisted.RuleVersion);
+        Assert.Equal(owner.Assessment.ReasonCodes, await verificationContext.PositionAssessmentReasons
+            .Where(reason => reason.PositionAssessmentId == owner.Assessment.Id.Value)
+            .OrderBy(reason => reason.Sequence)
+            .Select(reason => reason.ReasonCode)
+            .ToArrayAsync());
+    }
+
+    [Fact]
     public async Task Foreign_account_creation_with_another_owner_is_rejected()
     {
         var account = CreateAccount(UserId.New());
@@ -283,6 +460,28 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0,
             lastError: null);
+
+    private static PortfolioPositionState CreatePortfolioPositionState(
+        Position position,
+        ExchangeAccountId exchangeAccountId) =>
+        new(
+            position.Id,
+            ExchangePositionKey.Create(
+                exchangeAccountId,
+                position.ExchangePositionKey.InstrumentId,
+                position.ExchangePositionKey.PositionSide,
+                position.ExchangePositionKey.PositionIdx),
+            position.MarketCategory,
+            position.ExchangePositionKey.PositionSide,
+            position.TrackingState,
+            position.Size,
+            position.PositionValue,
+            position.UnrealizedPnl,
+            position.AverageEntryPrice,
+            position.MarkPrice,
+            position.LiquidationPrice,
+            position.Leverage,
+            position.LastObservedAt);
 
     private static async Task AssertForeignWriteRejected(Func<Task> write)
     {

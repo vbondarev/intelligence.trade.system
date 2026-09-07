@@ -156,6 +156,8 @@
 - User-owned Application repository operations require an explicit `UserId` scope. Missing and foreign resources are indistinguishable on user-facing read boundaries.
 - A machine principal is never a Domain user. Child ownership is resolved through `ExchangeAccount.UserId` unless the relational model proves denormalization is required.
 - `Infrastructure` receives `UserId` through repository arguments and never reads `HttpContext`, `ClaimsPrincipal`, or an ambient `AsyncLocal` current-user value.
+- Tracked EF entities are never an authorization proof; user-scoped repositories must validate persisted ownership explicitly before mutation.
+- Child IDs inside user-owned snapshots must be validated against their persisted ownership chain before save.
 - The BFF uses Authorization Code + PKCE with `S256`; browser JavaScript never receives access or refresh tokens.
 - Password grant, implicit flow, and custom JWT/refresh-token protocols are prohibited.
 - Self-contained JWT revoke/logout is not guaranteed to invalidate an already issued token immediately; immediate revocation, user isolation, and business authorization remain outside C-05A.

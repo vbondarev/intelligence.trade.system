@@ -53,6 +53,43 @@ public sealed class PortfolioStateRepository(TradeSystemDbContext dbContext) : I
                 "A portfolio state can only be saved within its owning user scope.");
         }
 
+        var requestedPositionIds = state.Positions
+            .Select(position => position.PositionId.Value)
+            .ToArray();
+        if (requestedPositionIds.Distinct().Count() != requestedPositionIds.Length)
+        {
+            throw new InvalidOperationException(
+                "A portfolio state cannot contain duplicate position identifiers.");
+        }
+
+        if (state.Positions.Any(position =>
+                position.ExchangePositionKey.ExchangeAccountId != state.ExchangeAccountId))
+        {
+            throw new InvalidOperationException(
+                "All portfolio positions must reference the portfolio exchange account.");
+        }
+
+        if (requestedPositionIds.Length > 0)
+        {
+            var ownedPositionIds = await dbContext.Positions
+                .AsNoTracking()
+                .Where(position =>
+                    requestedPositionIds.Contains(position.Id) &&
+                    position.ExchangeAccountId == state.ExchangeAccountId.Value &&
+                    dbContext.ExchangeAccounts.Any(account =>
+                        account.Id == position.ExchangeAccountId &&
+                        account.UserId == userId.Value))
+                .Select(position => position.Id)
+                .ToArrayAsync(cancellationToken);
+
+            if (ownedPositionIds.Length != requestedPositionIds.Length ||
+                !ownedPositionIds.ToHashSet().SetEquals(requestedPositionIds))
+            {
+                throw new InvalidOperationException(
+                    "A portfolio state contains a position outside the requested user scope.");
+            }
+        }
+
         dbContext.PortfolioStates.Add(PortfolioStateMapper.ToEntity(state));
         await dbContext.SaveChangesAsync(cancellationToken);
     }
