@@ -83,25 +83,41 @@ public partial class Program
 
     private static void ConfigureAuthentication(WebApplicationBuilder builder)
     {
-        var authority = builder.Configuration["Authentication:Authority"];
-        if (builder.Environment.IsProduction()
-            && (!Uri.TryCreate(authority, UriKind.Absolute, out var productionAuthority)
-                || productionAuthority.Scheme != Uri.UriSchemeHttps))
+        var authentication = builder.Configuration
+            .GetSection(AuthenticationOptions.SectionName)
+            .Get<AuthenticationOptions>() ?? new AuthenticationOptions();
+        var issuer = authentication.Issuer
+            ?? "http://localhost:5001";
+        var audience = authentication.Audience
+            ?? "intelligence-trade-api";
+
+        if (!Uri.TryCreate(issuer, UriKind.Absolute, out var issuerUri)
+            || issuerUri is null
+            || issuerUri.Scheme is not ("http" or "https")
+            || (builder.Environment.IsProduction() && issuerUri.Scheme != Uri.UriSchemeHttps))
         {
             throw new InvalidOperationException(
-                "Authentication:Authority must be configured as a stable HTTPS URL in Production.");
+                "Authentication:Issuer must be an absolute HTTPS URL in Production.");
         }
 
-        var audience = builder.Configuration["Authentication:Audience"]
-            ?? "intelligence-trade-api";
-        var metadataAuthority = authority
-            ?? "http://localhost:5001";
+        var canonicalIssuer = issuerUri.AbsoluteUri;
+        var metadataAddress = authentication.MetadataAddress
+            ?? new Uri(issuerUri, ".well-known/openid-configuration").AbsoluteUri;
+
+        if (!Uri.TryCreate(metadataAddress, UriKind.Absolute, out var metadataUri)
+            || metadataUri is null
+            || metadataUri.Scheme is not ("http" or "https")
+            || (builder.Environment.IsProduction() && metadataUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException(
+                "Authentication:MetadataAddress must be an absolute HTTPS URL in Production.");
+        }
 
         builder.Services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                options.Authority = metadataAuthority;
+                options.MetadataAddress = metadataUri.AbsoluteUri;
                 options.Audience = audience;
                 options.RequireHttpsMetadata =
                     !builder.Environment.IsDevelopment()
@@ -110,7 +126,7 @@ public partial class Program
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuer = new Uri(metadataAuthority).AbsoluteUri,
+                    ValidIssuer = canonicalIssuer,
                     ValidateAudience = true,
                     ValidAudience = audience,
                     ValidateLifetime = true,

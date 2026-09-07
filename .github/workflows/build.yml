@@ -65,30 +65,32 @@ jobs:
       - name: Docker build Identity
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
 
-      - name: Run API container
-        run: |
-          docker run -d \
-            --name intelligence-trade-system-api-test \
-            -p 8080:8080 \
-            -e ASPNETCORE_ENVIRONMENT=Development \
-            -e ASPNETCORE_URLS=http://+:8080 \
-            intelligence-trade-system-api:ci
+      - name: Docker build Identity migrations
+        run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
-      - name: Smoke test API
+      - name: Start Compose authentication stack
+        run: docker compose -f backend/compose.yaml up -d --build postgres identity-migrations identity api
+
+      - name: Smoke test Identity discovery and JWKS
         run: |
           for i in {1..10}; do
-            if curl --fail http://localhost:8080/; then
+            if curl --fail http://localhost:8081/.well-known/openid-configuration; then
               exit 0
             fi
 
-            echo "API is not ready yet. Retry $i/10..."
+            echo "Identity is not ready yet. Retry $i/10..."
             sleep 3
           done
 
-          echo "API did not become ready in time."
-          docker logs intelligence-trade-system-api-test
+          docker compose -f backend/compose.yaml logs identity-migrations identity
           exit 1
 
-      - name: Stop API container
+      - name: Smoke test Identity JWKS
+        run: curl --fail http://localhost:8081/.well-known/jwks
+
+      - name: Smoke test API
+        run: curl --fail http://localhost:8080/alive
+
+      - name: Stop authentication stack
         if: always()
-        run: docker rm -f intelligence-trade-system-api-test
+        run: docker compose -f backend/compose.yaml down -v

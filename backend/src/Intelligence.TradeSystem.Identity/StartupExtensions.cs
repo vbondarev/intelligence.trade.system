@@ -41,11 +41,19 @@ public static class StartupExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
+        var serverOptions = configuration
+            .GetSection(IdentityServerOptions.SectionName)
+            .Get<IdentityServerOptions>() ?? new IdentityServerOptions();
+        serverOptions.Validate();
+
         services
             .AddIdentityCore<ApplicationUser>(options =>
             {
                 options.User.RequireUniqueEmail = false;
                 options.SignIn.RequireConfirmedAccount = false;
+                options.Lockout.AllowedForNewUsers = serverOptions.AllowedForNewUsers;
+                options.Lockout.MaxFailedAccessAttempts = serverOptions.MaxFailedAccessAttempts;
+                options.Lockout.DefaultLockoutTimeSpan = serverOptions.DefaultLockoutTimeSpan;
             })
             .AddEntityFrameworkStores<IdentityDbContext>()
             .AddSignInManager()
@@ -73,9 +81,6 @@ public static class StartupExtensions
             options.ReturnUrlParameter = "returnUrl";
         });
 
-        var serverOptions = configuration
-            .GetSection(IdentityServerOptions.SectionName)
-            .Get<IdentityServerOptions>() ?? new IdentityServerOptions();
         var issuer = ResolveIssuer(serverOptions, environment);
 
         services.AddOpenIddict()
@@ -87,8 +92,30 @@ public static class StartupExtensions
             .AddServer(options =>
             {
                 options.SetIssuer(issuer);
-                options.SetAuthorizationEndpointUris("/connect/authorize");
-                options.SetTokenEndpointUris("/connect/token");
+                options.SetAuthorizationEndpointUris(
+                    new[]
+                    {
+                        new Uri(issuer, "/connect/authorize"),
+                        new Uri("/connect/authorize", UriKind.Relative)
+                    });
+                options.SetTokenEndpointUris(
+                    new[]
+                    {
+                        new Uri(issuer, "/connect/token"),
+                        new Uri("/connect/token", UriKind.Relative)
+                    });
+                options.SetConfigurationEndpointUris(
+                    new[]
+                    {
+                        new Uri(issuer, "/.well-known/openid-configuration"),
+                        new Uri("/.well-known/openid-configuration", UriKind.Relative)
+                    });
+                options.SetJsonWebKeySetEndpointUris(
+                    new[]
+                    {
+                        new Uri(issuer, "/.well-known/jwks"),
+                        new Uri("/.well-known/jwks", UriKind.Relative)
+                    });
                 options.AllowAuthorizationCodeFlow();
                 options.AllowRefreshTokenFlow();
                 options.RequireProofKeyForCodeExchange();
@@ -98,6 +125,7 @@ public static class StartupExtensions
                     server.CodeChallengeMethods.Add(CodeChallengeMethods.Sha256);
                 });
                 options.DisableAccessTokenEncryption();
+                options.SetAccessTokenLifetime(serverOptions.AccessTokenLifetime);
 
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {
@@ -150,11 +178,9 @@ public static class StartupExtensions
         OpenIddictServerBuilder options,
         IdentityServerOptions serverOptions)
     {
-        if (!string.IsNullOrWhiteSpace(serverOptions.SigningCertificatePath))
+        if (serverOptions.SigningCertificates.Count > 0)
         {
-            options.AddSigningCertificate(LoadCertificate(
-                serverOptions.SigningCertificatePath,
-                serverOptions.SigningCertificatePassword));
+            options.AddSigningCertificates(serverOptions.SigningCertificates.Select(LoadCertificate));
         }
         else
         {
@@ -177,32 +203,66 @@ public static class StartupExtensions
         OpenIddictServerBuilder options,
         IdentityServerOptions serverOptions)
     {
-        if (string.IsNullOrWhiteSpace(serverOptions.SigningCertificatePath)
+        if (serverOptions.SigningCertificates.Count == 0
             || string.IsNullOrWhiteSpace(serverOptions.EncryptionCertificatePath))
         {
             throw new InvalidOperationException(
-                "Production Identity requires persistent signing and encryption certificate paths.");
+                "Production Identity requires persistent signing certificates and an encryption certificate path.");
         }
 
         options
-            .AddSigningCertificate(LoadCertificate(
-                serverOptions.SigningCertificatePath,
-                serverOptions.SigningCertificatePassword))
+            .AddSigningCertificates(serverOptions.SigningCertificates.Select(LoadCertificate))
             .AddEncryptionCertificate(LoadCertificate(
                 serverOptions.EncryptionCertificatePath,
                 serverOptions.EncryptionCertificatePassword));
     }
 
-    private static X509Certificate2 LoadCertificate(string path, string? password)
+    private static X509Certificate2 LoadCertificate(CertificateOptions options)
     {
-        if (!File.Exists(path))
+        if (string.IsNullOrWhiteSpace(options.Path))
         {
-            throw new InvalidOperationException($"Configured Identity certificate was not found: {path}");
+            throw new InvalidOperationException(
+                "Every Identity:SigningCertificates entry must specify a certificate Path.");
         }
 
-        return X509CertificateLoader.LoadPkcs12FromFile(
+        if (!File.Exists(options.Path))
+        {
+            throw new InvalidOperationException(
+                $"Configured Identity certificate was not found: {options.Path}");
+        }
+
+        var certificate = X509CertificateLoader.LoadPkcs12FromFile(
+            options.Path,
+            options.Password,
+            X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.MachineKeySet);
+        ValidateCertificate(certificate, options.Path);
+        return certificate;
+    }
+
+    private static X509Certificate2 LoadCertificate(string path, string? password)
+    {
+        var certificate = X509CertificateLoader.LoadPkcs12FromFile(
             path,
             password,
             X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.MachineKeySet);
+        ValidateCertificate(certificate, path);
+        return certificate;
+    }
+
+    private static void ValidateCertificate(X509Certificate2 certificate, string path)
+    {
+        if (!certificate.HasPrivateKey)
+        {
+            throw new InvalidOperationException(
+                $"Configured Identity signing certificate has no private key: {path}");
+        }
+
+        var now = DateTime.UtcNow;
+        if (certificate.NotBefore.ToUniversalTime() > now
+            || certificate.NotAfter.ToUniversalTime() <= now)
+        {
+            throw new InvalidOperationException(
+                $"Configured Identity signing certificate is outside its validity period: {path}");
+        }
     }
 }

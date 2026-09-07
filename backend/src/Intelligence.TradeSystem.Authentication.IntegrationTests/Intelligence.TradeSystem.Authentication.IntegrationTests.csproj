@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Intelligence.TradeSystem.Api\Intelligence.TradeSystem.Api.csproj" />
     <ProjectReference Include="..\Intelligence.TradeSystem.Identity\Intelligence.TradeSystem.Identity.csproj" />
+    <ProjectReference Include="..\Intelligence.TradeSystem.Identity.Migrations\Intelligence.TradeSystem.Identity.Migrations.csproj" />
   </ItemGroup>
 
 </Project>

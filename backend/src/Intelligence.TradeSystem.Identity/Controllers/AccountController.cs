@@ -54,7 +54,7 @@ public sealed class AccountController(
             username,
             password,
             isPersistent: false,
-            lockoutOnFailure: false);
+            lockoutOnFailure: true);
 
         if (!result.Succeeded)
         {

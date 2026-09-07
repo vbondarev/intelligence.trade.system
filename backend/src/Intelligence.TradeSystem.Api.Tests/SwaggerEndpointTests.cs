@@ -154,7 +154,8 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment(Environments.Production);
-                builder.UseSetting("Authentication:Authority", "https://identity.test");
+                builder.UseSetting("Authentication:Issuer", "https://identity.test");
+                builder.UseSetting("Authentication:MetadataAddress", "https://identity.test/.well-known/openid-configuration");
             })
             .CreateClient();
 

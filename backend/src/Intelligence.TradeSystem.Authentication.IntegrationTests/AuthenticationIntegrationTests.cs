@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -7,9 +8,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
-using Intelligence.TradeSystem.Api;
 using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
+using Intelligence.TradeSystem.Identity.Migrations;
 using Intelligence.TradeSystem.Identity.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
@@ -27,7 +28,8 @@ namespace Intelligence.TradeSystem.Authentication.IntegrationTests;
 
 public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
 {
-    private const string Issuer = "http://identity.test/";
+    private const string Issuer = "http://public-identity.test/";
+    private const string MetadataAddress = "http://identity-internal.test/.well-known/openid-configuration";
     private const string Audience = "intelligence-trade-api";
     private const string ClientId = "c05a-public-client";
     private const string RedirectUri = "http://client.test/callback";
@@ -41,7 +43,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         .WithPassword("tradesystem")
         .Build();
 
-    private string certificatePath = string.Empty;
+    private string oldCertificatePath = string.Empty;
+    private string newCertificatePath = string.Empty;
     private IdentityWebApplicationFactory identityFactory = null!;
     private ApiWebApplicationFactory apiFactory = null!;
     private Guid userId;
@@ -49,12 +52,15 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     public async Task InitializeAsync()
     {
         await postgres.StartAsync();
-        certificatePath = CreateSigningCertificate();
-        await MigrateIdentityDatabaseAsync();
+        oldCertificatePath = CreateSigningCertificate("old", DateTimeOffset.UtcNow.AddHours(-2));
+        newCertificatePath = CreateSigningCertificate("new", DateTimeOffset.UtcNow.AddMinutes(-5));
+        await IdentityMigrationRunner.ApplyAsync(postgres.GetConnectionString());
+        await IdentityMigrationRunner.ApplyAsync(postgres.GetConnectionString());
 
         identityFactory = new IdentityWebApplicationFactory(
             postgres.GetConnectionString(),
-            certificatePath,
+            oldCertificatePath,
+            newCertificatePath,
             CertificatePassword);
         _ = identityFactory.Server;
         await SeedIdentityAsync();
@@ -67,9 +73,14 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     {
         apiFactory.Dispose();
         identityFactory.Dispose();
-        if (File.Exists(certificatePath))
+        if (File.Exists(oldCertificatePath))
         {
-            File.Delete(certificatePath);
+            File.Delete(oldCertificatePath);
+        }
+
+        if (File.Exists(newCertificatePath))
+        {
+            File.Delete(newCertificatePath);
         }
 
         await postgres.DisposeAsync();
@@ -110,6 +121,14 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Migration_runner_fails_when_database_is_unreachable()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            IdentityMigrationRunner.ApplyAsync(
+                "Host=127.0.0.1;Port=1;Database=unreachable;Username=none;Password=none;Timeout=1"));
+    }
+
+    [Fact]
     public async Task Discovery_and_jwks_are_published_by_the_identity_host()
     {
         using var client = CreateIdentityClient();
@@ -119,13 +138,34 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         using var discovery = JsonDocument.Parse(await discoveryResponse.Content.ReadAsStringAsync());
 
         discovery.RootElement.GetProperty("issuer").GetString().Should().Be(Issuer);
+        discovery.RootElement.GetProperty("authorization_endpoint").GetString()
+            .Should().StartWith(Issuer);
+        discovery.RootElement.GetProperty("token_endpoint").GetString()
+            .Should().StartWith(Issuer);
         var jwksUri = discovery.RootElement.GetProperty("jwks_uri").GetString();
         jwksUri.Should().NotBeNullOrWhiteSpace();
+        jwksUri.Should().StartWith(Issuer);
 
         var jwksResponse = await client.GetAsync(new Uri(new Uri(Issuer), jwksUri!).PathAndQuery);
         jwksResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var jwks = JsonDocument.Parse(await jwksResponse.Content.ReadAsStringAsync());
-        jwks.RootElement.GetProperty("keys").GetArrayLength().Should().BeGreaterThan(0);
+        var keys = jwks.RootElement.GetProperty("keys").EnumerateArray().ToArray();
+        keys.Should().HaveCountGreaterThan(1);
+        keys.Select(key => key.GetProperty("kid").GetString()).Distinct().Should().HaveCountGreaterThan(1);
+    }
+
+    [Fact]
+    public async Task Identity_starts_after_migrations_and_scope_seeding()
+    {
+        using var scope = identityFactory.Services.CreateScope();
+        var scopeManager = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
+
+        (await scopeManager.FindByNameAsync(StartupExtensions.ApiScope))
+            .Should().NotBeNull();
+
+        using var client = CreateIdentityClient();
+        (await client.GetAsync("/.well-known/openid-configuration"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -142,6 +182,13 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         jwt.Audiences.Should().Contain(Audience);
         jwt.Claims.Single(claim => claim.Type == "scope").Value.Should().Contain("trade.api");
         jwt.ValidTo.Should().BeAfter(DateTime.UtcNow);
+        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(
+            long.Parse(
+                jwt.Claims.Single(claim => claim.Type == "iat").Value,
+                CultureInfo.InvariantCulture)).UtcDateTime;
+        (jwt.ValidTo - issuedAt).Should().BeCloseTo(
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromSeconds(30));
         jwt.Header.Alg.Should().NotBe(SecurityAlgorithms.None);
     }
 
@@ -159,6 +206,43 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Failed_passwords_activate_lockout_and_correct_password_is_rejected()
+    {
+        using var client = CreateIdentityClient();
+        var invalidResponse = await SubmitLoginAsync(client, Username, "Wrong-password-123");
+        var invalidBody = await invalidResponse.Content.ReadAsStringAsync();
+        invalidResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        for (var attempt = 1; attempt < 3; attempt++)
+        {
+            (await SubmitLoginAsync(client, Username, "Wrong-password-123"))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        using (var scope = identityFactory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider
+                .GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ApplicationUser>>();
+            var user = await userManager.FindByNameAsync(Username);
+            user.Should().NotBeNull();
+            (await userManager.IsLockedOutAsync(user!)).Should().BeTrue();
+
+            var lockedResponse = await SubmitLoginAsync(client, Username, Password);
+            lockedResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await lockedResponse.Content.ReadAsStringAsync()).Should().Be(invalidBody);
+
+            var missingResponse = await SubmitLoginAsync(client, "missing-user", Password);
+            (await missingResponse.Content.ReadAsStringAsync()).Should().Be(invalidBody);
+
+            await userManager.SetLockoutEndDateAsync(user!, null);
+            await userManager.ResetAccessFailedCountAsync(user!);
+        }
+
+        (await SubmitLoginAsync(client, Username, Password))
+            .StatusCode.Should().Be(HttpStatusCode.Redirect);
     }
 
     [Fact]
@@ -217,6 +301,30 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("subject").GetString().Should().Be(userId.ToString());
+    }
+
+    [Fact]
+    public async Task Old_signing_key_remains_accepted_during_rollover()
+    {
+        var issuedToken = await IssueAccessTokenAsync();
+        var issuedJwt = new JwtSecurityTokenHandler().ReadJwtToken(issuedToken.AccessToken);
+        using var currentCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+            newCertificatePath,
+            CertificatePassword,
+            X509KeyStorageFlags.EphemeralKeySet);
+        issuedJwt.Header.Kid.Should().Be(currentCertificate.Thumbprint);
+
+        using var client = apiFactory.CreateClient();
+        var oldToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            "trade.api",
+            oldCertificatePath);
+
+        var response = await GetWithTokenAsync(client, oldToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -349,14 +457,36 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         return await client.SendAsync(request);
     }
 
+    private static async Task<HttpResponseMessage> SubmitLoginAsync(
+        HttpClient client,
+        string username,
+        string password)
+    {
+        var loginResponse = await client.GetAsync("/account/login");
+        var loginHtml = await loginResponse.Content.ReadAsStringAsync();
+        var antiforgeryToken = Regex.Match(
+            loginHtml,
+            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+
+        return await client.PostAsync(
+            "/account/login",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = antiforgeryToken,
+                ["username"] = username,
+                ["password"] = password,
+            }));
+    }
+
     private string CreateSignedToken(
         string issuer,
         string audience,
         DateTime expires,
-        string scope = "trade.api")
+        string scope = "trade.api",
+        string? signingCertificatePath = null)
     {
         using var certificate = X509CertificateLoader.LoadPkcs12FromFile(
-            certificatePath,
+            signingCertificatePath ?? newCertificatePath,
             CertificatePassword,
             X509KeyStorageFlags.EphemeralKeySet);
         var descriptor = new SecurityTokenDescriptor
@@ -384,14 +514,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         identityFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
+            BaseAddress = new Uri(Issuer),
             HandleCookies = true,
         });
-
-    private async Task MigrateIdentityDatabaseAsync()
-    {
-        await using var context = CreateIdentityContext();
-        await context.Database.MigrateAsync();
-    }
 
     private IdentityDbContext CreateIdentityContext() =>
         new(new DbContextOptionsBuilder<IdentityDbContext>()
@@ -442,7 +567,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             .Replace('+', '-')
             .Replace('/', '_');
 
-    private string CreateSigningCertificate()
+    private string CreateSigningCertificate(string name, DateTimeOffset notBefore)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
@@ -451,9 +576,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
         using var certificate = request.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddMinutes(-5),
+            notBefore,
             DateTimeOffset.UtcNow.AddHours(2));
-        var path = Path.Combine(Path.GetTempPath(), $"identity-c05a-{Guid.NewGuid():N}.pfx");
+        var path = Path.Combine(Path.GetTempPath(), $"identity-c05a-{name}-{Guid.NewGuid():N}.pfx");
         File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, CertificatePassword));
         return path;
     }
@@ -507,7 +632,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
 
     private sealed class IdentityWebApplicationFactory(
         string connectionString,
-        string signingCertificatePath,
+        string oldSigningCertificatePath,
+        string newSigningCertificatePath,
         string signingCertificatePassword)
         : WebApplicationFactory<Intelligence.TradeSystem.Identity.Program>
     {
@@ -516,8 +642,14 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:TradeSystemIdentity", connectionString);
             builder.UseSetting("Identity:Issuer", Issuer);
-            builder.UseSetting("Identity:SigningCertificatePath", signingCertificatePath);
-            builder.UseSetting("Identity:SigningCertificatePassword", signingCertificatePassword);
+            builder.UseSetting("Identity:SigningCertificates:0:Path", newSigningCertificatePath);
+            builder.UseSetting("Identity:SigningCertificates:0:Password", signingCertificatePassword);
+            builder.UseSetting("Identity:SigningCertificates:1:Path", oldSigningCertificatePath);
+            builder.UseSetting("Identity:SigningCertificates:1:Password", signingCertificatePassword);
+            builder.UseSetting("Identity:AccessTokenLifetime", "00:15:00");
+            builder.UseSetting("Identity:MaxFailedAccessAttempts", "3");
+            builder.UseSetting("Identity:DefaultLockoutTimeSpan", "00:00:30");
+            builder.UseSetting("Identity:AllowedForNewUsers", "true");
         }
     }
 
@@ -527,7 +659,8 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
-            builder.UseSetting("Authentication:Authority", Issuer);
+            builder.UseSetting("Authentication:Issuer", Issuer);
+            builder.UseSetting("Authentication:MetadataAddress", MetadataAddress);
             builder.UseSetting("Authentication:Audience", Audience);
             builder.ConfigureTestServices(services =>
             {

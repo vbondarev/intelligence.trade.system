@@ -15,6 +15,7 @@
   <Project Path="Intelligence.TradeSystem.Domain/Intelligence.TradeSystem.Domain.csproj" />
   <Project Path="Intelligence.TradeSystem.Infrastructure/Intelligence.TradeSystem.Infrastructure.csproj" />
   <Project Path="Intelligence.TradeSystem.Identity/Intelligence.TradeSystem.Identity.csproj" />
+  <Project Path="Intelligence.TradeSystem.Identity.Migrations/Intelligence.TradeSystem.Identity.Migrations.csproj" />
   <Project Path="Intelligence.TradeSystem.MarketIntelligence/Intelligence.TradeSystem.MarketIntelligence.csproj" />
   <Folder Name="/Aspire/">
     <Project Path="Intelligence.TradeSystem.AppHost/Intelligence.TradeSystem.AppHost.csproj" />

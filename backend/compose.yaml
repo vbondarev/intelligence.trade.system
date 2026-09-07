@@ -26,7 +26,8 @@
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - Authentication__Authority=http://identity:8080
+      - Authentication__Issuer=http://localhost:8081
+      - Authentication__MetadataAddress=http://identity:8080/.well-known/openid-configuration
       - Authentication__Audience=intelligence-trade-api
       - ConnectionStrings__TradeSystem=Host=postgres;Port=5432;Database=tradesystem;Username=tradesystem;Password=tradesystem_dev_password
     depends_on:
@@ -39,6 +40,19 @@
         aliases:
           - intelligence-trade-api
 
+  identity-migrations:
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile
+    environment:
+      - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - trade-agent-network
+
   identity:
     container_name: intelligence-trade-identity
     build:
@@ -50,10 +64,12 @@
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
-      - Identity__Issuer=http://identity:8080
+      - Identity__Issuer=http://localhost:8081
     depends_on:
       postgres:
         condition: service_healthy
+      identity-migrations:
+        condition: service_completed_successfully
     networks:
       trade-agent-network:
         aliases:
@@ -64,4 +80,4 @@ volumes:
 
 networks:
   trade-agent-network:
-    external: true
+    name: trade-agent-network

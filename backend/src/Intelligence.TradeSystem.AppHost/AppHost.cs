@@ -11,13 +11,23 @@ public static class Program
         var businessDatabase = database.AddDatabase("TradeSystem");
         var identityDatabase = database.AddDatabase("TradeSystemIdentity");
 
+        var identityMigrations = builder
+            .AddProject<Projects.Intelligence_TradeSystem_Identity_Migrations>("identity-migrations")
+            .WithReference(identityDatabase)
+            .WaitFor(identityDatabase);
+
         var identity = builder
             .AddProject<Projects.Intelligence_TradeSystem_Identity>("identity")
             .WithReference(identityDatabase)
-            .WaitFor(identityDatabase)
+            .WaitForCompletion(identityMigrations)
+            .WithEndpoint("http", endpoint =>
+            {
+                endpoint.Port = 8081;
+                endpoint.TargetPort = 8080;
+            })
             .WithExternalHttpEndpoints();
         var identityEndpoint = identity.GetEndpoint("http");
-        identity.WithEnvironment("Identity__Issuer", identityEndpoint);
+        identity.WithEnvironment("Identity__Issuer", "http://localhost:8081");
 
         builder
             .AddProject<Projects.Intelligence_TradeSystem_Api>("api")
@@ -25,7 +35,8 @@ public static class Program
             .WithReference(identity)
             .WaitFor(businessDatabase)
             .WaitFor(identity)
-            .WithEnvironment("Authentication__Authority", identityEndpoint)
+            .WithEnvironment("Authentication__Issuer", "http://localhost:8081")
+            .WithEnvironment("Authentication__MetadataAddress", identityEndpoint)
             .WithExternalHttpEndpoints()
             .WithUrl("/swagger", "Swagger");
 
