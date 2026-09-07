@@ -43,12 +43,25 @@ jobs:
       - name: Test
         run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger "trx;LogFileName=test-results.trx"
 
+      - name: Coverage
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --no-build --collect:"XPlat Code Coverage" --results-directory backend/TestResults/coverage
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: '**/TestResults/*.trx'
+          path: |
+            **/TestResults/*.trx
+            backend/TestResults/**/*.trx
+          if-no-files-found: ignore
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/TestResults/**/coverage.cobertura.xml
           if-no-files-found: ignore
 
   docker-build:

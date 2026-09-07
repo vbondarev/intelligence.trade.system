@@ -36,6 +36,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
 
             if (!response.Success)
             {
+                BybitExchangeFailureMapper.ThrowIfCancellationRequested(response.Error, cancellationToken);
                 BybitPrivateProviderLogMessages.LogFailedToFetchOpenPositions(_logger, category, symbol ?? "all", response.Error?.Message);
 
                 return positions.Count > 0
@@ -58,15 +59,34 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         return OpenPositionsObservation.Complete(category, symbol, observedAt, positions);
     }
 
-    public async Task<AccountBalance?> GetWalletBalanceAsync(AccountType accountType, CancellationToken cancellationToken = default)
+    public async Task<AccountBalanceObservation> GetWalletBalanceAsync(AccountType accountType, CancellationToken cancellationToken = default)
     {
         var response = await _client.V5Api.Account.GetBalancesAsync(accountType.ToBybitAccountType(), null, cancellationToken);
         if (!response.Success)
         {
-            BybitPrivateProviderLogMessages.LogFailedToFetchWalletBalance(_logger, accountType, response.Error?.Message);
-            return null;
+            BybitExchangeFailureMapper.ThrowIfCancellationRequested(response.Error, cancellationToken);
+            var failure = BybitExchangeFailureMapper.Map(response.Error);
+            BybitPrivateProviderLogMessages.LogFailedToFetchWalletBalance(
+                _logger,
+                accountType,
+                failure.Kind,
+                failure.Retryable,
+                failure.ProviderCode);
+            return AccountBalanceObservation.Failed(failure);
         }
 
-        return response.Data?.List?.FirstOrDefault()?.MapAccountBalance();
+        if (response.Data?.List?.FirstOrDefault() is not { } balance)
+        {
+            var failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
+            BybitPrivateProviderLogMessages.LogFailedToFetchWalletBalance(
+                _logger,
+                accountType,
+                failure.Kind,
+                failure.Retryable,
+                failure.ProviderCode);
+            return AccountBalanceObservation.Failed(failure);
+        }
+
+        return AccountBalanceObservation.Complete(balance.MapAccountBalance());
     }
 }

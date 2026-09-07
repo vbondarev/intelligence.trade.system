@@ -5,10 +5,13 @@ using Bybit.Net.Objects.Models.V5;
 using CryptoExchange.Net.Objects;
 using CryptoExchange.Net.Objects.Errors;
 using FluentAssertions;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.Extensions.Logging;
 using Moq;
+using BybitAccountType = Bybit.Net.Enums.AccountType;
+using DomainAccountType = Intelligence.TradeSystem.Domain.AccountType;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests;
 
@@ -164,10 +167,182 @@ public sealed class BybitPrivateAccountProviderTests
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
-    private static BybitPrivateAccountProvider CreateProvider(Mock<IBybitRestClientApiTrading> trading)
+    [Fact]
+    public async Task GetOpenPositionsAsync_Propagates_Cancellation_From_Bybit_Result()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, null, 200, null, cancellation.Token))
+            .ReturnsAsync(CreateProviderError<BybitResponse<BybitPosition>>(
+                "cancelled",
+                ErrorType.CancellationRequested));
+
+        var act = () => CreateProvider(trading)
+            .GetOpenPositionsAsync(MarketCategory.Linear, cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Returns_Complete_With_Mapped_Balance_On_Success()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List =
+                [
+                    new BybitBalance
+                    {
+                        AccountType = BybitAccountType.Unified,
+                        TotalEquity = 12_500m,
+                        TotalWalletBalance = 12_000m,
+                        TotalAvailableBalance = 8_000m,
+                        TotalPerpUnrealizedPnl = 500m,
+                        Assets =
+                        [
+                            new BybitAssetBalance
+                            {
+                                Asset = "USDT",
+                                Equity = 12_500m,
+                                UsdValue = 12_500m,
+                                WalletBalance = 12_000m,
+                                Free = 8_000m,
+                            },
+                        ],
+                    },
+                ],
+            }));
+
+        var observation = await CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Complete);
+        observation.Failure.Should().BeNull();
+        observation.Balance.Should().NotBeNull();
+        observation.Balance!.AccountType.Should().Be(DomainAccountType.Unified);
+        observation.Balance.TotalEquity.Should().Be(12_500m);
+        observation.Balance.TotalAvailableBalance.Should().Be(8_000m);
+        observation.Balance.Coins.Should().ContainSingle(coin =>
+            coin.Coin == "USDT" && coin.WalletBalance == 12_000m && coin.AvailableBalance == 8_000m);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Returns_InvalidResponse_When_Success_Has_No_Balance()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance> { List = [] }));
+
+        var observation = await CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Failed);
+        observation.Balance.Should().BeNull();
+        observation.Failure.Should().BeEquivalentTo(
+            new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+    }
+
+    [Theory]
+    [InlineData("10003", ErrorType.Unauthorized, ExchangeFailureKind.InvalidCredentials, false)]
+    [InlineData("10005", ErrorType.Unauthorized, ExchangeFailureKind.PermissionDenied, false)]
+    [InlineData("10006", ErrorType.RateLimitRequest, ExchangeFailureKind.RateLimited, true)]
+    [InlineData("timeout", ErrorType.Timeout, ExchangeFailureKind.Timeout, true)]
+    [InlineData("network", ErrorType.NetworkError, ExchangeFailureKind.Unavailable, true)]
+    [InlineData("unknown-code", ErrorType.Unknown, ExchangeFailureKind.Unknown, false)]
+    public async Task GetWalletBalanceAsync_Maps_Provider_Failure(
+        string providerCode,
+        ErrorType errorType,
+        ExchangeFailureKind expectedKind,
+        bool expectedRetryable)
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateProviderError<BybitResponse<BybitBalance>>(providerCode, errorType));
+
+        var observation = await CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Failed);
+        observation.Balance.Should().BeNull();
+        observation.Failure.Should().NotBeNull();
+        observation.Failure!.Kind.Should().Be(expectedKind);
+        observation.Failure.Retryable.Should().Be(expectedRetryable);
+        observation.Failure.ProviderCode.Should().Be(providerCode);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Propagates_Cancellation_And_Passes_Token_To_Bybit()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.Is<CancellationToken>(token => token == cancellation.Token)))
+            .Returns(() => Task.FromCanceled<HttpResult<BybitResponse<BybitBalance>>>(cancellation.Token));
+
+        var act = () => CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        account.Verify(a => a.GetBalancesAsync(
+            BybitAccountType.Unified,
+            null,
+            cancellation.Token), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Propagates_Cancellation_From_Bybit_Result()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                cancellation.Token))
+            .ReturnsAsync(CreateProviderError<BybitResponse<BybitBalance>>(
+                "cancelled",
+                ErrorType.CancellationRequested));
+
+        var act = () => CreateProvider(new Mock<IBybitRestClientApiTrading>(), account)
+            .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    private static BybitPrivateAccountProvider CreateProvider(
+        Mock<IBybitRestClientApiTrading> trading,
+        Mock<IBybitRestClientApiAccount>? account = null)
     {
         var v5Api = new Mock<IBybitRestClientApi>();
         v5Api.SetupGet(a => a.Trading).Returns(trading.Object);
+        if (account is not null)
+        {
+            v5Api.SetupGet(a => a.Account).Returns(account.Object);
+        }
 
         var client = new Mock<IBybitRestClient>();
         client.SetupGet(c => c.V5Api).Returns(v5Api.Object);
@@ -180,4 +355,13 @@ public sealed class BybitPrivateAccountProviderTests
 
     private static HttpResult<T> CreateError<T>(string message) =>
         new("Bybit", default!, new ServerError(ErrorType.Unknown, message, null!) { Message = message });
+
+    private static HttpResult<T> CreateProviderError<T>(string providerCode, ErrorType errorType) =>
+        new(
+            "Bybit",
+            default!,
+            new ServerError(
+                providerCode,
+                new ErrorInfo(errorType, isTransient: false, "provider failure", [providerCode]),
+                null!));
 }
