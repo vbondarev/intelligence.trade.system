@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-COPY src/ . 
+COPY src/ .
 
 RUN dotnet restore Intelligence.TradeSystem.Authentication.TestSeeder/Intelligence.TradeSystem.Authentication.TestSeeder.csproj
 

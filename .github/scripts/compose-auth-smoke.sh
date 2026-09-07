@@ -19,7 +19,7 @@ trap cleanup EXIT
 
 seeder_id=""
 for _ in {1..30}; do
-  seeder_id="$("${compose[@]}" ps -q auth-test-seeder)"
+  seeder_id="$("${compose[@]}" ps -aq auth-test-seeder)"
   if [[ -n "$seeder_id" ]]; then
     seeder_status="$(docker inspect -f '{{.State.Status}}' "$seeder_id")"
     if [[ "$seeder_status" == "exited" ]]; then
