@@ -7,6 +7,8 @@ public sealed class TradeSystemDbContext(DbContextOptions<TradeSystemDbContext> 
     : DbContext(options)
 {
     public DbSet<ExchangeAccountEntity> ExchangeAccounts => Set<ExchangeAccountEntity>();
+    public DbSet<ExchangeAccountCredentialEntity> ExchangeAccountCredentials =>
+        Set<ExchangeAccountCredentialEntity>();
     public DbSet<PositionEntity> Positions => Set<PositionEntity>();
     public DbSet<PositionChangeEntity> PositionChanges => Set<PositionChangeEntity>();
     public DbSet<PortfolioStateEntity> PortfolioStates => Set<PortfolioStateEntity>();

@@ -68,6 +68,13 @@ jobs:
       - name: Docker build Identity migrations
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
+      - name: Generate disposable credential protection key
+        run: |
+          credential_key="$(openssl rand -base64 32)"
+          echo "::add-mask::$credential_key"
+          echo "TRADE_CREDENTIAL_KEY=$credential_key" >> "$GITHUB_ENV"
+        shell: bash
+
       - name: Start PostgreSQL in existing-business-database shape
         run: docker compose -f backend/compose.yaml up -d postgres
 

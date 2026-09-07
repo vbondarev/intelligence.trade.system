@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Api.Controllers;
+using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Users;
+using Intelligence.TradeSystem.Domain;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Architecture.Tests;
@@ -48,5 +50,28 @@ public sealed class UserIsolationArchitectureTests
 
         adapters.Should().ContainSingle();
         Assert.Same(apiAssembly, adapters[0].Assembly);
+    }
+
+    [Fact]
+    public void Credential_contracts_stay_out_of_domain_and_application_implementation_dependencies()
+    {
+        typeof(ExchangeAccount)
+            .GetProperties()
+            .Select(property => property.Name)
+            .Should()
+            .NotContain(name =>
+                name.Contains("ApiKey", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("ApiSecret", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Credential", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Encryption", StringComparison.OrdinalIgnoreCase));
+
+        typeof(IExchangeAccountCredentialStore).Assembly
+            .GetReferencedAssemblies()
+            .Select(reference => reference.Name)
+            .Should()
+            .NotContain(name =>
+                name == "Bybit.Net" ||
+                name == "Microsoft.EntityFrameworkCore" ||
+                name == "System.Security.Cryptography");
     }
 }

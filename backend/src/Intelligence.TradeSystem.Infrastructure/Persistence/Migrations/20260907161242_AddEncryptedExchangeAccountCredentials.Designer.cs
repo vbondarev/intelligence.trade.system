@@ -3,6 +3,7 @@ using System;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TradeSystemDbContext))]
-    partial class TradeSystemDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907161242_AddEncryptedExchangeAccountCredentials")]
+    partial class AddEncryptedExchangeAccountCredentials
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -69,8 +72,6 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                     b.ToTable("exchange_account_credentials", null, t =>
                         {
                             t.HasCheckConstraint("ck_exchange_account_credentials_authentication_tag_length", "octet_length(authentication_tag) = 16");
-
-                            t.HasCheckConstraint("ck_exchange_account_credentials_ciphertext_max_length", "octet_length(ciphertext) <= 2097160");
 
                             t.HasCheckConstraint("ck_exchange_account_credentials_ciphertext_non_empty", "octet_length(ciphertext) > 0");
 
