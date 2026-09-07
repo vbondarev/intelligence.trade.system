@@ -151,7 +151,12 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
     public async Task Swagger_Is_Not_Available_Outside_Development()
     {
         using var client = _factory
-            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production))
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(Environments.Production);
+                builder.UseSetting("Authentication:Issuer", "https://identity.test");
+                builder.UseSetting("Authentication:MetadataAddress", "https://identity.test/.well-known/openid-configuration");
+            })
             .CreateClient();
 
         using var response = await client.GetAsync("/swagger/index.html");

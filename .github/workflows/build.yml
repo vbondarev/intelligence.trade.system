@@ -62,30 +62,32 @@ jobs:
       - name: Docker build API
         run: docker build -f backend/src/Intelligence.TradeSystem.Api/Dockerfile -t intelligence-trade-system-api:ci backend
 
-      - name: Run API container
+      - name: Docker build Identity
+        run: docker build -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
+
+      - name: Docker build Identity migrations
+        run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
+
+      - name: Start PostgreSQL in existing-business-database shape
+        run: docker compose -f backend/compose.yaml up -d postgres
+
+      - name: Provision Identity database without removing business data
         run: |
-          docker run -d \
-            --name intelligence-trade-system-api-test \
-            -p 8080:8080 \
-            -e ASPNETCORE_ENVIRONMENT=Development \
-            -e ASPNETCORE_URLS=http://+:8080 \
-            intelligence-trade-system-api:ci
+          docker compose -f backend/compose.yaml run --rm identity-db-init
+          docker compose -f backend/compose.yaml run --rm identity-db-init
+          test "$(docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem'\''"')" = "1"
+          docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem_identity'\''" | grep -q 1'
 
-      - name: Smoke test API
-        run: |
-          for i in {1..10}; do
-            if curl --fail http://localhost:8080/; then
-              exit 0
-            fi
+      - name: Start Compose authentication stack
+        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api auth-test-seeder
 
-            echo "API is not ready yet. Retry $i/10..."
-            sleep 3
-          done
+      - name: Smoke test Compose OAuth/OIDC and protected API
+        run: bash .github/scripts/compose-auth-smoke.sh
 
-          echo "API did not become ready in time."
-          docker logs intelligence-trade-system-api-test
-          exit 1
+      - name: Show Compose authentication logs on failure
+        if: failure()
+        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api auth-test-seeder
 
-      - name: Stop API container
+      - name: Stop authentication stack
         if: always()
-        run: docker rm -f intelligence-trade-system-api-test
+        run: docker compose -f backend/compose.yaml down -v

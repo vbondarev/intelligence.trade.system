@@ -74,7 +74,7 @@
 
 ## Текущее состояние
 
-Этапы A и B завершены. Проект умеет анализировать публичный рынок и содержит чистый бизнес-домен сопровождения аккаунта, позиции, портфеля, оценки и рекомендации. Доменное состояние теперь может сохраняться в PostgreSQL через прикладные repository ports и восстанавливаться после перезапуска, но полноценный пользовательский сценарий ещё не связан с авторизацией, подключением аккаунта и периодической синхронизацией.
+Этапы A и B завершены. Основа C-05A также реализована: отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, а `Api` проверяет signed JWT через OIDC discovery/JWKS. Полноценный пользовательский сценарий всё ещё не включает регистрацию, подключение аккаунта, периодическую синхронизацию или изоляцию данных C-06.
 
 ### Уже реализовано
 
@@ -84,6 +84,9 @@
 - создание приватного provider для конкретных credentials без глобального authenticated client;
 - нейтральные прикладные интерфейсы `IMarketDataProvider`, `IDerivativesDataProvider`, `IPrivateAccountProvider`;
 - отдельный модуль `Intelligence.TradeSystem.MarketIntelligence`;
+- отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
+- `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
+- integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - анализ интервалов `15m`, `1h`, `4h`, `1d`;
 - расчёт EMA, RSI, ATR, SMA, упрощённого профиля объёма и классификации тренда;
 - обработка стакана, потока сделок, funding, open interest и long/short ratio;
@@ -115,7 +118,7 @@
 
 ### Ещё не реализовано
 
-- OAuth/OIDC-аутентификация пользователей и изоляция данных;
+- изоляция данных по пользователю, ownership и бизнес-авторизация C-06;
 - безопасное хранение API-ключей Bybit;
 - пользовательский сценарий подключения биржевого аккаунта;
 - периодическая синхронизация аккаунта и позиций;
@@ -180,7 +183,7 @@ OAuth 2.0 / OpenID Connect
        signed JWT
 ```
 
-Выбранный и запланированный Authorization Server для runtime-этапа C-05A:
+Реализованный Authorization Server:
 
 ```text
 ASP.NET Core Identity + OpenIddict
@@ -190,9 +193,15 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Это архитектурный выбор, а не уже реализованный runtime: в текущем репозитории ещё нет Identity host, OAuth/OIDC endpoints, JWT Bearer middleware или auth migrations.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF, user isolation и Bybit onboarding ещё не реализованы.
+
+В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
+
+`Identity:SigningCertificates` задаёт набор одновременно активных signing credentials для rollover. OpenIddict выбирает credential для новых токенов по своим documented selection rules, включая validity и furthest expiration; порядок JSON-массива не является гарантией. Старый сертификат остаётся зарегистрированным на время overlap, чтобы ранее выданные токены продолжали проверяться; access tokens явно ограничены коротким lifetime в `Identity:AccessTokenLifetime` (MVP default — 15 минут).
 
 Для login BFF использует Authorization Code + PKCE (`S256`). API получает подписанные JWT access tokens и валидирует их через стандартный OIDC discovery/JWKS.
+
+Минимальный защищённый `GET /api/v1/auth/me` возвращает только `subject` и признак аутентификации; он не выполняет business authorization C-06.
 
 React рассматривается как browser-клиент через BFF:
 
@@ -213,6 +222,8 @@ Secure HttpOnly cookie может использоваться только ме
 | `Intelligence.TradeSystem.MarketIntelligence` | Расчёты, признаки и снимки публичного рынка |
 | `Intelligence.TradeSystem.Exchanges` | Реализации интеграций с биржами; сейчас основной adapter — Bybit |
 | `Intelligence.TradeSystem.Infrastructure` | PostgreSQL/EF Core и техническая граница постоянного хранения |
+| `Intelligence.TradeSystem.Identity` | Отдельный ASP.NET Core Identity + OpenIddict Authorization Server |
+| `Intelligence.TradeSystem.Identity.Migrations` | Одноразовый deployment runner для Identity/OpenIddict migrations |
 | `Intelligence.TradeSystem.Api` | HTTP API и composition root |
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
@@ -346,7 +357,7 @@ Endpoint сохраняется ради совместимости и отла�
 - доступ к интернету для получения публичных данных Bybit;
 - Docker — если используется контейнерный запуск;
 - PostgreSQL — если используется Docker Compose или Aspire;
-- внешняя Docker-сеть `trade-agent-network` — для текущего `backend/compose.yaml`.
+- Docker Compose создаёт named network `trade-agent-network` автоматически.
 
 Публичный рыночный анализ не должен требовать пользовательских API-ключей Bybit. Приватные credentials понадобятся только для будущих сценариев чтения конкретного аккаунта.
 
@@ -388,17 +399,30 @@ dotnet run --project Intelligence.TradeSystem.AppHost
 
 ```bash
 cd backend
-docker network create trade-agent-network
-docker compose up --build api
+docker compose up --build -d
 ```
 
-Команда запускает API и PostgreSQL в общей сети `trade-agent-network`. API-контейнер публикуется на порту `8080`.
+Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity и API:
+
+```text
+postgres → identity-db-init → identity-migrations → identity → api
+```
+
+`identity-db-init` создаёт `tradesystem_identity`, если её нет, и безопасно завершается при повторном запуске. Поэтому обычный старт или обновление через `docker compose up --build -d` не удаляет данные и не зависит от состояния `postgres/init`. API-контейнер публикуется на `8080`, Identity — на `8081`; публичный issuer — `http://localhost:8081`, а внутренний API backchannel — `http://identity:8080`. API валидирует canonical public issuer, но discovery/JWKS может загружать через внутренний network route. Discovery: `http://localhost:8081/.well-known/openid-configuration`, JWKS: `http://localhost:8081/.well-known/jwks`, API liveness: `http://localhost:8080/alive`, protected proof endpoint: `http://localhost:8080/api/v1/auth/me`.
+
+Для CI OAuth smoke используется отдельный профиль `ci`: `auth-test-seeder` создаёт тестового пользователя и public client через стандартные Identity/OpenIddict managers, после чего workflow получает настоящий токен Authorization Code + PKCE (`S256`). Password grant, Client Credentials и custom token endpoints не используются.
+
+Полный локальный сброс — отдельная destructive операция, удаляющая локальные PostgreSQL данные:
+
+```bash
+docker compose down -v
+```
 
 ---
 
 ### Миграции PostgreSQL
 
-Production schema развивается только через EF Core migrations. Design-time factory использует переменную `ConnectionStrings__TradeSystem`; API не применяет миграции автоматически при старте.
+Production schema развивается только через EF Core migrations. Ни один production host не применяет миграции автоматически при старте. Business и Identity используют отдельные migration streams.
 
 ```bash
 cd backend/src
@@ -407,6 +431,18 @@ dotnet ef migrations list --project Intelligence.TradeSystem.Infrastructure
 dotnet ef database update --project Intelligence.TradeSystem.Infrastructure
 dotnet ef migrations add <MigrationName> --project Intelligence.TradeSystem.Infrastructure
 ```
+
+Identity migrations:
+
+```bash
+cd backend/src
+export ConnectionStrings__TradeSystemIdentity='Host=localhost;Port=5432;Database=tradesystem_identity;Username=tradesystem;******'
+dotnet ef migrations list --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
+dotnet ef database update --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
+dotnet run --project Intelligence.TradeSystem.Identity.Migrations
+```
+
+Для deployment/local orchestration предпочтителен одноразовый `Identity.Migrations` runner: он применяет миграции и завершается с ненулевым кодом при ошибке.
 
 ---
 
@@ -422,7 +458,7 @@ dotnet ef migrations add <MigrationName> --project Intelligence.TradeSystem.Infr
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
-CI выполняет сборку, тесты, сборку Docker-образа API, запуск контейнера и smoke-проверку API.
+CI выполняет сборку, тесты, сборку Docker-образов API, Identity и migration runner, затем запускает Compose auth stack и проверяет Identity discovery/JWKS и API liveness.
 
 Release-сборка настроена с `TreatWarningsAsErrors=true`.
 

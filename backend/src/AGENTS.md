@@ -138,6 +138,8 @@
 
 ## Authorization Server rules
 - ADR-0003 documents the selected ASP.NET Core Identity + OpenIddict Authorization Server and its separate `Intelligence.TradeSystem.Identity` boundary.
+- `Intelligence.TradeSystem.Identity` is a separate deployable host with ASP.NET Core Identity, OpenIddict, its own `IdentityDbContext`, and its own PostgreSQL database/migration stream.
+- Identity schema migrations are applied by explicit deployment/init tooling (`Intelligence.TradeSystem.Identity.Migrations`), never by `Database.Migrate()` inside the long-running production host.
 - `Intelligence.TradeSystem.Api` remains a resource server and must not issue its own user tokens.
 - Identity/OpenIddict persistence uses a separate DbContext and EF migration stream from `TradeSystemDbContext`; the preferred topology is a separate PostgreSQL database.
 - Domain and Application business code must not depend on ASP.NET Core Identity or OpenIddict.
@@ -145,6 +147,11 @@
 - Client Credentials principals are machine principals and must not become Domain users.
 - Production signing private keys belong only to the Authorization Server; API validation uses public discovery/JWKS material and supports key rotation.
 - First-MVP access tokens are signed, non-encrypted JWTs; the API uses standard discovery/JWKS and does not receive a private signing key or access-token decryption secret.
+- The canonical public issuer is separate from the API's optional internal discovery/metadata address; resource servers may use an internal backchannel route for discovery/JWKS, while `iss` validation always uses the public issuer.
+- Signing rollover keeps overlapping asymmetric certificates registered together so discovery/JWKS can validate tokens during transition; OpenIddict selects new-token credentials by its documented validity rules, and JSON configuration order is not a protocol guarantee unless runtime explicitly enforces it.
+- Development database provisioning must be idempotent and must not require deleting business data; explicit database-init tooling runs before Identity migrations.
+- User-delegated `sub` is the stable non-empty `ApplicationUser.Id` Guid; machine principals are not Domain users.
+- Existing public market and health endpoints remain anonymous; C-06 owns user isolation and business authorization.
 - The BFF uses Authorization Code + PKCE with `S256`; browser JavaScript never receives access or refresh tokens.
 - Password grant, implicit flow, and custom JWT/refresh-token protocols are prohibited.
-- Self-contained JWT revoke/logout is not guaranteed to invalidate an already issued token immediately; use a short-lived access-token principle, with exact lifetime and any immediate-revocation mechanism deferred to C-05A/security policy.
+- Self-contained JWT revoke/logout is not guaranteed to invalidate an already issued token immediately; immediate revocation, user isolation, and business authorization remain outside C-05A.
