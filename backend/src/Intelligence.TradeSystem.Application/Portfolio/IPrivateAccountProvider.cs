@@ -17,7 +17,7 @@ public interface IPrivateAccountProvider
         string? symbol = null,
         CancellationToken cancellationToken = default);
 
-    Task<AccountBalance?> GetWalletBalanceAsync(
+    Task<AccountBalanceObservation> GetWalletBalanceAsync(
         AccountType accountType,
         CancellationToken cancellationToken = default);
 }
