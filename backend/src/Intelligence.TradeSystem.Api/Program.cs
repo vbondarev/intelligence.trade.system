@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using FluentValidation;
 using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
@@ -113,11 +114,27 @@ public partial class Program
                 "Authentication:MetadataAddress must be an absolute HTTPS URL in Production.");
         }
 
+        var backchannelBaseAddress = authentication.BackchannelBaseAddress
+            ?? new Uri(metadataUri.GetLeftPart(UriPartial.Authority)).AbsoluteUri;
+
+        if (!Uri.TryCreate(backchannelBaseAddress, UriKind.Absolute, out var backchannelUri)
+            || backchannelUri is null
+            || backchannelUri.Scheme is not ("http" or "https")
+            || (builder.Environment.IsProduction() && backchannelUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException(
+                "Authentication:BackchannelBaseAddress must be an absolute HTTPS URL in Production.");
+        }
+
         builder.Services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
                 options.MetadataAddress = metadataUri.AbsoluteUri;
+                options.BackchannelHttpHandler = new PublicIssuerBackchannelHandler(
+                    issuerUri,
+                    backchannelUri,
+                    new HttpClientHandler());
                 options.Audience = audience;
                 options.RequireHttpsMetadata =
                     !builder.Environment.IsDevelopment()

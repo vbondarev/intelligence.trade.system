@@ -37,6 +37,7 @@ public static class Program
             .WaitFor(identity)
             .WithEnvironment("Authentication__Issuer", "http://localhost:8081")
             .WithEnvironment("Authentication__MetadataAddress", identityEndpoint)
+            .WithEnvironment("Authentication__BackchannelBaseAddress", identityEndpoint)
             .WithExternalHttpEndpoints()
             .WithUrl("/swagger", "Swagger");
 

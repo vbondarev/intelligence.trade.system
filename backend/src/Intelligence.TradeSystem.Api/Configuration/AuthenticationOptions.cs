@@ -7,4 +7,5 @@ public sealed class AuthenticationOptions
     public string? Issuer { get; init; }
     public string? Audience { get; init; }
     public string? MetadataAddress { get; init; }
+    public string? BackchannelBaseAddress { get; init; }
 }

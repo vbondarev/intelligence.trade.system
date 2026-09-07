@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="$(AssemblyName).Tests" />
+    <InternalsVisibleTo Include="Intelligence.TradeSystem.Authentication.IntegrationTests" />
   </ItemGroup>
 
 </Project>

@@ -195,9 +195,13 @@ Intelligence.TradeSystem.Api (resource server)
 
 Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF, user isolation и Bybit onboarding ещё не реализованы.
 
-В Docker Development canonical issuer — `http://localhost:8081`. API проверяет этот public `iss`, но получает discovery/JWKS через отдельный internal `Authentication:MetadataAddress` (`http://identity:8080/.well-known/openid-configuration`). `Identity:SigningCertificates` задаёт current certificate первым, а previous certificates — следующими для overlapping JWKS rollover; access tokens явно ограничены коротким lifetime в `Identity:AccessTokenLifetime` (MVP default — 15 минут).
+В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
+
+`Identity:SigningCertificates` задаёт набор одновременно активных signing credentials для rollover. OpenIddict выбирает credential для новых токенов по своим documented selection rules, включая validity и furthest expiration; порядок JSON-массива не является гарантией. Старый сертификат остаётся зарегистрированным на время overlap, чтобы ранее выданные токены продолжали проверяться; access tokens явно ограничены коротким lifetime в `Identity:AccessTokenLifetime` (MVP default — 15 минут).
 
 Для login BFF использует Authorization Code + PKCE (`S256`). API получает подписанные JWT access tokens и валидирует их через стандартный OIDC discovery/JWKS.
+
+Минимальный защищённый `GET /api/v1/auth/me` возвращает только `subject` и признак аутентификации; он не выполняет business authorization C-06.
 
 React рассматривается как browser-клиент через BFF:
 
@@ -395,11 +399,24 @@ dotnet run --project Intelligence.TradeSystem.AppHost
 
 ```bash
 cd backend
-docker compose down -v
 docker compose up --build -d
 ```
 
-Compose запускает PostgreSQL, отдельный Identity migration runner, Identity и API. Migration runner завершается до старта Identity; API-контейнер публикуется на `8080`, Identity — на `8081`. Discovery: `http://localhost:8081/.well-known/openid-configuration`, API liveness: `http://localhost:8080/alive`.
+Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity и API:
+
+```text
+postgres → identity-db-init → identity-migrations → identity → api
+```
+
+`identity-db-init` создаёт `tradesystem_identity`, если её нет, и безопасно завершается при повторном запуске. Поэтому обычный старт или обновление через `docker compose up --build -d` не удаляет данные и не зависит от состояния `postgres/init`. API-контейнер публикуется на `8080`, Identity — на `8081`; публичный issuer — `http://localhost:8081`, а внутренний API backchannel — `http://identity:8080`. API валидирует canonical public issuer, но discovery/JWKS может загружать через внутренний network route. Discovery: `http://localhost:8081/.well-known/openid-configuration`, JWKS: `http://localhost:8081/.well-known/jwks`, API liveness: `http://localhost:8080/alive`, protected proof endpoint: `http://localhost:8080/api/v1/auth/me`.
+
+Для CI OAuth smoke используется отдельный профиль `ci`: `auth-test-seeder` создаёт тестового пользователя и public client через стандартные Identity/OpenIddict managers, после чего workflow получает настоящий токен Authorization Code + PKCE (`S256`). Password grant, Client Credentials и custom token endpoints не используются.
+
+Полный локальный сброс — отдельная destructive операция, удаляющая локальные PostgreSQL данные:
+
+```bash
+docker compose down -v
+```
 
 ---
 

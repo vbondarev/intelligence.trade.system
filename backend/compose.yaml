@@ -7,7 +7,6 @@
       POSTGRES_PASSWORD: tradesystem_dev_password
     volumes:
       - trade-system-postgres-data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tradesystem -d tradesystem"]
       interval: 5s
@@ -28,6 +27,7 @@
       - ASPNETCORE_URLS=http://+:8080
       - Authentication__Issuer=http://localhost:8081
       - Authentication__MetadataAddress=http://identity:8080/.well-known/openid-configuration
+      - Authentication__BackchannelBaseAddress=http://identity:8080
       - Authentication__Audience=intelligence-trade-api
       - ConnectionStrings__TradeSystem=Host=postgres;Port=5432;Database=tradesystem;Username=tradesystem;Password=tradesystem_dev_password
     depends_on:
@@ -40,6 +40,31 @@
         aliases:
           - intelligence-trade-api
 
+  identity-db-init:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: tradesystem
+      PGPASSWORD: tradesystem_dev_password
+      PGDATABASE: tradesystem
+    command:
+      - sh
+      - -ec
+      - |
+        until pg_isready -U "$$PGUSER" -d "$$PGDATABASE"; do
+          sleep 1
+        done
+        if ! psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'tradesystem_identity'" | grep -q 1; then
+          createdb -O "$$PGUSER" tradesystem_identity
+        fi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - trade-agent-network
+
   identity-migrations:
     build:
       context: .
@@ -49,6 +74,8 @@
     depends_on:
       postgres:
         condition: service_healthy
+      identity-db-init:
+        condition: service_completed_successfully
     restart: "no"
     networks:
       - trade-agent-network
@@ -74,6 +101,24 @@
       trade-agent-network:
         aliases:
           - intelligence-trade-identity
+
+  auth-test-seeder:
+    profiles: ["ci"]
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Authentication.TestSeeder/Dockerfile
+    environment:
+      - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
+      - TestSeeder__Username=compose-smoke-user
+      - TestSeeder__Password=Compose-smoke-password-123
+      - TestSeeder__ClientId=compose-smoke-client
+      - TestSeeder__RedirectUri=http://client.test/callback
+    depends_on:
+      identity:
+        condition: service_started
+    restart: "no"
+    networks:
+      - trade-agent-network
 
 volumes:
   trade-system-postgres-data:

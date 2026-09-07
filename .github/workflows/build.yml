@@ -68,28 +68,25 @@ jobs:
       - name: Docker build Identity migrations
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
-      - name: Start Compose authentication stack
-        run: docker compose -f backend/compose.yaml up -d --build postgres identity-migrations identity api
+      - name: Start PostgreSQL in existing-business-database shape
+        run: docker compose -f backend/compose.yaml up -d postgres
 
-      - name: Smoke test Identity discovery and JWKS
+      - name: Provision Identity database without removing business data
         run: |
-          for i in {1..10}; do
-            if curl --fail http://localhost:8081/.well-known/openid-configuration; then
-              exit 0
-            fi
+          docker compose -f backend/compose.yaml run --rm identity-db-init
+          docker compose -f backend/compose.yaml run --rm identity-db-init
+          test "$(docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem'\''"')" = "1"
+          docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem_identity'\''" | grep -q 1'
 
-            echo "Identity is not ready yet. Retry $i/10..."
-            sleep 3
-          done
+      - name: Start Compose authentication stack
+        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api auth-test-seeder
 
-          docker compose -f backend/compose.yaml logs identity-migrations identity
-          exit 1
+      - name: Smoke test Compose OAuth/OIDC and protected API
+        run: bash .github/scripts/compose-auth-smoke.sh
 
-      - name: Smoke test Identity JWKS
-        run: curl --fail http://localhost:8081/.well-known/jwks
-
-      - name: Smoke test API
-        run: curl --fail http://localhost:8080/alive
+      - name: Show Compose authentication logs on failure
+        if: failure()
+        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api auth-test-seeder
 
       - name: Stop authentication stack
         if: always()

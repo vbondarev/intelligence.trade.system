@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Migrations;
@@ -29,7 +30,9 @@ namespace Intelligence.TradeSystem.Authentication.IntegrationTests;
 public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
 {
     private const string Issuer = "http://public-identity.test/";
+    private const string ConfiguredIssuer = "http://public-identity.test";
     private const string MetadataAddress = "http://identity-internal.test/.well-known/openid-configuration";
+    private const string BackchannelBaseAddress = "http://identity-internal.test";
     private const string Audience = "intelligence-trade-api";
     private const string ClientId = "c05a-public-client";
     private const string RedirectUri = "http://client.test/callback";
@@ -52,8 +55,14 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     public async Task InitializeAsync()
     {
         await postgres.StartAsync();
-        oldCertificatePath = CreateSigningCertificate("old", DateTimeOffset.UtcNow.AddHours(-2));
-        newCertificatePath = CreateSigningCertificate("new", DateTimeOffset.UtcNow.AddMinutes(-5));
+        oldCertificatePath = CreateSigningCertificate(
+            "old",
+            DateTimeOffset.UtcNow.AddHours(-2),
+            DateTimeOffset.UtcNow.AddHours(1));
+        newCertificatePath = CreateSigningCertificate(
+            "new",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            DateTimeOffset.UtcNow.AddHours(2));
         await IdentityMigrationRunner.ApplyAsync(postgres.GetConnectionString());
         await IdentityMigrationRunner.ApplyAsync(postgres.GetConnectionString());
 
@@ -145,13 +154,28 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         var jwksUri = discovery.RootElement.GetProperty("jwks_uri").GetString();
         jwksUri.Should().NotBeNullOrWhiteSpace();
         jwksUri.Should().StartWith(Issuer);
+        discovery.RootElement.GetProperty("scopes_supported")
+            .EnumerateArray()
+            .Select(scope => scope.GetString())
+            .Should()
+            .Contain([Scopes.OpenId, StartupExtensions.ApiScope]);
 
         var jwksResponse = await client.GetAsync(new Uri(new Uri(Issuer), jwksUri!).PathAndQuery);
         jwksResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var jwks = JsonDocument.Parse(await jwksResponse.Content.ReadAsStringAsync());
         var keys = jwks.RootElement.GetProperty("keys").EnumerateArray().ToArray();
         keys.Should().HaveCountGreaterThan(1);
-        keys.Select(key => key.GetProperty("kid").GetString()).Distinct().Should().HaveCountGreaterThan(1);
+        using var oldCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+            oldCertificatePath,
+            CertificatePassword,
+            X509KeyStorageFlags.EphemeralKeySet);
+        using var newCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+            newCertificatePath,
+            CertificatePassword,
+            X509KeyStorageFlags.EphemeralKeySet);
+        keys.Select(key => key.GetProperty("kid").GetString())
+            .Should()
+            .Contain([oldCertificate.Thumbprint, newCertificate.Thumbprint]);
     }
 
     [Fact]
@@ -290,7 +314,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task Real_openiddict_token_is_accepted_by_api_and_preserves_subject()
+    public async Task Real_openiddict_token_is_accepted_by_api_with_normalized_issuer_and_preserves_subject()
     {
         var token = await IssueAccessTokenAsync();
         using var client = apiFactory.CreateClient();
@@ -304,14 +328,53 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task Old_signing_key_remains_accepted_during_rollover()
+    public async Task Jwt_bearer_backchannel_routes_metadata_and_public_jwks_to_internal_host()
+    {
+        var token = await IssueAccessTokenAsync();
+        using var client = apiFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+
+        var response = await client.GetAsync("/test-only/protected");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var requestedUris = apiFactory.RequestedBackchannelUris;
+        requestedUris.Should().Contain(uri => uri.AbsoluteUri == MetadataAddress);
+        requestedUris.Should().Contain(uri => uri.AbsoluteUri == $"{BackchannelBaseAddress}/.well-known/jwks");
+        requestedUris.Should().NotContain(uri => uri.AbsoluteUri == $"{Issuer}.well-known/jwks");
+    }
+
+    [Fact]
+    public async Task Auth_me_returns_only_the_authenticated_subject()
+    {
+        var token = await IssueAccessTokenAsync();
+        using var client = apiFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
+
+        var response = await client.GetAsync("/api/v1/auth/me");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("subject").GetString().Should().Be(userId.ToString());
+        body.RootElement.GetProperty("authenticated").GetBoolean().Should().BeTrue();
+        body.RootElement.EnumerateObject().Select(property => property.Name)
+            .Should()
+            .BeEquivalentTo(["subject", "authenticated"]);
+    }
+
+    [Fact]
+    public async Task Openiddict_selects_the_valid_certificate_with_the_furthest_expiration_and_old_key_remains_accepted()
     {
         var issuedToken = await IssueAccessTokenAsync();
         var issuedJwt = new JwtSecurityTokenHandler().ReadJwtToken(issuedToken.AccessToken);
+        using var oldCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+            oldCertificatePath,
+            CertificatePassword,
+            X509KeyStorageFlags.EphemeralKeySet);
         using var currentCertificate = X509CertificateLoader.LoadPkcs12FromFile(
             newCertificatePath,
             CertificatePassword,
             X509KeyStorageFlags.EphemeralKeySet);
+        currentCertificate.NotAfter.Should().BeAfter(oldCertificate.NotAfter);
         issuedJwt.Header.Kid.Should().Be(currentCertificate.Thumbprint);
 
         using var client = apiFactory.CreateClient();
@@ -567,7 +630,10 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             .Replace('+', '-')
             .Replace('/', '_');
 
-    private string CreateSigningCertificate(string name, DateTimeOffset notBefore)
+    private string CreateSigningCertificate(
+        string name,
+        DateTimeOffset notBefore,
+        DateTimeOffset notAfter)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
@@ -577,7 +643,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             RSASignaturePadding.Pkcs1);
         using var certificate = request.CreateSelfSigned(
             notBefore,
-            DateTimeOffset.UtcNow.AddHours(2));
+            notAfter);
         var path = Path.Combine(Path.GetTempPath(), $"identity-c05a-{name}-{Guid.NewGuid():N}.pfx");
         File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, CertificatePassword));
         return path;
@@ -642,9 +708,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:TradeSystemIdentity", connectionString);
             builder.UseSetting("Identity:Issuer", Issuer);
-            builder.UseSetting("Identity:SigningCertificates:0:Path", newSigningCertificatePath);
+            builder.UseSetting("Identity:SigningCertificates:0:Path", oldSigningCertificatePath);
             builder.UseSetting("Identity:SigningCertificates:0:Password", signingCertificatePassword);
-            builder.UseSetting("Identity:SigningCertificates:1:Path", oldSigningCertificatePath);
+            builder.UseSetting("Identity:SigningCertificates:1:Path", newSigningCertificatePath);
             builder.UseSetting("Identity:SigningCertificates:1:Password", signingCertificatePassword);
             builder.UseSetting("Identity:AccessTokenLifetime", "00:15:00");
             builder.UseSetting("Identity:MaxFailedAccessAttempts", "3");
@@ -659,8 +725,9 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
-            builder.UseSetting("Authentication:Issuer", Issuer);
+            builder.UseSetting("Authentication:Issuer", ConfiguredIssuer);
             builder.UseSetting("Authentication:MetadataAddress", MetadataAddress);
+            builder.UseSetting("Authentication:BackchannelBaseAddress", BackchannelBaseAddress);
             builder.UseSetting("Authentication:Audience", Audience);
             builder.ConfigureTestServices(services =>
             {
@@ -668,9 +735,47 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
                     .AddApplicationPart(typeof(TestOnlyProtectedController).Assembly);
                 services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
-                    options.BackchannelHttpHandler = identityFactory.Server.CreateHandler();
+                    options.BackchannelHttpHandler = new PublicIssuerBackchannelHandler(
+                        new Uri(Issuer),
+                        new Uri(BackchannelBaseAddress),
+                        recordingHandler);
                 });
             });
+        }
+
+        private readonly RecordingHandler recordingHandler = new(identityFactory.Server.CreateHandler());
+
+        public Uri[] RequestedBackchannelUris => recordingHandler.RequestedUris;
+    }
+
+    private sealed class RecordingHandler(HttpMessageHandler innerHandler) : DelegatingHandler(innerHandler)
+    {
+        private readonly List<Uri> requestedUris = [];
+
+        public Uri[] RequestedUris
+        {
+            get
+            {
+                lock (requestedUris)
+                {
+                    return requestedUris.ToArray();
+                }
+            }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri is not null)
+            {
+                lock (requestedUris)
+                {
+                    requestedUris.Add(request.RequestUri);
+                }
+            }
+
+            return base.SendAsync(request, cancellationToken);
         }
     }
 }

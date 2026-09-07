@@ -118,6 +118,7 @@ public static class StartupExtensions
                     });
                 options.AllowAuthorizationCodeFlow();
                 options.AllowRefreshTokenFlow();
+                options.RegisterScopes(ApiScope);
                 options.RequireProofKeyForCodeExchange();
                 options.Configure(server =>
                 {
