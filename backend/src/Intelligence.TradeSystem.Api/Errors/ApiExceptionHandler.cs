@@ -12,8 +12,7 @@ internal sealed class ApiExceptionHandler(IProblemDetailsService problemDetailsS
         Exception exception,
         CancellationToken cancellationToken)
     {
-        if (exception is OperationCanceledException
-            && httpContext.RequestAborted.IsCancellationRequested)
+        if (IsRequestAbortedCancellation(httpContext, exception))
         {
             return true;
         }
@@ -40,4 +39,26 @@ internal sealed class ApiExceptionHandler(IProblemDetailsService problemDetailsS
 
         return true;
     }
+
+    internal static bool ShouldSuppressDiagnostics(
+        Exception exception,
+        bool requestAborted)
+    {
+        if (requestAborted && exception is OperationCanceledException)
+        {
+            return true;
+        }
+
+        return exception is ConcurrencyConflictException
+            or MarketDataUnavailableException
+            or DataSourceException
+            or ArgumentException
+            or NotSupportedException;
+    }
+
+    private static bool IsRequestAbortedCancellation(
+        HttpContext httpContext,
+        Exception exception) =>
+        exception is OperationCanceledException
+        && httpContext.RequestAborted.IsCancellationRequested;
 }

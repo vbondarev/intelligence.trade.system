@@ -46,7 +46,7 @@ internal static class ApiProblemDetails
         ModelStateDictionary modelState)
     {
         var errors = modelState
-            .Where(pair => pair.Value is not null)
+            .Where(pair => pair.Value is not null && pair.Value.Errors.Count > 0)
             .ToDictionary(
                 pair => pair.Key,
                 pair => pair.Value!.Errors

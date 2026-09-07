@@ -271,15 +271,21 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = json.RootElement;
 
         root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
         root.GetProperty("title").GetString().Should().Be("Request validation failed.");
+        root.GetProperty("type").GetString().Should().Be("urn:intelligence-trade:error:validation-failed");
         root.GetProperty("code").GetString().Should().Be("validation_failed");
         root.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
-        root.GetProperty("errors").ToString().Should().Contain("exchange");
+        var errors = root.GetProperty("errors");
+        errors.EnumerateObject().Select(property => property.Name).Should().Equal("$.exchange");
+        errors.GetProperty("$.exchange").GetArrayLength().Should().BeGreaterThan(0);
+        errors.TryGetProperty("$.symbol", out _).Should().BeFalse();
+        errors.TryGetProperty("$.category", out _).Should().BeFalse();
 
         marketAnalysisService.VerifyNoOtherCalls();
     }

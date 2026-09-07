@@ -36,6 +36,13 @@ public partial class Program
             options.CustomizeProblemDetails = ApiProblemDetails.Customize;
         });
         builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+        builder.Services.Configure<ExceptionHandlerOptions>(options =>
+        {
+            options.SuppressDiagnosticsCallback = context =>
+                ApiExceptionHandler.ShouldSuppressDiagnostics(
+                    context.Exception,
+                    context.HttpContext.RequestAborted.IsCancellationRequested);
+        });
         builder.Services.Configure<ApiBehaviorOptions>(options =>
         {
             options.InvalidModelStateResponseFactory = context =>
