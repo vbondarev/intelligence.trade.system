@@ -71,13 +71,18 @@ internal sealed class AesGcmExchangeCredentialProtector(CredentialKeyRing keyRin
             throw new CredentialProtectionException("The credential format version is not supported.");
         }
 
-        if (envelope.Nonce.Length != NonceSizeBytes ||
+        if (envelope.Nonce is null ||
+            envelope.AuthenticationTag is null ||
+            envelope.Ciphertext is null ||
+            envelope.Nonce.Length != NonceSizeBytes ||
             envelope.AuthenticationTag.Length != AuthenticationTagSizeBytes ||
-            envelope.Ciphertext.Length == 0)
+            envelope.Ciphertext.Length == 0 ||
+            envelope.Ciphertext.Length > CredentialProtectionLimits.MaximumPayloadBytes)
         {
             throw new CredentialProtectionException("The credential protection envelope is invalid.");
         }
 
+        CredentialProtectionLimits.ValidateKeyId(envelope.EncryptionKeyId);
         var key = keyRing.Get(envelope.EncryptionKeyId);
         var associatedData = CredentialAssociatedData.Create(
             envelope.FormatVersion,
@@ -99,8 +104,7 @@ internal sealed class AesGcmExchangeCredentialProtector(CredentialKeyRing keyRin
         catch (CryptographicException)
         {
             CryptographicOperations.ZeroMemory(plaintext);
-            throw new CredentialProtectionException(
-                "The credential protection authentication failed.");
+            throw new CredentialProtectionException("The credential protection authentication failed.");
         }
 
         try
@@ -116,11 +120,13 @@ internal sealed class AesGcmExchangeCredentialProtector(CredentialKeyRing keyRin
     private static void EnsureIdentity(UserId userId, ExchangeAccountId exchangeAccountId)
     {
         if (userId == default)
+        {
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
+        }
 
         if (exchangeAccountId == default)
-            throw new ArgumentException(
-                "ExchangeAccountId must be initialized.",
-                nameof(exchangeAccountId));
+        {
+            throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
+        }
     }
 }

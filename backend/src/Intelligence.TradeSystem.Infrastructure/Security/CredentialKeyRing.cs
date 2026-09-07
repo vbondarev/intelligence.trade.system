@@ -37,7 +37,7 @@ internal sealed class CredentialKeyRing
                     "CredentialProtection key ids must not be empty.");
             }
 
-            if (pair.Key.Length > 128)
+            if (pair.Key.Length > CredentialProtectionLimits.MaximumKeyIdCharacters)
             {
                 throw new InvalidOperationException(
                     "CredentialProtection key ids must not exceed 128 characters.");

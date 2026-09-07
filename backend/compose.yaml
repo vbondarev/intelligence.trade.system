@@ -29,8 +29,8 @@
       - Authentication__MetadataAddress=http://identity:8080/.well-known/openid-configuration
       - Authentication__BackchannelBaseAddress=http://identity:8080
       - Authentication__Audience=intelligence-trade-api
-      - CredentialProtection__ActiveKeyId=local-v1
-      - CredentialProtection__Keys__local-v1=${TRADE_CREDENTIAL_KEY:?Set TRADE_CREDENTIAL_KEY to a Base64-encoded 32-byte key}
+      - CredentialProtection__ActiveKeyId=local_v1
+      - CredentialProtection__Keys__local_v1=${TRADE_CREDENTIAL_KEY:?Set TRADE_CREDENTIAL_KEY to a Base64-encoded 32-byte key}
       - ConnectionStrings__TradeSystem=Host=postgres;Port=5432;Database=tradesystem;Username=tradesystem;Password=tradesystem_dev_password
     depends_on:
       postgres:

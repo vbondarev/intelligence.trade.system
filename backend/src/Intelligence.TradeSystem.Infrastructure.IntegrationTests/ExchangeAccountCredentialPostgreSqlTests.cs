@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
@@ -103,6 +104,93 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             protector,
             account,
             CloneEnvelope(envelope, authenticationTag: Mutate(envelope.AuthenticationTag)));
+    }
+
+    [Fact]
+    public void Unsupported_payload_format_is_rejected()
+    {
+        var account = CreateAccount();
+        var protector = CreateProtector("v1", CreateKeys("v1"));
+        var envelope = protector.Protect(
+            account.UserId,
+            account.Id,
+            new ExchangeAccountCredentialSecret(
+                "test-api-key-format",
+                "test-api-secret-format"));
+
+        Assert.Throws<CredentialProtectionException>(
+            () => protector.Unprotect(
+                account.UserId,
+                account.Id,
+                CloneEnvelope(envelope, formatVersion: 2)));
+    }
+
+    [Fact]
+    public void Serializer_rejects_an_oversized_api_key_before_encoding_buffer_allocation()
+    {
+        var secret = new ExchangeAccountCredentialSecret(
+            new string('k', CredentialProtectionLimits.MaximumFieldBytes + 1),
+            "test-api-secret-oversized-key");
+
+        Assert.Throws<CredentialProtectionException>(
+            () => CredentialPayloadSerializer.Serialize(secret));
+    }
+
+    [Fact]
+    public void Serializer_rejects_an_oversized_api_secret_before_encoding_buffer_allocation()
+    {
+        var secret = new ExchangeAccountCredentialSecret(
+            "test-api-key-oversized-secret",
+            new string('s', CredentialProtectionLimits.MaximumFieldBytes + 1));
+
+        Assert.Throws<CredentialProtectionException>(
+            () => CredentialPayloadSerializer.Serialize(secret));
+    }
+
+    [Fact]
+    public void Unprotect_rejects_an_oversized_ciphertext_before_plaintext_allocation()
+    {
+        var account = CreateAccount();
+        var protector = CreateProtector("v1", CreateKeys("v1"));
+        var envelope = new ProtectedCredentialEnvelope
+        {
+            Ciphertext = new byte[CredentialProtectionLimits.MaximumPayloadBytes + 1],
+            Nonce = new byte[12],
+            AuthenticationTag = new byte[16],
+            EncryptionKeyId = "v1",
+            FormatVersion = 1,
+        };
+
+        Assert.Throws<CredentialProtectionException>(
+            () => protector.Unprotect(account.UserId, account.Id, envelope));
+    }
+
+    [Fact]
+    public void Empty_and_oversized_key_ids_fail_closed()
+    {
+        var account = CreateAccount();
+        var protector = CreateProtector("v1", CreateKeys("v1"));
+        var envelope = protector.Protect(
+            account.UserId,
+            account.Id,
+            new ExchangeAccountCredentialSecret(
+                "test-api-key-key-id",
+                "test-api-secret-key-id"));
+
+        Assert.Throws<CredentialProtectionException>(
+            () => protector.Unprotect(
+                account.UserId,
+                account.Id,
+                CloneEnvelope(envelope, encryptionKeyId: string.Empty)));
+        Assert.Throws<CredentialProtectionException>(
+            () => protector.Unprotect(
+                account.UserId,
+                account.Id,
+                CloneEnvelope(
+                    envelope,
+                    encryptionKeyId: new string(
+                        'x',
+                        CredentialProtectionLimits.MaximumKeyIdCharacters + 1))));
     }
 
     [Fact]
@@ -223,6 +311,88 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
     }
 
     [Fact]
+    public async Task Create_and_rotate_use_the_explicit_active_key()
+    {
+        var account = CreateAccount();
+        var oldKey = RandomNumberGenerator.GetBytes(32);
+        var newKey = RandomNumberGenerator.GetBytes(32);
+        var keys = CreateKeys(("old", oldKey), ("new", newKey));
+
+        await using var context = await CreateMigratedContext();
+        await SaveAccount(context, account);
+        var store = CreateStore(context, "new", keys);
+        await store.CreateAsync(
+            account.UserId,
+            account.Id,
+            new ExchangeAccountCredentialSecret(
+                "test-api-key-active",
+                "test-api-secret-active"));
+
+        var createdRow = await context.ExchangeAccountCredentials
+            .SingleAsync(row => row.ExchangeAccountId == account.Id.Value);
+        Assert.Equal("new", createdRow.EncryptionKeyId);
+
+        await store.RotateAsync(
+            account.UserId,
+            account.Id,
+            ConcurrencyVersion.Initial,
+            new ExchangeAccountCredentialSecret(
+                "test-api-key-active-rotated",
+                "test-api-secret-active-rotated"));
+
+        var rotatedRow = await context.ExchangeAccountCredentials
+            .SingleAsync(row => row.ExchangeAccountId == account.Id.Value);
+        Assert.Equal("new", rotatedRow.EncryptionKeyId);
+    }
+
+    [Fact]
+    public async Task Rotate_uses_the_active_key_after_an_old_key_write()
+    {
+        var account = CreateAccount();
+        var oldKey = RandomNumberGenerator.GetBytes(32);
+        var newKey = RandomNumberGenerator.GetBytes(32);
+        var oldOnlyKeys = CreateKeys(("old", oldKey));
+        var rolloverKeys = CreateKeys(("old", oldKey), ("new", newKey));
+        var newOnlyKeys = CreateKeys(("new", newKey));
+
+        await using (var context = await CreateMigratedContext())
+        {
+            await SaveAccount(context, account);
+            await CreateStore(context, "old", oldOnlyKeys).CreateAsync(
+                account.UserId,
+                account.Id,
+                new ExchangeAccountCredentialSecret(
+                    "test-api-key-old",
+                    "test-api-secret-old"));
+        }
+
+        await using (var context = await CreateMigratedContext())
+        {
+            await CreateStore(context, "new", rolloverKeys).RotateAsync(
+                account.UserId,
+                account.Id,
+                ConcurrencyVersion.Initial,
+                new ExchangeAccountCredentialSecret(
+                    "test-api-key-rotated-active",
+                    "test-api-secret-rotated-active"));
+
+            var row = await context.ExchangeAccountCredentials
+                .SingleAsync(item => item.ExchangeAccountId == account.Id.Value);
+            Assert.Equal("new", row.EncryptionKeyId);
+        }
+
+        await using var newOnlyContext = await CreateMigratedContext();
+        var reloaded = await CreateStore(newOnlyContext, "new", newOnlyKeys)
+            .GetAsync(account.UserId, account.Id);
+        Assert.NotNull(reloaded);
+        reloaded!.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("test-api-key-rotated-active", apiKey);
+            Assert.Equal("test-api-secret-rotated-active", apiSecret);
+        });
+    }
+
+    [Fact]
     public async Task Revoke_removes_the_row_and_requires_the_current_version()
     {
         var account = CreateAccount();
@@ -243,6 +413,51 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
 
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => store.RevokeAsync(account.UserId, account.Id, ConcurrencyVersion.Initial));
+    }
+
+    [Fact]
+    public async Task Stale_reprotect_cannot_overwrite_rotated_credentials()
+    {
+        var account = CreateAccount();
+        var keys = CreateKeys("v1");
+
+        await using (var context = await CreateMigratedContext())
+        {
+            await SaveAccount(context, account);
+            var store = CreateStore(context, "v1", keys);
+            await store.CreateAsync(
+                account.UserId,
+                account.Id,
+                new ExchangeAccountCredentialSecret(
+                    "test-api-key-before-reprotect",
+                    "test-api-secret-before-reprotect"));
+            await store.RotateAsync(
+                account.UserId,
+                account.Id,
+                ConcurrencyVersion.Initial,
+                new ExchangeAccountCredentialSecret(
+                    "test-api-key-after-rotate",
+                    "test-api-secret-after-rotate"));
+
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(
+                () => store.ReprotectAsync(
+                    account.UserId,
+                    account.Id,
+                    ConcurrencyVersion.Initial));
+        }
+
+        await using var readContext = await CreateMigratedContext();
+        var row = await readContext.ExchangeAccountCredentials
+            .SingleAsync(item => item.ExchangeAccountId == account.Id.Value);
+        Assert.Equal(2L, row.Version);
+        var loaded = await CreateStore(readContext, "v1", keys)
+            .GetAsync(account.UserId, account.Id);
+        Assert.NotNull(loaded);
+        loaded!.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("test-api-key-after-rotate", apiKey);
+            Assert.Equal("test-api-secret-after-rotate", apiSecret);
+        });
     }
 
     [Fact]
@@ -275,14 +490,21 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             var rolloverStore = CreateStore(rolloverContext, "new", rolloverKeys);
             var loaded = await rolloverStore.GetAsync(account.UserId, account.Id);
             Assert.NotNull(loaded);
-            await rolloverStore.ReprotectAsync(
+            var newVersion = await rolloverStore.ReprotectAsync(
                 account.UserId,
                 account.Id,
                 ConcurrencyVersion.Initial);
+            Assert.Equal(new ConcurrencyVersion(2), newVersion);
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(
+                () => rolloverStore.ReprotectAsync(
+                    account.UserId,
+                    account.Id,
+                    ConcurrencyVersion.Initial));
 
             var row = await rolloverContext.ExchangeAccountCredentials
                 .SingleAsync(item => item.ExchangeAccountId == account.Id.Value);
             Assert.Equal("new", row.EncryptionKeyId);
+            Assert.Equal(2L, row.Version);
             Assert.NotEqual(oldNonce, row.Nonce);
         }
 
@@ -361,6 +583,28 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             .AnyAsync(item => item.ExchangeAccountId == account.Id.Value));
     }
 
+    [Fact]
+    public async Task PostgreSql_rejects_an_oversized_ciphertext()
+    {
+        var account = CreateAccount();
+
+        await using var context = await CreateMigratedContext();
+        await SaveAccount(context, account);
+        context.ExchangeAccountCredentials.Add(new ExchangeAccountCredentialEntity
+        {
+            ExchangeAccountId = account.Id.Value,
+            Ciphertext = new byte[CredentialProtectionLimits.MaximumPayloadBytes + 1],
+            Nonce = new byte[12],
+            AuthenticationTag = new byte[16],
+            EncryptionKeyId = "v1",
+            FormatVersion = 1,
+            Version = 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
     private async Task<TradeSystemDbContext> CreateMigratedContext()
     {
         var context = fixture.CreateContext();
@@ -428,14 +672,16 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         ProtectedCredentialEnvelope source,
         byte[]? ciphertext = null,
         byte[]? nonce = null,
-        byte[]? authenticationTag = null) =>
+        byte[]? authenticationTag = null,
+        short? formatVersion = null,
+        string? encryptionKeyId = null) =>
         new()
         {
             Ciphertext = ciphertext ?? source.Ciphertext.ToArray(),
             Nonce = nonce ?? source.Nonce.ToArray(),
             AuthenticationTag = authenticationTag ?? source.AuthenticationTag.ToArray(),
-            EncryptionKeyId = source.EncryptionKeyId,
-            FormatVersion = source.FormatVersion,
+            EncryptionKeyId = encryptionKeyId ?? source.EncryptionKeyId,
+            FormatVersion = formatVersion ?? source.FormatVersion,
         };
 
     private static void AssertCredentialsEqual(

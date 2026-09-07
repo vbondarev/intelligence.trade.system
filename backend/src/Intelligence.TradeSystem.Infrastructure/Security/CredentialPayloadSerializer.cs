@@ -7,8 +7,6 @@ namespace Intelligence.TradeSystem.Infrastructure.Security;
 
 internal static class CredentialPayloadSerializer
 {
-    private const int LengthPrefixBytes = sizeof(int);
-    private const int MaximumFieldBytes = 1024 * 1024;
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     public static byte[] Serialize(ExchangeAccountCredentialSecret secret)
@@ -17,23 +15,32 @@ internal static class CredentialPayloadSerializer
 
         return secret.Use((apiKey, apiSecret) =>
         {
-            var apiKeyBytes = Utf8.GetBytes(apiKey);
-            var apiSecretBytes = Utf8.GetBytes(apiSecret);
+            var apiKeyByteCount = Utf8.GetByteCount(apiKey);
+            var apiSecretByteCount = Utf8.GetByteCount(apiSecret);
+            CredentialProtectionLimits.ValidateFieldLength(apiKeyByteCount);
+            CredentialProtectionLimits.ValidateFieldLength(apiSecretByteCount);
+
+            var apiKeyBytes = new byte[apiKeyByteCount];
+            var apiSecretBytes = new byte[apiSecretByteCount];
             try
             {
-                ValidateFieldLength(apiKeyBytes.Length);
-                ValidateFieldLength(apiSecretBytes.Length);
+                Utf8.GetBytes(apiKey.AsSpan(), apiKeyBytes.AsSpan());
+                Utf8.GetBytes(apiSecret.AsSpan(), apiSecretBytes.AsSpan());
 
                 var payload = new byte[
-                    LengthPrefixBytes + apiKeyBytes.Length +
-                    LengthPrefixBytes + apiSecretBytes.Length];
+                    CredentialProtectionLimits.LengthPrefixBytes + apiKeyBytes.Length +
+                    CredentialProtectionLimits.LengthPrefixBytes + apiSecretBytes.Length];
                 var offset = 0;
-                BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(offset, LengthPrefixBytes), apiKeyBytes.Length);
-                offset += LengthPrefixBytes;
+                BinaryPrimitives.WriteInt32BigEndian(
+                    payload.AsSpan(offset, CredentialProtectionLimits.LengthPrefixBytes),
+                    apiKeyBytes.Length);
+                offset += CredentialProtectionLimits.LengthPrefixBytes;
                 apiKeyBytes.CopyTo(payload.AsSpan(offset));
                 offset += apiKeyBytes.Length;
-                BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(offset, LengthPrefixBytes), apiSecretBytes.Length);
-                offset += LengthPrefixBytes;
+                BinaryPrimitives.WriteInt32BigEndian(
+                    payload.AsSpan(offset, CredentialProtectionLimits.LengthPrefixBytes),
+                    apiSecretBytes.Length);
+                offset += CredentialProtectionLimits.LengthPrefixBytes;
                 apiSecretBytes.CopyTo(payload.AsSpan(offset));
                 return payload;
             }
@@ -70,14 +77,15 @@ internal static class CredentialPayloadSerializer
 
     private static int ReadLength(ReadOnlySpan<byte> payload, ref int offset)
     {
-        if (payload.Length - offset < LengthPrefixBytes)
+        if (payload.Length - offset < CredentialProtectionLimits.LengthPrefixBytes)
         {
             throw new CredentialProtectionException("The credential payload format is invalid.");
         }
 
-        var length = BinaryPrimitives.ReadInt32BigEndian(payload.Slice(offset, LengthPrefixBytes));
-        offset += LengthPrefixBytes;
-        ValidateFieldLength(length);
+        var length = BinaryPrimitives.ReadInt32BigEndian(
+            payload.Slice(offset, CredentialProtectionLimits.LengthPrefixBytes));
+        offset += CredentialProtectionLimits.LengthPrefixBytes;
+        CredentialProtectionLimits.ValidateFieldLength(length);
         return length;
     }
 
@@ -97,14 +105,6 @@ internal static class CredentialPayloadSerializer
         catch (DecoderFallbackException)
         {
             throw new CredentialProtectionException("The credential payload is not valid UTF-8.");
-        }
-    }
-
-    private static void ValidateFieldLength(int length)
-    {
-        if (length <= 0 || length > MaximumFieldBytes)
-        {
-            throw new CredentialProtectionException("The credential payload field length is invalid.");
         }
     }
 }

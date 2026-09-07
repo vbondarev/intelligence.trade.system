@@ -2,8 +2,8 @@
 
 Версия документа: 2.3
 Дата актуализации: 7 сентября 2026 года
-Проверенная ветка: `task/66-protect-bybit-credentials` (база `develop` после merge PR #65)
-Последний учтённый PR: [#65 «#64: Реализовано разграничение данных пользователей по UserId.»](https://github.com/vbondarev/intelligence.trade.system/pull/65)
+Проверенная ветка: `task/66-protect-bybit-credentials` (PR #67, база `develop` после merge PR #65)
+Последний учтённый PR: [#67 «#66: Реализована защита учётных данных Bybit»](https://github.com/vbondarev/intelligence.trade.system/pull/67)
 Текущий следующий этап: **D-01 — подключение биржевого аккаунта**  
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -448,7 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-07 | 2.3 | В Issue #66 реализована защита Bybit credentials: AES-256-GCM payload с AAD user/account identity, внешний key ring, CAS rotate/revoke/reprotect, PostgreSQL security tests и безопасная Compose/CI/Aspire конфигурация. Следующий этап — D-01; C-08 остаётся частично выполненным. |
+| 2026-09-07 | 2.3 | В Issue #66 и PR #67 реализована защита Bybit credentials: AES-256-GCM payload с AAD user/account identity, внешний key ring, CAS rotate/revoke/reprotect, PostgreSQL security tests и безопасная Compose/CI/Aspire конфигурация. Следующий этап — D-01; C-08 остаётся частично выполненным. |
 | 2026-09-07 | 2.2 | В Issue #64 и PR #65 реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
 | 2026-09-07 | 2.1 | В PR #63 завершено исправление C-05A: добавлены explicit Identity migration runner и Compose/Aspire ordering, lockout policy/tests, public issuer и internal metadata separation, overlapping signing certificates/JWKS rollover, explicit short access-token lifetime, runtime auth smoke и обновлены migration/Docker/CI instructions. Следующим этапом остаётся C-06. |
 | 2026-09-07 | 2.0 | Реализован C-05A: отдельный Identity host на ASP.NET Core Identity + OpenIddict, отдельная PostgreSQL persistence и migration stream, Authorization Code + PKCE (S256), signed JWT access tokens, discovery/JWKS, независимая JwtBearer validation в Api и PostgreSQL integration proof. Следующим этапом остаётся C-06. |

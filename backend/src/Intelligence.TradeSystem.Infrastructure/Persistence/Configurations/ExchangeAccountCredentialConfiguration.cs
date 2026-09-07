@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+using Intelligence.TradeSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -14,6 +15,9 @@ public sealed class ExchangeAccountCredentialConfiguration
             table.HasCheckConstraint(
                 "ck_exchange_account_credentials_ciphertext_non_empty",
                 "octet_length(ciphertext) > 0");
+            table.HasCheckConstraint(
+                "ck_exchange_account_credentials_ciphertext_max_length",
+                $"octet_length(ciphertext) <= {CredentialProtectionLimits.MaximumPayloadBytes}");
             table.HasCheckConstraint(
                 "ck_exchange_account_credentials_nonce_length",
                 "octet_length(nonce) = 12");

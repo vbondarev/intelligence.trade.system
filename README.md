@@ -370,17 +370,26 @@ Endpoint сохраняется ради совместимости и отла�
 Для локального запуска задайте явный 32-байтный ключ в Base64; ключ не генерируется автоматически при старте:
 
 ```bash
-export CredentialProtection__ActiveKeyId=local-v1
-export CredentialProtection__Keys__local-v1='<base64-32-byte-key>'
+export CredentialProtection__ActiveKeyId=local_v1
+export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
 ```
 
 Ключ можно сгенерировать без вывода значения в журнал:
 
 ```bash
-export CredentialProtection__Keys__local-v1="$(openssl rand -base64 32)"
+export CredentialProtection__Keys__local_v1="$(openssl rand -base64 32)"
 ```
 
-Для Compose используется переменная `TRADE_CREDENTIAL_KEY`; `compose.yaml` не содержит ключа. При rollover добавьте новый key id в deployment configuration, оставьте старый key id доступным для чтения, выполните `Reprotect` для всех строк и только после этого удаляйте старый key из key ring. Удаление старого ключа раньше перепротекции делает соответствующие строки нечитаемыми. CI создаёт disposable 32-байтный ключ во время workflow и маскирует его.
+Для PowerShell сгенерируйте ключ без вывода значения:
+
+```powershell
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+$env:TRADE_CREDENTIAL_KEY = [Convert]::ToBase64String($bytes)
+```
+
+`TRADE_CREDENTIAL_KEY` — переменная хоста только для mapping в Compose. Для прямого `dotnet run` задаются application configuration keys `CredentialProtection__ActiveKeyId` и `CredentialProtection__Keys__local_v1` напрямую. При rollover добавьте новый key id в deployment configuration, оставьте старый key id доступным для чтения, выполните `Reprotect` для всех строк и только после этого удаляйте старый key из key ring. Удаление старого ключа раньше перепротекции делает соответствующие строки нечитаемыми. CI создаёт disposable 32-байтный ключ во время workflow и маскирует его.
 
 ### Восстановление зависимостей
 
@@ -404,6 +413,20 @@ dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release
 
 ### Запуск API
 
+Для прямого запуска API задайте application configuration keys (здесь `TRADE_CREDENTIAL_KEY` не используется):
+
+```bash
+export CredentialProtection__ActiveKeyId=local_v1
+export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
+```
+
+В PowerShell после генерации ключа задайте те же application keys:
+
+```powershell
+$env:CredentialProtection__ActiveKeyId = 'local_v1'
+$env:CredentialProtection__Keys__local_v1 = $env:TRADE_CREDENTIAL_KEY
+```
+
 ```bash
 cd backend/src
 dotnet run --project Intelligence.TradeSystem.Api
@@ -417,6 +440,14 @@ dotnet run --project Intelligence.TradeSystem.AppHost
 ```
 
 ### Docker
+
+При первом локальном запуске с новым PostgreSQL volume сгенерируйте ключ и сохраните его в локальном secret mechanism:
+
+```bash
+export TRADE_CREDENTIAL_KEY="$(openssl rand -base64 32)"
+```
+
+Для следующих запусков с существующим volume используйте тот же `TRADE_CREDENTIAL_KEY`. Новый случайный ключ при каждом старте сделает уже сохранённые credential rows нечитаемыми. Ключ не коммитится и не выводится в лог.
 
 ```bash
 cd backend

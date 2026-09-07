@@ -1,4 +1,6 @@
-﻿using Intelligence.TradeSystem.Infrastructure.Persistence;
+using System.Globalization;
+using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -141,6 +143,17 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
                     AS "Value"
                     """)
                 .SingleAsync());
+            var ciphertextConstraint = await dbContext.Database
+                .SqlQueryRaw<string>(
+                    """
+                    SELECT pg_get_constraintdef(oid) AS "Value"
+                    FROM pg_constraint
+                    WHERE conname = 'ck_exchange_account_credentials_ciphertext_max_length'
+                    """)
+                .SingleAsync();
+            Assert.Contains(
+                CredentialProtectionLimits.MaximumPayloadBytes.ToString(CultureInfo.InvariantCulture),
+                ciphertextConstraint);
         }
     }
 }

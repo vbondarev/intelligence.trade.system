@@ -41,8 +41,8 @@ public static class Program
             .WithEnvironment("Authentication__Issuer", "http://localhost:8081")
             .WithEnvironment("Authentication__MetadataAddress", identityEndpoint)
             .WithEnvironment("Authentication__BackchannelBaseAddress", identityEndpoint)
-            .WithEnvironment("CredentialProtection__ActiveKeyId", "local-v1")
-            .WithEnvironment("CredentialProtection__Keys__local-v1", credentialProtectionKey)
+            .WithEnvironment("CredentialProtection__ActiveKeyId", "local_v1")
+            .WithEnvironment("CredentialProtection__Keys__local_v1", credentialProtectionKey)
             .WithExternalHttpEndpoints()
             .WithUrl("/swagger", "Swagger");
 
