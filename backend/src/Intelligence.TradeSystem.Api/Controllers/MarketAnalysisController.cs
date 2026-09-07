@@ -1,5 +1,6 @@
 ﻿using FluentValidation;
 using Intelligence.TradeSystem.Api.Contracts;
+using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Services;
@@ -51,9 +52,10 @@ public sealed class MarketAnalysisController : ControllerBase
     /// </returns>
     [HttpPost("snapshot")]
     [ProducesResponseType(typeof(MarketAnalysisResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<MarketAnalysisResponse>> Snapshot(
         [FromBody] SnapshotAnalysisRequest? request,
         CancellationToken cancellationToken)
@@ -70,31 +72,13 @@ public sealed class MarketAnalysisController : ControllerBase
             return BadRequestProblem(validationResult.Errors[0].ErrorMessage);
         }
 
-        try
-        {
-            var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
-                request.Exchange!.Value,
-                request.Symbol!.Trim(),
-                request.Category!.Value,
-                cancellationToken).ConfigureAwait(false);
+        var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
+            request.Exchange!.Value,
+            request.Symbol!.Trim(),
+            request.Category!.Value,
+            cancellationToken).ConfigureAwait(false);
 
-            return Ok(snapshot.ToResponse(PortfolioSnapshot.Unavailable));
-        }
-        catch (ArgumentException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "Snapshot analysis is temporarily unavailable.",
-                detail: exception.Message);
-        }
+        return Ok(snapshot.ToResponse(PortfolioSnapshot.Unavailable));
     }
 
     /// <summary>
@@ -110,9 +94,10 @@ public sealed class MarketAnalysisController : ControllerBase
     /// </returns>
     [HttpGet("{symbol}/llm-payload")]
     [ProducesResponseType(typeof(LlmMarketAnalysisPayload), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<LlmMarketAnalysisPayload>> LlmPayload(
         [FromRoute] string? symbol,
         [FromQuery] LlmPayloadRequest request,
@@ -131,45 +116,21 @@ public sealed class MarketAnalysisController : ControllerBase
         {
             return BadRequestProblem(validationResult.Errors[0].ErrorMessage);
         }
-
         var mode = request.Mode ?? AnalysisMode.Intraday;
         var normalizedSymbol = symbol.Trim();
 
-        try
-        {
-            var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
-                request.Exchange!.Value,
-                normalizedSymbol,
-                request.Category!.Value,
-                cancellationToken).ConfigureAwait(false);
+        var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
+            request.Exchange!.Value,
+            normalizedSymbol,
+            request.Category!.Value,
+            cancellationToken).ConfigureAwait(false);
 
-            var health = _snapshotHealthEvaluator.Evaluate(snapshot, mode);
-            var payload = snapshot.ToLlmPayload(mode, health);
+        var health = _snapshotHealthEvaluator.Evaluate(snapshot, mode);
+        var payload = snapshot.ToLlmPayload(mode, health);
 
-            return Ok(payload);
-        }
-        catch (ArgumentException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "LLM payload analysis is temporarily unavailable.",
-                detail: exception.Message);
-        }
+        return Ok(payload);
     }
 
     private BadRequestObjectResult BadRequestProblem(string detail) =>
-        BadRequest(new ProblemDetails
-        {
-            Status = StatusCodes.Status400BadRequest,
-            Title = "Request validation failed.",
-            Detail = detail,
-        });
+        BadRequest(ApiProblemDetails.CreateValidation(HttpContext, detail));
 }

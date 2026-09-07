@@ -5,6 +5,8 @@ using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
@@ -274,7 +276,9 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var root = json.RootElement;
 
         root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
-        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("title").GetString().Should().Be("Request validation failed.");
+        root.GetProperty("code").GetString().Should().Be("validation_failed");
+        root.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
         root.GetProperty("errors").ToString().Should().Contain("exchange");
 
         marketAnalysisService.VerifyNoOtherCalls();
@@ -320,7 +324,9 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         var root = json.RootElement;
 
         root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
-        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("title").GetString().Should().Be("Request validation failed.");
+        root.GetProperty("code").GetString().Should().Be("validation_failed");
+        root.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
         root.GetProperty("errors").ToString().Should().Contain("category");
 
         marketAnalysisService.VerifyNoOtherCalls();
@@ -474,12 +480,12 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
-    public async Task Snapshot_Returns_ServiceUnavailable_When_Service_Throws_InvalidOperationException()
+    public async Task Snapshot_Returns_ServiceUnavailable_When_Service_Throws_MarketDataUnavailableException()
     {
         var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Ticker is temporarily unavailable."));
+            .ThrowsAsync(new MarketDataUnavailableException("Ticker is temporarily unavailable."));
 
         using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
@@ -493,8 +499,68 @@ public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
             HttpStatusCode.ServiceUnavailable,
-            "Snapshot analysis is temporarily unavailable.",
-            "Ticker is temporarily unavailable.");
+            "Market data is temporarily unavailable.",
+            null,
+            "market_data_unavailable");
+    }
+
+    [Fact]
+    public async Task Snapshot_Returns_Conflict_When_Service_Throws_ConcurrencyConflictException()
+    {
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        marketAnalysisService
+            .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("database version and SQL details must not be exposed"));
+
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
+
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "Linear",
+        });
+
+        await ProblemDetailsAssertions.AssertProblemAsync(
+            response,
+            HttpStatusCode.Conflict,
+            "Resource conflict.",
+            null,
+            "concurrency_conflict");
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("database version");
+        body.Should().NotContain("SQL details");
+    }
+
+    [Fact]
+    public async Task Snapshot_Returns_Safe_InternalError_When_Service_Throws_UnexpectedException()
+    {
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        marketAnalysisService
+            .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("super-secret-internal-value"));
+
+        using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
+
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "Linear",
+        });
+
+        await ProblemDetailsAssertions.AssertProblemAsync(
+            response,
+            HttpStatusCode.InternalServerError,
+            "An unexpected error occurred.",
+            null,
+            "internal_error");
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("super-secret-internal-value");
+        body.Should().NotContain("InvalidOperationException");
+        body.Should().NotContain(" at ");
     }
 
 }

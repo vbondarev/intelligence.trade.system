@@ -11,7 +11,7 @@
 - This file should stay focused on API-specific HTTP, payload, validation, and DI behavior.
 
 ## Do / Don't
-- Do keep controllers thin, validation explicit, and exception-to-`ProblemDetails` mapping consistent.
+- Do keep controllers thin, validation explicit, and centralized exception-to-`ProblemDetails` mapping consistent.
 - Do preserve `AddServiceDefaults()`, current JSON enum configuration, and the existing registration order in `Program.cs` unless the task explicitly changes them.
 - Don't move business assembly logic into controllers.
 - Don't silently change public payload contracts, enum serialization shape, or schema-version semantics.
@@ -23,10 +23,10 @@
 - Deterministic timeframe evaluation (`EntryQualityEvaluator`, `TimeframeSummaryBuilder`, label mappers) lives in `Intelligence.TradeSystem.MarketIntelligence/Analysis/Timeframes`, not in this project. The API only consumes the results and maps them to payload DTOs.
 
 ## Endpoint and validation patterns
-- Keep controller actions thin: validate request, call `IMarketSnapshotService`, translate exceptions into `ProblemDetails`, and never call private exchange account APIs from market endpoints.
-- Follow the existing validation style in `MarketAnalysisController`: local helper methods, explicit required-field messages, and normalized strings via `Trim()`.
+- Keep controller actions thin: validate request, call `IMarketSnapshotService`, and leave exception-to-`ProblemDetails` mapping to the global API handler; never call private exchange account APIs from market endpoints.
+- Follow the existing validation style in `MarketAnalysisController`: explicit required-field messages, normalized strings via `Trim()`, and the shared API `ProblemDetails` contract.
 - JSON enums are configured as strings only in `Program.cs`; do not introduce integer enum payloads.
-- Preserve the current error mapping: `ArgumentException`/`NotSupportedException` → `400`, market data availability issues → `503`, provider HTTP failures → `502`.
+- Preserve the current error mapping: `ArgumentException`/`NotSupportedException` used by the market request flow → `400`; market data availability issues → `503`; unexpected exceptions → safe `500`. Authentication and authorization remain middleware responsibilities.
 
 ## Payload contract rules
 - Public payload models under `Models/Payloads` are contract-sensitive; prefer additive changes. Legacy `POST /api/market-analysis/snapshot` must preserve its existing JSON shape, including the zeroed `portfolio` object from `PortfolioSnapshot.Unavailable`.

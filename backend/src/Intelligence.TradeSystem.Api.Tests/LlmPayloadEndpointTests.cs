@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
-using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
@@ -234,7 +233,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = json.RootElement;
         root.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.BadRequest);
-        root.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
+        root.GetProperty("title").GetString().Should().Be("Request validation failed.");
+        root.GetProperty("code").GetString().Should().Be("validation_failed");
+        root.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
         root.GetProperty("errors").ToString().Should().Contain("mode");
 
         service.VerifyNoOtherCalls();
@@ -243,12 +244,12 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
     // ─── 503 Service Unavailable ────────────────────────────────────────────
 
     [Fact]
-    public async Task LlmPayload_Returns_ServiceUnavailable_When_Service_Throws_InvalidOperationException()
+    public async Task LlmPayload_Returns_ServiceUnavailable_When_Service_Throws_MarketDataUnavailableException()
     {
         var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         service
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Ticker temporarily unavailable."));
+            .ThrowsAsync(new MarketDataUnavailableException("Ticker temporarily unavailable."));
 
         using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
         using var response = await client.GetAsync("/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
@@ -256,8 +257,9 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactor
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
             HttpStatusCode.ServiceUnavailable,
-            "LLM payload analysis is temporarily unavailable.",
-            "temporarily unavailable");
+            "Market data is temporarily unavailable.",
+            null,
+            "market_data_unavailable");
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Application.Market;
 using Moq;
 
 namespace Intelligence.TradeSystem.Application.Tests;
@@ -39,7 +40,7 @@ public sealed class MarketSnapshotServiceTests
 
         var act = () => service.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*ticker*");
+        await act.Should().ThrowAsync<MarketDataUnavailableException>().WithMessage("*ticker*");
     }
 
     [Fact]
