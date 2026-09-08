@@ -6,16 +6,16 @@ namespace Intelligence.TradeSystem.Application.Accounts.Credentials;
 /// </summary>
 public sealed class ExchangeAccountCredentialSecret
 {
-    private readonly string apiKey;
-    private readonly string apiSecret;
+    private readonly string _apiKey;
+    private readonly string _apiSecret;
 
     public ExchangeAccountCredentialSecret(string apiKey, string apiSecret)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiSecret);
 
-        this.apiKey = apiKey;
-        this.apiSecret = apiSecret;
+        _apiKey = apiKey;
+        _apiSecret = apiSecret;
     }
 
     /// <summary>
@@ -24,7 +24,7 @@ public sealed class ExchangeAccountCredentialSecret
     public void Use(Action<string, string> use)
     {
         ArgumentNullException.ThrowIfNull(use);
-        use(apiKey, apiSecret);
+        use(_apiKey, _apiSecret);
     }
 
     /// <summary>
@@ -33,7 +33,7 @@ public sealed class ExchangeAccountCredentialSecret
     public TResult Use<TResult>(Func<string, string, TResult> use)
     {
         ArgumentNullException.ThrowIfNull(use);
-        return use(apiKey, apiSecret);
+        return use(_apiKey, _apiSecret);
     }
 
     /// <inheritdoc />

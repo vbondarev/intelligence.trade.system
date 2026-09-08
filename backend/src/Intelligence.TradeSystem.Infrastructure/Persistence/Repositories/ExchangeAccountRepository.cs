@@ -97,6 +97,28 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
         return newVersion;
     }
 
+    public async Task DeleteAsync(
+        UserId userId,
+        ExchangeAccountId id,
+        ConcurrencyVersion expectedVersion,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+
+        var affected = await dbContext.ExchangeAccounts
+            .Where(entity =>
+                entity.Id == id.Value &&
+                entity.UserId == userId.Value &&
+                entity.Version == expectedVersion.Value)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (affected != 1)
+        {
+            throw new ConcurrencyConflictException(
+                $"ExchangeAccount {id} was modified or deleted concurrently.");
+        }
+    }
+
     private static void EnsureUserId(UserId userId)
     {
         if (userId == default)

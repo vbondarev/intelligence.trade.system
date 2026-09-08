@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Application.Portfolio;
@@ -7,6 +8,9 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// </summary>
 public interface IPrivateAccountProvider
 {
+    Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Запрашивает открытые позиции для заданной области (scope). Результат явно различает
     /// успешный снимок без позиций от неудачной попытки получить данные — см.

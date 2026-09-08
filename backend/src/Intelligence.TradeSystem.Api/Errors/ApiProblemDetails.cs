@@ -17,9 +17,9 @@ internal static class ApiProblemDetails
             Title = descriptor.Title,
             Status = descriptor.StatusCode,
             Detail = detail,
+            Extensions = { ["code"] = descriptor.Code }
         };
 
-        problemDetails.Extensions["code"] = descriptor.Code;
         AddTraceId(problemDetails, httpContext);
         return problemDetails;
     }
@@ -32,9 +32,7 @@ internal static class ApiProblemDetails
         {
             context.ProblemDetails.Type ??= ApiErrorDescriptors.ValidationFailed.Type;
             context.ProblemDetails.Title ??= ApiErrorDescriptors.ValidationFailed.Title;
-            context.ProblemDetails.Extensions.TryAdd(
-                "code",
-                ApiErrorDescriptors.ValidationFailed.Code);
+            context.ProblemDetails.Extensions.TryAdd("code", ApiErrorDescriptors.ValidationFailed.Code);
         }
     }
 
@@ -58,11 +56,6 @@ internal static class ApiProblemDetails
         problemDetails.Extensions["errors"] = errors;
     }
 
-    private static void AddTraceId(
-        ProblemDetails problemDetails,
-        HttpContext httpContext)
-    {
-        problemDetails.Extensions["traceId"] =
-            Activity.Current?.Id ?? httpContext.TraceIdentifier;
-    }
+    private static void AddTraceId(ProblemDetails problemDetails, HttpContext httpContext) =>
+        problemDetails.Extensions["traceId"] = Activity.Current?.Id ?? httpContext.TraceIdentifier;
 }

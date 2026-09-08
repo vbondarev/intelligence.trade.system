@@ -26,10 +26,10 @@ public sealed class ExchangeAccount
     public ExchangeAccountId Id { get; }
     public UserId UserId { get; }
     public ExchangeId ExchangeId { get; }
-    public ExchangeAccountConnectionStatus ConnectionStatus { get; }
+    public ExchangeAccountConnectionStatus ConnectionStatus { get; private set; }
     public ExchangeAccountCapabilities Capabilities { get; }
-    public DateTimeOffset? LastSyncedAt { get; }
-    public string? LastError { get; }
+    public DateTimeOffset? LastSyncedAt { get; private set; }
+    public string? LastError { get; private set; }
 
     public static ExchangeAccount Create(
         ExchangeAccountId id,
@@ -61,5 +61,53 @@ public sealed class ExchangeAccount
                 nameof(capabilities), capabilities, "Capabilities contain undefined flags.");
 
         return new ExchangeAccount(id, userId, exchangeId, connectionStatus, capabilities, lastSyncedAt, lastError);
+    }
+
+    public void MarkConnected()
+    {
+        EnsureNotDisabled();
+        ConnectionStatus = ExchangeAccountConnectionStatus.Connected;
+        LastError = null;
+    }
+
+    public void MarkUnavailable(string error)
+    {
+        EnsureNotDisabled();
+        LastError = ValidateError(error);
+        ConnectionStatus = ExchangeAccountConnectionStatus.Unavailable;
+    }
+
+    public void RecordSuccessfulSync(DateTimeOffset syncedAt)
+    {
+        EnsureNotDisabled();
+        if (syncedAt == default)
+            throw new ArgumentException("Sync timestamp must be initialized.", nameof(syncedAt));
+
+        LastSyncedAt = syncedAt;
+        LastError = null;
+        ConnectionStatus = ExchangeAccountConnectionStatus.Connected;
+    }
+
+    public void RecordSyncFailure(string error) => MarkUnavailable(error);
+
+    public void Disable()
+    {
+        ConnectionStatus = ExchangeAccountConnectionStatus.Disabled;
+        LastError = null;
+    }
+
+    private void EnsureNotDisabled()
+    {
+        if (ConnectionStatus == ExchangeAccountConnectionStatus.Disabled)
+        {
+            throw new InvalidOperationException(
+                "A disabled exchange account cannot be moved back to an active state.");
+        }
+    }
+
+    private static string ValidateError(string error)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(error);
+        return error;
     }
 }

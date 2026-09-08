@@ -18,6 +18,15 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads only technical metadata for a stored pair without decrypting it.
+    /// Missing and foreign rows have the same observable result.
+    /// </summary>
+    Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates credentials for an existing account without replacing an existing pair.
     /// </summary>
     Task<ConcurrencyVersion> CreateAsync(
