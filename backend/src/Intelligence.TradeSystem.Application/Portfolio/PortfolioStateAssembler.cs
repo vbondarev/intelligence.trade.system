@@ -15,7 +15,8 @@ public static class PortfolioStateAssembler
         IReadOnlyCollection<Position> positions,
         ExchangeAccountId exchangeAccountId,
         DateTimeOffset calculatedAt,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled = true)
     {
         ArgumentNullException.ThrowIfNull(positions);
 
@@ -32,7 +33,8 @@ public static class PortfolioStateAssembler
             positions,
             exchangeAccountId,
             calculatedAt,
-            staleAfter);
+            staleAfter,
+            positionsFullyReconciled);
     }
 
     public static PortfolioState AssembleWithCapital(
@@ -40,7 +42,8 @@ public static class PortfolioStateAssembler
         IReadOnlyCollection<Position> positions,
         ExchangeAccountId exchangeAccountId,
         DateTimeOffset calculatedAt,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled = true)
     {
         ArgumentNullException.ThrowIfNull(capital);
         ArgumentNullException.ThrowIfNull(positions);
@@ -50,6 +53,7 @@ public static class PortfolioStateAssembler
             positions,
             capital,
             calculatedAt,
-            staleAfter);
+            staleAfter,
+            positionsFullyReconciled);
     }
 }

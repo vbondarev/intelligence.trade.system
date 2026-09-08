@@ -28,6 +28,7 @@ internal static class PortfolioStateMapper
             GrossExposureToEquityPercent = state.GrossExposureToEquityPercent,
             LargestPositionConcentrationPercent = state.LargestPositionConcentrationPercent,
             LargestPositionId = state.LargestPositionId?.Value,
+            PositionsFullyReconciled = state.PositionsFullyReconciled,
             IsComplete = state.IsComplete,
             IsFresh = state.IsFresh,
         };
@@ -101,6 +102,7 @@ internal static class PortfolioStateMapper
                 PersistenceDateTime.ToUtc(entity.CapitalObservedAt),
                 entity.TotalWalletBalance),
             PersistenceDateTime.ToUtc(entity.CalculatedAt),
-            entity.StaleAfter);
+            entity.StaleAfter,
+            entity.PositionsFullyReconciled);
     }
 }

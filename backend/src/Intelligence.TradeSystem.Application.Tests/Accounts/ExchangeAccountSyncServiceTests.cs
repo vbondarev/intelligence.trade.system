@@ -12,8 +12,9 @@ namespace Intelligence.TradeSystem.Application.Tests.Accounts;
 
 public sealed class ExchangeAccountSyncServiceTests
 {
-    private static readonly DateTimeOffset ObservedAt =
-        DateTimeOffset.UtcNow;
+    private static readonly DateTimeOffset CalculatedAt =
+        new(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset ObservedAt = CalculatedAt.AddMinutes(-1);
 
     [Fact]
     public async Task SynchronizeAsync_Persists_Reconciled_State_And_Records_Successful_Sync()
@@ -73,6 +74,9 @@ public sealed class ExchangeAccountSyncServiceTests
         result.PortfolioState.Should().NotBeNull();
         result.PortfolioState!.Capital.TotalEquity.Should().Be(1_000m);
         result.PortfolioState.Positions.Should().ContainSingle();
+        result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
+        result.PortfolioState.IsFresh.Should().BeTrue();
+        result.PortfolioState.IsComplete.Should().BeTrue();
         fixture.CredentialStore.Verify(
             store => store.GetAsync(
                 fixture.UserId,
@@ -154,6 +158,9 @@ public sealed class ExchangeAccountSyncServiceTests
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         trackedPosition.TrackingState.Should().Be(PositionTrackingState.Closed);
         result.PortfolioState!.Positions.Should().BeEmpty();
+        result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
+        result.PortfolioState.IsFresh.Should().BeTrue();
+        result.PortfolioState.IsComplete.Should().BeTrue();
         fixture.PositionRepository.VerifyAll();
         fixture.PortfolioRepository.VerifyAll();
         fixture.AccountRepository.VerifyAll();
@@ -424,7 +431,7 @@ public sealed class ExchangeAccountSyncServiceTests
     }
 
     [Fact]
-    public async Task SynchronizeAsync_Persists_Fresh_Balance_And_Unknown_Positions_When_Positions_Fail()
+    public async Task SynchronizeAsync_Persists_Fresh_Balance_And_Unknown_Positions_When_Positions_Are_Partial()
     {
         var fixture = CreateFixture();
         var trackedPosition = Position.Create(
@@ -506,6 +513,199 @@ public sealed class ExchangeAccountSyncServiceTests
         fixture.PositionRepository.VerifyAll();
         fixture.PortfolioRepository.VerifyAll();
         fixture.AccountRepository.VerifyAll();
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Marks_Empty_Portfolio_Incomplete_When_Positions_Fail()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Failed(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                "provider failure"));
+        SetupPositionLoad(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        SetupAccountSave(fixture, "positions_failed", null);
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        savedStates.Should().ContainSingle();
+        savedStates[0].Positions.Should().BeEmpty();
+        savedStates[0].PositionsFullyReconciled.Should().BeFalse();
+        savedStates[0].IsFresh.Should().BeFalse();
+        savedStates[0].IsComplete.Should().BeFalse();
+        fixture.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+        fixture.Account.LastError.Should().Be("positions_failed");
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Marks_Partial_Coverage_Incomplete_When_All_Known_Positions_Are_Returned()
+    {
+        var fixture = CreateFixture();
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Partial(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                [CreateOpenPosition()]));
+        SetupPositionLoad(fixture, trackedPosition);
+        SetupPositionSave(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        SetupAccountSave(fixture, "positions_partial", null);
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        trackedPosition.TrackingState.Should().Be(PositionTrackingState.Active);
+        savedStates.Should().ContainSingle();
+        savedStates[0].PositionsFullyReconciled.Should().BeFalse();
+        savedStates[0].IsFresh.Should().BeFalse();
+        savedStates[0].IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Marks_Ambiguous_Complete_Coverage_Incomplete()
+    {
+        var fixture = CreateFixture();
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        var duplicate = CreateOpenPosition();
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                [duplicate, duplicate]));
+        SetupPositionLoad(fixture, trackedPosition);
+        SetupPositionSave(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        SetupAccountSave(fixture, "positions_ambiguous", null);
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        savedStates.Should().ContainSingle();
+        savedStates[0].PositionsFullyReconciled.Should().BeFalse();
+        savedStates[0].IsFresh.Should().BeFalse();
+        savedStates[0].IsComplete.Should().BeFalse();
+        fixture.Account.LastError.Should().Be("positions_ambiguous");
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Does_Not_Claim_Accountwide_Coverage_When_Other_Category_Is_Tracked()
+    {
+        var fixture = CreateFixture();
+        var linear = CreateTrackedPosition(fixture, "BTCUSDT");
+        var inverse = CreateTrackedPosition(fixture, "BTCUSD", MarketCategory.Inverse);
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                [CreateOpenPosition()]));
+        SetupPositionLoad(fixture, linear, inverse);
+        SetupPositionSave(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        SetupAccountSave(fixture, "positions_ambiguous", null);
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        savedStates.Should().ContainSingle();
+        savedStates[0].Positions.Should().HaveCount(2);
+        savedStates[0].PositionsFullyReconciled.Should().BeFalse();
+        savedStates[0].IsFresh.Should().BeFalse();
+        savedStates[0].IsComplete.Should().BeFalse();
+        fixture.Account.LastError.Should().Be("positions_ambiguous");
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Uses_Injected_Time_For_Invalid_Position_Observation()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OpenPositionsObservation
+            {
+                Status = OpenPositionsObservationStatus.Complete,
+                Category = MarketCategory.Linear,
+                Symbol = null,
+                ObservedAt = default,
+                Positions = [],
+            });
+        SetupPositionLoad(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        SetupAccountSave(fixture, "positions_failed", null);
+
+        await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        savedStates.Should().ContainSingle();
+        savedStates[0].PositionsFullyReconciled.Should().BeFalse();
+        savedStates[0].CalculatedAt.Should().Be(CalculatedAt);
+        savedStates[0].IsFresh.Should().BeFalse();
+        savedStates[0].IsComplete.Should().BeFalse();
     }
 
     [Fact]
@@ -785,14 +985,17 @@ public sealed class ExchangeAccountSyncServiceTests
     private static readonly ExchangeAccountCapabilities RequiredCapabilities =
         ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions;
 
-    private static Position CreateTrackedPosition(Fixture fixture, string symbol) =>
+    private static Position CreateTrackedPosition(
+        Fixture fixture,
+        string symbol,
+        MarketCategory category = MarketCategory.Linear) =>
         Position.Create(
             ExchangePositionKey.Create(
                 fixture.Account.Id,
                 InstrumentId.From(symbol),
                 PositionSide.Long,
                 0),
-            MarketCategory.Linear,
+            category,
             1m,
             ObservedAt.AddMinutes(-1),
             ObservedAt.AddMinutes(-1),
@@ -925,7 +1128,8 @@ public sealed class ExchangeAccountSyncServiceTests
                 factory.Object,
                 positionRepository.Object,
                 portfolioRepository.Object,
-                transaction));
+                transaction,
+                new FixedTimeProvider(CalculatedAt)));
     }
 
     private sealed record Fixture(
@@ -947,5 +1151,10 @@ public sealed class ExchangeAccountSyncServiceTests
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default) =>
             operation(cancellationToken);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

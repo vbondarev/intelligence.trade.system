@@ -130,7 +130,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                         [tracked.Value],
                         account.Id,
                         T0.AddMinutes(1),
-                        TimeSpan.FromMinutes(5));
+                        TimeSpan.FromMinutes(5),
+                        reconciliation.IsFullyReconciled);
                     await portfolios.SaveAsync(account.UserId, degradedPortfolio, cancellationToken);
 
                     loadedAccount.Value.RecordSyncFailure("positions_failed");
@@ -166,6 +167,9 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(persistedPortfolio);
         Assert.Equal(initialPortfolio.Capital, persistedPortfolio!.Capital);
         Assert.Equal(PositionTrackingState.Unknown, persistedPortfolio.Positions.Single().TrackingState);
+        Assert.False(persistedPortfolio.PositionsFullyReconciled);
+        Assert.False(persistedPortfolio.IsFresh);
+        Assert.False(persistedPortfolio.IsComplete);
     }
 
     [Fact]
@@ -607,6 +611,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(latest);
         Assert.Equal(second.CalculatedAt, latest!.CalculatedAt);
         Assert.Equal(second.StaleAfter, latest.StaleAfter);
+        Assert.Equal(second.PositionsFullyReconciled, latest.PositionsFullyReconciled);
         Assert.Equal(second.Capital, latest.Capital);
         Assert.Equal(second.Positions.ToArray(), latest.Positions.ToArray());
         Assert.Equal(second.GrossExposure, latest.GrossExposure);

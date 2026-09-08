@@ -57,4 +57,20 @@ public sealed class PortfolioStateAssemblerTests
         result.Capital.ObservedAt.Should().Be(ObservedAt);
         result.IsFresh.Should().BeFalse();
     }
+
+    [Fact]
+    public void Incomplete_Position_Coverage_Makes_Known_Capital_NotFresh_And_Incomplete()
+    {
+        var result = PortfolioStateAssembler.AssembleWithCapital(
+            new PortfolioCapitalState(12500m, 8000m, ObservedAt, 12000m),
+            [],
+            Account,
+            ObservedAt.AddMinutes(1),
+            TimeSpan.FromMinutes(5),
+            positionsFullyReconciled: false);
+
+        result.PositionsFullyReconciled.Should().BeFalse();
+        result.IsFresh.Should().BeFalse();
+        result.IsComplete.Should().BeFalse();
+    }
 }

@@ -14,13 +14,15 @@ public sealed class PortfolioState
         IReadOnlyList<PortfolioPositionState> positions,
         PortfolioCapitalState capital,
         DateTimeOffset calculatedAt,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled)
     {
         ExchangeAccountId = exchangeAccountId;
         Positions = positions;
         Capital = capital;
         CalculatedAt = calculatedAt;
         StaleAfter = staleAfter;
+        PositionsFullyReconciled = positionsFullyReconciled;
 
         var values = positions.Where(p => p.TrackingState != PositionTrackingState.Closed).ToArray();
         GrossExposure = SumKnown(values.Select(p => p.PositionValue));
@@ -64,10 +66,12 @@ public sealed class PortfolioState
                 : null;
         }
 
-        IsComplete = capital.TotalEquity > 0m &&
+        IsComplete = positionsFullyReconciled &&
+            capital.TotalEquity > 0m &&
             capital.AvailableCapital.HasValue &&
             values.All(p => p.PositionValue.HasValue && p.UnrealizedPnl.HasValue);
-        IsFresh = capital.ObservedAt.HasValue &&
+        IsFresh = positionsFullyReconciled &&
+            capital.ObservedAt.HasValue &&
             calculatedAt >= capital.ObservedAt.Value &&
             calculatedAt - capital.ObservedAt.Value <= staleAfter &&
             values.All(p =>
@@ -81,6 +85,7 @@ public sealed class PortfolioState
     public PortfolioCapitalState Capital { get; }
     public DateTimeOffset CalculatedAt { get; }
     public TimeSpan StaleAfter { get; }
+    public bool PositionsFullyReconciled { get; }
     public decimal? GrossExposure { get; }
     public decimal? LongExposure { get; }
     public decimal? ShortExposure { get; }
@@ -100,7 +105,8 @@ public sealed class PortfolioState
         IEnumerable<Position> positions,
         PortfolioCapitalState capital,
         DateTimeOffset calculatedAt,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled = true)
     {
         ArgumentNullException.ThrowIfNull(positions);
         ArgumentNullException.ThrowIfNull(capital);
@@ -151,7 +157,8 @@ public sealed class PortfolioState
             new ReadOnlyCollection<PortfolioPositionState>(snapshots),
             capital,
             calculatedAt,
-            staleAfter);
+            staleAfter,
+            positionsFullyReconciled);
     }
 
     /// <summary>
@@ -163,7 +170,8 @@ public sealed class PortfolioState
         IEnumerable<PortfolioPositionState> positions,
         PortfolioCapitalState capital,
         DateTimeOffset calculatedAt,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled = true)
     {
         ArgumentNullException.ThrowIfNull(positions);
         ArgumentNullException.ThrowIfNull(capital);
@@ -218,7 +226,8 @@ public sealed class PortfolioState
             new ReadOnlyCollection<PortfolioPositionState>(snapshots),
             capital,
             calculatedAt,
-            staleAfter);
+            staleAfter,
+            positionsFullyReconciled);
     }
 
     private static decimal? SumKnown(IEnumerable<decimal?> values)

@@ -15,9 +15,11 @@ public sealed class ExchangeAccountSyncService(
     IPrivateAccountProviderFactory providerFactory,
     IPositionRepository positionRepository,
     IPortfolioStateRepository portfolioStateRepository,
-    IExchangeAccountSyncTransaction persistenceTransaction)
+    IExchangeAccountSyncTransaction persistenceTransaction,
+    TimeProvider? timeProvider = null)
     : IExchangeAccountSyncService
 {
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private static readonly TimeSpan PortfolioStaleAfter = TimeSpan.FromMinutes(5);
 
     public async Task<ExchangeAccountSyncResult> SynchronizeAsync(
@@ -77,7 +79,7 @@ public sealed class ExchangeAccountSyncService(
         var normalizedPositionsObservation = NormalizePositionsObservation(positionsObservation);
 
         var calculatedAt = Max(
-            DateTimeOffset.UtcNow,
+            clock.GetUtcNow(),
             balanceObservation.ObservedAt,
             normalizedPositionsObservation.ObservedAt);
         PortfolioState? portfolioState = null;
@@ -117,6 +119,11 @@ public sealed class ExchangeAccountSyncService(
                         normalizedPositionsObservation,
                         calculatedAt,
                         PortfolioStaleAfter);
+                    var positionsFullyReconciled =
+                        reconciliation.IsFullyReconciled &&
+                        CoversAllActivePositions(
+                            trackedPositions.Concat(reconciliation.NewPositions),
+                            normalizedPositionsObservation);
 
                     var trackedById = tracked.ToDictionary(versioned => versioned.Value.Id);
                     foreach (var position in reconciliation.PositionsToPersist)
@@ -159,16 +166,17 @@ public sealed class ExchangeAccountSyncService(
                         reconciledPositions,
                         exchangeAccountId,
                         calculatedAt,
-                        PortfolioStaleAfter);
+                        PortfolioStaleAfter,
+                        positionsFullyReconciled);
                     await portfolioStateRepository
                         .SaveAsync(userId, portfolioState, persistenceCancellationToken)
                         .ConfigureAwait(false);
 
                     var fullySynchronized =
-                        hasFreshBalance && reconciliation.IsFullyReconciled;
+                        hasFreshBalance && positionsFullyReconciled;
                     if (fullySynchronized)
                     {
-                        successfulSyncAt = DateTimeOffset.UtcNow;
+                        successfulSyncAt = clock.GetUtcNow();
                         accountForPersistence.RecordSuccessfulSync(successfulSyncAt.Value);
                     }
                     else
@@ -176,7 +184,8 @@ public sealed class ExchangeAccountSyncService(
                         failureReason = GetFailureReason(
                             hasFreshBalance,
                             normalizedPositionsObservation,
-                            reconciliation);
+                            reconciliation,
+                            positionsFullyReconciled);
                         accountForPersistence.RecordSyncFailure(failureReason);
                     }
 
@@ -211,7 +220,7 @@ public sealed class ExchangeAccountSyncService(
         observation.Balance is { AccountType: AccountType.Unified } &&
         observation.ObservedAt != default;
 
-    private static OpenPositionsObservation NormalizePositionsObservation(
+    private OpenPositionsObservation NormalizePositionsObservation(
         OpenPositionsObservation observation)
     {
         if (Enum.IsDefined(observation.Status) &&
@@ -225,14 +234,15 @@ public sealed class ExchangeAccountSyncService(
         return OpenPositionsObservation.Failed(
             MarketCategory.Linear,
             symbol: null,
-            observedAt: observation.ObservedAt == default ? DateTimeOffset.UtcNow : observation.ObservedAt,
+            observedAt: observation.ObservedAt == default ? clock.GetUtcNow() : observation.ObservedAt,
             error: "invalid_positions_observation");
     }
 
     private static string GetFailureReason(
         bool hasFreshBalance,
         OpenPositionsObservation positionsObservation,
-        PositionReconciliationResult reconciliation)
+        PositionReconciliationResult reconciliation,
+        bool positionsFullyReconciled)
     {
         if (!hasFreshBalance)
         {
@@ -243,11 +253,25 @@ public sealed class ExchangeAccountSyncService(
         {
             OpenPositionsObservationStatus.Failed => "positions_failed",
             OpenPositionsObservationStatus.Partial => "positions_partial",
-            OpenPositionsObservationStatus.Complete when !reconciliation.IsFullyReconciled =>
+            OpenPositionsObservationStatus.Complete when
+                !reconciliation.IsFullyReconciled || !positionsFullyReconciled =>
                 "positions_ambiguous",
             _ => "positions_failed",
         };
     }
+
+    private static bool CoversAllActivePositions(
+        IEnumerable<Position> positions,
+        OpenPositionsObservation observation) =>
+        positions
+            .Where(position => position.TrackingState != PositionTrackingState.Closed)
+            .All(position =>
+                position.MarketCategory == observation.Category &&
+                (observation.Symbol is null ||
+                 string.Equals(
+                     position.ExchangePositionKey.InstrumentId.Value,
+                     observation.Symbol.Trim(),
+                     StringComparison.OrdinalIgnoreCase)));
 
     private static ExchangeAccount CopyAccount(ExchangeAccount account) =>
         ExchangeAccount.Create(
