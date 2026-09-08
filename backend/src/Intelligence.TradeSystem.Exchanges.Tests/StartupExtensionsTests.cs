@@ -139,6 +139,15 @@ public sealed class StartupExtensionsTests
     }
 
     [Fact]
+    public void BybitClientFactory_PublicClient_Keeps_Bybit_Default_Request_Timeout()
+    {
+        using var publicClient = BybitClientFactory.CreatePublicClient();
+
+        var options = GetClientOptions(publicClient);
+        options.GetType().GetProperty("RequestTimeout")!.GetValue(options).Should().Be(TimeSpan.FromSeconds(20));
+    }
+
+    [Fact]
     public void ExchangeId_Contains_Bybit()
     {
         Enum.GetValues<ExchangeId>().Should().Contain(ExchangeId.Bybit);

@@ -11,11 +11,7 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 /// </summary>
 public static class BybitClientFactory
 {
-    public static IBybitRestClient CreatePublicClient() =>
-        new BybitRestClient(options =>
-        {
-            options.RequestTimeout = BybitPrivateResiliencePolicy.RequestTimeout;
-        });
+    public static IBybitRestClient CreatePublicClient() => new BybitRestClient(static _ => { });
 
     public static IBybitRestClient CreatePrivateClient(BybitCredentials credentials)
     {

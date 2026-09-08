@@ -38,6 +38,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         var positions = new List<OpenPosition>();
         string? cursor = null;
         var retryCount = 0;
+        ExchangeFailure? retryFailure = null;
         var outcome = BybitExchangeTelemetry.FailureOutcome;
         ExchangeFailure? failure = null;
         var cancelled = false;
@@ -54,6 +55,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                         category.ToBybitCategory(), symbol, null, null, 200, cursor, ct),
                     cancellationToken);
                 retryCount += page.RetryCount;
+                retryFailure = page.RetryFailure ?? retryFailure;
 
                 if (!page.Response.Success)
                 {
@@ -105,6 +107,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 stopwatch.Elapsed,
                 retryCount,
                 failure,
+                retryFailure,
                 marketCategory: category);
         }
     }
@@ -114,6 +117,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         using var activity = BybitExchangeTelemetry.StartActivity(BybitExchangeTelemetry.BalanceOperation);
         var stopwatch = Stopwatch.StartNew();
         var retryCount = 0;
+        ExchangeFailure? retryFailure = null;
         var outcome = BybitExchangeTelemetry.FailureOutcome;
         ExchangeFailure? failure = null;
         var cancelled = false;
@@ -125,6 +129,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                     accountType.ToBybitAccountType(), null, ct),
                 cancellationToken);
             retryCount = result.RetryCount;
+            retryFailure = result.RetryFailure;
 
             if (!result.Response.Success)
             {
@@ -163,6 +168,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 stopwatch.Elapsed,
                 retryCount,
                 failure,
+                retryFailure,
                 accountType: accountType);
         }
     }
@@ -171,12 +177,14 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         Func<CancellationToken, Task<HttpResult<T>>> operation,
         CancellationToken cancellationToken)
     {
+        ExchangeFailure? retryFailure = null;
+
         for (var attempt = 1; ; attempt++)
         {
             var response = await operation(cancellationToken).ConfigureAwait(false);
             if (response.Success)
             {
-                return new ReadAttempt<T>(response, attempt - 1, null);
+                return new ReadAttempt<T>(response, attempt - 1, retryFailure, null);
             }
 
             BybitExchangeFailureMapper.ThrowIfCancellationRequested(response.Error, cancellationToken);
@@ -186,9 +194,10 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
             if (attempt >= BybitPrivateResiliencePolicy.MaxAttempts
                 || !BybitPrivateResiliencePolicy.TryGetRetryDelay(failure, response.Error, out var delay))
             {
-                return new ReadAttempt<T>(response, attempt - 1, failure);
+                return new ReadAttempt<T>(response, attempt - 1, retryFailure, failure);
             }
 
+            retryFailure = failure;
             await _retryDelay(delay, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -231,5 +240,6 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
     private readonly record struct ReadAttempt<T>(
         HttpResult<T> Response,
         int RetryCount,
+        ExchangeFailure? RetryFailure,
         ExchangeFailure? Failure);
 }

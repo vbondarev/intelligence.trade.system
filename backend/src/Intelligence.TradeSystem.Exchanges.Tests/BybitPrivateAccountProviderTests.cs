@@ -469,8 +469,103 @@ public sealed class BybitPrivateAccountProviderTests
     }
 
     [Fact]
+    public async Task GetWalletBalanceAsync_Retries_RateLimit_With_Valid_RetryAfter_And_Preserves_Reason()
+    {
+        var activities = new List<Activity>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == BybitExchangeTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => activities.Add(activity),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        var measurements = new List<MetricMeasurement>();
+        using var meterListener = new MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == BybitExchangeTelemetry.MeterName)
+                listener.EnableMeasurementEvents(instrument);
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add(new(instrument.Name, value, tags.ToArray())));
+        meterListener.Start();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    attempts == 1
+                        ? CreateRateLimitError<BybitResponse<BybitBalance>>(DateTime.UtcNow.AddSeconds(1))
+                        : CreateSuccess(new BybitResponse<BybitBalance>
+                        {
+                            List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+                        }));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Complete);
+        attempts.Should().Be(2);
+        var activity = activities.Should().ContainSingle().Subject;
+        activity.GetTagItem("exchange.outcome").Should().Be(BybitExchangeTelemetry.SuccessOutcome);
+        activity.GetTagItem("exchange.failure_kind").Should().Be(string.Empty);
+        activity.GetTagItem("retry.count").Should().Be(1);
+        activity.GetTagItem("retry.failure_kind").Should().Be(nameof(ExchangeFailureKind.RateLimited));
+        measurements.Any(measurement => measurement.Name == "exchange.request.failures").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Does_Not_Retry_RateLimit_With_Excessive_RetryAfter()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    CreateRateLimitError<BybitResponse<BybitBalance>>(DateTime.UtcNow.AddSeconds(5)));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Failed);
+        observation.Failure!.Kind.Should().Be(ExchangeFailureKind.RateLimited);
+        attempts.Should().Be(1);
+    }
+
+    [Fact]
     public async Task GetOpenPositionsAsync_Retries_The_Failed_Page_Without_Restarting_Pagination()
     {
+        var activities = new List<Activity>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == BybitExchangeTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => activities.Add(activity),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
         var trading = new Mock<IBybitRestClientApiTrading>();
         var secondPageAttempts = 0;
         trading
@@ -503,6 +598,10 @@ public sealed class BybitPrivateAccountProviderTests
         observation.Status.Should().Be(OpenPositionsObservationStatus.Complete);
         observation.Positions.Should().HaveCount(2);
         secondPageAttempts.Should().Be(2);
+        var activity = activities.Should().ContainSingle().Subject;
+        activity.GetTagItem("retry.count").Should().Be(1);
+        activity.GetTagItem("retry.failure_kind").Should().Be(nameof(ExchangeFailureKind.Unavailable));
+        activity.GetTagItem("exchange.outcome").Should().Be(BybitExchangeTelemetry.SuccessOutcome);
     }
 
     [Fact]
@@ -701,6 +800,15 @@ public sealed class BybitPrivateAccountProviderTests
                 providerCode,
                 new ErrorInfo(errorType, isTransient: false, "provider failure", [providerCode]),
                 null!));
+
+    private static HttpResult<T> CreateRateLimitError<T>(DateTime retryAfter) =>
+        new(
+            "Bybit",
+            default!,
+            new ServerRateLimitError("rate limited", null!)
+            {
+                RetryAfter = retryAfter,
+            });
 
     private sealed record CapturedLog(
         LogLevel LogLevel,

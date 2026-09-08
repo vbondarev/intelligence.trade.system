@@ -42,6 +42,7 @@ internal static class BybitExchangeTelemetry
         TimeSpan elapsed,
         int retryCount,
         ExchangeFailure? failure,
+        ExchangeFailure? retryFailure,
         MarketCategory? marketCategory = null,
         AccountType? accountType = null)
     {
@@ -61,6 +62,7 @@ internal static class BybitExchangeTelemetry
         activity?.SetTag("exchange.failure_kind", failure?.Kind.ToString() ?? string.Empty);
         activity?.SetTag("exchange.retryable", failure?.Retryable ?? false);
         activity?.SetTag("retry.count", retryCount);
+        activity?.SetTag("retry.failure_kind", retryFailure?.Kind.ToString() ?? string.Empty);
 
         var tags = CreateMetricTags(operation, outcome, failure, marketCategory, accountType);
         Requests.Add(1, tags);
