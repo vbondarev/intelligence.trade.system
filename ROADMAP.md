@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 2.6
+Версия документа: 2.7
 Дата актуализации: 8 сентября 2026 года
-Проверенная база: `develop` после Tech-02; Tech-03 выполняется отдельным PR
-Последний учтённый PR: [#71 «#70: Реализована централизованная обработка ошибок API»](https://github.com/vbondarev/intelligence.trade.system/pull/71)
-Текущий следующий этап: **Tech-03 — наблюдаемость и устойчивость внешних вызовов**
+Проверенная база: `develop` на коммите [`74a91f4`](https://github.com/vbondarev/intelligence.trade.system/commit/74a91f477d556f26a63ca8428db152232ce1530a) после завершения этапа C и технической подготовки к этапу D
+Последний учтённый PR: [#73 «#72: Реализованы структурированное логирование, телеметрия и устойчивость внешних вызовов»](https://github.com/vbondarev/intelligence.trade.system/pull/73)
+Текущий следующий этап: **D-01 — пользовательский сценарий подключения Bybit-аккаунта только для чтения**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -51,7 +51,7 @@
 |---|---|---|
 | A | Архитектурный фундамент | ✅ Завершён |
 | B | Бизнес-домен аккаунта, позиции, оценки и рекомендации | ✅ Завершён |
-| C | Хранение, безопасность и пользователи | 🟡 C-08 частично |
+| C | Хранение, безопасность и пользователи | ✅ Завершён |
 | D | Подключение Bybit и синхронизация | 🟡 Есть транспортные заготовки |
 | E | Оценка позиции и рекомендации | ⬜ Не начат |
 | F | Пользовательский API и SignalR | ⬜ Не начат |
@@ -67,8 +67,8 @@
 ### Техническая подготовка перед этапом D
 
 - **Tech-01** ✅ (PR #69): приватный exchange boundary использует явные result-контракты без exception-driven API.
-- **Tech-02** ✅: единый `ProblemDetails` contract, центральный `IExceptionHandler` и безопасное mapping exception → HTTP.
-- **Tech-03** 🚧 (отдельный текущий PR): структурированное логирование, прикладная телеметрия и контролируемая устойчивость внешних вызовов.
+- **Tech-02** ✅ (PR #71): единый `ProblemDetails` contract, центральный `IExceptionHandler` и безопасное mapping exception → HTTP.
+- **Tech-03** ✅ (PR #73): структурированное логирование, прикладная телеметрия и контролируемая устойчивость внешних вызовов.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -96,20 +96,20 @@
 - ✅ CI для PR #38, #40, #42, #44 и #46 успешно выполнил сборку и тесты.
 - ✅ Базовая обвязка OpenTelemetry и проверки состояния сервиса присутствует в `ServiceDefaults`.
 - ✅ Создан `Infrastructure` с EF Core `DbContext`, PostgreSQL provider, первой доменной migration, repository implementations и Testcontainers integration tests; пользовательский workflow пока не подключён.
+- ✅ Публичные и приватные возможности Bybit разделены; public client не использует пользовательские credentials, а private provider создаётся для конкретных credentials.
+- ✅ Реализована основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
+- ✅ Реализована изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
+- ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
+- ✅ Реализовано безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
 
 ### Есть только как заготовка
 
 - 🟡 Legacy-типы `OpenPosition`, `OpenPositionSnapshot`, `PortfolioSnapshot` и их сборщик сохраняются для совместимости текущих путей, но не заменяют новый домен `Position` и `PortfolioState`.
 - 🟡 `IPrivateAccountProvider` и account-specific private adapter Bybit умеют читать баланс и позиции, но ещё не связаны с пользователем, хранилищем и периодической синхронизацией.
-- ✅ Публичные и приватные возможности Bybit разделены; public client не использует пользовательские credentials, а private provider создаётся для конкретных credentials.
 - 🟡 Наблюдаемость имеет общий технический фундамент, но нет метрик и трассировки полного пути сопровождения позиции.
 
 ### Пока отсутствует
 
-- ✅ Основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
-- ✅ Изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
-- ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
-- ✅ Безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
 - ⬜ Подключение биржевого аккаунта через пользовательский сценарий.
 - ⬜ Периодическая синхронизация аккаунта и позиций.
 - ⬜ Пользовательский workflow чтения и синхронизации сохранённых позиций, оценок и рекомендаций.
@@ -160,7 +160,7 @@
 
 ### Этап C. Добавить хранение, безопасность и пользователей
 
-Статус этапа: 🟡 C-08 частично; C-07 завершён.
+Статус этапа: ✅ Завершён.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -172,7 +172,7 @@
 | C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ✅ | Реализованы explicit migration lifecycle, отдельные Identity/OpenIddict persistence и deployable host, Authorization Code + PKCE (S256), signed short-lived non-encrypted JWT, public issuer/internal backchannel для discovery/JWKS, discovery scopes, lockout, overlapping signing keys, JwtBearer validation, Compose-level protected Bearer smoke и PostgreSQL integration tests; stable user-delegated `sub` → Domain `UserId`, public endpoints anonymous. См. ADR-0003 |
 | C-06 | Реализовать разграничение данных по `UserId` | ✅ | User-delegated `sub` сопоставляется с Domain `UserId`; user-owned операции изолированы по владельцу и подтверждены PostgreSQL и Bearer E2E-тестами |
 | C-07 | Реализовать шифрование, отзыв и ротацию ключей Bybit | ✅ | Ключи не хранятся открыто и не попадают в ответы и логи; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection |
-| C-08 | Добавить интеграционные тесты с PostgreSQL | 🟡 | Проверены migrations, relational constraints и persistence round-trip; concurrency, user isolation и security относятся к C-04/C-06/C-07 |
+| C-08 | Добавить интеграционные тесты с PostgreSQL | ✅ | Проверены migrations, relational constraints, persistence round-trip, concurrency, user isolation, OAuth/OIDC и credential security на реальном PostgreSQL через Testcontainers |
 
 ### Этап D. Подключить аккаунт Bybit только для чтения и синхронизацию
 
@@ -382,21 +382,20 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Реализовать защиту ключей Bybit | C-07 |
-| 2 | Реализовать подключение биржевого аккаунта | D-01 |
-| 3 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
-| 4 | Добавить общий кэш публичных снимков рынка | D-07 |
-| 5 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
-| 6 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
-| 7 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
-| 8 | Создать адаптивную React-панель | G-01 — G-08 |
-| 9 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 10 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
-| 11 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 12 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 13 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Реализовать подключение биржевого аккаунта | D-01 |
+| 2 | Реализовать синхронизацию и постоянную историю позиций | D-02 — D-06 |
+| 3 | Добавить общий кэш публичных снимков рынка | D-07 |
+| 4 | Реализовать детерминированную оценку позиции | E-01 — E-03, E-09, E-10 |
+| 5 | Реализовать политику и жизненный цикл рекомендаций | E-04 — E-08 |
+| 6 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
+| 7 | Создать адаптивную React-панель | G-01 — G-08 |
+| 8 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 9 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
+| 10 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 11 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 12 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этап B завершён и больше не входит в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы B и C завершены и больше не входят в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -454,6 +453,9 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-08 | 2.7 | По результатам проверки `develop` на коммите `74a91f4` этап C и C-08 отмечены завершёнными: PostgreSQL integration suites покрыли migrations, persistence, concurrency, user isolation, OAuth/OIDC и credential security. Документация синхронизирована с кодовой базой, следующим этапом назначен D-01. |
+| 2026-09-08 | 2.6 | В PR #73 завершён Tech-03: добавлены структурированное логирование, прикладная телеметрия и контролируемая устойчивость внешних вызовов. Техническая подготовка перед этапом D завершена. |
+| 2026-09-08 | 2.5 | В PR #71 завершён Tech-02: добавлены единый `ProblemDetails` contract, центральный `IExceptionHandler` и безопасное mapping exception → HTTP. |
 | 2026-09-07 | 2.4 | Выполнена техническая подготовка перед этапом D: приватный exchange boundary получил явный результат баланса, нейтральную классификацию failures, сохранённую cancellation-семантику и coverage artifact. D-01 по-прежнему не начат; HTTP error handling и resilience остаются отдельными задачами. |
 | 2026-09-07 | 2.3 | В Issue #66 и PR #67 реализована защита Bybit credentials: AES-256-GCM payload с AAD user/account identity, внешний key ring, CAS rotate/revoke/reprotect, PostgreSQL security tests и безопасная Compose/CI/Aspire конфигурация. Следующий этап — D-01; C-08 остаётся частично выполненным. |
 | 2026-09-07 | 2.2 | В Issue #64 и PR #65 реализован C-06: user-delegated `sub` сопоставляется с Domain `UserId`, user-owned repository operations получают явный scope, foreign identifiers не раскрывают данные и не изменяют CAS/history, а PostgreSQL и Bearer E2E tests подтверждают изоляцию. Следующая задача — C-07. |
