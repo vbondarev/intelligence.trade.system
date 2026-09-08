@@ -55,6 +55,39 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Position_account_query_is_scoped_to_user_and_exchange_account_and_returns_versions()
+    {
+        var userId = UserId.New();
+        var firstAccount = CreateAccount(userId);
+        var secondAccount = CreateAccount(userId);
+        var firstPosition = CreatePosition(firstAccount.Id, "BTCUSDT");
+        var secondPosition = CreatePosition(secondAccount.Id, "ETHUSDT");
+        var foreignUserId = UserId.New();
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            var accountRepository = new ExchangeAccountRepository(dbContext);
+            var positionRepository = new PositionRepository(dbContext);
+            await accountRepository.SaveAsync(userId, firstAccount, expectedVersion: null);
+            await accountRepository.SaveAsync(userId, secondAccount, expectedVersion: null);
+            await positionRepository.SaveAsync(userId, firstPosition, expectedVersion: null);
+            await positionRepository.SaveAsync(userId, secondPosition, expectedVersion: null);
+        }
+
+        await using var queryContext = await CreateMigratedContext();
+        var queryRepository = new PositionRepository(queryContext);
+        var firstResult = await queryRepository.GetByExchangeAccountAsync(userId, firstAccount.Id);
+
+        Assert.Single(firstResult);
+        Assert.Equal(firstPosition.Id, firstResult.Single().Value.Id);
+        Assert.Equal(ConcurrencyVersion.Initial, firstResult.Single().Version);
+        var secondResult = await queryRepository.GetByExchangeAccountAsync(userId, secondAccount.Id);
+        Assert.Single(secondResult);
+        Assert.Equal(secondPosition.Id, secondResult.Single().Value.Id);
+        Assert.Empty(await queryRepository.GetByExchangeAccountAsync(foreignUserId, firstAccount.Id));
+    }
+
+    [Fact]
     public async Task Foreign_versioned_writes_do_not_change_rows_versions_history_or_reasons()
     {
         var owner = CreateAggregateSet("SOLUSDT");
@@ -460,6 +493,25 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0,
             lastError: null);
+
+    private static Position CreatePosition(
+        ExchangeAccountId exchangeAccountId,
+        string instrument) =>
+        Position.Create(
+            ExchangePositionKey.Create(
+                exchangeAccountId,
+                InstrumentId.From(instrument),
+                PositionSide.Long,
+                0),
+            MarketCategory.Linear,
+            1m,
+            T0,
+            T0,
+            averageEntryPrice: 100m,
+            positionValue: 100m,
+            leverage: 2m,
+            markPrice: 100m,
+            unrealizedPnl: 0m);
 
     private static PortfolioPositionState CreatePortfolioPositionState(
         Position position,

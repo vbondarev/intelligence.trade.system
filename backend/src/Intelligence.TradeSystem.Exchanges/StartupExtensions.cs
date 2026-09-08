@@ -1,5 +1,6 @@
 using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Application.Accounts.Access;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
@@ -13,6 +14,7 @@ public static class StartupExtensions
     public static IServiceCollection AddBybitExchange(this IServiceCollection services)
     {
         services.AddSingleton<BybitPrivateAccountProviderFactory>();
+        services.AddSingleton<IPrivateAccountProviderFactory, BybitPrivateAccountProviderFactoryAdapter>();
         services.AddSingleton<IExchangeAccountAccessVerifier, BybitExchangeAccountAccessVerifier>();
         services.AddScoped<IBybitRestClient>(serviceProvider =>
             BybitClientFactory.CreatePublicClient());

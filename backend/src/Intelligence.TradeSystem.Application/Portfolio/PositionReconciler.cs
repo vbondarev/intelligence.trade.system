@@ -35,6 +35,7 @@ public static class PositionReconciler
         var warnings = new List<string>();
         var changes = new List<PositionChange>();
         var newPositions = new List<Position>();
+        var positionsToPersist = new HashSet<Position>();
 
         bool InScope(Position position) =>
             position.ExchangePositionKey.ExchangeAccountId == exchangeAccountId &&
@@ -55,7 +56,13 @@ public static class PositionReconciler
 
                 var staleChange = position.RefreshFreshness(now, staleAfter);
                 if (staleChange is not null)
+                {
                     changes.Add(staleChange);
+                    if (trackedPositions.Contains(position))
+                    {
+                        positionsToPersist.Add(position);
+                    }
+                }
             }
         }
 
@@ -72,7 +79,10 @@ public static class PositionReconciler
             }
 
             RefreshAccountFreshness();
-            return new PositionReconciliationResult(newPositions, changes, warnings);
+            return new PositionReconciliationResult(newPositions, changes, warnings)
+            {
+                PositionsToPersist = positionsToPersist.ToArray(),
+            };
         }
 
         // Only currently active (non-closed) lifecycles can be matched and updated by a new
@@ -122,6 +132,7 @@ public static class PositionReconciler
 
             if (activeByKey.TryGetValue(key, out var existing))
             {
+                positionsToPersist.Add(existing);
                 var change = existing.ApplyObservation(
                     observed.Size,
                     observation.ObservedAt,
@@ -197,10 +208,16 @@ public static class PositionReconciler
                 ? position.Close(observation.ObservedAt, missingCause)
                 : position.MarkUnknown(observation.ObservedAt, missingCause);
             if (change is not null)
+            {
                 changes.Add(change);
+                positionsToPersist.Add(position);
+            }
         }
 
         RefreshAccountFreshness();
-        return new PositionReconciliationResult(newPositions, changes, warnings);
+        return new PositionReconciliationResult(newPositions, changes, warnings)
+        {
+            PositionsToPersist = positionsToPersist.ToArray(),
+        };
     }
 }

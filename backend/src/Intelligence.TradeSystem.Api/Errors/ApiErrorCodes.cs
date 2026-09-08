@@ -7,6 +7,7 @@ internal static class ApiErrorCodes
     public const string MarketDataUnavailable = "market_data_unavailable";
     public const string ExchangeCredentialsInvalid = "exchange_credentials_invalid";
     public const string ExchangePermissionsRejected = "exchange_permissions_rejected";
+    public const string ExchangeAccountDisabled = "exchange_account_disabled";
     public const string ExchangeUnavailable = "exchange_unavailable";
     public const string InternalError = "internal_error";
 }

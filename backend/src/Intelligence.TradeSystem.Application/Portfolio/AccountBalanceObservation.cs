@@ -10,11 +10,13 @@ public sealed record AccountBalanceObservation
     private AccountBalanceObservation(
         AccountBalanceObservationStatus status,
         AccountBalance? balance,
-        ExchangeFailure? failure)
+        ExchangeFailure? failure,
+        DateTimeOffset observedAt)
     {
         Status = status;
         Balance = balance;
         Failure = failure;
+        ObservedAt = observedAt;
     }
 
     public AccountBalanceObservationStatus Status { get; }
@@ -29,15 +31,32 @@ public sealed record AccountBalanceObservation
     /// </summary>
     public ExchangeFailure? Failure { get; }
 
-    public static AccountBalanceObservation Complete(AccountBalance balance)
+    /// <summary>
+    /// The time at which the provider observed the balance.
+    /// </summary>
+    public DateTimeOffset ObservedAt { get; }
+
+    public static AccountBalanceObservation Complete(
+        AccountBalance balance,
+        DateTimeOffset? observedAt = null)
     {
         ArgumentNullException.ThrowIfNull(balance);
-        return new(AccountBalanceObservationStatus.Complete, balance, null);
+        return new(
+            AccountBalanceObservationStatus.Complete,
+            balance,
+            null,
+            observedAt ?? DateTimeOffset.UtcNow);
     }
 
-    public static AccountBalanceObservation Failed(ExchangeFailure failure)
+    public static AccountBalanceObservation Failed(
+        ExchangeFailure failure,
+        DateTimeOffset? observedAt = null)
     {
         ArgumentNullException.ThrowIfNull(failure);
-        return new(AccountBalanceObservationStatus.Failed, null, failure);
+        return new(
+            AccountBalanceObservationStatus.Failed,
+            null,
+            failure,
+            observedAt ?? DateTimeOffset.UtcNow);
     }
 }
