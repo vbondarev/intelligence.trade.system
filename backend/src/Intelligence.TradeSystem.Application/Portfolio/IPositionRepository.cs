@@ -6,6 +6,15 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 
 public interface IPositionRepository
 {
+    /// <summary>
+    /// Loads every lifecycle for one exchange account in the requested user scope,
+    /// including the persistence version required for compare-and-swap updates.
+    /// </summary>
+    Task<IReadOnlyCollection<Versioned<Position>>> GetByExchangeAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
     Task<Versioned<Position>?> GetByIdAsync(
         UserId userId,
         PositionId id,

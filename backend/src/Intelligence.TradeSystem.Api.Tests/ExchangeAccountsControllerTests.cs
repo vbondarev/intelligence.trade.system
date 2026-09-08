@@ -7,6 +7,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Portfolio;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -172,6 +173,65 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task Synchronize_Returns_Safe_Connected_Account_Response()
+    {
+        var account = CreateAccount();
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync
+            .Setup(value => value.SynchronizeAsync(
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+                ExchangeAccountSyncResult.Synchronized(
+                    account,
+                    PortfolioState.Create(
+                        account.Id,
+                        [],
+                        new PortfolioCapitalState(100m, 80m, DateTimeOffset.UtcNow, 100m),
+                        DateTimeOffset.UtcNow,
+                        TimeSpan.FromMinutes(5))));
+        var controller = CreateController(new Mock<IExchangeAccountService>(MockBehavior.Strict), sync);
+
+        var action = await controller.Synchronize(account.Id.Value, CancellationToken.None);
+
+        var response = action.Result.Should().BeOfType<OkObjectResult>().Subject;
+        response.Value.Should().BeOfType<ExchangeAccountResponse>();
+        JsonSerializer.Serialize(response.Value).Should().NotContain("apiSecret");
+        sync.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountSyncOutcome.NotFound, 404)]
+    [InlineData(ExchangeAccountSyncOutcome.AccountDisabled, 409)]
+    [InlineData(ExchangeAccountSyncOutcome.CredentialsUnavailable, 503)]
+    [InlineData(ExchangeAccountSyncOutcome.ExchangeUnavailable, 503)]
+    public async Task Synchronize_Maps_Application_Outcomes_To_Safe_Http_Results(
+        ExchangeAccountSyncOutcome outcome,
+        int expectedStatus)
+    {
+        var accountId = ExchangeAccountId.New();
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync
+            .Setup(value => value.SynchronizeAsync(accountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountSyncResult(outcome, null, null));
+        var controller = CreateController(new Mock<IExchangeAccountService>(MockBehavior.Strict), sync);
+
+        var action = await controller.Synchronize(accountId.Value, CancellationToken.None);
+
+        if (expectedStatus == 404)
+        {
+            action.Result.Should().BeOfType<NotFoundResult>();
+        }
+        else
+        {
+            action.Result.Should().BeOfType<ObjectResult>()
+                .Which.StatusCode.Should().Be(expectedStatus);
+        }
+
+        sync.VerifyAll();
+    }
+
+    [Fact]
     public async Task Disconnect_Returns_Disabled_Account_Without_Credentials()
     {
         var account = ExchangeAccount.Create(
@@ -195,9 +255,12 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     }
 
     private static ExchangeAccountsController CreateController(
-        Mock<IExchangeAccountService> service)
+        Mock<IExchangeAccountService> service,
+        Mock<IExchangeAccountSyncService>? sync = null)
     {
-        var controller = new ExchangeAccountsController(service.Object)
+        var controller = new ExchangeAccountsController(
+            service.Object,
+            (sync ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict)).Object)
         {
             ControllerContext = new ControllerContext
             {

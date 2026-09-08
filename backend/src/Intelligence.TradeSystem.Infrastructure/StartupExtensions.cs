@@ -40,6 +40,7 @@ public static class StartupExtensions
             .AddDbContextCheck<TradeSystemDbContext>("postgresql");
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
         services.AddScoped<IExchangeAccountCredentialStore, ExchangeAccountCredentialStore>();
+        services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
         services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();

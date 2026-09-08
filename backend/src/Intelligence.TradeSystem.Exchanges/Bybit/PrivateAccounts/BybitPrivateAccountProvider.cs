@@ -193,6 +193,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
     {
         using var activity = BybitExchangeTelemetry.StartActivity(BybitExchangeTelemetry.BalanceOperation);
         var stopwatch = Stopwatch.StartNew();
+        var observedAt = DateTimeOffset.UtcNow;
         var retryCount = 0;
         ExchangeFailure? retryFailure = null;
         var outcome = BybitExchangeTelemetry.FailureOutcome;
@@ -213,18 +214,18 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 failure = result.Failure
                     ?? new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false);
                 LogFailedBalance(accountType, failure, stopwatch.Elapsed);
-                return AccountBalanceObservation.Failed(failure);
+                return AccountBalanceObservation.Failed(failure, observedAt);
             }
 
             if (result.Response.Data?.List?.FirstOrDefault() is not { } balance)
             {
                 failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
                 LogFailedBalance(accountType, failure, stopwatch.Elapsed);
-                return AccountBalanceObservation.Failed(failure);
+                return AccountBalanceObservation.Failed(failure, observedAt);
             }
 
             outcome = BybitExchangeTelemetry.SuccessOutcome;
-            return AccountBalanceObservation.Complete(balance.MapAccountBalance());
+            return AccountBalanceObservation.Complete(balance.MapAccountBalance(), observedAt);
         }
         catch (OperationCanceledException)
         {

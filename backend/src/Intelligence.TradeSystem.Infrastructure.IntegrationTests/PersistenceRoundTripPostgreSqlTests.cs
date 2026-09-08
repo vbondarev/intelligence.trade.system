@@ -31,6 +31,43 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Exchange_account_sync_transaction_rolls_back_position_writes_on_persistence_failure()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+        }
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            var transaction = new ExchangeAccountSyncTransaction(dbContext);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => transaction.ExecuteAsync(
+                    async cancellationToken =>
+                    {
+                        await new PositionRepository(dbContext)
+                            .SaveAsync(
+                                account.UserId,
+                                position,
+                                expectedVersion: null,
+                                cancellationToken);
+                        throw new InvalidOperationException("portfolio persistence failed");
+                    }));
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.False(await verificationContext.Positions.AnyAsync(
+            row => row.Id == position.Id.Value));
+        Assert.False(await verificationContext.PositionChanges.AnyAsync(
+            row => row.PositionId == position.Id.Value));
+    }
+
+    [Fact]
     public async Task ExchangeAccount_round_trips_through_a_new_context()
     {
         var account = CreateAccount();

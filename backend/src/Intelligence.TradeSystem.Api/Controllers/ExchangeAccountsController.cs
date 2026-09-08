@@ -12,7 +12,9 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [ApiController]
 [Route("api/exchange-accounts")]
 [Authorize(Policy = "TradeUser")]
-public sealed class ExchangeAccountsController(IExchangeAccountService accountService)
+public sealed class ExchangeAccountsController(
+    IExchangeAccountService accountService,
+    IExchangeAccountSyncService syncService)
     : ControllerBase
 {
     [HttpPost("bybit")]
@@ -79,6 +81,35 @@ public sealed class ExchangeAccountsController(IExchangeAccountService accountSe
             : Ok(ToResponse(account));
     }
 
+    [HttpPost("{accountId:guid}/sync")]
+    [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<ExchangeAccountResponse>> Synchronize(
+        [FromRoute] Guid accountId,
+        CancellationToken cancellationToken)
+    {
+        var result = await syncService
+            .SynchronizeAsync(
+                ExchangeAccountId.FromGuid(accountId),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return result.Outcome switch
+        {
+            ExchangeAccountSyncOutcome.Synchronized when result.Account is not null =>
+                Ok(ToResponse(result.Account)),
+            ExchangeAccountSyncOutcome.NotFound => NotFound(),
+            ExchangeAccountSyncOutcome.AccountDisabled =>
+                Error(ApiErrorDescriptors.ExchangeAccountDisabled),
+            ExchangeAccountSyncOutcome.CredentialsUnavailable or
+                ExchangeAccountSyncOutcome.ExchangeUnavailable =>
+                Error(ApiErrorDescriptors.ExchangeUnavailable),
+            _ => Error(ApiErrorDescriptors.InternalError),
+        };
+    }
+
     private ObjectResult Error(ApiErrorDescriptor descriptor, string? detail = null) =>
         StatusCode(descriptor.StatusCode, ApiProblemDetails.Create(HttpContext, descriptor, detail));
 
@@ -94,5 +125,8 @@ public sealed class ExchangeAccountsController(IExchangeAccountService accountSe
                 .Where(capability =>
                     capability != ExchangeAccountCapabilities.None &&
                     account.Capabilities.HasFlag(capability))
-                .ToArray());
+            .ToArray())
+        {
+            LastSyncedAt = account.LastSyncedAt,
+        };
 }

@@ -17,6 +17,8 @@ public static class StartupExtensions
         services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();
         services.AddScoped<IExchangeAccountService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountService>(serviceProvider));
+        services.AddScoped<IExchangeAccountSyncService>(
+            serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountSyncService>(serviceProvider));
 
         return services;
     }

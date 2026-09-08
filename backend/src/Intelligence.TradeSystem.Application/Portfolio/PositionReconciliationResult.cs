@@ -9,5 +9,11 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 public sealed record PositionReconciliationResult(
     IReadOnlyList<Position> NewPositions,
     IReadOnlyList<PositionChange> Changes,
-    IReadOnlyList<string> Warnings);
-
+    IReadOnlyList<string> Warnings)
+{
+    /// <summary>
+    /// Existing positions whose current state was affected by this observation.
+    /// Includes dynamic-only updates that do not create a history record.
+    /// </summary>
+    public IReadOnlyList<Position> PositionsToPersist { get; init; } = [];
+}

@@ -25,6 +25,11 @@ public sealed class ExchangeAccountCredential
     /// </summary>
     public void Use(Action<string, string> use) => secret.Use(use);
 
+    /// <summary>
+    /// Uses the transient credential values and returns the callback result.
+    /// </summary>
+    public TResult Use<TResult>(Func<string, string, TResult> use) => secret.Use(use);
+
     /// <inheritdoc />
     public override string ToString() => $"Exchange account credential version {Version}.";
 }

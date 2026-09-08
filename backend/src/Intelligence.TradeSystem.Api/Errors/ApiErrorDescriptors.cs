@@ -32,6 +32,12 @@ internal static class ApiErrorDescriptors
         "Exchange API key permissions are not allowed.",
         "urn:intelligence-trade:error:exchange-permissions-rejected");
 
+    public static ApiErrorDescriptor ExchangeAccountDisabled { get; } = new(
+        ApiErrorCodes.ExchangeAccountDisabled,
+        StatusCodes.Status409Conflict,
+        "The exchange account is disabled.",
+        "urn:intelligence-trade:error:exchange-account-disabled");
+
     public static ApiErrorDescriptor ExchangeUnavailable { get; } = new(
         ApiErrorCodes.ExchangeUnavailable,
         StatusCodes.Status503ServiceUnavailable,
