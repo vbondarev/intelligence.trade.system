@@ -107,6 +107,42 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
     }
 
     [Fact]
+    public async Task Metadata_and_revoke_work_when_ciphertext_cannot_be_decrypted()
+    {
+        var account = CreateAccount();
+        var keys = CreateKeys("v1");
+
+        await using (var context = await CreateMigratedContext())
+        {
+            await SaveAccount(context, account);
+            await CreateStore(context, "v1", keys).CreateAsync(
+                account.UserId,
+                account.Id,
+                new ExchangeAccountCredentialSecret(
+                    "test-api-key-unreadable",
+                    "test-api-secret-unreadable"));
+
+            var row = await context.ExchangeAccountCredentials
+                .SingleAsync(credential => credential.ExchangeAccountId == account.Id.Value);
+            row.AuthenticationTag = Mutate(row.AuthenticationTag);
+            await context.SaveChangesAsync();
+        }
+
+        await using var readContext = await CreateMigratedContext();
+        var store = CreateStore(readContext, "v1", keys);
+        var metadata = await store.GetMetadataAsync(account.UserId, account.Id);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(ConcurrencyVersion.Initial, metadata!.Version);
+        await Assert.ThrowsAsync<CredentialProtectionException>(
+            () => store.GetAsync(account.UserId, account.Id));
+
+        await store.RevokeAsync(account.UserId, account.Id, metadata.Version);
+        Assert.False(await readContext.ExchangeAccountCredentials
+            .AnyAsync(credential => credential.ExchangeAccountId == account.Id.Value));
+    }
+
+    [Fact]
     public void Unsupported_payload_format_is_rejected()
     {
         var account = CreateAccount();
@@ -254,8 +290,15 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         }
 
         await using var readContext = await CreateMigratedContext();
+        var store = CreateStore(readContext, "v1", keys);
         await Assert.ThrowsAsync<CredentialProtectionException>(
-            () => CreateStore(readContext, "v1", keys).GetAsync(account.UserId, account.Id));
+            () => store.GetAsync(account.UserId, account.Id));
+
+        var metadata = await store.GetMetadataAsync(account.UserId, account.Id);
+        Assert.NotNull(metadata);
+        await store.RevokeAsync(account.UserId, account.Id, metadata!.Version);
+        Assert.False(await readContext.ExchangeAccountCredentials
+            .AnyAsync(credential => credential.ExchangeAccountId == account.Id.Value));
     }
 
     [Fact]

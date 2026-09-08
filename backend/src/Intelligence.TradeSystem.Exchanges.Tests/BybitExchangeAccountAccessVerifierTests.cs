@@ -19,7 +19,7 @@ namespace Intelligence.TradeSystem.Exchanges.Tests;
 public sealed class BybitExchangeAccountAccessVerifierTests
 {
     [Fact]
-    public async Task VerifyAsync_Confirms_ReadOnly_Metadata_And_Read_Capabilities()
+    public async Task VerifyAsync_Confirms_ReadOnly_Metadata_And_Read_Capabilities_Without_Wallet_Transfer_Scopes()
     {
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
@@ -98,9 +98,15 @@ public sealed class BybitExchangeAccountAccessVerifierTests
     }
 
     [Fact]
-    public async Task VerifyAsync_Rejects_Key_Without_Required_Metadata_Permissions()
+    public async Task VerifyAsync_Rejects_ReadOnly_Key_When_Balance_Read_Is_Denied()
     {
-        var account = CreateAccountApi(readOnly: true, hasPermissions: false);
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitBalance>>("10005", ErrorType.Unauthorized));
         var client = CreateClient(account, new Mock<IBybitRestClientApiTrading>());
         using var loggerFactory = LoggerFactory.Create(_ => { });
         var verifier = new BybitExchangeAccountAccessVerifier(
@@ -111,6 +117,33 @@ public sealed class BybitExchangeAccountAccessVerifierTests
             new ExchangeAccountCredentialSecret("api-key", "api-secret"));
 
         result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.PermissionsRejected);
+    }
+
+    [Theory]
+    [InlineData("timeout", ErrorType.Timeout)]
+    [InlineData("network", ErrorType.NetworkError)]
+    [InlineData("rate-limit", ErrorType.RateLimitRequest)]
+    public async Task VerifyAsync_Reports_Balance_Read_Transport_Failures_As_Unavailable(
+        string providerCode,
+        ErrorType errorType)
+    {
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitBalance>>(providerCode, errorType));
+        var client = CreateClient(account, new Mock<IBybitRestClientApiTrading>());
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var verifier = new BybitExchangeAccountAccessVerifier(
+            new BybitPrivateAccountProviderFactory(loggerFactory, _ => client.Object));
+
+        var result = await verifier.VerifyAsync(
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Unavailable);
     }
 
     [Fact]
@@ -133,8 +166,7 @@ public sealed class BybitExchangeAccountAccessVerifierTests
     }
 
     private static Mock<IBybitRestClientApiAccount> CreateAccountApi(
-        bool readOnly,
-        bool hasPermissions = true)
+        bool readOnly)
     {
         var account = new Mock<IBybitRestClientApiAccount>();
         account
@@ -142,17 +174,11 @@ public sealed class BybitExchangeAccountAccessVerifierTests
             .ReturnsAsync(CreateSuccess(new BybitApiKeyInfo
             {
                 Readonly = readOnly,
-                Permissions = hasPermissions
-                    ? new BybitPermissions
-                    {
-                        Wallet = ["AccountTransfer"],
-                        ContractTrade = ["Position"],
-                    }
-                    : new BybitPermissions
-                    {
-                        Wallet = [],
-                        ContractTrade = [],
-                    },
+                Permissions = new BybitPermissions
+                {
+                    Wallet = [],
+                    ContractTrade = [],
+                },
             }));
         return account;
     }

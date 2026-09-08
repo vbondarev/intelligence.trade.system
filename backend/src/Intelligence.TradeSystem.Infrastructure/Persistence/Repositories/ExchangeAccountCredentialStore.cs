@@ -34,6 +34,22 @@ internal sealed class ExchangeAccountCredentialStore(
             new ConcurrencyVersion(entity.Version));
     }
 
+    public async Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentity(userId, exchangeAccountId);
+
+        var version = await GetOwnedVersionAsync(
+            userId,
+            exchangeAccountId,
+            cancellationToken);
+        return version is null
+            ? null
+            : new ExchangeAccountCredentialMetadata(new ConcurrencyVersion(version.Value));
+    }
+
     public async Task<ConcurrencyVersion> CreateAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
@@ -196,6 +212,21 @@ internal sealed class ExchangeAccountCredentialStore(
             where credential.ExchangeAccountId == exchangeAccountId.Value
                   && account.UserId == userId.Value
             select credential)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<long?> GetOwnedVersionAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken)
+    {
+        return await (
+            from credential in dbContext.ExchangeAccountCredentials.AsNoTracking()
+            join account in dbContext.ExchangeAccounts.AsNoTracking()
+                on credential.ExchangeAccountId equals account.Id
+            where credential.ExchangeAccountId == exchangeAccountId.Value
+                  && account.UserId == userId.Value
+            select (long?)credential.Version)
             .SingleOrDefaultAsync(cancellationToken);
     }
 

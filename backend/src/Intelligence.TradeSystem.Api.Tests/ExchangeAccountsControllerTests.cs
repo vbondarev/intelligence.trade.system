@@ -4,6 +4,7 @@ using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Controllers;
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Http;
@@ -46,7 +47,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         service
             .Setup(value => value.ConnectAsync(
                 ExchangeId.Bybit,
-                It.IsAny<Application.Accounts.Credentials.ExchangeAccountCredentialSecret>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
         var controller = CreateController(service);
@@ -80,7 +81,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         service
             .Setup(value => value.ConnectAsync(
                 ExchangeId.Bybit,
-                It.IsAny<Application.Accounts.Credentials.ExchangeAccountCredentialSecret>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Failed(outcome));
         var controller = CreateController(service);
@@ -116,9 +117,41 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         service.Verify(
             value => value.ConnectAsync(
                 It.IsAny<ExchangeId>(),
-                It.IsAny<Application.Accounts.Credentials.ExchangeAccountCredentialSecret>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task ConnectBybit_Trims_ApiKey_And_ApiSecret_Before_Application_Call()
+    {
+        ExchangeAccountCredentialSecret? capturedCredentials = null;
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service
+            .Setup(value => value.ConnectAsync(
+                ExchangeId.Bybit,
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<ExchangeId, ExchangeAccountCredentialSecret, CancellationToken>(
+                (_, credentials, _) => capturedCredentials = credentials)
+            .ReturnsAsync(ExchangeAccountConnectionResult.Connected(CreateAccount()));
+        var controller = CreateController(service);
+
+        await controller.ConnectBybit(
+            new ConnectExchangeAccountRequest
+            {
+                ApiKey = " api-key ",
+                ApiSecret = " api-secret ",
+            },
+            CancellationToken.None);
+
+        capturedCredentials.Should().NotBeNull();
+        capturedCredentials!.Use((apiKey, apiSecret) =>
+        {
+            apiKey.Should().Be("api-key");
+            apiSecret.Should().Be("api-secret");
+        });
+        service.VerifyAll();
     }
 
     [Fact]

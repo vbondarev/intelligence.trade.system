@@ -41,7 +41,7 @@ public sealed class ExchangeAccountsController(IExchangeAccountService accountSe
 
         var credentials = new ExchangeAccountCredentialSecret(
             request.ApiKey.Trim(),
-            request.ApiSecret);
+            request.ApiSecret.Trim());
         var result = await accountService
             .ConnectAsync(ExchangeId.Bybit, credentials, cancellationToken)
             .ConfigureAwait(false);

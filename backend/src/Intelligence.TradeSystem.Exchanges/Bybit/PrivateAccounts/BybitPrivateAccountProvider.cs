@@ -164,12 +164,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
             }
 
             outcome = BybitExchangeTelemetry.SuccessOutcome;
-            var permissions = apiKeyInfo.Permissions;
-            return ApiKeyAccessMetadataObservation.Complete(
-                new ApiKeyAccessMetadata(
-                    apiKeyInfo.Readonly,
-                    HasWalletPermission(permissions?.Wallet),
-                    HasPositionPermission(permissions?.ContractTrade)));
+            return ApiKeyAccessMetadataObservation.Complete(new ApiKeyAccessMetadata(apiKeyInfo.Readonly));
         }
         catch (OperationCanceledException)
         {
@@ -193,13 +188,6 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 retryFailure);
         }
     }
-
-    private static bool HasWalletPermission(string[]? permissions) =>
-        permissions is { Length: > 0 };
-
-    private static bool HasPositionPermission(string[]? permissions) =>
-        permissions?.Any(permission =>
-            string.Equals(permission, "Position", StringComparison.OrdinalIgnoreCase)) == true;
 
     public async Task<AccountBalanceObservation> GetWalletBalanceAsync(AccountType accountType, CancellationToken cancellationToken = default)
     {

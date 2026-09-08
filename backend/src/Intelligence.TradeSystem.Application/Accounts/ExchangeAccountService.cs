@@ -103,52 +103,29 @@ public sealed class ExchangeAccountService(
         }
 
         var account = loaded.Value;
-        var credential = await credentialStore
-            .GetAsync(userId, exchangeAccountId, cancellationToken)
+        var credentialMetadata = await credentialStore
+            .GetMetadataAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
 
-        if (account.ConnectionStatus == ExchangeAccountConnectionStatus.Disabled)
-        {
-            if (credential is not null)
-            {
-                await credentialStore
-                    .RevokeAsync(userId, exchangeAccountId, credential.Version, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            return account;
-        }
-
-        if (credential is null)
-        {
-            account.Disable();
-            await repository
-                .SaveAsync(userId, account, loaded.Version, cancellationToken)
-                .ConfigureAwait(false);
-            return account;
-        }
-
-        var restorationSecret = CopySecret(credential);
-        await credentialStore
-            .RevokeAsync(userId, exchangeAccountId, credential.Version, cancellationToken)
-            .ConfigureAwait(false);
-
-        try
+        // Disable first so a failed revoke cannot leave an active account whose
+        // credentials must no longer be used.
+        if (account.ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
         {
             account.Disable();
             await repository
                 .SaveAsync(userId, account, loaded.Version, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (Exception exception)
+
+        if (credentialMetadata is not null)
         {
-            await RestoreCredentialsAfterDisconnectFailureAsync(
+            await credentialStore
+                .RevokeAsync(
                     userId,
                     exchangeAccountId,
-                    restorationSecret,
-                    exception)
+                    credentialMetadata.Version,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            throw;
         }
 
         return account;
@@ -195,36 +172,6 @@ public sealed class ExchangeAccountService(
         }
 
         RethrowWithCompensationFailures(originalException, compensationFailures);
-    }
-
-    private async Task RestoreCredentialsAfterDisconnectFailureAsync(
-        UserId userId,
-        ExchangeAccountId accountId,
-        ExchangeAccountCredentialSecret secret,
-        Exception originalException)
-    {
-        var compensationFailures = new List<Exception>();
-
-        try
-        {
-            await credentialStore
-                .CreateAsync(userId, accountId, secret, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            compensationFailures.Add(exception);
-        }
-
-        RethrowWithCompensationFailures(originalException, compensationFailures);
-    }
-
-    private static ExchangeAccountCredentialSecret CopySecret(ExchangeAccountCredential credential)
-    {
-        ExchangeAccountCredentialSecret copy = null!;
-        credential.Use((apiKey, apiSecret) =>
-            copy = new ExchangeAccountCredentialSecret(apiKey, apiSecret));
-        return copy;
     }
 
     private static void RethrowWithCompensationFailures(

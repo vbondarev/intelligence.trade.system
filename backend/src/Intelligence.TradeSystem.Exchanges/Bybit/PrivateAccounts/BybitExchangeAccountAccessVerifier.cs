@@ -44,19 +44,16 @@ public sealed class BybitExchangeAccountAccessVerifier(
             return FromFailure(metadata.Failure);
         }
 
-        // Bybit's permissions arrays describe product scopes, while readOnly=1 is
-        // the authoritative flag that disables every write operation for the key.
-        if (metadata.Metadata is not
-            {
-                IsReadOnly: true,
-                HasReadBalancePermission: true,
-                HasReadPositionsPermission: true,
-            })
+        // Bybit's readOnly flag is the authoritative write-safety check. The
+        // capabilities below are confirmed by the corresponding read operations.
+        if (metadata.Metadata?.IsReadOnly != true)
         {
             return ExchangeAccountAccessVerificationResult.Failed(
                 ExchangeAccountAccessVerificationStatus.PermissionsRejected);
         }
 
+        // D-01 verifies the currently supported Unified/Linear Bybit path;
+        // legacy account-mode probing is intentionally out of scope.
         var balance = await lease.Provider
             .GetWalletBalanceAsync(AccountType.Unified, cancellationToken)
             .ConfigureAwait(false);
