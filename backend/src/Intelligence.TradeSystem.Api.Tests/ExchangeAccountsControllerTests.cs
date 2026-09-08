@@ -242,6 +242,32 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task Synchronize_ExchangeUnavailable_Does_Not_Expose_Provider_Diagnostics()
+    {
+        var accountId = ExchangeAccountId.New();
+        var userId = UserId.New();
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync
+            .Setup(value => value.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountSyncResult(
+                ExchangeAccountSyncOutcome.ExchangeUnavailable,
+                null,
+                null));
+        var controller = CreateController(
+            new Mock<IExchangeAccountService>(MockBehavior.Strict),
+            sync,
+            CreateCurrentUser(userId));
+
+        var action = await controller.Synchronize(accountId.Value, CancellationToken.None);
+
+        var result = action.Result.Should().BeOfType<ObjectResult>().Subject;
+        var problem = result.Value.Should().BeOfType<ProblemDetails>().Subject;
+        problem.Detail.Should().NotContain("provider-secret-like-message");
+        problem.Detail.Should().NotContain("api-secret");
+        sync.VerifyAll();
+    }
+
+    [Fact]
     public async Task Disconnect_Returns_Disabled_Account_Without_Credentials()
     {
         var account = ExchangeAccount.Create(

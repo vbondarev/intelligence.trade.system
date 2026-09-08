@@ -1,4 +1,6 @@
-﻿using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
@@ -65,6 +67,189 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             row => row.Id == position.Id.Value));
         Assert.False(await verificationContext.PositionChanges.AnyAsync(
             row => row.PositionId == position.Id.Value));
+    }
+
+    [Fact]
+    public async Task Degraded_sync_persists_unknown_position_history_portfolio_and_account_metadata()
+    {
+        var account = CreateAccount();
+        account.MarkConnected();
+        var position = CreatePosition(account.Id);
+        var initialPortfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 900m),
+            T0,
+            TimeSpan.FromMinutes(5));
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext)
+                .SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PortfolioStateRepository(setupContext)
+                .SaveAsync(account.UserId, initialPortfolio);
+        }
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            var accounts = new ExchangeAccountRepository(dbContext);
+            var positions = new PositionRepository(dbContext);
+            var portfolios = new PortfolioStateRepository(dbContext);
+            var loadedAccount = await accounts.GetByIdAsync(account.UserId, account.Id);
+            var loadedPositions = await positions.GetByExchangeAccountAsync(account.UserId, account.Id);
+            var previousPortfolio = await portfolios.GetLatestAsync(account.UserId, account.Id);
+
+            Assert.NotNull(loadedAccount);
+            Assert.Single(loadedPositions);
+            Assert.NotNull(previousPortfolio);
+
+            await new ExchangeAccountSyncTransaction(dbContext).ExecuteAsync(
+                async cancellationToken =>
+                {
+                    var reconciliation = PositionReconciler.Reconcile(
+                        account.Id,
+                        loadedPositions.Select(item => item.Value).ToArray(),
+                        OpenPositionsObservation.Failed(
+                            MarketCategory.Linear,
+                            null,
+                            T0.AddMinutes(1),
+                            "provider-secret-like-message"),
+                        T0.AddMinutes(1),
+                        TimeSpan.FromMinutes(5));
+                    var tracked = loadedPositions.Single();
+                    await positions.SaveAsync(
+                        account.UserId,
+                        tracked.Value,
+                        tracked.Version,
+                        cancellationToken);
+
+                    var degradedPortfolio = PortfolioStateAssembler.AssembleWithCapital(
+                        previousPortfolio!.Capital,
+                        [tracked.Value],
+                        account.Id,
+                        T0.AddMinutes(1),
+                        TimeSpan.FromMinutes(5));
+                    await portfolios.SaveAsync(account.UserId, degradedPortfolio, cancellationToken);
+
+                    loadedAccount.Value.RecordSyncFailure("positions_failed");
+                    await accounts.SaveAsync(
+                        account.UserId,
+                        loadedAccount.Value,
+                        loadedAccount.Version,
+                        cancellationToken);
+
+                    Assert.Contains(
+                        reconciliation.Changes,
+                        change => change.Kind == PositionChangeKind.MarkedUnknown);
+                });
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedAccount = await new ExchangeAccountRepository(verificationContext)
+            .GetByIdAsync(account.UserId, account.Id);
+        var persistedPosition = await new PositionRepository(verificationContext)
+            .GetByIdAsync(account.UserId, position.Id);
+        var persistedPortfolio = await new PortfolioStateRepository(verificationContext)
+            .GetLatestAsync(account.UserId, account.Id);
+
+        Assert.NotNull(persistedAccount);
+        Assert.Equal(ExchangeAccountConnectionStatus.Unavailable, persistedAccount!.Value.ConnectionStatus);
+        Assert.Equal(account.LastSyncedAt, persistedAccount.Value.LastSyncedAt);
+        Assert.Equal("positions_failed", persistedAccount.Value.LastError);
+        Assert.NotNull(persistedPosition);
+        Assert.Equal(PositionTrackingState.Unknown, persistedPosition!.Value.TrackingState);
+        Assert.Contains(
+            persistedPosition.Value.Changes,
+            change => change.Kind == PositionChangeKind.MarkedUnknown);
+        Assert.NotNull(persistedPortfolio);
+        Assert.Equal(initialPortfolio.Capital, persistedPortfolio!.Capital);
+        Assert.Equal(PositionTrackingState.Unknown, persistedPortfolio.Positions.Single().TrackingState);
+    }
+
+    [Fact]
+    public async Task Degraded_sync_transaction_rolls_back_position_history_portfolio_and_account_on_failure()
+    {
+        var account = CreateAccount();
+        account.MarkConnected();
+        var position = CreatePosition(account.Id);
+        var initialPortfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 900m),
+            T0,
+            TimeSpan.FromMinutes(5));
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext)
+                .SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PortfolioStateRepository(setupContext)
+                .SaveAsync(account.UserId, initialPortfolio);
+        }
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new ExchangeAccountSyncTransaction(dbContext).ExecuteAsync(
+                    async cancellationToken =>
+                    {
+                        var accounts = new ExchangeAccountRepository(dbContext);
+                        var positions = new PositionRepository(dbContext);
+                        var portfolios = new PortfolioStateRepository(dbContext);
+                        var loadedAccount = await accounts.GetByIdAsync(account.UserId, account.Id, cancellationToken);
+                        var loadedPosition = await positions.GetByIdAsync(account.UserId, position.Id, cancellationToken);
+
+                        Assert.NotNull(loadedAccount);
+                        Assert.NotNull(loadedPosition);
+                        loadedPosition!.Value.MarkUnknown(T0.AddMinutes(1));
+                        await positions.SaveAsync(
+                            account.UserId,
+                            loadedPosition.Value,
+                            loadedPosition.Version,
+                            cancellationToken);
+                        var degradedPortfolio = PortfolioState.Create(
+                            account.Id,
+                            [loadedPosition.Value],
+                            initialPortfolio.Capital,
+                            T0.AddMinutes(1),
+                            TimeSpan.FromMinutes(5));
+                        await portfolios.SaveAsync(account.UserId, degradedPortfolio, cancellationToken);
+                        loadedAccount!.Value.RecordSyncFailure("positions_failed");
+                        await accounts.SaveAsync(
+                            account.UserId,
+                            loadedAccount.Value,
+                            loadedAccount.Version,
+                            cancellationToken);
+                        throw new InvalidOperationException("simulated persistence failure");
+                    }));
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedAccount = await new ExchangeAccountRepository(verificationContext)
+            .GetByIdAsync(account.UserId, account.Id);
+        var persistedPosition = await new PositionRepository(verificationContext)
+            .GetByIdAsync(account.UserId, position.Id);
+        var persistedPortfolio = await new PortfolioStateRepository(verificationContext)
+            .GetLatestAsync(account.UserId, account.Id);
+
+        Assert.NotNull(persistedAccount);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, persistedAccount!.Value.ConnectionStatus);
+        Assert.Null(persistedAccount.Value.LastError);
+        Assert.Equal(account.LastSyncedAt, persistedAccount.Value.LastSyncedAt);
+        Assert.NotNull(persistedPosition);
+        Assert.Equal(PositionTrackingState.Active, persistedPosition!.Value.TrackingState);
+        Assert.Single(persistedPosition.Value.Changes);
+        Assert.NotNull(persistedPortfolio);
+        Assert.Equal(initialPortfolio.CalculatedAt, persistedPortfolio!.CalculatedAt);
+        Assert.Equal(PositionTrackingState.Active, persistedPortfolio.Positions.Single().TrackingState);
+        Assert.Equal(
+            1,
+            await verificationContext.PortfolioStates.CountAsync(
+                state => state.ExchangeAccountId == account.Id.Value));
     }
 
     [Fact]

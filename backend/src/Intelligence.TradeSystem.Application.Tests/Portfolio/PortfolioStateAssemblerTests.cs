@@ -36,4 +36,25 @@ public sealed class PortfolioStateAssemblerTests
         result.Capital.TotalWalletBalance.Should().Be(12000m);
         result.Capital.ObservedAt.Should().Be(ObservedAt);
     }
+
+    [Fact]
+    public void Reuses_Previous_Capital_Without_Changing_Its_Observation_Time()
+    {
+        var previousCapital = new PortfolioCapitalState(
+            12500m,
+            8000m,
+            ObservedAt,
+            12000m);
+
+        var result = PortfolioStateAssembler.AssembleWithCapital(
+            previousCapital,
+            [],
+            Account,
+            ObservedAt.AddMinutes(10),
+            TimeSpan.FromMinutes(5));
+
+        result.Capital.Should().BeSameAs(previousCapital);
+        result.Capital.ObservedAt.Should().Be(ObservedAt);
+        result.IsFresh.Should().BeFalse();
+    }
 }
