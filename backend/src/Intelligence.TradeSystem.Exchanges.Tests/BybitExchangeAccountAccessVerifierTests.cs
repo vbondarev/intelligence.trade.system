@@ -27,7 +27,17 @@ public sealed class BybitExchangeAccountAccessVerifierTests
                 Category.Linear,
                 null,
                 null,
+                "USDT",
+                200,
                 null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
+        trading
+            .Setup(api => api.GetPositionsAsync(
+                Category.Linear,
+                null,
+                null,
+                "USDC",
                 200,
                 null,
                 It.IsAny<CancellationToken>()))
@@ -59,6 +69,98 @@ public sealed class BybitExchangeAccountAccessVerifierTests
         result.Capabilities.Should().Be(
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
         client.Verify(value => value.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_Rejects_Partial_Aggregated_Position_Snapshot()
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(api => api.GetPositionsAsync(
+                Category.Linear,
+                null,
+                null,
+                "USDT",
+                200,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
+            }));
+        trading
+            .Setup(api => api.GetPositionsAsync(
+                Category.Linear,
+                null,
+                null,
+                "USDC",
+                200,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("USDC failed", ErrorType.NetworkError));
+
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+            }));
+        var client = CreateClient(account, trading);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var verifier = new BybitExchangeAccountAccessVerifier(
+            new BybitPrivateAccountProviderFactory(loggerFactory, _ => client.Object));
+
+        var result = await verifier.VerifyAsync(
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_Rejects_Failed_Aggregated_Position_Snapshot()
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        foreach (var settleCoin in new[] { "USDT", "USDC" })
+        {
+            trading
+                .Setup(api => api.GetPositionsAsync(
+                    Category.Linear,
+                    null,
+                    null,
+                    settleCoin,
+                    200,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>(
+                    $"{settleCoin} failed",
+                    ErrorType.NetworkError));
+        }
+
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+            }));
+        var client = CreateClient(account, trading);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var verifier = new BybitExchangeAccountAccessVerifier(
+            new BybitPrivateAccountProviderFactory(loggerFactory, _ => client.Object));
+
+        var result = await verifier.VerifyAsync(
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Unavailable);
     }
 
     [Fact]

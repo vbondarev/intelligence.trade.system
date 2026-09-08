@@ -46,7 +46,7 @@ public sealed class BybitPrivateAccountProviderTests
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
             {
                 List =
@@ -54,6 +54,10 @@ public sealed class BybitPrivateAccountProviderTests
                     new BybitPosition { Symbol = "BTCUSDT", Quantity = 1.5m, Side = PositionSide.Buy },
                 ],
             }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
 
         var provider = CreateProvider(trading);
 
@@ -64,12 +68,84 @@ public sealed class BybitPrivateAccountProviderTests
     }
 
     [Fact]
+    public async Task GetOpenPositionsAsync_Linear_All_Settlement_Coins_Are_Merged_Into_One_Complete_Observation()
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
+            }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "ETHUSDC", Quantity = 2m, Side = PositionSide.Sell }],
+            }));
+
+        var observation = await CreateProvider(trading)
+            .GetOpenPositionsAsync(MarketCategory.Linear);
+
+        observation.Status.Should().Be(OpenPositionsObservationStatus.Complete);
+        observation.Positions.Should().SatisfyRespectively(
+            first => first.Symbol.Should().Be("BTCUSDT"),
+            second => second.Symbol.Should().Be("ETHUSDC"));
+        trading.Verify(t => t.GetPositionsAsync(
+            Category.Linear,
+            null,
+            null,
+            "USDT",
+            200,
+            null,
+            It.IsAny<CancellationToken>()), Times.Once);
+        trading.Verify(t => t.GetPositionsAsync(
+            Category.Linear,
+            null,
+            null,
+            "USDC",
+            200,
+            null,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetOpenPositionsAsync_Linear_Settlement_Failure_Produces_Partial_Observation()
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
+            }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("USDC failed"));
+
+        var observation = await CreateProvider(trading)
+            .GetOpenPositionsAsync(MarketCategory.Linear);
+
+        observation.Status.Should().Be(OpenPositionsObservationStatus.Partial);
+        observation.Positions.Should().ContainSingle(position => position.Symbol == "BTCUSDT");
+        observation.Error.Should().Be("USDC failed");
+    }
+
+    [Fact]
     public async Task GetOpenPositionsAsync_Returns_Failed_On_Api_Error()
     {
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("boom"));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("boom"));
 
         var provider = CreateProvider(trading);
@@ -87,14 +163,22 @@ public sealed class BybitPrivateAccountProviderTests
         var emptyTrading = new Mock<IBybitRestClientApiTrading>();
         emptyTrading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
+        emptyTrading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
         var emptyObservation = await CreateProvider(emptyTrading).GetOpenPositionsAsync(MarketCategory.Linear);
 
         var failedTrading = new Mock<IBybitRestClientApiTrading>();
         failedTrading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("boom"));
+        failedTrading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("boom"));
         var failedObservation = await CreateProvider(failedTrading).GetOpenPositionsAsync(MarketCategory.Linear);
 
@@ -111,7 +195,7 @@ public sealed class BybitPrivateAccountProviderTests
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
             {
                 List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
@@ -119,11 +203,15 @@ public sealed class BybitPrivateAccountProviderTests
             }));
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, "next-page", It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, "next-page", It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
             {
                 List = [new BybitPosition { Symbol = "ETHUSDT", Quantity = 2m, Side = PositionSide.Sell }],
             }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
 
         var provider = CreateProvider(trading);
 
@@ -141,7 +229,7 @@ public sealed class BybitPrivateAccountProviderTests
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
             {
                 List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
@@ -149,8 +237,12 @@ public sealed class BybitPrivateAccountProviderTests
             }));
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, "next-page", It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, "next-page", It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>("page 2 failed"));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
 
         var provider = CreateProvider(trading);
 
@@ -180,7 +272,7 @@ public sealed class BybitPrivateAccountProviderTests
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, cancellation.Token))
+                Category.Linear, null, null, "USDT", 200, null, cancellation.Token))
             .ReturnsAsync(CreateProviderError<BybitResponse<BybitPosition>>(
                 "cancelled",
                 ErrorType.CancellationRequested));
@@ -571,7 +663,7 @@ public sealed class BybitPrivateAccountProviderTests
         var secondPageAttempts = 0;
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
             {
                 List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
@@ -579,7 +671,7 @@ public sealed class BybitPrivateAccountProviderTests
             }));
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, "next-page", It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, "next-page", It.IsAny<CancellationToken>()))
             .Returns(() =>
             {
                 secondPageAttempts++;
@@ -590,6 +682,10 @@ public sealed class BybitPrivateAccountProviderTests
                         List = [new BybitPosition { Symbol = "ETHUSDT", Quantity = 2m, Side = PositionSide.Sell }],
                     }));
             });
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
 
         var observation = await CreateProvider(
                 trading,
@@ -655,7 +751,7 @@ public sealed class BybitPrivateAccountProviderTests
         var trading = new Mock<IBybitRestClientApiTrading>();
         trading
             .Setup(t => t.GetPositionsAsync(
-                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+                Category.Linear, null, null, "USDT", 200, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HttpResult<BybitResponse<BybitPosition>>(
                 "Bybit",
                 default!,
@@ -666,6 +762,10 @@ public sealed class BybitPrivateAccountProviderTests
                 {
                     Message = secret,
                 }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, "USDC", 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition> { List = [] }));
 
         await CreateProvider(
                 trading,

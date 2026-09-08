@@ -2,7 +2,6 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio;
-using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -67,7 +66,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         result.Account.Should().BeSameAs(fixture.Account);
@@ -150,7 +149,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         trackedPosition.TrackingState.Should().Be(PositionTrackingState.Closed);
@@ -171,7 +170,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.NotFound);
         fixture.CredentialStore.Verify(
@@ -191,14 +190,15 @@ public sealed class ExchangeAccountSyncServiceTests
     public async Task SynchronizeAsync_Treats_Foreign_Account_As_NotFound()
     {
         var fixture = CreateFixture();
+        var foreignUserId = UserId.New();
         fixture.AccountRepository
             .Setup(repository => repository.GetByIdAsync(
-                fixture.UserId,
+                foreignUserId,
                 fixture.Account.Id,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(foreignUserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.NotFound);
     }
@@ -214,7 +214,7 @@ public sealed class ExchangeAccountSyncServiceTests
             RequiredCapabilities);
         var fixture = CreateFixture(disabledAccount);
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.AccountDisabled);
         fixture.CredentialStore.Verify(
@@ -241,7 +241,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((ExchangeAccountCredential?)null);
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.CredentialsUnavailable);
         fixture.Factory.Verify(
@@ -263,7 +263,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 new ExchangeFailure(ExchangeFailureKind.Unavailable, Retryable: true),
                 ObservedAt));
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
         fixture.Provider.Verify(
@@ -309,7 +309,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 ObservedAt,
                 "provider failure"));
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
         fixture.PositionRepository.Verify(
@@ -348,7 +348,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 ObservedAt,
                 []));
 
-        var result = await fixture.Service.SynchronizeAsync(fixture.Account.Id);
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
         fixture.PositionRepository.Verify(
@@ -387,9 +387,7 @@ public sealed class ExchangeAccountSyncServiceTests
 
     private static Fixture CreateFixture(ExchangeAccount? account = null)
     {
-        var currentUser = new Mock<ICurrentUserContext>(MockBehavior.Strict);
         var userId = account?.UserId ?? UserId.New();
-        currentUser.SetupGet(context => context.UserId).Returns(userId);
         var ownedAccount = account ?? ExchangeAccount.Create(
             ExchangeAccountId.New(),
             userId,
@@ -439,7 +437,6 @@ public sealed class ExchangeAccountSyncServiceTests
             portfolioRepository,
             transaction,
             new ExchangeAccountSyncService(
-                currentUser.Object,
                 accountRepository.Object,
                 credentialStore.Object,
                 factory.Object,

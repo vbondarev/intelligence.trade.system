@@ -5,6 +5,7 @@ using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Controllers;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
+using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -175,10 +176,12 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     [Fact]
     public async Task Synchronize_Returns_Safe_Connected_Account_Response()
     {
-        var account = CreateAccount();
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
         var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
         sync
             .Setup(value => value.SynchronizeAsync(
+                userId,
                 account.Id,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
@@ -190,7 +193,10 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
                         new PortfolioCapitalState(100m, 80m, DateTimeOffset.UtcNow, 100m),
                         DateTimeOffset.UtcNow,
                         TimeSpan.FromMinutes(5))));
-        var controller = CreateController(new Mock<IExchangeAccountService>(MockBehavior.Strict), sync);
+        var controller = CreateController(
+            new Mock<IExchangeAccountService>(MockBehavior.Strict),
+            sync,
+            CreateCurrentUser(userId));
 
         var action = await controller.Synchronize(account.Id.Value, CancellationToken.None);
 
@@ -210,11 +216,15 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         int expectedStatus)
     {
         var accountId = ExchangeAccountId.New();
+        var userId = UserId.New();
         var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
         sync
-            .Setup(value => value.SynchronizeAsync(accountId, It.IsAny<CancellationToken>()))
+            .Setup(value => value.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ExchangeAccountSyncResult(outcome, null, null));
-        var controller = CreateController(new Mock<IExchangeAccountService>(MockBehavior.Strict), sync);
+        var controller = CreateController(
+            new Mock<IExchangeAccountService>(MockBehavior.Strict),
+            sync,
+            CreateCurrentUser(userId));
 
         var action = await controller.Synchronize(accountId.Value, CancellationToken.None);
 
@@ -256,11 +266,14 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
 
     private static ExchangeAccountsController CreateController(
         Mock<IExchangeAccountService> service,
-        Mock<IExchangeAccountSyncService>? sync = null)
+        Mock<IExchangeAccountSyncService>? sync = null,
+        Mock<ICurrentUserContext>? currentUser = null)
     {
+        currentUser ??= CreateCurrentUser(UserId.New());
         var controller = new ExchangeAccountsController(
             service.Object,
-            (sync ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict)).Object)
+            (sync ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict)).Object,
+            currentUser.Object)
         {
             ControllerContext = new ControllerContext
             {
@@ -270,10 +283,17 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         return controller;
     }
 
-    private static ExchangeAccount CreateAccount() =>
+    private static Mock<ICurrentUserContext> CreateCurrentUser(UserId userId)
+    {
+        var currentUser = new Mock<ICurrentUserContext>(MockBehavior.Strict);
+        currentUser.SetupGet(value => value.UserId).Returns(userId);
+        return currentUser;
+    }
+
+    private static ExchangeAccount CreateAccount(UserId? userId = null) =>
         ExchangeAccount.Create(
             ExchangeAccountId.New(),
-            UserId.New(),
+            userId ?? UserId.New(),
             ExchangeId.Bybit,
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);

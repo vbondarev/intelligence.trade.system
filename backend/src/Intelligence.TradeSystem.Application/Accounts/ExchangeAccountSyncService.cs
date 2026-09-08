@@ -1,6 +1,5 @@
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Portfolio;
-using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -8,10 +7,9 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
-/// Coordinates one user-scoped, read-only exchange account synchronization.
+/// Coordinates one explicitly scoped, read-only exchange account synchronization.
 /// </summary>
 public sealed class ExchangeAccountSyncService(
-    ICurrentUserContext currentUserContext,
     IExchangeAccountRepository accountRepository,
     IExchangeAccountCredentialStore credentialStore,
     IPrivateAccountProviderFactory providerFactory,
@@ -23,9 +21,15 @@ public sealed class ExchangeAccountSyncService(
     private static readonly TimeSpan PortfolioStaleAfter = TimeSpan.FromMinutes(5);
 
     public async Task<ExchangeAccountSyncResult> SynchronizeAsync(
+        UserId userId,
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default)
     {
+        if (userId == default)
+        {
+            throw new ArgumentException("UserId must be initialized.", nameof(userId));
+        }
+
         if (exchangeAccountId == default)
         {
             throw new ArgumentException(
@@ -33,7 +37,6 @@ public sealed class ExchangeAccountSyncService(
                 nameof(exchangeAccountId));
         }
 
-        var userId = currentUserContext.UserId;
         var loadedAccount = await accountRepository
             .GetByIdAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);

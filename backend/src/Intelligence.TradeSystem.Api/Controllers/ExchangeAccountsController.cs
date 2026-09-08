@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
+using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -14,7 +15,8 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Authorize(Policy = "TradeUser")]
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
-    IExchangeAccountSyncService syncService)
+    IExchangeAccountSyncService syncService,
+    ICurrentUserContext currentUserContext)
     : ControllerBase
 {
     [HttpPost("bybit")]
@@ -92,6 +94,7 @@ public sealed class ExchangeAccountsController(
     {
         var result = await syncService
             .SynchronizeAsync(
+                currentUserContext.UserId,
                 ExchangeAccountId.FromGuid(accountId),
                 cancellationToken)
             .ConfigureAwait(false);
