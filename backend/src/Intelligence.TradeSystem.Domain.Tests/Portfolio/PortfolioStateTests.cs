@@ -102,6 +102,27 @@ public sealed class PortfolioStateTests
     }
 
     [Fact]
+    public void Incomplete_Position_Coverage_Blocks_Fresh_And_Complete_Flags()
+    {
+        var state = PortfolioState.Create(
+            Account,
+            [],
+            new PortfolioCapitalState(100m, 50m, T0),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5),
+            positionsFullyReconciled: false);
+
+        state.PositionsFullyReconciled.Should().BeFalse();
+        state.IsFresh.Should().BeFalse();
+        state.IsComplete.Should().BeFalse();
+        var result = PortfolioRiskPolicy.EvaluateRiskIncrease(
+            state, new PortfolioRiskPolicySettings(0m, 100m, 100m));
+        result.Decision.Should().Be(RiskIncreaseDecision.Blocked);
+        result.ReasonCodes.Should().Contain(ReasonCode.PortfolioDataIncomplete);
+        result.ReasonCodes.Should().Contain(ReasonCode.PortfolioDataStale);
+    }
+
+    [Fact]
     public void Zero_Equity_Makes_Portfolio_Incomplete_And_Blocks_RiskIncrease()
     {
         var state = CreateState([], equity: 0m, available: 0m);

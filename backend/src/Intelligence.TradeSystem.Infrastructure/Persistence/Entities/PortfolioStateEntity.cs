@@ -23,6 +23,7 @@ public sealed class PortfolioStateEntity
     public decimal? GrossExposureToEquityPercent { get; set; }
     public decimal? LargestPositionConcentrationPercent { get; set; }
     public Guid? LargestPositionId { get; set; }
+    public bool PositionsFullyReconciled { get; set; }
     public bool IsComplete { get; set; }
     public bool IsFresh { get; set; }
 }

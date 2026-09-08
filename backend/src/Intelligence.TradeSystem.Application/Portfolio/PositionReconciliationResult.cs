@@ -16,4 +16,10 @@ public sealed record PositionReconciliationResult(
     /// Includes dynamic-only updates that do not create a history record.
     /// </summary>
     public IReadOnlyList<Position> PositionsToPersist { get; init; } = [];
+
+    /// <summary>
+    /// Indicates that the observation covered its requested scope completely and without
+    /// mapping ambiguity, so absence can be used as evidence of closure.
+    /// </summary>
+    public bool IsFullyReconciled { get; init; }
 }

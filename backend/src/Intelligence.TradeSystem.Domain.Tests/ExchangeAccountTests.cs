@@ -101,6 +101,35 @@ public sealed class ExchangeAccountTests
     }
 
     [Fact]
+    public void RecordSyncFailure_Preserves_Last_Successful_Sync_Time()
+    {
+        var account = CreateAccount();
+        var syncedAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+
+        account.RecordSuccessfulSync(syncedAt);
+        account.RecordSyncFailure("positions_failed");
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+        account.LastSyncedAt.Should().Be(syncedAt);
+        account.LastError.Should().Be("positions_failed");
+    }
+
+    [Fact]
+    public void RecordSuccessfulSync_Recovers_From_Unavailable_And_Clears_Error()
+    {
+        var account = CreateAccount();
+        account.RecordSuccessfulSync(new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero));
+        account.RecordSyncFailure("balance_failed");
+        var recoveredAt = new DateTimeOffset(2026, 9, 8, 12, 5, 0, TimeSpan.Zero);
+
+        account.RecordSuccessfulSync(recoveredAt);
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        account.LastSyncedAt.Should().Be(recoveredAt);
+        account.LastError.Should().BeNull();
+    }
+
+    [Fact]
     public void Disable_Is_Idempotent_And_Prevents_Reactivation()
     {
         var account = CreateAccount(ExchangeAccountConnectionStatus.Connected);

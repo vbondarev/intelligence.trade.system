@@ -75,13 +75,17 @@ public static class PositionReconciler
 
                 var change = position.MarkUnknown(observation.ObservedAt, PositionChangeCause.PositionsObservationFailed);
                 if (change is not null)
+                {
                     changes.Add(change);
+                    positionsToPersist.Add(position);
+                }
             }
 
             RefreshAccountFreshness();
             return new PositionReconciliationResult(newPositions, changes, warnings)
             {
                 PositionsToPersist = positionsToPersist.ToArray(),
+                IsFullyReconciled = false,
             };
         }
 
@@ -162,6 +166,7 @@ public static class PositionReconciler
 
                 if (latestClosedLifecycle?.ClosedAt is { } closedAt && observation.ObservedAt <= closedAt)
                 {
+                    hasMappingIssues = true;
                     warnings.Add(
                         $"Skipped {key}: observation at {observation.ObservedAt:O} is not newer than the previous lifecycle closure at {closedAt:O}.");
                     continue;
@@ -218,6 +223,7 @@ public static class PositionReconciler
         return new PositionReconciliationResult(newPositions, changes, warnings)
         {
             PositionsToPersist = positionsToPersist.ToArray(),
+            IsFullyReconciled = canInferClosed,
         };
     }
 }

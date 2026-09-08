@@ -47,6 +47,9 @@ public sealed class PortfolioStateConfiguration : IEntityTypeConfiguration<Portf
         builder.Property(state => state.LargestPositionId)
             .HasColumnName("largest_position_id")
             .HasColumnType("uuid");
+        builder.Property(state => state.PositionsFullyReconciled)
+            .HasColumnName("positions_fully_reconciled")
+            .HasDefaultValue(false);
         builder.Property(state => state.IsComplete).HasColumnName("is_complete");
         builder.Property(state => state.IsFresh).HasColumnName("is_fresh");
 
