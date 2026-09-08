@@ -44,7 +44,7 @@
 - Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface; `Infrastructure` is composed by `Api` and depends inward on `Application` / `Domain`.
 - Stage B domain foundations are implemented in `Intelligence.TradeSystem.Domain`: typed identities, `ExchangeAccount`, `Position` lifecycle and `PositionChange` history, `PortfolioState` and portfolio risk policy, `PositionAssessment`, `Recommendation`, and separate decision vocabularies.
 - Position snapshot reconciliation and portfolio assembly live in `Intelligence.TradeSystem.Application/Portfolio`; they orchestrate domain behavior without adding persistence concerns.
-- Stage B foundations can now be persisted through Application repository ports implemented by Infrastructure. User authentication, account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
+- Stage B foundations are persisted through Application repository ports implemented by Infrastructure. OAuth/OIDC authentication, user isolation, and protected Bybit credential storage are implemented; account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
 - `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
 - Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
 - `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate legacy `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
@@ -67,8 +67,8 @@
 - A browser cookie is not the authentication contract of the main API. It is allowed only at a browser/BFF boundary; React, mobile, desktop, CLI, and future clients use the same business API.
 - Any automatically sent browser cookie at a BFF boundary requires explicit CSRF protection; `HttpOnly` alone is insufficient. This is separate from the Bearer contract of `/api/v1/*`.
 - Domain `UserId` is a stable `Guid` business identifier and must not depend on email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, machine identity, or a concrete identity provider. For user-delegated tokens, map stable `sub` to `UserId`, or map provider-controlled `issuer + sub` to an internal `UserId(Guid)` when the provider does not allow controlling the subject.
-- A Client Credentials subject is a machine/service principal, not a Domain user; it must not automatically receive user-owned data. C-06 must distinguish user and machine principals and own the separate authorization policy.
-- Public market endpoints remain anonymous. C-05/C-05A establish authenticated identity; C-06 owns authorization, ownership, user isolation, and cross-user protection.
+- A Client Credentials subject is a machine/service principal, not a Domain user; it must not automatically receive user-owned data. The C-06 authorization boundary distinguishes user and machine principals and protects user-owned data.
+- Public market endpoints remain anonymous. C-05/C-05A established authenticated identity; C-06 owns authorization, ownership, user isolation, and cross-user protection.
 - Future SignalR uses the same Bearer identity model as REST; do not create a separate SignalR identity model.
 
 ## Contract-sensitive areas
@@ -125,6 +125,7 @@
 - Shared project settings: `net10.0`, C# `14`, nullable enabled, centralized package versions via `Directory.Packages.props`.
 - Shared build behavior is defined through `Directory.Build.props` and `Directory.Build.targets`.
 - `Intelligence.TradeSystem.Domain.Tests` is the primary suite for stage B domain invariants; keep it in the solution and update it with domain behavior changes.
+- `Intelligence.TradeSystem.Infrastructure.IntegrationTests` and `Intelligence.TradeSystem.Authentication.IntegrationTests` validate PostgreSQL persistence, migrations, concurrency, user isolation, credential security, and real OAuth/OIDC flows through Testcontainers; Docker must be available when running them.
 - Verified from `backend/src`:
   - `dotnet build .\Intelligence.TradeSystem.slnx --no-restore`
   - `dotnet test .\Intelligence.TradeSystem.slnx --no-build --logger "console;verbosity=minimal"`
