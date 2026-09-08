@@ -105,6 +105,14 @@
 - `TimeframeSnapshotAssembler` sorts klines by `StartTime` ascending before indicator calculation; preserve that assumption if you touch timeframe assembly.
 - `MarketTagsBuilder` is the single source of snapshot tag ordering and whitelist.
 - `Console.Write*` is banned by `Directory.Build.targets`; use `ILogger`.
+- Bybit private read operations own their integration resilience at the exchange boundary: the
+  Bybit.Net request timeout is explicit, retries are bounded to one retry for timeout/network
+  failures, and caller cancellation is passed through without retry. Do not stack
+  `ConfigureHttpClientDefaults` resilience on the directly-created Bybit clients.
+- Private exchange telemetry is emitted from the Bybit adapter through the registered
+  `Intelligence.TradeSystem.Exchanges.Bybit` ActivitySource/Meter. Keep operation names stable,
+  failure fields normalized, and metric labels limited to bounded exchange/operation/outcome/
+  failure-kind/category values; never add symbols, account IDs, or credentials.
 
 ## Build, test, run
 - Solution file: `Intelligence.TradeSystem.slnx`.

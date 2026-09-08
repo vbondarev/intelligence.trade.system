@@ -8,8 +8,11 @@ using FluentAssertions;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
+using Intelligence.TradeSystem.Exchanges.Bybit.Telemetry;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
 using DomainAccountType = Intelligence.TradeSystem.Domain.AccountType;
 
@@ -368,9 +371,404 @@ public sealed class BybitPrivateAccountProviderTests
         exception.Which.CancellationToken.IsCancellationRequested.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task GetWalletBalanceAsync_Retries_Timeout_Once_And_Records_Two_Attempts()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(attempts == 1
+                    ? CreateProviderError<BybitResponse<BybitBalance>>("timeout", ErrorType.Timeout)
+                    : CreateSuccess(new BybitResponse<BybitBalance>
+                    {
+                        List =
+                        [
+                            new BybitBalance
+                            {
+                                AccountType = BybitAccountType.Unified,
+                                TotalEquity = 100m,
+                            },
+                        ],
+                    }));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Complete);
+        attempts.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("10003", ErrorType.Unauthorized, ExchangeFailureKind.InvalidCredentials)]
+    [InlineData("10005", ErrorType.Unauthorized, ExchangeFailureKind.PermissionDenied)]
+    public async Task GetWalletBalanceAsync_Does_Not_Retry_NonRetryable_Credentials_Failures(
+        string providerCode,
+        ErrorType errorType,
+        ExchangeFailureKind expectedKind)
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(CreateProviderError<BybitResponse<BybitBalance>>(providerCode, errorType));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Failure!.Kind.Should().Be(expectedKind);
+        attempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Does_Not_Retry_Rate_Limit_Without_Usable_RetryAfter()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    CreateProviderError<BybitResponse<BybitBalance>>("10006", ErrorType.RateLimitRequest));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Failure!.Kind.Should().Be(ExchangeFailureKind.RateLimited);
+        observation.Failure.Retryable.Should().BeTrue();
+        attempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Retries_RateLimit_With_Valid_RetryAfter_And_Preserves_Reason()
+    {
+        var activities = new List<Activity>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == BybitExchangeTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => activities.Add(activity),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        var measurements = new List<MetricMeasurement>();
+        using var meterListener = new MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == BybitExchangeTelemetry.MeterName)
+                listener.EnableMeasurementEvents(instrument);
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add(new(instrument.Name, value, tags.ToArray())));
+        meterListener.Start();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    attempts == 1
+                        ? CreateRateLimitError<BybitResponse<BybitBalance>>(DateTime.UtcNow.AddSeconds(1))
+                        : CreateSuccess(new BybitResponse<BybitBalance>
+                        {
+                            List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+                        }));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Complete);
+        attempts.Should().Be(2);
+        var activity = activities.Should().ContainSingle().Subject;
+        activity.GetTagItem("exchange.outcome").Should().Be(BybitExchangeTelemetry.SuccessOutcome);
+        activity.GetTagItem("exchange.failure_kind").Should().Be(string.Empty);
+        activity.GetTagItem("retry.count").Should().Be(1);
+        activity.GetTagItem("retry.failure_kind").Should().Be(nameof(ExchangeFailureKind.RateLimited));
+        measurements.Any(measurement => measurement.Name == "exchange.request.failures").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetWalletBalanceAsync_Does_Not_Retry_RateLimit_With_Excessive_RetryAfter()
+    {
+        var account = new Mock<IBybitRestClientApiAccount>();
+        var attempts = 0;
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    CreateRateLimitError<BybitResponse<BybitBalance>>(DateTime.UtcNow.AddSeconds(5)));
+            });
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Failed);
+        observation.Failure!.Kind.Should().Be(ExchangeFailureKind.RateLimited);
+        attempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetOpenPositionsAsync_Retries_The_Failed_Page_Without_Restarting_Pagination()
+    {
+        var activities = new List<Activity>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == BybitExchangeTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => activities.Add(activity),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        var secondPageAttempts = 0;
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
+                NextPageCursor = "next-page",
+            }));
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, null, 200, "next-page", It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                secondPageAttempts++;
+                return Task.FromResult(secondPageAttempts == 1
+                    ? CreateProviderError<BybitResponse<BybitPosition>>("network", ErrorType.NetworkError)
+                    : CreateSuccess(new BybitResponse<BybitPosition>
+                    {
+                        List = [new BybitPosition { Symbol = "ETHUSDT", Quantity = 2m, Side = PositionSide.Sell }],
+                    }));
+            });
+
+        var observation = await CreateProvider(
+                trading,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetOpenPositionsAsync(MarketCategory.Linear);
+
+        observation.Status.Should().Be(OpenPositionsObservationStatus.Complete);
+        observation.Positions.Should().HaveCount(2);
+        secondPageAttempts.Should().Be(2);
+        var activity = activities.Should().ContainSingle().Subject;
+        activity.GetTagItem("retry.count").Should().Be(1);
+        activity.GetTagItem("retry.failure_kind").Should().Be(nameof(ExchangeFailureKind.Unavailable));
+        activity.GetTagItem("exchange.outcome").Should().Be(BybitExchangeTelemetry.SuccessOutcome);
+    }
+
+    [Fact]
+    public async Task Private_Failure_Log_Uses_Normalized_Fields_And_Excludes_Provider_Message_And_Secrets()
+    {
+        const string secret = "test-api-secret-secret-value";
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HttpResult<BybitResponse<BybitBalance>>(
+                "Bybit",
+                default!,
+                new ServerError(
+                    "10003",
+                    new ErrorInfo(ErrorType.Unauthorized, false, secret, ["10003"]),
+                    null!)
+                {
+                    Message = secret,
+                }));
+
+        await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                loggerFactory,
+                static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        var entry = sink.Entries.Should().ContainSingle().Subject;
+        entry.EventId.Id.Should().Be(1010);
+        entry.LogLevel.Should().Be(LogLevel.Warning);
+        entry.Fields.Any(field => field.Key == "Operation" && field.Value?.ToString() == BybitExchangeTelemetry.BalanceOperation).Should().BeTrue();
+        entry.Fields.Any(field => field.Key == "FailureKind" && field.Value?.ToString() == nameof(ExchangeFailureKind.InvalidCredentials)).Should().BeTrue();
+        entry.Fields.Any(field => field.Key == "Retryable" && Equals(field.Value, false)).Should().BeTrue();
+        entry.Fields.Any(field => field.Key == "ProviderCode" && field.Value?.ToString() == "10003").Should().BeTrue();
+        entry.Fields.Any(field => field.Key is "Error" or "Message").Should().BeFalse();
+        entry.Fields.Select(field => field.Value?.ToString()).Any(value => value?.Contains(secret, StringComparison.Ordinal) == true).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Open_Positions_Failure_Log_Does_Not_Use_Raw_Provider_Message()
+    {
+        const string secret = "test-api-key-secret-value";
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, null, null, null, 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HttpResult<BybitResponse<BybitPosition>>(
+                "Bybit",
+                default!,
+                new ServerError(
+                    "network-code",
+                    new ErrorInfo(ErrorType.NetworkError, true, secret, ["network-code"]),
+                    null!)
+                {
+                    Message = secret,
+                }));
+
+        await CreateProvider(
+                trading,
+                loggerFactory: loggerFactory,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetOpenPositionsAsync(MarketCategory.Linear);
+
+        var entry = sink.Entries.Should().ContainSingle().Subject;
+        entry.EventId.Id.Should().Be(1009);
+        entry.LogLevel.Should().Be(LogLevel.Warning);
+        entry.Fields.Any(field => field.Key == "FailureKind" && field.Value?.ToString() == nameof(ExchangeFailureKind.Unavailable)).Should().BeTrue();
+        entry.Fields.Any(field => field.Key == "Retryable" && Equals(field.Value, true)).Should().BeTrue();
+        entry.Fields.Any(field => field.Key is "Error" or "Message").Should().BeFalse();
+        entry.Fields.Select(field => field.Value?.ToString()).Any(value => value?.Contains(secret, StringComparison.Ordinal) == true).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancellation_Does_Not_Log_Error_Or_Retry()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                cancellation.Token))
+            .Returns(() => Task.FromCanceled<HttpResult<BybitResponse<BybitBalance>>>(cancellation.Token));
+
+        var act = () => CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                loggerFactory,
+                static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        account.Verify(a => a.GetBalancesAsync(
+            BybitAccountType.Unified,
+            null,
+            cancellation.Token), Times.Once);
+        sink.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Successful_Balance_Emits_Activity_And_Request_Duration_Metrics()
+    {
+        var activities = new List<Activity>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == BybitExchangeTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => activities.Add(activity),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        var measurements = new List<MetricMeasurement>();
+        using var meterListener = new MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == BybitExchangeTelemetry.MeterName)
+                listener.EnableMeasurementEvents(instrument);
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add(new(instrument.Name, value, tags.ToArray())));
+        meterListener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add(new(instrument.Name, value, tags.ToArray())));
+        meterListener.Start();
+
+        var account = new Mock<IBybitRestClientApiAccount>();
+        account
+            .Setup(a => a.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+            }));
+
+        var observation = await CreateProvider(
+                new Mock<IBybitRestClientApiTrading>(),
+                account,
+                retryDelay: static (_, _) => Task.CompletedTask)
+            .GetWalletBalanceAsync(DomainAccountType.Unified);
+
+        observation.Status.Should().Be(AccountBalanceObservationStatus.Complete);
+        var activity = activities.Should().ContainSingle().Subject;
+        activity.OperationName.Should().Be(BybitExchangeTelemetry.BalanceOperation);
+        activity.GetTagItem("exchange.outcome").Should().Be(BybitExchangeTelemetry.SuccessOutcome);
+        activity.GetTagItem("retry.count").Should().Be(0);
+        measurements.Any(measurement => measurement.Name == "exchange.requests" && Equals(measurement.Value, 1L)).Should().BeTrue();
+        measurements.Any(measurement => measurement.Name == "exchange.request.duration" && measurement.Value is double).Should().BeTrue();
+        measurements.SelectMany(measurement => measurement.Tags.Select(tag => tag.Key))
+            .Should().NotContain("symbol");
+    }
+
     private static BybitPrivateAccountProvider CreateProvider(
         Mock<IBybitRestClientApiTrading> trading,
-        Mock<IBybitRestClientApiAccount>? account = null)
+        Mock<IBybitRestClientApiAccount>? account = null,
+        ILoggerFactory? loggerFactory = null,
+        Func<TimeSpan, CancellationToken, Task>? retryDelay = null)
     {
         var v5Api = new Mock<IBybitRestClientApi>();
         v5Api.SetupGet(a => a.Trading).Returns(trading.Object);
@@ -382,8 +780,11 @@ public sealed class BybitPrivateAccountProviderTests
         var client = new Mock<IBybitRestClient>();
         client.SetupGet(c => c.V5Api).Returns(v5Api.Object);
 
-        var loggerFactory = LoggerFactory.Create(_ => { });
-        return new BybitPrivateAccountProvider(client.Object, loggerFactory.CreateLogger<BybitPrivateAccountProvider>());
+        loggerFactory ??= LoggerFactory.Create(_ => { });
+        return new BybitPrivateAccountProvider(
+            client.Object,
+            loggerFactory.CreateLogger<BybitPrivateAccountProvider>(),
+            retryDelay);
     }
 
     private static HttpResult<T> CreateSuccess<T>(T data) => new("Bybit", data, null!);
@@ -399,4 +800,63 @@ public sealed class BybitPrivateAccountProviderTests
                 providerCode,
                 new ErrorInfo(errorType, isTransient: false, "provider failure", [providerCode]),
                 null!));
+
+    private static HttpResult<T> CreateRateLimitError<T>(DateTime retryAfter) =>
+        new(
+            "Bybit",
+            default!,
+            new ServerRateLimitError("rate limited", null!)
+            {
+                RetryAfter = retryAfter,
+            });
+
+    private sealed record CapturedLog(
+        LogLevel LogLevel,
+        EventId EventId,
+        IReadOnlyList<KeyValuePair<string, object?>> Fields);
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<CapturedLog> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(Entries);
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class CapturingLogger(List<CapturedLog> entries) : ILogger
+    {
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NoopScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var fields = state is IEnumerable<KeyValuePair<string, object?>> structuredState
+                ? structuredState.ToList()
+                : [];
+            entries.Add(new CapturedLog(logLevel, eventId, fields));
+        }
+    }
+
+    private sealed class NoopScope : IDisposable
+    {
+        public static NoopScope Instance { get; } = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed record MetricMeasurement(
+        string Name,
+        object Value,
+        IReadOnlyList<KeyValuePair<string, object?>> Tags);
 }

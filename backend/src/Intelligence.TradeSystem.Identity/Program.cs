@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Intelligence.TradeSystem.ServiceDefaults;
+
 namespace Intelligence.TradeSystem.Identity;
 
-public partial class Program
+public static class Program
 {
     public static void Main(string[] args)
     {

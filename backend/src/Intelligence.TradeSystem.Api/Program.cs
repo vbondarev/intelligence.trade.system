@@ -11,6 +11,7 @@ using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Exchanges;
 using Intelligence.TradeSystem.Infrastructure;
+using Intelligence.TradeSystem.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

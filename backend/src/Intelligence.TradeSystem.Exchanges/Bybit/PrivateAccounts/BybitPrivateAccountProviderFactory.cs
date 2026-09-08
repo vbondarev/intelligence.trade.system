@@ -1,4 +1,3 @@
-using Intelligence.TradeSystem.Application.Portfolio;
 using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 using Microsoft.Extensions.Logging;

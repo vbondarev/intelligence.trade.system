@@ -56,4 +56,16 @@ internal static class BybitExchangeFailureMapper
 
         return new(kind, retryable, providerCode);
     }
+
+    public static string? SafeProviderCode(string? providerCode)
+    {
+        if (string.IsNullOrWhiteSpace(providerCode)
+            || providerCode.Length > 16
+            || providerCode.Any(character => !char.IsDigit(character) && character != '-'))
+        {
+            return null;
+        }
+
+        return providerCode;
+    }
 }

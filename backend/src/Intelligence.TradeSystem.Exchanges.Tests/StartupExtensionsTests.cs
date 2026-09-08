@@ -128,6 +128,26 @@ public sealed class StartupExtensionsTests
     }
 
     [Fact]
+    public void BybitClientFactory_Uses_Explicit_Private_Request_Timeout_And_Disables_Overlapping_Retry()
+    {
+        using var privateClient = BybitClientFactory.CreatePrivateClient(
+            new BybitCredentials("test-api-key-secret-value", "test-api-secret-secret-value"));
+
+        var options = GetClientOptions(privateClient);
+        options.GetType().GetProperty("RequestTimeout")!.GetValue(options).Should().Be(TimeSpan.FromSeconds(10));
+        options.GetType().GetProperty("RateLimitingBehaviour")!.GetValue(options)?.ToString().Should().Be("Fail");
+    }
+
+    [Fact]
+    public void BybitClientFactory_PublicClient_Keeps_Bybit_Default_Request_Timeout()
+    {
+        using var publicClient = BybitClientFactory.CreatePublicClient();
+
+        var options = GetClientOptions(publicClient);
+        options.GetType().GetProperty("RequestTimeout")!.GetValue(options).Should().Be(TimeSpan.FromSeconds(20));
+    }
+
+    [Fact]
     public void ExchangeId_Contains_Bybit()
     {
         Enum.GetValues<ExchangeId>().Should().Contain(ExchangeId.Bybit);
@@ -143,10 +163,16 @@ public sealed class StartupExtensionsTests
 
     private static object? GetApiCredentials(IBybitRestClient client)
     {
-        var clientOptions = client.V5Api.GetType()
+        var clientOptions = GetClientOptions(client);
+        return clientOptions.GetType().GetProperty("ApiCredentials")?.GetValue(clientOptions);
+    }
+
+    private static object GetClientOptions(IBybitRestClient client)
+    {
+        return client.V5Api.GetType()
             .GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
             .FirstOrDefault(property => property.Name == "ClientOptions")
-            ?.GetValue(client.V5Api);
-        return clientOptions?.GetType().GetProperty("ApiCredentials")?.GetValue(clientOptions);
+            ?.GetValue(client.V5Api)
+            ?? throw new InvalidOperationException("Bybit client options were not found.");
     }
 }
