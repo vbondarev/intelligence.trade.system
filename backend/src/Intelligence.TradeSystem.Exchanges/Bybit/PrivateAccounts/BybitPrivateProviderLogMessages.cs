@@ -36,4 +36,18 @@ internal static partial class BybitPrivateProviderLogMessages
         string? providerCode,
         string outcome,
         double elapsedMs);
+
+    [LoggerMessage(
+        EventId = 1011,
+        Level = LogLevel.Warning,
+        Message = "Exchange operation failed. Operation={Operation}, Exchange={Exchange}, FailureKind={FailureKind}, Retryable={Retryable}, ProviderCode={ProviderCode}, Outcome={Outcome}, ElapsedMs={ElapsedMs}")]
+    internal static partial void LogFailedToFetchApiKeyAccess(
+        ILogger logger,
+        string operation,
+        string exchange,
+        ExchangeFailureKind failureKind,
+        bool retryable,
+        string? providerCode,
+        string outcome,
+        double elapsedMs);
 }

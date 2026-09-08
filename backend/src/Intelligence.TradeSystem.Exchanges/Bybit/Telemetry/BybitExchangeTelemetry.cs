@@ -13,6 +13,7 @@ internal static class BybitExchangeTelemetry
 
     public const string BalanceOperation = "exchange.balance.fetch";
     public const string PositionsOperation = "exchange.positions.fetch";
+    public const string ApiKeyAccessOperation = "exchange.account.access.verify";
 
     public const string SuccessOutcome = "success";
     public const string PartialOutcome = "partial";

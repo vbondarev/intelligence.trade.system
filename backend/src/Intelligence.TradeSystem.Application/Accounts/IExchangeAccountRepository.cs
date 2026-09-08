@@ -31,4 +31,13 @@ public interface IExchangeAccountRepository
         ExchangeAccount account,
         ConcurrencyVersion? expectedVersion,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Удаляет агрегат в указанном user scope с CAS-проверкой версии.
+    /// </summary>
+    Task DeleteAsync(
+        UserId userId,
+        ExchangeAccountId id,
+        ConcurrencyVersion expectedVersion,
+        CancellationToken cancellationToken = default);
 }

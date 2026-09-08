@@ -18,6 +18,7 @@ using DomainAccountType = Intelligence.TradeSystem.Domain.AccountType;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests;
 
+[Collection("BybitExchangeTelemetry")]
 public sealed class BybitPrivateAccountProviderTests
 {
     [Fact]

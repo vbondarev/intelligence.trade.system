@@ -1,4 +1,5 @@
 using Bybit.Net.Interfaces.Clients;
+using Intelligence.TradeSystem.Application.Accounts.Access;
 using CryptoExchange.Net.Objects;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
@@ -111,6 +112,94 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 marketCategory: category);
         }
     }
+
+    public async Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = BybitExchangeTelemetry.StartActivity(BybitExchangeTelemetry.ApiKeyAccessOperation);
+        var stopwatch = Stopwatch.StartNew();
+        var retryCount = 0;
+        ExchangeFailure? retryFailure = null;
+        var outcome = BybitExchangeTelemetry.FailureOutcome;
+        ExchangeFailure? failure = null;
+        var cancelled = false;
+
+        try
+        {
+            var result = await ExecuteReadAsync(
+                ct => _client.V5Api.Account.GetApiKeyInfoAsync(ct),
+                cancellationToken);
+            retryCount = result.RetryCount;
+            retryFailure = result.RetryFailure;
+
+            if (!result.Response.Success)
+            {
+                failure = result.Failure
+                    ?? new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false);
+                BybitPrivateProviderLogMessages.LogFailedToFetchApiKeyAccess(
+                    _logger,
+                    BybitExchangeTelemetry.ApiKeyAccessOperation,
+                    BybitExchangeTelemetry.ExchangeName,
+                    failure.Kind,
+                    failure.Retryable,
+                    BybitExchangeFailureMapper.SafeProviderCode(failure.ProviderCode),
+                    BybitExchangeTelemetry.FailureOutcome,
+                    stopwatch.Elapsed.TotalMilliseconds);
+                return ApiKeyAccessMetadataObservation.Failed(failure);
+            }
+
+            if (result.Response.Data is not { } apiKeyInfo)
+            {
+                failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
+                BybitPrivateProviderLogMessages.LogFailedToFetchApiKeyAccess(
+                    _logger,
+                    BybitExchangeTelemetry.ApiKeyAccessOperation,
+                    BybitExchangeTelemetry.ExchangeName,
+                    failure.Kind,
+                    failure.Retryable,
+                    null,
+                    BybitExchangeTelemetry.FailureOutcome,
+                    stopwatch.Elapsed.TotalMilliseconds);
+                return ApiKeyAccessMetadataObservation.Failed(failure);
+            }
+
+            outcome = BybitExchangeTelemetry.SuccessOutcome;
+            var permissions = apiKeyInfo.Permissions;
+            return ApiKeyAccessMetadataObservation.Complete(
+                new ApiKeyAccessMetadata(
+                    apiKeyInfo.Readonly,
+                    HasWalletPermission(permissions?.Wallet),
+                    HasPositionPermission(permissions?.ContractTrade)));
+        }
+        catch (OperationCanceledException)
+        {
+            cancelled = true;
+            throw;
+        }
+        finally
+        {
+            if (cancelled)
+            {
+                outcome = BybitExchangeTelemetry.CancelledOutcome;
+            }
+
+            BybitExchangeTelemetry.Record(
+                activity,
+                BybitExchangeTelemetry.ApiKeyAccessOperation,
+                outcome,
+                stopwatch.Elapsed,
+                retryCount,
+                failure,
+                retryFailure);
+        }
+    }
+
+    private static bool HasWalletPermission(string[]? permissions) =>
+        permissions is { Length: > 0 };
+
+    private static bool HasPositionPermission(string[]? permissions) =>
+        permissions?.Any(permission =>
+            string.Equals(permission, "Position", StringComparison.OrdinalIgnoreCase)) == true;
 
     public async Task<AccountBalanceObservation> GetWalletBalanceAsync(AccountType accountType, CancellationToken cancellationToken = default)
     {

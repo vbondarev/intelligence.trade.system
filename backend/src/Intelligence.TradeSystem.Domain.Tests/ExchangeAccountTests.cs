@@ -75,4 +75,61 @@ public sealed class ExchangeAccountTests
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.UserId))!.SetMethod.Should().BeNull();
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.ExchangeId))!.SetMethod.Should().BeNull();
     }
+
+    [Fact]
+    public void MarkConnected_Clears_Previous_Error_And_Changes_Status()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Unavailable);
+        account.MarkConnected();
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        account.LastError.Should().BeNull();
+    }
+
+    [Fact]
+    public void Sync_State_Transitions_Update_Timestamp_And_Error()
+    {
+        var account = CreateAccount();
+        var syncedAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+
+        account.RecordSuccessfulSync(syncedAt);
+        account.RecordSyncFailure("temporary exchange failure");
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+        account.LastSyncedAt.Should().Be(syncedAt);
+        account.LastError.Should().Be("temporary exchange failure");
+    }
+
+    [Fact]
+    public void Disable_Is_Idempotent_And_Prevents_Reactivation()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Connected);
+
+        account.Disable();
+        account.Disable();
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+        var act = () => account.MarkConnected();
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void MarkUnavailable_Rejects_Empty_Error()
+    {
+        var account = CreateAccount();
+
+        var act = () => account.MarkUnavailable(" ");
+
+        act.Should().Throw<ArgumentException>();
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unknown);
+    }
+
+    private static ExchangeAccount CreateAccount(
+        ExchangeAccountConnectionStatus status = ExchangeAccountConnectionStatus.Unknown) =>
+        ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            UserId.New(),
+            ExchangeId.Bybit,
+            status,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 }
