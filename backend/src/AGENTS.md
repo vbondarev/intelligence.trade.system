@@ -44,7 +44,7 @@
 - Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface; `Infrastructure` is composed by `Api` and depends inward on `Application` / `Domain`.
 - Stage B domain foundations are implemented in `Intelligence.TradeSystem.Domain`: typed identities, `ExchangeAccount`, `Position` lifecycle and `PositionChange` history, `PortfolioState` and portfolio risk policy, `PositionAssessment`, `Recommendation`, and separate decision vocabularies.
 - Position snapshot reconciliation and portfolio assembly live in `Intelligence.TradeSystem.Application/Portfolio`; they orchestrate domain behavior without adding persistence concerns.
-- Stage B foundations are persisted through Application repository ports implemented by Infrastructure. OAuth/OIDC authentication, user isolation, and protected Bybit credential storage are implemented; account connection, periodic synchronization, and user-facing recommendation services belong to later stages.
+- Stage B foundations are persisted through Application repository ports implemented by Infrastructure. OAuth/OIDC authentication, user isolation, protected Bybit credential storage, account connection, and periodic account synchronization are implemented; user-facing recommendation services belong to later stages.
 - `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
 - Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
 - `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate legacy `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
@@ -57,7 +57,7 @@
 ## Current constraints
 - Orchestration is currently `Bybit`-only; both `PublicMarketDataCollector` and `MarketSnapshotService` reject other exchanges.
 - Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
-- Stage B domain state can be persisted, but it is not exposed through a user API or connected to synchronization; do not treat persistence as a completed user workflow.
+- Stage B domain state can be persisted and is connected to the manual/background synchronization workflow, but it is not yet exposed through a completed user API; do not treat persistence as a completed user-facing workflow.
 
 ## Authentication architecture
 - The universal API authentication contract is documented in `docs/adr/0002-universal-api-authentication-strategy.md`; ADR-0001 is retained as historical context and is superseded. The concrete Authorization Server selection is documented in `docs/adr/0003-authorization-server-selection.md`, which complements ADR-0002.

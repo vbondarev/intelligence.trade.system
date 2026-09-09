@@ -18,6 +18,8 @@ public static class Extensions
     private const string HealthEndpointPath = "/healthz";
     private const string AlivenessEndpointPath = "/alive";
     private const string BybitExchangeTelemetryName = "Intelligence.TradeSystem.Exchanges.Bybit";
+    private const string BackgroundSyncTelemetryName =
+        "Intelligence.TradeSystem.Infrastructure.BackgroundSync";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -60,13 +62,15 @@ public static class Extensions
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter(BybitExchangeTelemetryName);
+                    .AddMeter(BybitExchangeTelemetryName)
+                    .AddMeter(BackgroundSyncTelemetryName);
             })
             .WithTracing(tracing =>
             {
                 tracing
                     .AddSource(builder.Environment.ApplicationName)
                     .AddSource(BybitExchangeTelemetryName)
+                    .AddSource(BackgroundSyncTelemetryName)
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

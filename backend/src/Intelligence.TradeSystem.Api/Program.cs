@@ -76,6 +76,10 @@ public partial class Program
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
         builder.Services.AddInfrastructure(builder.Configuration);
+        if (!builder.Environment.IsEnvironment("Testing"))
+        {
+            builder.Services.AddExchangeAccountBackgroundSynchronization(builder.Configuration);
+        }
         ConfigureAuthentication(builder);
         var freshnessOptions = builder.Configuration
             .GetSection(SnapshotFreshnessOptions.SectionName)
