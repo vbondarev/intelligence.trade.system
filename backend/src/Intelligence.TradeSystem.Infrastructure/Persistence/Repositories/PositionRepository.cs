@@ -125,16 +125,22 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                 }
             }
             catch (DbUpdateException exception)
-                when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
-                    exception,
-                    "PK_positions"))
+                when (
+                    PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
+                        exception,
+                        "PK_positions") ||
+                    PostgreSqlConcurrencyConflictDetector.IsUniqueConstraint(
+                        exception,
+                        "ux_positions_active_exchange_key"))
             {
                 if (insertTransaction is not null)
                 {
                     await insertTransaction.RollbackAsync(CancellationToken.None);
                 }
 
-                throw UnavailablePositionConflict(position.Id, exception);
+                throw new ConcurrencyConflictException(
+                    $"Position {position.Id} was inserted concurrently.",
+                    exception);
             }
             catch
             {

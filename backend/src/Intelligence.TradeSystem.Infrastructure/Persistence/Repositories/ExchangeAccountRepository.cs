@@ -85,6 +85,9 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
                     .SetProperty(entity => entity.Capabilities, mapped.Capabilities)
                     .SetProperty(entity => entity.LastSyncedAt, mapped.LastSyncedAt)
                     .SetProperty(entity => entity.LastError, mapped.LastError)
+                    .SetProperty(
+                        entity => entity.LastAppliedObservationAt,
+                        mapped.LastAppliedObservationAt)
                     .SetProperty(entity => entity.Version, newVersion.Value),
                 cancellationToken);
 

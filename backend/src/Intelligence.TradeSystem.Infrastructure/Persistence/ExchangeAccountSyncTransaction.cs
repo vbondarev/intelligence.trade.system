@@ -29,7 +29,15 @@ public sealed class ExchangeAccountSyncTransaction(TradeSystemDbContext dbContex
         }
         catch
         {
-            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
             throw;
         }
     }

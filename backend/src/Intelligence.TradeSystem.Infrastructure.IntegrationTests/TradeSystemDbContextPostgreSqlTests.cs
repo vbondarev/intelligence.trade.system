@@ -132,6 +132,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
             var account = await dbContext.ExchangeAccounts
                 .SingleAsync(row => row.Id == Guid.Parse("33333333-3333-3333-3333-333333333333"));
             Assert.Equal(Guid.Parse("44444444-4444-4444-4444-444444444444"), account.UserId);
+            Assert.Null(account.LastAppliedObservationAt);
             Assert.True(await dbContext.Database
                 .SqlQueryRaw<bool>(
                     """

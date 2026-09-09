@@ -90,6 +90,304 @@ public sealed class ExchangeAccountSyncServiceTests
     }
 
     [Fact]
+    public async Task SynchronizeAsync_Duplicate_Observation_Is_A_NoOp()
+    {
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(account =>
+                    account.LastAppliedObservationAt == ObservedAt &&
+                    account.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var first = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+        var second = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        first.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        second.Outcome.Should().Be(ExchangeAccountSyncOutcome.AlreadyApplied);
+        second.Account.Should().BeSameAs(fixture.Account);
+        savedStates.Should().ContainSingle();
+        fixture.PositionRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<Position>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.PortfolioRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<PortfolioState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Retry_Uses_The_Same_Provider_Observations()
+    {
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .SetupSequence(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("simulated race"))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        fixture.Provider.Verify(
+            provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.Provider.Verify(
+            provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Retry_Recognizes_Already_Applied_Observation()
+    {
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        var alreadyApplied = ExchangeAccount.Create(
+            fixture.Account.Id,
+            fixture.UserId,
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Connected,
+            RequiredCapabilities,
+            lastAppliedObservationAt: ObservedAt);
+        fixture.AccountRepository
+            .SetupSequence(repository => repository.GetByIdAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(alreadyApplied, new ConcurrencyVersion(2)));
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("simulated race"));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.AlreadyApplied);
+        result.Account.Should().BeSameAs(alreadyApplied);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.Provider.Verify(
+            provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Retry_Recognizes_Superseded_Observation()
+    {
+        var fixture = CreateFixture();
+        var olderObservation = ObservedAt.AddMinutes(-1);
+        SetupSuccessfulObservation(fixture, olderObservation);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        var newerAccount = ExchangeAccount.Create(
+            fixture.Account.Id,
+            fixture.UserId,
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Connected,
+            RequiredCapabilities,
+            lastAppliedObservationAt: ObservedAt);
+        fixture.AccountRepository
+            .SetupSequence(repository => repository.GetByIdAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(newerAccount, new ConcurrencyVersion(2)));
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("simulated race"));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Superseded);
+        result.Account.Should().BeSameAs(newerAccount);
+        fixture.PortfolioRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<PortfolioState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Does_Not_Apply_Fetched_Observation_After_Account_Is_Disabled()
+    {
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        var disabled = ExchangeAccount.Create(
+            fixture.Account.Id,
+            fixture.UserId,
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Disabled,
+            RequiredCapabilities);
+        fixture.AccountRepository
+            .SetupSequence(repository => repository.GetByIdAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(fixture.Account, fixture.AccountVersion))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(disabled, new ConcurrencyVersion(2)));
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("simulated race"));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.AccountDisabled);
+        fixture.PortfolioRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<PortfolioState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Stops_After_The_Bounded_Persistence_Retry_Limit()
+    {
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("persistent race"));
+
+        await FluentActions
+            .Invoking(() => fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id))
+            .Should()
+            .ThrowAsync<ConcurrencyConflictException>();
+
+        fixture.Provider.Verify(
+            provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(3));
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Cancellation_Prevents_A_Further_Persistence_Attempt()
+    {
+        var fixture = CreateFixture();
+        using var cancellation = new CancellationTokenSource();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        SetupPositionLoad(fixture);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .Callback<UserId, ExchangeAccount, ConcurrencyVersion?, CancellationToken>(
+                (_, _, _, _) => cancellation.Cancel())
+            .ThrowsAsync(new ConcurrencyConflictException("simulated race"));
+
+        await FluentActions
+            .Invoking(() => fixture.Service.SynchronizeAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                cancellation.Token))
+            .Should()
+            .ThrowAsync<OperationCanceledException>();
+
+        fixture.Provider.Verify(
+            provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task SynchronizeAsync_Treats_Complete_Empty_Positions_As_A_Valid_Observation()
     {
         var fixture = CreateFixture();
@@ -1003,6 +1301,27 @@ public sealed class ExchangeAccountSyncServiceTests
             positionValue: 100m,
             leverage: 2m,
             unrealizedPnl: 0m);
+
+    private static void SetupSuccessfulObservation(Fixture fixture, DateTimeOffset observedAt)
+    {
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                observedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                []));
+    }
 
     private static void SetupPositionLoad(Fixture fixture, params Position[] positions) =>
         fixture.PositionRepository

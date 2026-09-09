@@ -23,6 +23,7 @@ public sealed class ExchangeAccountTests
         account.Capabilities.Should().HaveFlag(ExchangeAccountCapabilities.ReadPositions);
         account.LastSyncedAt.Should().BeNull();
         account.LastError.Should().BeNull();
+        account.LastAppliedObservationAt.Should().BeNull();
     }
 
     [Fact]
@@ -151,6 +152,49 @@ public sealed class ExchangeAccountTests
 
         act.Should().Throw<ArgumentException>();
         account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unknown);
+    }
+
+    [Fact]
+    public void Observation_Watermark_Is_Monotonic_And_Classifies_Replays()
+    {
+        var account = CreateAccount();
+        var t1 = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+        var t2 = t1.AddMinutes(1);
+
+        account.AdvanceObservationWatermark(t1)
+            .Should().Be(ExchangeAccountObservationDisposition.Applied);
+        account.LastAppliedObservationAt.Should().Be(t1);
+
+        account.AdvanceObservationWatermark(t2)
+            .Should().Be(ExchangeAccountObservationDisposition.Applied);
+        account.LastAppliedObservationAt.Should().Be(t2);
+
+        account.AdvanceObservationWatermark(t2)
+            .Should().Be(ExchangeAccountObservationDisposition.AlreadyApplied);
+        account.AdvanceObservationWatermark(t1)
+            .Should().Be(ExchangeAccountObservationDisposition.Superseded);
+        account.LastAppliedObservationAt.Should().Be(t2);
+    }
+
+    [Fact]
+    public void Newer_Failure_Advances_Watermark_And_Disabled_Account_Cannot_Recover()
+    {
+        var account = CreateAccount();
+        var observationAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+
+        account.RecordSyncFailure("positions_failed", observationAt)
+            .Should().Be(ExchangeAccountObservationDisposition.Applied);
+        account.LastAppliedObservationAt.Should().Be(observationAt);
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+
+        account.Disable();
+        var act = () => account.RecordSuccessfulSync(
+            observationAt.AddMinutes(1),
+            observationAt.AddMinutes(1));
+
+        act.Should().Throw<InvalidOperationException>();
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+        account.LastAppliedObservationAt.Should().Be(observationAt);
     }
 
     private static ExchangeAccount CreateAccount(

@@ -15,6 +15,7 @@ internal static class ExchangeAccountMapper
         Capabilities = account.Capabilities,
         LastSyncedAt = PersistenceDateTime.ToUtc(account.LastSyncedAt),
         LastError = account.LastError,
+        LastAppliedObservationAt = PersistenceDateTime.ToUtc(account.LastAppliedObservationAt),
     };
 
     public static ExchangeAccount ToDomain(ExchangeAccountEntity entity) =>
@@ -25,5 +26,6 @@ internal static class ExchangeAccountMapper
             entity.ConnectionStatus,
             entity.Capabilities,
             PersistenceDateTime.ToUtc(entity.LastSyncedAt),
-            entity.LastError);
+            entity.LastError,
+            PersistenceDateTime.ToUtc(entity.LastAppliedObservationAt));
 }

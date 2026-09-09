@@ -8,9 +8,14 @@ internal static class PostgreSqlConcurrencyConflictDetector
     public static bool IsDuplicatePrimaryKey(
         DbUpdateException exception,
         string primaryKeyConstraintName)
+        => IsUniqueConstraint(exception, primaryKeyConstraintName);
+
+    public static bool IsUniqueConstraint(
+        DbUpdateException exception,
+        string constraintName)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        ArgumentException.ThrowIfNullOrWhiteSpace(primaryKeyConstraintName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(constraintName);
 
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
@@ -19,7 +24,7 @@ internal static class PostgreSqlConcurrencyConflictDetector
                 return postgresException.SqlState == "23505" &&
                        string.Equals(
                            postgresException.ConstraintName,
-                           primaryKeyConstraintName,
+                           constraintName,
                            StringComparison.Ordinal);
             }
         }

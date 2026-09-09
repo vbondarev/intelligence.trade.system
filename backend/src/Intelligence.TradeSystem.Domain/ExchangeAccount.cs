@@ -12,7 +12,8 @@ public sealed class ExchangeAccount
         ExchangeAccountConnectionStatus connectionStatus,
         ExchangeAccountCapabilities capabilities,
         DateTimeOffset? lastSyncedAt,
-        string? lastError)
+        string? lastError,
+        DateTimeOffset? lastAppliedObservationAt)
     {
         Id = id;
         UserId = userId;
@@ -21,6 +22,7 @@ public sealed class ExchangeAccount
         Capabilities = capabilities;
         LastSyncedAt = lastSyncedAt;
         LastError = lastError;
+        LastAppliedObservationAt = lastAppliedObservationAt;
     }
 
     public ExchangeAccountId Id { get; }
@@ -30,6 +32,11 @@ public sealed class ExchangeAccount
     public ExchangeAccountCapabilities Capabilities { get; }
     public DateTimeOffset? LastSyncedAt { get; private set; }
     public string? LastError { get; private set; }
+    /// <summary>
+    /// The newest exchange observation accepted for this account. It is independent from
+    /// <see cref="LastSyncedAt"/>, which records only a fully successful system sync.
+    /// </summary>
+    public DateTimeOffset? LastAppliedObservationAt { get; private set; }
 
     public static ExchangeAccount Create(
         ExchangeAccountId id,
@@ -38,7 +45,8 @@ public sealed class ExchangeAccount
         ExchangeAccountConnectionStatus connectionStatus = ExchangeAccountConnectionStatus.Unknown,
         ExchangeAccountCapabilities capabilities = ExchangeAccountCapabilities.None,
         DateTimeOffset? lastSyncedAt = null,
-        string? lastError = null)
+        string? lastError = null,
+        DateTimeOffset? lastAppliedObservationAt = null)
     {
         if (id == default)
             throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(id));
@@ -60,7 +68,20 @@ public sealed class ExchangeAccount
             throw new ArgumentOutOfRangeException(
                 nameof(capabilities), capabilities, "Capabilities contain undefined flags.");
 
-        return new ExchangeAccount(id, userId, exchangeId, connectionStatus, capabilities, lastSyncedAt, lastError);
+        if (lastAppliedObservationAt == default(DateTimeOffset))
+            throw new ArgumentException(
+                "Last applied observation timestamp must be initialized when provided.",
+                nameof(lastAppliedObservationAt));
+
+        return new ExchangeAccount(
+            id,
+            userId,
+            exchangeId,
+            connectionStatus,
+            capabilities,
+            lastSyncedAt,
+            lastError,
+            NormalizeObservationTimestamp(lastAppliedObservationAt));
     }
 
     public void MarkConnected()
@@ -90,6 +111,55 @@ public sealed class ExchangeAccount
 
     public void RecordSyncFailure(string error) => MarkUnavailable(error);
 
+    public ExchangeAccountObservationDisposition AdvanceObservationWatermark(
+        DateTimeOffset observationAt)
+    {
+        EnsureNotDisabled();
+        if (observationAt == default)
+            throw new ArgumentException(
+                "Observation timestamp must be initialized.",
+                nameof(observationAt));
+
+        var normalizedObservationAt = NormalizeObservationTimestamp(observationAt)!.Value;
+        if (LastAppliedObservationAt is { } current)
+        {
+            if (normalizedObservationAt < current)
+                return ExchangeAccountObservationDisposition.Superseded;
+
+            if (normalizedObservationAt == current)
+                return ExchangeAccountObservationDisposition.AlreadyApplied;
+        }
+
+        LastAppliedObservationAt = normalizedObservationAt;
+        return ExchangeAccountObservationDisposition.Applied;
+    }
+
+    public ExchangeAccountObservationDisposition RecordSuccessfulSync(
+        DateTimeOffset syncedAt,
+        DateTimeOffset observationAt)
+    {
+        if (syncedAt == default)
+            throw new ArgumentException("Sync timestamp must be initialized.", nameof(syncedAt));
+
+        var disposition = AdvanceObservationWatermark(observationAt);
+        if (disposition == ExchangeAccountObservationDisposition.Applied)
+            RecordSuccessfulSync(syncedAt);
+
+        return disposition;
+    }
+
+    public ExchangeAccountObservationDisposition RecordSyncFailure(
+        string error,
+        DateTimeOffset observationAt)
+    {
+        var validatedError = ValidateError(error);
+        var disposition = AdvanceObservationWatermark(observationAt);
+        if (disposition == ExchangeAccountObservationDisposition.Applied)
+            RecordSyncFailure(validatedError);
+
+        return disposition;
+    }
+
     public void Disable()
     {
         ConnectionStatus = ExchangeAccountConnectionStatus.Disabled;
@@ -109,5 +179,15 @@ public sealed class ExchangeAccount
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
         return error;
+    }
+
+    private static DateTimeOffset? NormalizeObservationTimestamp(DateTimeOffset? timestamp)
+    {
+        if (timestamp is not { } value)
+            return null;
+
+        var utc = value.ToUniversalTime();
+        var ticks = utc.Ticks - utc.Ticks % TimeSpan.TicksPerMicrosecond;
+        return new DateTimeOffset(ticks, TimeSpan.Zero);
     }
 }

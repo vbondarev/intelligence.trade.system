@@ -24,4 +24,10 @@ public sealed record ExchangeAccountSyncResult(
 
     public static ExchangeAccountSyncResult ExchangeUnavailable() =>
         new(ExchangeAccountSyncOutcome.ExchangeUnavailable, null, null);
+
+    public static ExchangeAccountSyncResult AlreadyApplied(ExchangeAccount account) =>
+        new(ExchangeAccountSyncOutcome.AlreadyApplied, account, null);
+
+    public static ExchangeAccountSyncResult Superseded(ExchangeAccount account) =>
+        new(ExchangeAccountSyncOutcome.Superseded, account, null);
 }

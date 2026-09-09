@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -19,6 +20,7 @@ public sealed class ExchangeAccountSyncService(
     TimeProvider? timeProvider = null)
     : IExchangeAccountSyncService
 {
+    private const int MaxPersistenceAttempts = 3;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private static readonly TimeSpan PortfolioStaleAfter = TimeSpan.FromMinutes(5);
 
@@ -77,142 +79,225 @@ public sealed class ExchangeAccountSyncService(
 
         var hasFreshBalance = IsCompleteBalance(balanceObservation);
         var normalizedPositionsObservation = NormalizePositionsObservation(positionsObservation);
-
+        var normalizedBalanceObservedAt = NormalizeObservationTimestamp(balanceObservation.ObservedAt);
+        var observationWatermark = Min(
+            normalizedBalanceObservedAt,
+            normalizedPositionsObservation.ObservedAt);
         var calculatedAt = Max(
             clock.GetUtcNow(),
             balanceObservation.ObservedAt,
             normalizedPositionsObservation.ObservedAt);
-        PortfolioState? portfolioState = null;
-        var failureReason = default(string);
-        var successfulSyncAt = default(DateTimeOffset?);
-        var accountForPersistence = CopyAccount(account);
 
-        await persistenceTransaction
-            .ExecuteAsync(
-                async persistenceCancellationToken =>
-                {
-                    var tracked = await positionRepository
-                        .GetByExchangeAccountAsync(
-                            userId,
-                            exchangeAccountId,
-                            persistenceCancellationToken)
-                        .ConfigureAwait(false);
-                    var trackedPositions = tracked
-                        .Select(versioned => versioned.Value)
-                        .ToArray();
-
-                    PortfolioState? previousPortfolioState = null;
-                    if (!hasFreshBalance)
-                    {
-                        previousPortfolioState = await portfolioStateRepository
-                            .GetLatestAsync(
-                                userId,
-                                exchangeAccountId,
-                                persistenceCancellationToken)
-                            .ConfigureAwait(false);
-                    }
-                    persistenceCancellationToken.ThrowIfCancellationRequested();
-
-                    var reconciliation = PositionReconciler.Reconcile(
-                        exchangeAccountId,
-                        trackedPositions,
-                        normalizedPositionsObservation,
-                        calculatedAt,
-                        PortfolioStaleAfter);
-                    var positionsFullyReconciled =
-                        reconciliation.IsFullyReconciled &&
-                        CoversAllActivePositions(
-                            trackedPositions.Concat(reconciliation.NewPositions),
-                            normalizedPositionsObservation);
-
-                    var trackedById = tracked.ToDictionary(versioned => versioned.Value.Id);
-                    foreach (var position in reconciliation.PositionsToPersist)
-                    {
-                        var versioned = trackedById[position.Id];
-                        await positionRepository
-                            .SaveAsync(
-                                userId,
-                                versioned.Value,
-                                versioned.Version,
-                                persistenceCancellationToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    foreach (var newPosition in reconciliation.NewPositions)
-                    {
-                        await positionRepository
-                            .SaveAsync(
-                                userId,
-                                newPosition,
-                                expectedVersion: null,
-                                persistenceCancellationToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    var reconciledPositions = trackedPositions
-                        .Concat(reconciliation.NewPositions)
-                        .ToArray();
-
-                    var capital = hasFreshBalance
-                        ? new PortfolioCapitalState(
-                            balanceObservation.Balance!.TotalEquity,
-                            balanceObservation.Balance.TotalAvailableBalance,
-                            balanceObservation.ObservedAt,
-                            balanceObservation.Balance.TotalWalletBalance)
-                        : previousPortfolioState?.Capital
-                            ?? new PortfolioCapitalState(null, null, null);
-                    portfolioState = PortfolioStateAssembler.AssembleWithCapital(
-                        capital,
-                        reconciledPositions,
-                        exchangeAccountId,
-                        calculatedAt,
-                        PortfolioStaleAfter,
-                        positionsFullyReconciled);
-                    await portfolioStateRepository
-                        .SaveAsync(userId, portfolioState, persistenceCancellationToken)
-                        .ConfigureAwait(false);
-
-                    var fullySynchronized =
-                        hasFreshBalance && positionsFullyReconciled;
-                    if (fullySynchronized)
-                    {
-                        successfulSyncAt = clock.GetUtcNow();
-                        accountForPersistence.RecordSuccessfulSync(successfulSyncAt.Value);
-                    }
-                    else
-                    {
-                        failureReason = GetFailureReason(
-                            hasFreshBalance,
-                            normalizedPositionsObservation,
-                            reconciliation,
-                            positionsFullyReconciled);
-                        accountForPersistence.RecordSyncFailure(failureReason);
-                    }
-
-                    await accountRepository
-                        .SaveAsync(
-                            userId,
-                            accountForPersistence,
-                            loadedAccount.Version,
-                            persistenceCancellationToken)
-                        .ConfigureAwait(false);
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (successfulSyncAt is { } syncedAt)
+        for (var attempt = 1; attempt <= MaxPersistenceAttempts; attempt++)
         {
-            account.RecordSuccessfulSync(syncedAt);
-            return ExchangeAccountSyncResult.Synchronized(
-                account,
-                portfolioState ?? throw new InvalidOperationException(
-                    "The synchronization persistence boundary completed without a portfolio state."));
+            ExchangeAccountSyncResult? attemptResult = null;
+            ExchangeAccount? persistedAccount = null;
+            PortfolioState? persistedPortfolioState = null;
+            string? persistedFailureReason = null;
+
+            try
+            {
+                await persistenceTransaction
+                    .ExecuteAsync(
+                        async persistenceCancellationToken =>
+                        {
+                            var latest = await accountRepository
+                                .GetByIdAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
+                            if (latest is null)
+                            {
+                                attemptResult = ExchangeAccountSyncResult.NotFound();
+                                return;
+                            }
+
+                            var currentAccount = latest.Value;
+                            if (currentAccount.ConnectionStatus ==
+                                ExchangeAccountConnectionStatus.Disabled)
+                            {
+                                attemptResult = ExchangeAccountSyncResult.AccountDisabled();
+                                return;
+                            }
+
+                            var accountForPersistence = CopyAccount(currentAccount);
+                            var disposition = accountForPersistence.AdvanceObservationWatermark(
+                                observationWatermark);
+                            switch (disposition)
+                            {
+                                case ExchangeAccountObservationDisposition.AlreadyApplied:
+                                    attemptResult = ExchangeAccountSyncResult.AlreadyApplied(currentAccount);
+                                    return;
+                                case ExchangeAccountObservationDisposition.Superseded:
+                                    attemptResult = ExchangeAccountSyncResult.Superseded(currentAccount);
+                                    return;
+                            }
+
+                            var tracked = await positionRepository
+                                .GetByExchangeAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+                            var trackedPositions = tracked
+                                .Select(versioned => versioned.Value)
+                                .ToArray();
+
+                            PortfolioState? previousPortfolioState = null;
+                            if (!hasFreshBalance)
+                            {
+                                previousPortfolioState = await portfolioStateRepository
+                                    .GetLatestAsync(
+                                        userId,
+                                        exchangeAccountId,
+                                        persistenceCancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+
+                            persistenceCancellationToken.ThrowIfCancellationRequested();
+
+                            var reconciliation = PositionReconciler.Reconcile(
+                                exchangeAccountId,
+                                trackedPositions,
+                                normalizedPositionsObservation,
+                                calculatedAt,
+                                PortfolioStaleAfter);
+                            var positionsFullyReconciled =
+                                reconciliation.IsFullyReconciled &&
+                                CoversAllActivePositions(
+                                    trackedPositions.Concat(reconciliation.NewPositions),
+                                    normalizedPositionsObservation);
+
+                            var trackedById = tracked.ToDictionary(versioned => versioned.Value.Id);
+                            foreach (var position in reconciliation.PositionsToPersist)
+                            {
+                                var versioned = trackedById[position.Id];
+                                await positionRepository
+                                    .SaveAsync(
+                                        userId,
+                                        versioned.Value,
+                                        versioned.Version,
+                                        persistenceCancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+
+                            foreach (var newPosition in reconciliation.NewPositions)
+                            {
+                                await positionRepository
+                                    .SaveAsync(
+                                        userId,
+                                        newPosition,
+                                        expectedVersion: null,
+                                        persistenceCancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+
+                            var reconciledPositions = trackedPositions
+                                .Concat(reconciliation.NewPositions)
+                                .ToArray();
+
+                            var capital = hasFreshBalance
+                                ? new PortfolioCapitalState(
+                                    balanceObservation.Balance!.TotalEquity,
+                                    balanceObservation.Balance.TotalAvailableBalance,
+                                    balanceObservation.ObservedAt,
+                                    balanceObservation.Balance.TotalWalletBalance)
+                                : previousPortfolioState?.Capital
+                                    ?? new PortfolioCapitalState(null, null, null);
+                            var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
+                                capital,
+                                reconciledPositions,
+                                exchangeAccountId,
+                                calculatedAt,
+                                PortfolioStaleAfter,
+                                positionsFullyReconciled);
+                            await portfolioStateRepository
+                                .SaveAsync(
+                                    userId,
+                                    portfolioState,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
+                            var fullySynchronized =
+                                hasFreshBalance && positionsFullyReconciled;
+                            if (fullySynchronized)
+                            {
+                                accountForPersistence.RecordSuccessfulSync(clock.GetUtcNow());
+                                attemptResult = ExchangeAccountSyncResult.Synchronized(
+                                    accountForPersistence,
+                                    portfolioState);
+                            }
+                            else
+                            {
+                                persistedFailureReason = GetFailureReason(
+                                    hasFreshBalance,
+                                    normalizedPositionsObservation,
+                                    reconciliation,
+                                    positionsFullyReconciled);
+                                accountForPersistence.RecordSyncFailure(persistedFailureReason);
+                                attemptResult = ExchangeAccountSyncResult.ExchangeUnavailable();
+                            }
+
+                            persistedAccount = accountForPersistence;
+                            persistedPortfolioState = portfolioState;
+                            await accountRepository
+                                .SaveAsync(
+                                    userId,
+                                    accountForPersistence,
+                                    latest.Version,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ConcurrencyConflictException)
+            {
+                if (attempt == MaxPersistenceAttempts)
+                {
+                    throw;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                continue;
+            }
+
+            if (attemptResult is null)
+            {
+                throw new InvalidOperationException(
+                    "The synchronization persistence boundary completed without an outcome.");
+            }
+
+            if (attemptResult.Outcome == ExchangeAccountSyncOutcome.Synchronized)
+            {
+                var synchronizedAt = persistedAccount?.LastSyncedAt
+                    ?? throw new InvalidOperationException(
+                        "A successful synchronization did not persist account metadata.");
+                account.AdvanceObservationWatermark(observationWatermark);
+                account.RecordSuccessfulSync(synchronizedAt);
+                return ExchangeAccountSyncResult.Synchronized(
+                    account,
+                    persistedPortfolioState
+                        ?? throw new InvalidOperationException(
+                            "A successful synchronization did not persist a portfolio state."));
+            }
+
+            if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
+            {
+                account.AdvanceObservationWatermark(observationWatermark);
+                account.RecordSyncFailure(
+                    persistedFailureReason
+                    ?? throw new InvalidOperationException(
+                        "The synchronization persistence boundary completed without a failure reason."));
+            }
+
+            return attemptResult;
         }
 
-        account.RecordSyncFailure(
-            failureReason ?? throw new InvalidOperationException(
-                "The synchronization persistence boundary completed without a sync outcome."));
-        return ExchangeAccountSyncResult.ExchangeUnavailable();
+        throw new ConcurrencyConflictException(
+            $"Synchronization for exchange account {exchangeAccountId} exceeded the persistence retry limit.");
     }
 
     private static bool IsCompleteBalance(AccountBalanceObservation observation) =>
@@ -234,9 +319,12 @@ public sealed class ExchangeAccountSyncService(
         return OpenPositionsObservation.Failed(
             MarketCategory.Linear,
             symbol: null,
-            observedAt: observation.ObservedAt == default ? clock.GetUtcNow() : observation.ObservedAt,
+            observedAt: NormalizeObservationTimestamp(observation.ObservedAt),
             error: "invalid_positions_observation");
     }
+
+    private DateTimeOffset NormalizeObservationTimestamp(DateTimeOffset observedAt) =>
+        observedAt == default ? clock.GetUtcNow() : observedAt;
 
     private static string GetFailureReason(
         bool hasFreshBalance,
@@ -281,7 +369,11 @@ public sealed class ExchangeAccountSyncService(
             account.ConnectionStatus,
             account.Capabilities,
             account.LastSyncedAt,
-            account.LastError);
+            account.LastError,
+            account.LastAppliedObservationAt);
+
+    private static DateTimeOffset Min(DateTimeOffset first, DateTimeOffset second) =>
+        first <= second ? first : second;
 
     private static DateTimeOffset Max(
         DateTimeOffset first,

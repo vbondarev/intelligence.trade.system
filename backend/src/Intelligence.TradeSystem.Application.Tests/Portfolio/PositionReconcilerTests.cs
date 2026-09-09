@@ -172,6 +172,71 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
+    public void Older_Active_Observation_Is_Ignored_Without_History()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(2));
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                T0.AddMinutes(1),
+                [CreateOpenPosition()]),
+            T0.AddMinutes(2),
+            StaleAfter);
+
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.LastObservedAt.Should().Be(T0.AddMinutes(2));
+        position.Changes.Should().ContainSingle();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Equal_Active_Observation_Is_Idempotent()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(1));
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                T0.AddMinutes(1),
+                [CreateOpenPosition(size: 2m)]),
+            T0.AddMinutes(1),
+            StaleAfter);
+
+        position.Size.Should().Be(1m);
+        position.Changes.Should().ContainSingle();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Older_Empty_Complete_Observation_Does_Not_Close_A_New_Position()
+    {
+        var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(2));
+
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                T0.AddMinutes(1),
+                []),
+            T0.AddMinutes(2),
+            StaleAfter);
+
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Out_Of_Order_Complete_Row_Prevents_Closing_Other_Missing_Positions()
     {
         var closed = CreateTrackedPosition(AccountA, symbol: "BTCUSDT");
@@ -352,9 +417,15 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Failed(
             MarketCategory.Linear, null, T0.AddMinutes(30), "boom");
 
-        var act = () => PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(1), StaleAfter);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            observation,
+            T0.AddHours(1),
+            StaleAfter);
 
-        act.Should().Throw<InvalidOperationException>();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
         position.TrackingState.Should().Be(PositionTrackingState.Active);
     }
 
@@ -365,9 +436,15 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Partial(
             MarketCategory.Linear, null, T0.AddMinutes(30), []);
 
-        var act = () => PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(1), StaleAfter);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            observation,
+            T0.AddHours(1),
+            StaleAfter);
 
-        act.Should().Throw<InvalidOperationException>();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
         position.TrackingState.Should().Be(PositionTrackingState.Active);
     }
 

@@ -45,6 +45,23 @@ public static class PositionReconciler
                  position.ExchangePositionKey.InstrumentId.Value, observation.Symbol.Trim(),
                  StringComparison.OrdinalIgnoreCase));
 
+        // A response that is not newer than an active lifecycle cannot prove a new state or
+        // absence. Ignore the whole observation so it cannot close or mark another position.
+        var scopedActivePositions = trackedPositions
+            .Where(position =>
+                position.TrackingState != PositionTrackingState.Closed &&
+                InScope(position))
+            .ToArray();
+        var hasNewerScopedObservation = scopedActivePositions
+            .Any(position => position.LastObservedAt > observation.ObservedAt);
+        if (hasNewerScopedObservation)
+        {
+            return new PositionReconciliationResult(newPositions, changes, warnings)
+            {
+                IsFullyReconciled = false,
+            };
+        }
+
         void RefreshAccountFreshness()
         {
             // Freshness is independent of category and symbol scope, but reconciliation must
@@ -71,6 +88,9 @@ public static class PositionReconciler
             foreach (var position in trackedPositions)
             {
                 if (position.TrackingState == PositionTrackingState.Closed || !InScope(position))
+                    continue;
+
+                if (observation.ObservedAt <= position.LastObservedAt)
                     continue;
 
                 var change = position.MarkUnknown(observation.ObservedAt, PositionChangeCause.PositionsObservationFailed);
@@ -136,6 +156,9 @@ public static class PositionReconciler
 
             if (activeByKey.TryGetValue(key, out var existing))
             {
+                if (observation.ObservedAt <= existing.LastObservedAt)
+                    continue;
+
                 positionsToPersist.Add(existing);
                 var change = existing.ApplyObservation(
                     observed.Size,
@@ -207,6 +230,9 @@ public static class PositionReconciler
                 continue;
 
             if (observedKeys.Contains(position.ExchangePositionKey))
+                continue;
+
+            if (observation.ObservedAt <= position.LastObservedAt)
                 continue;
 
             var change = canInferClosed
