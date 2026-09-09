@@ -15,8 +15,9 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
     : BackgroundService
 {
     private readonly ApplicationEventOutboxDispatcherOptions settings = options.Value;
-    private readonly string instanceId =
-        $"{Environment.MachineName}:{Guid.NewGuid():N}";
+    private readonly string instanceId = CreateInstanceId();
+
+    internal static string CreateInstanceId() => Guid.NewGuid().ToString("N");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -85,25 +86,81 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
             .ConfigureAwait(false);
     }
 
-    private Task DispatchBatchAsync(
+    internal Task DispatchBatchAsync(
         IReadOnlyList<OutboxMessageClaim> claims,
         CancellationToken cancellationToken) =>
         Parallel.ForEachAsync(
-            claims,
+            claims
+                .GroupBy(GetDispatchGroupKey)
+                .Select(group => group
+                    .OrderBy(GetPositionChangeSequence)
+                    .ToArray()),
             new ParallelOptions
             {
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = settings.MaxConcurrency,
             },
-            async (claim, token) =>
+            async (claimGroup, token) =>
             {
                 if (token.IsCancellationRequested)
                     return;
 
-                await DispatchOneAsync(claim, token).ConfigureAwait(false);
+                foreach (var claim in claimGroup)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var processed = await DispatchOneAsync(claim, token).ConfigureAwait(false);
+                    if (!processed)
+                    {
+                        break;
+                    }
+                }
             });
 
-    private async Task DispatchOneAsync(
+    private static DispatchGroupKey GetDispatchGroupKey(OutboxMessageClaim claim)
+    {
+        try
+        {
+            var applicationEvent = ApplicationEventSerializer.Deserialize(
+                claim.EventType,
+                claim.SchemaVersion,
+                claim.Payload);
+            return applicationEvent switch
+            {
+                PositionOpenedEventV1 value => new(value.PositionId, true),
+                PositionChangedEventV1 value => new(value.PositionId, true),
+                PositionClosedEventV1 value => new(value.PositionId, true),
+                _ => new(claim.EventId, false),
+            };
+        }
+        catch (ApplicationEventSerializationException)
+        {
+            return new(claim.EventId, false);
+        }
+    }
+
+    private static int GetPositionChangeSequence(OutboxMessageClaim claim)
+    {
+        try
+        {
+            var applicationEvent = ApplicationEventSerializer.Deserialize(
+                claim.EventType,
+                claim.SchemaVersion,
+                claim.Payload);
+            return applicationEvent switch
+            {
+                PositionOpenedEventV1 value => value.PositionChangeSequence,
+                PositionChangedEventV1 value => value.PositionChangeSequence,
+                PositionClosedEventV1 value => value.PositionChangeSequence,
+                _ => int.MaxValue,
+            };
+        }
+        catch (ApplicationEventSerializationException)
+        {
+            return int.MaxValue;
+        }
+    }
+
+    private async Task<bool> DispatchOneAsync(
         OutboxMessageClaim claim,
         CancellationToken cancellationToken)
     {
@@ -156,6 +213,7 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
                     claim.EventType,
                     timeProvider.GetElapsedTime(startedAt),
                     "processed");
+                return true;
             }
             else
             {
@@ -163,6 +221,7 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
                     claim.EventType,
                     timeProvider.GetElapsedTime(startedAt),
                     "claim_lost");
+                return false;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -172,6 +231,7 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
                 claim.EventType,
                 timeProvider.GetElapsedTime(startedAt),
                 "cancelled");
+            return false;
         }
         catch (Exception exception)
         {
@@ -211,6 +271,7 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
                 claim.EventType,
                 timeProvider.GetElapsedTime(startedAt),
                 "failed");
+            return false;
         }
     }
 
@@ -228,4 +289,6 @@ public sealed class ApplicationEventOutboxDispatcherWorker(
             : baseDelay.Ticks * multiplier;
         return TimeSpan.FromTicks(Math.Min(ticks, TimeSpan.FromHours(1).Ticks));
     }
+
+    private readonly record struct DispatchGroupKey(Guid Value, bool IsPosition);
 }

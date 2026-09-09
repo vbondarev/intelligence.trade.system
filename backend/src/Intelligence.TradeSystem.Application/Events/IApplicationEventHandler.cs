@@ -8,6 +8,8 @@ namespace Intelligence.TradeSystem.Application.Events;
 /// <remarks>
 /// Handlers must be idempotent by <see cref="IApplicationEvent.EventId"/>. The dispatcher marks
 /// an outbox row processed only after all registered handlers complete successfully.
+/// Position lifecycle handlers should additionally reject a position event whose
+/// <c>PositionId + PositionChangeSequence</c> is not newer than their last accepted sequence.
 /// </remarks>
 [SuppressMessage(
     "Naming",

@@ -209,10 +209,14 @@ public static class ApplicationEventSerializer
             value.ExchangeAccountId,
             value.Exchange,
             value.PositionId,
+            value.PositionChangeSequence,
             value.InstrumentId,
             value.MarketCategory,
             value.PositionSide,
             value.PositionIdx,
+            value.FirstDetectedAt,
+            value.LastObservedAt,
+            value.ClosedAt,
             value.PositionChangeKind,
             value.PositionChangeCause,
             value.TrackingStateAfter,
@@ -233,10 +237,14 @@ public static class ApplicationEventSerializer
             value.ExchangeAccountId,
             value.Exchange,
             value.PositionId,
+            value.PositionChangeSequence,
             value.InstrumentId,
             value.MarketCategory,
             value.PositionSide,
             value.PositionIdx,
+            value.FirstDetectedAt,
+            value.LastObservedAt,
+            value.ClosedAt,
             value.PositionChangeKind,
             value.PositionChangeCause,
             value.TrackingStateAfter,
@@ -257,10 +265,14 @@ public static class ApplicationEventSerializer
             value.ExchangeAccountId,
             value.Exchange,
             value.PositionId,
+            value.PositionChangeSequence,
             value.InstrumentId,
             value.MarketCategory,
             value.PositionSide,
             value.PositionIdx,
+            value.FirstDetectedAt,
+            value.LastObservedAt,
+            value.ClosedAt,
             value.PositionChangeKind,
             value.PositionChangeCause,
             value.TrackingStateAfter,
@@ -279,10 +291,14 @@ public static class ApplicationEventSerializer
         Guid exchangeAccountId,
         ExchangeId exchange,
         Guid positionId,
+        int positionChangeSequence,
         string? instrumentId,
         MarketCategory marketCategory,
         PositionSide positionSide,
         int positionIdx,
+        DateTimeOffset firstDetectedAt,
+        DateTimeOffset lastObservedAt,
+        DateTimeOffset? closedAt,
         PositionChangeKind positionChangeKind,
         PositionChangeCause positionChangeCause,
         PositionTrackingState trackingStateAfter,
@@ -292,6 +308,7 @@ public static class ApplicationEventSerializer
             exchangeAccountId == Guid.Empty ||
             !Enum.IsDefined(exchange) ||
             positionId == Guid.Empty ||
+            positionChangeSequence <= 0 ||
             string.IsNullOrWhiteSpace(instrumentId) ||
             !Enum.IsDefined(marketCategory) ||
             !Enum.IsDefined(positionSide) ||
@@ -300,6 +317,12 @@ public static class ApplicationEventSerializer
             !Enum.IsDefined(positionChangeKind) ||
             !Enum.IsDefined(positionChangeCause) ||
             !Enum.IsDefined(trackingStateAfter) ||
+            firstDetectedAt == default ||
+            lastObservedAt == default ||
+            lastObservedAt < firstDetectedAt ||
+            (trackingStateAfter == PositionTrackingState.Closed
+                ? closedAt is null || closedAt < lastObservedAt
+                : closedAt is not null) ||
             after is null)
         {
             throw new ApplicationEventSerializationException(

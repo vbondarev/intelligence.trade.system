@@ -107,7 +107,7 @@
 - неизменяемый `PositionAssessment` и жизненный цикл `Recommendation`;
 - отдельные словари `PositionAction`, `AddDecision`, `RiskIncreaseDecision` и `ReasonCode`;
 - relational PostgreSQL schema, EF Core migrations, persistence repositories и Testcontainers integration tests для доменного состояния;
-- PostgreSQL transactional outbox для versioned application events; доставка имеет at-least-once semantics, а consumers должны обеспечивать idempotency по `EventId`. Operational-параметры dispatcher задаются в `ApplicationEventOutboxDispatcher` (polling, batch, concurrency, lease и retry delay);
+- PostgreSQL transactional outbox для versioned application events; события durable сохраняются до появления downstream consumer. Доставка имеет at-least-once semantics, `EventId` используется для idempotency, а `PositionId + PositionChangeSequence` — для causal ordering. Dispatcher по умолчанию отключён и включается только после регистрации реальных `IApplicationEventHandler<TEvent>`; operational-параметры задаются в `ApplicationEventOutboxDispatcher` (polling, batch, concurrency, lease и retry delay);
 - оптимистическая конкурентность (compare-and-swap по версии, без retry) для ExchangeAccount, Position и Recommendation;
 - изолированный публичный BTC Daily Check через OpenClaw и Telegram;
 - архитектурные, доменные, модульные, прикладные и API-тесты;

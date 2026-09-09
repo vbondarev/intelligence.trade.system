@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.2
+Версия документа: 3.3
 Дата актуализации: 9 сентября 2026 года
-Проверенная база: `task/86-durable-sync-events` на коммите [`31566d1`](https://github.com/vbondarev/intelligence.trade.system/commit/31566d1827f17c84b36833732ca20680b434f89e) перед реализацией D-06
-Последняя учтённая задача: Issue #86 «Публиковать устойчивые события открытия, изменения, закрытия и ошибок синхронизации»
+Проверенная база: `task/86-durable-sync-events` на коммите [`4769102`](https://github.com/vbondarev/intelligence.trade.system/commit/47691027463a39f2e5b9b2ec80549728e9900594) перед исправлением замечаний D-06
+Последняя учтённая задача: Issue #86 / PR #87 «Публиковать устойчивые события открытия, изменения, закрытия и ошибок синхронизации»
 Текущий следующий этап: **D-07 — общий кэш публичного рыночного снимка**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -101,7 +101,7 @@
 - ✅ Реализована изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ✅ Реализовано безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
-- ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher и idempotency consumers по EventId.
+- ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
 
 ### Есть только как заготовка
 
@@ -450,6 +450,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-09 | 3.3 | Исправлены замечания D-06 в PR #87: no-op sync не создаёт lifecycle event, position events несут PositionChangeSequence и temporal metadata, dispatcher сериализует одну позицию внутри batch, default Enabled=false, bounded claim identity и добавлены dispatcher pipeline tests; D-07 остаётся следующим этапом. |
 | 2026-09-09 | 3.2 | Реализован D-06 (Issue #86): добавлены versioned position/sync-degraded events, PostgreSQL transactional outbox в общей sync-транзакции, at-least-once API dispatcher с lease/retry и explicit EventId idempotency contract; следующим выбран D-07. |
 | 2026-09-09 | 3.1 | Реализован D-05: добавлены system-scoped keyset-кандидаты Connected/Unavailable, bounded background sweep со scope на аккаунт, TimeProvider-расписание без overlap/catch-up storm, scheduler lag, LastSyncedAt telemetry и PostgreSQL candidate tests; следующая задача — D-06. |
 | 2026-09-09 | 3.0 | Реализован D-04: добавлен persisted account observation watermark, bounded CAS retry без повторного Bybit IO, безопасные AlreadyApplied/Superseded outcomes, защита от старых position observations и PostgreSQL race tests; следующим выбран D-05. |

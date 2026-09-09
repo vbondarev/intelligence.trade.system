@@ -63,6 +63,11 @@ public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Single(reclaimed);
         Assert.Equal(applicationEvent.EventId, reclaimed[0].EventId);
 
+        await using var staleClaimContext = fixture.CreateContext();
+        Assert.False(
+            await new ApplicationEventOutbox(staleClaimContext)
+                .MarkProcessedAsync(claim, CreatedAt.AddMinutes(7)));
+
         await using var retryContext = fixture.CreateContext();
         Assert.True(
             await new ApplicationEventOutbox(retryContext)

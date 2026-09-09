@@ -15,15 +15,38 @@ public static class PositionApplicationEventFactory
         Position position,
         PositionChange change)
     {
+        return Create(
+            userId,
+            account,
+            position,
+            change,
+            ResolveSequence(position, change));
+    }
+
+    public static IApplicationEvent Create(
+        UserId userId,
+        ExchangeAccount account,
+        Position position,
+        PositionChange change,
+        int positionChangeSequence)
+    {
         ArgumentNullException.ThrowIfNull(account);
         ArgumentNullException.ThrowIfNull(position);
         ArgumentNullException.ThrowIfNull(change);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(positionChangeSequence);
 
         var key = position.ExchangePositionKey;
         var before = change.Before is null
             ? null
             : PositionStateEventPayloadV1.From(change.Before);
         var after = PositionStateEventPayloadV1.From(change.After);
+        var firstDetectedAt = position.FirstDetectedAt;
+        var lastObservedAt = change.Kind == PositionChangeKind.New
+            ? change.OccurredAt
+            : position.LastObservedAt;
+        var closedAt = change.TrackingStateAfter == PositionTrackingState.Closed
+            ? position.ClosedAt
+            : null;
 
         return change.Kind switch
         {
@@ -34,10 +57,14 @@ public static class PositionApplicationEventFactory
                 account.Id.Value,
                 account.ExchangeId,
                 position.Id.Value,
+                positionChangeSequence,
                 key.InstrumentId.Value!,
                 position.MarketCategory,
                 key.PositionSide,
                 key.PositionIdx,
+                firstDetectedAt,
+                lastObservedAt,
+                closedAt,
                 change.Kind,
                 change.Cause,
                 change.TrackingStateAfter,
@@ -55,10 +82,14 @@ public static class PositionApplicationEventFactory
                 account.Id.Value,
                 account.ExchangeId,
                 position.Id.Value,
+                positionChangeSequence,
                 key.InstrumentId.Value!,
                 position.MarketCategory,
                 key.PositionSide,
                 key.PositionIdx,
+                firstDetectedAt,
+                lastObservedAt,
+                closedAt,
                 change.Kind,
                 change.Cause,
                 change.TrackingStateAfter,
@@ -71,10 +102,14 @@ public static class PositionApplicationEventFactory
                 account.Id.Value,
                 account.ExchangeId,
                 position.Id.Value,
+                positionChangeSequence,
                 key.InstrumentId.Value!,
                 position.MarketCategory,
                 key.PositionSide,
                 key.PositionIdx,
+                firstDetectedAt,
+                lastObservedAt,
+                closedAt,
                 change.Kind,
                 change.Cause,
                 change.TrackingStateAfter,
@@ -85,6 +120,21 @@ public static class PositionApplicationEventFactory
                 change.Kind,
                 "Position change kind is not mapped to an application event."),
         };
+    }
+
+    private static int ResolveSequence(Position position, PositionChange change)
+    {
+        for (var index = 0; index < position.Changes.Count; index++)
+        {
+            var candidate = position.Changes[index];
+            if (ReferenceEquals(candidate, change) || candidate.Equals(change))
+            {
+                return index + 1;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Position change for {position.Id} is not present in the position history.");
     }
 
     public static ExchangeAccountSyncDegradedEventV1 CreateSyncDegraded(
