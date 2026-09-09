@@ -264,7 +264,8 @@ public sealed class ExchangeAccountSyncService(
                                 ? ExchangeAccountSyncResult.Synchronized(
                                     accountForPersistence,
                                     portfolioState)
-                                : ExchangeAccountSyncResult.ExchangeUnavailable();
+                                : ExchangeAccountSyncResult.ExchangeUnavailable(
+                                    accountForPersistence);
 
                             await accountRepository
                                 .SaveAsync(

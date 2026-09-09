@@ -44,6 +44,53 @@ internal static class ExchangeAccountBackgroundSyncTelemetry
     private static readonly Histogram<double> LastSuccessfulSyncAge = Meter.CreateHistogram<double>(
         "exchange.account.background_sync.last_successful_sync_age",
         unit: "s");
+    private static readonly KeyValuePair<string, object?>[] BaseTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+    ];
+    private static readonly KeyValuePair<string, object?>[] SynchronizedTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.Synchronized)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] NotFoundTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.NotFound)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] AccountDisabledTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.AccountDisabled)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] CredentialsUnavailableTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.CredentialsUnavailable)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] ExchangeUnavailableTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.ExchangeUnavailable)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] AlreadyAppliedTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.AlreadyApplied)),
+    ];
+    private static readonly KeyValuePair<string, object?>[] SupersededTags =
+    [
+        new("worker", WorkerName),
+        new("exchange", ExchangeName),
+        new("outcome", nameof(ExchangeAccountSyncOutcome.Superseded)),
+    ];
 
     public static Activity? StartSweepActivity(TimeSpan schedulerLag)
     {
@@ -58,50 +105,58 @@ internal static class ExchangeAccountBackgroundSyncTelemetry
 
     public static void RecordSweepStarted(TimeSpan schedulerLag)
     {
-        SweepsStarted.Add(1, CreateTags());
-        SchedulerLag.Record(schedulerLag.TotalMilliseconds, CreateTags());
+        SweepsStarted.Add(1, BaseTags);
+        SchedulerLag.Record(schedulerLag.TotalMilliseconds, BaseTags);
     }
 
     public static void RecordSweepCompleted(
         TimeSpan duration,
         ExchangeAccountBackgroundSyncSweepResult result)
     {
-        SweepsCompleted.Add(1, CreateTags());
-        SweepDuration.Record(duration.TotalMilliseconds, CreateTags());
-        Candidates.Add(result.CandidateCount, CreateTags());
-        Processed.Add(result.ProcessedCount, CreateTags());
-        UnexpectedFailures.Add(result.UnexpectedFailureCount, CreateTags());
+        SweepsCompleted.Add(1, BaseTags);
+        SweepDuration.Record(duration.TotalMilliseconds, BaseTags);
+        Candidates.Add(result.CandidateCount, BaseTags);
+        Processed.Add(result.ProcessedCount, BaseTags);
+        UnexpectedFailures.Add(result.UnexpectedFailureCount, BaseTags);
     }
 
     public static void RecordAccountAttempt(
         ExchangeAccountSyncOutcome outcome,
         double? lastSuccessfulSyncAge)
     {
-        Outcomes.Add(
-            1,
-            CreateTags(("outcome", outcome.ToString())));
+        Outcomes.Add(1, GetOutcomeTags(outcome));
 
         if (lastSuccessfulSyncAge is { } age)
         {
-            LastSuccessfulSyncAge.Record(age, CreateTags());
+            LastSuccessfulSyncAge.Record(age, BaseTags);
         }
         else
         {
-            NeverSynchronized.Add(1, CreateTags());
+            NeverSynchronized.Add(1, BaseTags);
         }
     }
 
-    private static KeyValuePair<string, object?>[] CreateTags(
-        params (string Key, object? Value)[] additionalTags)
-    {
-        var tags = new List<KeyValuePair<string, object?>>
+    public static DateTimeOffset? GetAuthoritativeLastSuccessfulSyncAt(
+        ExchangeAccountSyncResult result) =>
+        result.Account?.LastSyncedAt;
+
+    private static KeyValuePair<string, object?>[] GetOutcomeTags(
+        ExchangeAccountSyncOutcome outcome) =>
+        outcome switch
         {
-            new("worker", WorkerName),
-            new("exchange", ExchangeName),
+            ExchangeAccountSyncOutcome.Synchronized => SynchronizedTags,
+            ExchangeAccountSyncOutcome.NotFound => NotFoundTags,
+            ExchangeAccountSyncOutcome.AccountDisabled => AccountDisabledTags,
+            ExchangeAccountSyncOutcome.CredentialsUnavailable => CredentialsUnavailableTags,
+            ExchangeAccountSyncOutcome.ExchangeUnavailable => ExchangeUnavailableTags,
+            ExchangeAccountSyncOutcome.AlreadyApplied => AlreadyAppliedTags,
+            ExchangeAccountSyncOutcome.Superseded => SupersededTags,
+            _ =>
+            [
+                new("worker", WorkerName),
+                new("exchange", ExchangeName),
+                new("outcome", outcome.ToString()),
+            ],
         };
-        tags.AddRange(additionalTags.Select(tag => new KeyValuePair<string, object?>(
-            tag.Key,
-            tag.Value)));
-        return tags.ToArray();
-    }
+
 }

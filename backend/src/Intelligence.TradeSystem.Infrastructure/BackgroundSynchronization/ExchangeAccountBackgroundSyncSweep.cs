@@ -169,7 +169,8 @@ public sealed class ExchangeAccountBackgroundSyncSweep(
         ExchangeAccountSyncCandidate candidate,
         ExchangeAccountSyncResult result)
     {
-        var lastSuccessfulSyncAt = result.Account?.LastSyncedAt ?? candidate.LastSyncedAt;
+        var lastSuccessfulSyncAt =
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(result);
         var lastSuccessfulSyncAge = lastSuccessfulSyncAt is { } syncAt
             ? Math.Max(0, (timeProvider.GetUtcNow() - syncAt).TotalSeconds)
             : (double?)null;

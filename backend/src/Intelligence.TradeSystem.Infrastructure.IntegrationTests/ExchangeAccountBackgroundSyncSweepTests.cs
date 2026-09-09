@@ -234,6 +234,79 @@ public sealed class ExchangeAccountBackgroundSyncSweepTests
     }
 
     [Fact]
+    public void Options_validation_rejects_excessive_schedule_values_and_accepts_defaults()
+    {
+        var validator = new ExchangeAccountBackgroundSyncOptionsValidator();
+
+        Assert.True(
+            validator
+                .Validate(Options.DefaultName, new ExchangeAccountBackgroundSyncOptions())
+                .Succeeded);
+
+        var excessiveInterval = validator.Validate(
+            Options.DefaultName,
+            new ExchangeAccountBackgroundSyncOptions
+            {
+                Interval = ExchangeAccountBackgroundSyncOptions.MaximumInterval.Add(
+                    TimeSpan.FromTicks(1)),
+            });
+        Assert.Contains("Interval must not exceed one day.", excessiveInterval.FailureMessage);
+
+        var excessiveInitialDelay = validator.Validate(
+            Options.DefaultName,
+            new ExchangeAccountBackgroundSyncOptions
+            {
+                InitialDelay = ExchangeAccountBackgroundSyncOptions.MaximumInitialDelay.Add(
+                    TimeSpan.FromTicks(1)),
+            });
+        Assert.Contains(
+            "InitialDelay must not exceed one day.",
+            excessiveInitialDelay.FailureMessage);
+    }
+
+    [Fact]
+    public void Uses_the_current_result_account_for_authoritative_last_sync_telemetry()
+    {
+        var candidateLastSyncedAt = new DateTimeOffset(
+            2026,
+            9,
+            9,
+            9,
+            0,
+            0,
+            TimeSpan.Zero);
+        var currentLastSyncedAt = candidateLastSyncedAt.AddHours(1);
+        var candidate = new ExchangeAccountSyncCandidate(
+            UserId.New(),
+            ExchangeAccountId.New(),
+            candidateLastSyncedAt);
+        var account = ExchangeAccount.Create(
+            candidate.ExchangeAccountId,
+            candidate.UserId,
+            ExchangeId.Bybit,
+            ExchangeAccountConnectionStatus.Unavailable,
+            lastSyncedAt: currentLastSyncedAt);
+
+        var result = ExchangeAccountSyncResult.ExchangeUnavailable(account);
+
+        Assert.Equal(
+            currentLastSyncedAt,
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(result));
+        Assert.Null(
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(
+                ExchangeAccountSyncResult.ExchangeUnavailable()));
+        Assert.Null(
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(
+                ExchangeAccountSyncResult.CredentialsUnavailable()));
+        Assert.Null(
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(
+                ExchangeAccountSyncResult.AccountDisabled()));
+        Assert.Null(
+            ExchangeAccountBackgroundSyncTelemetry.GetAuthoritativeLastSuccessfulSyncAt(
+                ExchangeAccountSyncResult.NotFound()));
+    }
+
+    [Fact]
     public async Task Worker_does_not_overlap_a_long_running_sweep()
     {
         var sweep = new BlockingSweep();
@@ -298,7 +371,7 @@ public sealed class ExchangeAccountBackgroundSyncSweepTests
                     TimeSpan.FromMinutes(5))),
             ExchangeAccountSyncOutcome.AlreadyApplied => ExchangeAccountSyncResult.AlreadyApplied(account),
             ExchangeAccountSyncOutcome.Superseded => ExchangeAccountSyncResult.Superseded(account),
-            ExchangeAccountSyncOutcome.ExchangeUnavailable => ExchangeAccountSyncResult.ExchangeUnavailable(),
+            ExchangeAccountSyncOutcome.ExchangeUnavailable => ExchangeAccountSyncResult.ExchangeUnavailable(account),
             ExchangeAccountSyncOutcome.CredentialsUnavailable => ExchangeAccountSyncResult.CredentialsUnavailable(),
             ExchangeAccountSyncOutcome.AccountDisabled => ExchangeAccountSyncResult.AccountDisabled(),
             ExchangeAccountSyncOutcome.NotFound => ExchangeAccountSyncResult.NotFound(),

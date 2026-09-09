@@ -17,11 +17,21 @@ public sealed class ExchangeAccountBackgroundSyncOptionsValidator
             failures.Add(
                 "ExchangeAccountBackgroundSync:Interval must be greater than zero.");
         }
+        else if (options.Interval > ExchangeAccountBackgroundSyncOptions.MaximumInterval)
+        {
+            failures.Add(
+                "ExchangeAccountBackgroundSync:Interval must not exceed one day.");
+        }
 
         if (options.InitialDelay < TimeSpan.Zero)
         {
             failures.Add(
                 "ExchangeAccountBackgroundSync:InitialDelay must be zero or greater.");
+        }
+        else if (options.InitialDelay > ExchangeAccountBackgroundSyncOptions.MaximumInitialDelay)
+        {
+            failures.Add(
+                "ExchangeAccountBackgroundSync:InitialDelay must not exceed one day.");
         }
 
         if (options.BatchSize <= 0)

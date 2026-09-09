@@ -57,8 +57,16 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
 
         Assert.Equal(activeAccounts.Length, ownCandidates.Length);
         Assert.Equal(
-            activeAccounts.Select(account => account.Id).Order(),
-            ownCandidates.Select(candidate => candidate.ExchangeAccountId).Order());
+            activeAccounts
+                .Select(account => (AccountId: account.Id.Value, UserId: account.UserId.Value))
+                .OrderBy(pair => pair.AccountId)
+                .ThenBy(pair => pair.UserId),
+            ownCandidates
+                .Select(candidate => (
+                    AccountId: candidate.ExchangeAccountId.Value,
+                    UserId: candidate.UserId.Value))
+                .OrderBy(pair => pair.AccountId)
+                .ThenBy(pair => pair.UserId));
         Assert.DoesNotContain(
             ownCandidates,
             candidate => candidate.ExchangeAccountId == disabled.Id);
@@ -66,14 +74,11 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
             ownCandidates,
             candidate => candidate.ExchangeAccountId == unknown.Id);
         Assert.Equal(
-            activeAccounts.Select(account => account.UserId).Order(),
-            ownCandidates.Select(candidate => candidate.UserId).Order());
-        Assert.Equal(
             candidates.Select(candidate => candidate.ExchangeAccountId).Distinct().Count(),
             candidates.Count);
         Assert.Equal(
-            candidates.Select(candidate => candidate.ExchangeAccountId),
-            candidates.Select(candidate => candidate.ExchangeAccountId).Order());
+            candidates.Select(candidate => candidate.ExchangeAccountId.Value),
+            candidates.Select(candidate => candidate.ExchangeAccountId.Value).Order());
     }
 
     private async Task<IReadOnlyList<ExchangeAccountSyncCandidate>> ReadAllCandidatesAsync(

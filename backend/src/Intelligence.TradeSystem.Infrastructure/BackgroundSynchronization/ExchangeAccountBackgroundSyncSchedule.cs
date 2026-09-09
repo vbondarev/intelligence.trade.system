@@ -23,7 +23,8 @@ public static class ExchangeAccountBackgroundSyncSchedule
         }
 
         var elapsedTicks = (now - plannedStart).Ticks;
-        var intervalsToSkip = elapsedTicks / interval.Ticks + 1;
-        return plannedStart + TimeSpan.FromTicks(interval.Ticks * intervalsToSkip);
+        var intervalsToSkip = checked(elapsedTicks / interval.Ticks + 1);
+        var nextOffsetTicks = checked(interval.Ticks * intervalsToSkip);
+        return plannedStart + TimeSpan.FromTicks(nextOffsetTicks);
     }
 }
