@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -22,6 +23,9 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private static readonly DateTimeOffset T2 = T0.AddMinutes(2);
     private static readonly ExchangeAccountCapabilities Capabilities =
         ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions;
+    private static readonly PositionChangeKind[] NewThenIncreased =
+        [PositionChangeKind.New, PositionChangeKind.Increased];
+    private static readonly int[] NewThenIncreasedSequences = [1, 2];
 
     [Fact]
     public async Task Concurrent_same_observation_converges_to_one_position_history_and_portfolio()
@@ -68,6 +72,22 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             1,
             await verificationContext.PositionChanges.CountAsync(
                 change => change.PositionId == persistedPositions.Single().Value.Id.Value));
+        Assert.Equal(
+            1,
+            (await verificationContext.PositionChanges
+                .SingleAsync(change =>
+                    change.PositionId == persistedPositions.Single().Value.Id.Value))
+                .Sequence);
+        var openedEvents = await verificationContext.OutboxMessages
+            .Where(message =>
+                message.EventType == "position.opened" &&
+                message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.Single(
+            openedEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
         Assert.Equal(
             1,
             await verificationContext.PortfolioStates.CountAsync(
@@ -153,14 +173,86 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Equal(T2, persistedPosition.Value.LastObservedAt);
         Assert.Equal(PositionTrackingState.Active, persistedPosition.Value.TrackingState);
         Assert.Equal(
-            new[] { PositionChangeKind.New, PositionChangeKind.Increased },
+            NewThenIncreased,
             persistedPosition.Value.Changes.Select(change => change.Kind));
+        var persistedChanges = await verificationContext.PositionChanges
+            .Where(change => change.PositionId == initialPosition.Id.Value)
+            .OrderBy(change => change.Sequence)
+            .ToArrayAsync();
+        Assert.Equal(NewThenIncreasedSequences, persistedChanges.Select(change => change.Sequence));
         Assert.NotNull(latestPortfolio);
         Assert.Equal(2_000m, latestPortfolio!.Capital.TotalEquity);
         Assert.Equal(
             2,
             await verificationContext.PortfolioStates.CountAsync(
                 state => state.ExchangeAccountId == account.Id.Value));
+        var accountEvents = await verificationContext.OutboxMessages
+            .Where(message => message.ProcessedAt == null)
+            .ToArrayAsync();
+        var eventRow = Assert.Single(
+            accountEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
+        var applicationEvent = ApplicationEventSerializer.Deserialize(
+            eventRow.EventType,
+            eventRow.SchemaVersion,
+            eventRow.Payload);
+        var changedEvent = Assert.IsType<PositionChangedEventV1>(applicationEvent);
+        Assert.Equal("position.changed", eventRow.EventType);
+        Assert.Equal(PositionChangeKind.Increased, changedEvent.PositionChangeKind);
+        Assert.Equal(initialPosition.Id.Value, changedEvent.PositionId);
+        Assert.Equal(account.UserId.Value, changedEvent.UserId);
+        Assert.Equal(2, changedEvent.PositionChangeSequence);
+    }
+
+    [Fact]
+    public async Task Newer_identical_observation_updates_dynamic_state_without_history_or_event()
+    {
+        var account = CreateAccount();
+        var initialPosition = Position.Create(
+            ExchangePositionKey.Create(
+                account.Id,
+                InstrumentId.From("BTCUSDT"),
+                PositionSide.Long,
+                0),
+            MarketCategory.Linear,
+            1m,
+            T0,
+            T0,
+            averageEntryPrice: 100m,
+            positionValue: 100m,
+            leverage: 2m,
+            markPrice: 100m,
+            unrealizedPnl: 0m);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext)
+                .SaveAsync(account.UserId, initialPosition, expectedVersion: null);
+        }
+
+        await RunSynchronization(
+            account,
+            new TestPrivateProvider(CreateObservation(T1, 1m)),
+            T1);
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedPosition = await new PositionRepository(verificationContext)
+            .GetByIdAsync(account.UserId, initialPosition.Id);
+        Assert.NotNull(persistedPosition);
+        Assert.Equal(T1, persistedPosition!.Value.LastObservedAt);
+        Assert.Single(persistedPosition.Value.Changes);
+        var pendingEvents = await verificationContext.OutboxMessages
+            .Where(message => message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.DoesNotContain(
+            pendingEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -229,6 +321,48 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             await verificationContext.PortfolioStates
                 .Where(state => state.ExchangeAccountId == account.Id.Value)
                 .ToArrayAsync());
+        var supersededAccountEvents = await verificationContext.OutboxMessages
+            .Where(message => message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.Single(
+            supersededAccountEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Failed_persistence_rolls_back_business_state_and_outbox()
+    {
+        var account = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+        }
+        int baselinePositionChangeCount;
+        int baselineOutboxCount;
+        await using (var baselineContext = await CreateMigratedContext())
+        {
+            baselinePositionChangeCount = await baselineContext.PositionChanges.CountAsync();
+            baselineOutboxCount = await baselineContext.OutboxMessages.CountAsync();
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RunSynchronization(
+                account,
+                new TestPrivateProvider(CreateObservation(T1, 1m)),
+                T1,
+                throwAfterOperation: true));
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.Empty(await new PositionRepository(verificationContext)
+            .GetByExchangeAccountAsync(account.UserId, account.Id));
+        Assert.Equal(baselinePositionChangeCount, await verificationContext.PositionChanges.CountAsync());
+        Assert.Empty(await verificationContext.PortfolioStates
+            .Where(state => state.ExchangeAccountId == account.Id.Value)
+            .ToArrayAsync());
+        Assert.Equal(baselineOutboxCount, await verificationContext.OutboxMessages.CountAsync());
     }
 
     private async Task<ExchangeAccountSyncResult> RunSynchronization(
@@ -236,7 +370,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         TestPrivateProvider provider,
         DateTimeOffset calculatedAt,
         TaskCompletionSource<bool>? secondRead = null,
-        TaskCompletionSource<bool>? release = null)
+        TaskCompletionSource<bool>? release = null,
+        bool throwAfterOperation = false)
     {
         await using var context = fixture.CreateContext();
         IExchangeAccountRepository repository = new ExchangeAccountRepository(context);
@@ -254,7 +389,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             new TestPrivateProviderFactory(provider),
             new PositionRepository(context),
             new PortfolioStateRepository(context),
-            new ExchangeAccountSyncTransaction(context),
+            throwAfterOperation
+                ? new ThrowingAfterOperationSyncTransaction(context)
+                : new ExchangeAccountSyncTransaction(context),
+            new ApplicationEventOutbox(context),
             new FixedTimeProvider(calculatedAt.AddMinutes(1)));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);
@@ -317,6 +455,29 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class ThrowingAfterOperationSyncTransaction(TradeSystemDbContext dbContext)
+        : IExchangeAccountSyncTransaction
+    {
+        public async Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            await using var transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await operation(cancellationToken);
+                throw new InvalidOperationException("Injected post-outbox persistence failure.");
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                dbContext.ChangeTracker.Clear();
+                throw;
+            }
+        }
     }
 
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore

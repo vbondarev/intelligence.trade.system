@@ -74,7 +74,7 @@
 
 ## Текущее состояние
 
-Этапы A, B и C завершены. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring. D-01 — D-05 реализованы; следующий этап — D-06: устойчивые события синхронизации.
+Этапы A, B и C завершены. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring. D-01 — D-06 реализованы; следующий этап — D-07: общий кэш публичного рыночного снимка.
 
 ### Уже реализовано
 
@@ -107,6 +107,7 @@
 - неизменяемый `PositionAssessment` и жизненный цикл `Recommendation`;
 - отдельные словари `PositionAction`, `AddDecision`, `RiskIncreaseDecision` и `ReasonCode`;
 - relational PostgreSQL schema, EF Core migrations, persistence repositories и Testcontainers integration tests для доменного состояния;
+- PostgreSQL transactional outbox для versioned application events; события durable сохраняются до появления downstream consumer. Доставка имеет at-least-once semantics, `EventId` используется для idempotency, а `PositionId + PositionChangeSequence` — для causal ordering. Dispatcher по умолчанию отключён и включается только после регистрации реальных `IApplicationEventHandler<TEvent>`; operational-параметры задаются в `ApplicationEventOutboxDispatcher` (polling, batch, concurrency, lease и retry delay);
 - оптимистическая конкурентность (compare-and-swap по версии, без retry) для ExchangeAccount, Position и Recommendation;
 - изолированный публичный BTC Daily Check через OpenClaw и Telegram;
 - архитектурные, доменные, модульные, прикладные и API-тесты;
@@ -535,7 +536,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы B и C завершены. D-01 — D-05 завершены; текущий следующий этап — **D-06: устойчивые события синхронизации**.
+Этапы B и C завершены. D-01 — D-06 завершены; текущий следующий этап — **D-07: общий кэш публичного рыночного снимка**.
 
 Основная ближайшая последовательность:
 

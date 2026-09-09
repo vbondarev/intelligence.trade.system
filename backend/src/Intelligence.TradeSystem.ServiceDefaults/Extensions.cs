@@ -20,6 +20,8 @@ public static class Extensions
     private const string BybitExchangeTelemetryName = "Intelligence.TradeSystem.Exchanges.Bybit";
     private const string BackgroundSyncTelemetryName =
         "Intelligence.TradeSystem.Infrastructure.BackgroundSync";
+    private const string ApplicationEventsTelemetryName =
+        "Intelligence.TradeSystem.Infrastructure.ApplicationEvents";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -63,7 +65,8 @@ public static class Extensions
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
                     .AddMeter(BybitExchangeTelemetryName)
-                    .AddMeter(BackgroundSyncTelemetryName);
+                    .AddMeter(BackgroundSyncTelemetryName)
+                    .AddMeter(ApplicationEventsTelemetryName);
             })
             .WithTracing(tracing =>
             {
@@ -71,6 +74,7 @@ public static class Extensions
                     .AddSource(builder.Environment.ApplicationName)
                     .AddSource(BybitExchangeTelemetryName)
                     .AddSource(BackgroundSyncTelemetryName)
+                    .AddSource(ApplicationEventsTelemetryName)
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

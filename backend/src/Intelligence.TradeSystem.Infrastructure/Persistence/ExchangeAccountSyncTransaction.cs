@@ -5,7 +5,7 @@ using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence;
 
 /// <summary>
-/// Keeps position, portfolio, and account metadata writes in one database transaction.
+/// Keeps position, portfolio, account metadata, and outbox writes in one database transaction.
 /// </summary>
 public sealed class ExchangeAccountSyncTransaction(TradeSystemDbContext dbContext)
     : IExchangeAccountSyncTransaction

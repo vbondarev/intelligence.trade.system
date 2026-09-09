@@ -17,6 +17,7 @@ public sealed class TradeSystemDbContext(DbContextOptions<TradeSystemDbContext> 
     public DbSet<PositionAssessmentReasonEntity> PositionAssessmentReasons => Set<PositionAssessmentReasonEntity>();
     public DbSet<RecommendationEntity> Recommendations => Set<RecommendationEntity>();
     public DbSet<RecommendationReasonEntity> RecommendationReasons => Set<RecommendationReasonEntity>();
+    public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TradeSystemDbContext).Assembly);
