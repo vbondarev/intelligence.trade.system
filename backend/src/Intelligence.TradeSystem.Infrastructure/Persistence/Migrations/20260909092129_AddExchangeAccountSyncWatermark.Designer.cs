@@ -3,6 +3,7 @@ using System;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TradeSystemDbContext))]
-    partial class TradeSystemDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909092129_AddExchangeAccountSyncWatermark")]
+    partial class AddExchangeAccountSyncWatermark
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -106,13 +109,9 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("exchange_id");
 
-                    b.Property<DateTimeOffset?>("LastAppliedBalanceObservationAt")
+                    b.Property<DateTimeOffset?>("LastAppliedObservationAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_applied_balance_observation_at");
-
-                    b.Property<DateTimeOffset?>("LastAppliedPositionsObservationAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_applied_positions_observation_at");
+                        .HasColumnName("last_applied_observation_at");
 
                     b.Property<string>("LastError")
                         .HasMaxLength(2000)

@@ -260,6 +260,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task ExchangeAccount_round_trips_through_a_new_context()
     {
         var account = CreateAccount();
+        account.AdvanceObservationWatermark(
+            ExchangeAccountObservationResource.Balance,
+            T0);
+        account.AdvanceObservationWatermark(
+            ExchangeAccountObservationResource.Positions,
+            T0);
 
         await using (var dbContext = await CreateMigratedContext())
         {
@@ -281,6 +287,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(account.Capabilities, reloadedAccount.Capabilities);
         Assert.Equal(account.LastSyncedAt, reloadedAccount.LastSyncedAt);
         Assert.Equal(account.LastError, reloadedAccount.LastError);
+        Assert.Equal(
+            account.LastAppliedBalanceObservationAt,
+            reloadedAccount.LastAppliedBalanceObservationAt);
+        Assert.Equal(
+            account.LastAppliedPositionsObservationAt,
+            reloadedAccount.LastAppliedPositionsObservationAt);
     }
 
     [Fact]

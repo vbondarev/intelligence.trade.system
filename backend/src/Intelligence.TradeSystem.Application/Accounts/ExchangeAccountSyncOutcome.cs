@@ -7,4 +7,6 @@ public enum ExchangeAccountSyncOutcome
     AccountDisabled = 2,
     CredentialsUnavailable = 3,
     ExchangeUnavailable = 4,
+    AlreadyApplied = 5,
+    Superseded = 6,
 }

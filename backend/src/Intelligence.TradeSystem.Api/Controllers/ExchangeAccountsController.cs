@@ -103,6 +103,9 @@ public sealed class ExchangeAccountsController(
         {
             ExchangeAccountSyncOutcome.Synchronized when result.Account is not null =>
                 Ok(ToResponse(result.Account)),
+            ExchangeAccountSyncOutcome.AlreadyApplied or
+                ExchangeAccountSyncOutcome.Superseded when result.Account is not null =>
+                Ok(ToResponse(result.Account)),
             ExchangeAccountSyncOutcome.NotFound => NotFound(),
             ExchangeAccountSyncOutcome.AccountDisabled =>
                 Error(ApiErrorDescriptors.ExchangeAccountDisabled),

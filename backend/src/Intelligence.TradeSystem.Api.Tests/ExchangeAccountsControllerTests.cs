@@ -207,6 +207,36 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     }
 
     [Theory]
+    [InlineData(ExchangeAccountSyncOutcome.AlreadyApplied)]
+    [InlineData(ExchangeAccountSyncOutcome.Superseded)]
+    public async Task Synchronize_Returns_Ok_For_Safe_No_Op_Outcomes(ExchangeAccountSyncOutcome outcome)
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync
+            .Setup(value => value.SynchronizeAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountSyncResult(outcome, account, null));
+        var controller = CreateController(
+            new Mock<IExchangeAccountService>(MockBehavior.Strict),
+            sync,
+            CreateCurrentUser(userId));
+
+        var action = await controller.Synchronize(account.Id.Value, CancellationToken.None);
+
+        action.Result
+            .Should()
+            .BeOfType<OkObjectResult>()
+            .Which.Value
+            .Should()
+            .BeOfType<ExchangeAccountResponse>();
+        sync.VerifyAll();
+    }
+
+    [Theory]
     [InlineData(ExchangeAccountSyncOutcome.NotFound, 404)]
     [InlineData(ExchangeAccountSyncOutcome.AccountDisabled, 409)]
     [InlineData(ExchangeAccountSyncOutcome.CredentialsUnavailable, 503)]

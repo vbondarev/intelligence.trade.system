@@ -1,4 +1,6 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Microsoft.EntityFrameworkCore;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence;
 
@@ -27,9 +29,33 @@ public sealed class ExchangeAccountSyncTransaction(TradeSystemDbContext dbContex
             await operation(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
+        catch (DbUpdateException exception)
+            when (PostgreSqlConcurrencyConflictDetector.IsUniqueConstraint(
+                exception,
+                "ux_positions_active_exchange_key"))
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
+            throw new PositionActiveKeyRaceException(exception);
+        }
         catch
         {
-            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
             throw;
         }
     }
