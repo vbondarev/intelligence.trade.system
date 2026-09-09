@@ -55,7 +55,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .GetByExchangeAccountAsync(account.UserId, account.Id);
 
         Assert.NotNull(persistedAccount);
-        Assert.Equal(T1, persistedAccount!.Value.LastAppliedObservationAt);
+        Assert.Equal(T1, persistedAccount!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(T1, persistedAccount!.Value.LastAppliedPositionsObservationAt);
         Assert.Equal(new ConcurrencyVersion(2), persistedAccount!.Version);
         Assert.Single(persistedPositions);
         Assert.Equal(PositionTrackingState.Active, persistedPositions.Single().Value.TrackingState);
@@ -144,7 +145,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .GetLatestAsync(account.UserId, account.Id);
 
         Assert.NotNull(persistedAccount);
-        Assert.Equal(T2, persistedAccount!.Value.LastAppliedObservationAt);
+        Assert.Equal(T2, persistedAccount!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(T2, persistedAccount!.Value.LastAppliedPositionsObservationAt);
         Assert.Equal(new ConcurrencyVersion(3), persistedAccount!.Version);
         Assert.NotNull(persistedPosition);
         Assert.Equal(2m, persistedPosition!.Value.Size);
@@ -159,6 +161,74 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             2,
             await verificationContext.PortfolioStates.CountAsync(
                 state => state.ExchangeAccountId == account.Id.Value));
+    }
+
+    [Fact]
+    public async Task Newer_commit_first_supersedes_older_response_without_closing_position()
+    {
+        var account = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+        }
+
+        var olderRead = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOlderAttempt = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var olderProvider = new TestPrivateProvider(CreateEmptyObservation(T1));
+        var newerProvider = new TestPrivateProvider(CreateObservation(T2, 2m));
+
+        var olderTask = RunSynchronization(
+            account,
+            olderProvider,
+            T1,
+            olderRead,
+            releaseOlderAttempt);
+        await olderRead.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        ExchangeAccountSyncResult newerResult;
+        try
+        {
+            newerResult = await RunSynchronization(account, newerProvider, T2);
+        }
+        finally
+        {
+            releaseOlderAttempt.TrySetResult(true);
+        }
+
+        var olderResult = await olderTask;
+
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, newerResult.Outcome);
+        Assert.Equal(ExchangeAccountSyncOutcome.Superseded, olderResult.Outcome);
+        Assert.Equal(1, olderProvider.BalanceCalls);
+        Assert.Equal(1, newerProvider.BalanceCalls);
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedAccount = await new ExchangeAccountRepository(verificationContext)
+            .GetByIdAsync(account.UserId, account.Id);
+        var persistedPositions = await new PositionRepository(verificationContext)
+            .GetByExchangeAccountAsync(account.UserId, account.Id);
+        var latestPortfolio = await new PortfolioStateRepository(verificationContext)
+            .GetLatestAsync(account.UserId, account.Id);
+
+        Assert.NotNull(persistedAccount);
+        Assert.Equal(T2, persistedAccount!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(T2, persistedAccount.Value.LastAppliedPositionsObservationAt);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, persistedAccount.Value.ConnectionStatus);
+        Assert.Null(persistedAccount.Value.LastError);
+        Assert.Equal(T2.AddMinutes(1), persistedAccount.Value.LastSyncedAt);
+        Assert.Single(persistedPositions);
+        Assert.Equal(2m, persistedPositions.Single().Value.Size);
+        Assert.Equal(T2, persistedPositions.Single().Value.LastObservedAt);
+        Assert.Equal(PositionTrackingState.Active, persistedPositions.Single().Value.TrackingState);
+        Assert.NotNull(latestPortfolio);
+        Assert.Equal(2_000m, latestPortfolio!.Capital.TotalEquity);
+        Assert.Single(
+            await verificationContext.PortfolioStates
+                .Where(state => state.ExchangeAccountId == account.Id.Value)
+                .ToArrayAsync());
     }
 
     private async Task<ExchangeAccountSyncResult> RunSynchronization(
@@ -235,6 +305,14 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                     null,
                     0),
             ]);
+
+    private static OpenPositionsObservation CreateEmptyObservation(
+        DateTimeOffset observedAt) =>
+        OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            observedAt,
+            []);
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

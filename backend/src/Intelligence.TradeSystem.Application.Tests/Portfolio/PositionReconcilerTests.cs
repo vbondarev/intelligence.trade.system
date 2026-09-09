@@ -449,6 +449,51 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
+    public void Older_Observation_Still_Refreshes_Stale_Freshness()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                T0,
+                []),
+            observedAt.AddMinutes(20),
+            staleAfter: TimeSpan.FromMinutes(5));
+
+        position.TrackingState.Should().Be(PositionTrackingState.Stale);
+        position.Size.Should().Be(1m);
+        result.Changes.Should().ContainSingle(change =>
+            change.Kind == PositionChangeKind.MarkedStale);
+        result.PositionsToPersist.Should().ContainSingle().Which.Should().BeSameAs(position);
+    }
+
+    [Fact]
+    public void Equal_Observation_Still_Refreshes_Stale_Freshness()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                []),
+            observedAt.AddMinutes(20),
+            staleAfter: TimeSpan.FromMinutes(5));
+
+        position.TrackingState.Should().Be(PositionTrackingState.Stale);
+        result.Changes.Should().ContainSingle(change =>
+            change.Kind == PositionChangeKind.MarkedStale);
+        result.PositionsToPersist.Should().ContainSingle().Which.Should().BeSameAs(position);
+    }
+
+    [Fact]
     public void RefreshFreshness_Is_Applied_Regardless_Of_Observation_Scope()
     {
         var position = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");

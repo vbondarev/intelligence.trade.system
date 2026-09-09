@@ -23,7 +23,8 @@ public sealed class ExchangeAccountTests
         account.Capabilities.Should().HaveFlag(ExchangeAccountCapabilities.ReadPositions);
         account.LastSyncedAt.Should().BeNull();
         account.LastError.Should().BeNull();
-        account.LastAppliedObservationAt.Should().BeNull();
+        account.LastAppliedBalanceObservationAt.Should().BeNull();
+        account.LastAppliedPositionsObservationAt.Should().BeNull();
     }
 
     [Fact]
@@ -161,19 +162,27 @@ public sealed class ExchangeAccountTests
         var t1 = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
         var t2 = t1.AddMinutes(1);
 
-        account.AdvanceObservationWatermark(t1)
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Balance, t1)
             .Should().Be(ExchangeAccountObservationDisposition.Applied);
-        account.LastAppliedObservationAt.Should().Be(t1);
+        account.LastAppliedBalanceObservationAt.Should().Be(t1);
 
-        account.AdvanceObservationWatermark(t2)
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Balance, t2)
             .Should().Be(ExchangeAccountObservationDisposition.Applied);
-        account.LastAppliedObservationAt.Should().Be(t2);
+        account.LastAppliedBalanceObservationAt.Should().Be(t2);
 
-        account.AdvanceObservationWatermark(t2)
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Balance, t2)
             .Should().Be(ExchangeAccountObservationDisposition.AlreadyApplied);
-        account.AdvanceObservationWatermark(t1)
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Balance, t1)
             .Should().Be(ExchangeAccountObservationDisposition.Superseded);
-        account.LastAppliedObservationAt.Should().Be(t2);
+        account.LastAppliedBalanceObservationAt.Should().Be(t2);
+
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Positions, t1)
+            .Should().Be(ExchangeAccountObservationDisposition.Applied);
+        account.LastAppliedPositionsObservationAt.Should().Be(t1);
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Positions, t1)
+            .Should().Be(ExchangeAccountObservationDisposition.AlreadyApplied);
+        account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Positions, t1.AddMinutes(-1))
+            .Should().Be(ExchangeAccountObservationDisposition.Superseded);
     }
 
     [Fact]
@@ -182,19 +191,22 @@ public sealed class ExchangeAccountTests
         var account = CreateAccount();
         var observationAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
 
-        account.RecordSyncFailure("positions_failed", observationAt)
+        account.AdvanceObservationWatermark(
+                ExchangeAccountObservationResource.Positions,
+                observationAt)
             .Should().Be(ExchangeAccountObservationDisposition.Applied);
-        account.LastAppliedObservationAt.Should().Be(observationAt);
+        account.RecordSyncFailure("positions_failed");
+        account.LastAppliedPositionsObservationAt.Should().Be(observationAt);
         account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
 
         account.Disable();
-        var act = () => account.RecordSuccessfulSync(
-            observationAt.AddMinutes(1),
+        var act = () => account.AdvanceObservationWatermark(
+            ExchangeAccountObservationResource.Positions,
             observationAt.AddMinutes(1));
 
         act.Should().Throw<InvalidOperationException>();
         account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
-        account.LastAppliedObservationAt.Should().Be(observationAt);
+        account.LastAppliedPositionsObservationAt.Should().Be(observationAt);
     }
 
     private static ExchangeAccount CreateAccount(

@@ -40,8 +40,11 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
         builder.Property(account => account.LastError)
             .HasColumnName("last_error")
             .HasMaxLength(2000);
-        builder.Property(account => account.LastAppliedObservationAt)
-            .HasColumnName("last_applied_observation_at")
+        builder.Property(account => account.LastAppliedBalanceObservationAt)
+            .HasColumnName("last_applied_balance_observation_at")
+            .HasColumnType("timestamp with time zone");
+        builder.Property(account => account.LastAppliedPositionsObservationAt)
+            .HasColumnName("last_applied_positions_observation_at")
             .HasColumnType("timestamp with time zone");
         builder.Property(account => account.Version)
             .HasColumnName("version")

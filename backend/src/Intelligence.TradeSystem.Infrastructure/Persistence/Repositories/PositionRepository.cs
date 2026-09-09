@@ -128,10 +128,7 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                 when (
                     PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
                         exception,
-                        "PK_positions") ||
-                    PostgreSqlConcurrencyConflictDetector.IsUniqueConstraint(
-                        exception,
-                        "ux_positions_active_exchange_key"))
+                        "PK_positions"))
             {
                 if (insertTransaction is not null)
                 {

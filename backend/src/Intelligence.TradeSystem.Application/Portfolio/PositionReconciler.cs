@@ -27,7 +27,8 @@ public static class PositionReconciler
         IReadOnlyCollection<Position> trackedPositions,
         OpenPositionsObservation observation,
         DateTimeOffset now,
-        TimeSpan staleAfter)
+        TimeSpan staleAfter,
+        bool applyObservation = true)
     {
         ArgumentNullException.ThrowIfNull(trackedPositions);
         ArgumentNullException.ThrowIfNull(observation);
@@ -44,23 +45,6 @@ public static class PositionReconciler
              string.Equals(
                  position.ExchangePositionKey.InstrumentId.Value, observation.Symbol.Trim(),
                  StringComparison.OrdinalIgnoreCase));
-
-        // A response that is not newer than an active lifecycle cannot prove a new state or
-        // absence. Ignore the whole observation so it cannot close or mark another position.
-        var scopedActivePositions = trackedPositions
-            .Where(position =>
-                position.TrackingState != PositionTrackingState.Closed &&
-                InScope(position))
-            .ToArray();
-        var hasNewerScopedObservation = scopedActivePositions
-            .Any(position => position.LastObservedAt > observation.ObservedAt);
-        if (hasNewerScopedObservation)
-        {
-            return new PositionReconciliationResult(newPositions, changes, warnings)
-            {
-                IsFullyReconciled = false,
-            };
-        }
 
         void RefreshAccountFreshness()
         {
@@ -81,6 +65,35 @@ public static class PositionReconciler
                     }
                 }
             }
+        }
+
+        if (!applyObservation)
+        {
+            RefreshAccountFreshness();
+            return new PositionReconciliationResult(newPositions, changes, warnings)
+            {
+                PositionsToPersist = positionsToPersist.ToArray(),
+                IsFullyReconciled = false,
+            };
+        }
+
+        // A response that is older than an active lifecycle cannot prove a new state or
+        // absence. Ignore its data while still evaluating freshness.
+        var scopedActivePositions = trackedPositions
+            .Where(position =>
+                position.TrackingState != PositionTrackingState.Closed &&
+                InScope(position))
+            .ToArray();
+        var hasNewerScopedObservation = scopedActivePositions
+            .Any(position => position.LastObservedAt > observation.ObservedAt);
+        if (hasNewerScopedObservation)
+        {
+            RefreshAccountFreshness();
+            return new PositionReconciliationResult(newPositions, changes, warnings)
+            {
+                PositionsToPersist = positionsToPersist.ToArray(),
+                IsFullyReconciled = false,
+            };
         }
 
         if (observation.Status == OpenPositionsObservationStatus.Failed)

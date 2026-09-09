@@ -101,7 +101,8 @@ public sealed class ExchangeAccountSyncServiceTests
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
                 It.Is<ExchangeAccount>(account =>
-                    account.LastAppliedObservationAt == ObservedAt &&
+                    account.LastAppliedBalanceObservationAt == ObservedAt &&
+                    account.LastAppliedPositionsObservationAt == ObservedAt &&
                     account.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
                 fixture.AccountVersion,
                 It.IsAny<CancellationToken>()))
@@ -134,6 +135,146 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<ConcurrencyVersion?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_New_Balance_With_Superseded_Positions_Uses_Current_Positions()
+    {
+        var previousSyncAt = ObservedAt.AddMinutes(-2);
+        var fixture = CreateFixture(
+            ExchangeAccount.Create(
+                ExchangeAccountId.New(),
+                UserId.New(),
+                ExchangeId.Bybit,
+                ExchangeAccountConnectionStatus.Connected,
+                RequiredCapabilities,
+                lastSyncedAt: previousSyncAt,
+                lastAppliedBalanceObservationAt: ObservedAt.AddMinutes(-1),
+                lastAppliedPositionsObservationAt: ObservedAt.AddMinutes(-1)));
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        var previousPortfolio = PortfolioState.Create(
+            fixture.Account.Id,
+            [trackedPosition],
+            new PortfolioCapitalState(900m, 700m, previousSyncAt, 800m),
+            ObservedAt,
+            TimeSpan.FromMinutes(5));
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Failed(
+                MarketCategory.Linear,
+                null,
+                ObservedAt.AddMinutes(-2),
+                "old positions failure"));
+        SetupPositionLoad(fixture, trackedPosition);
+        fixture.PortfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previousPortfolio);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    saved.ConnectionStatus == ExchangeAccountConnectionStatus.Connected &&
+                    saved.LastError == null &&
+                    saved.LastSyncedAt == previousSyncAt &&
+                    saved.LastAppliedBalanceObservationAt == ObservedAt &&
+                    saved.LastAppliedPositionsObservationAt == ObservedAt.AddMinutes(-1)),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        result.PortfolioState!.Capital.TotalEquity.Should().Be(1_000m);
+        result.PortfolioState.Positions.Should().ContainSingle();
+        result.PortfolioState.Positions[0].TrackingState.Should().Be(PositionTrackingState.Active);
+        fixture.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        fixture.Account.LastSyncedAt.Should().Be(previousSyncAt);
+        fixture.Account.LastError.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Old_Balance_With_New_Positions_Uses_Last_Known_Capital()
+    {
+        var previousSyncAt = ObservedAt.AddMinutes(-2);
+        var fixture = CreateFixture(
+            ExchangeAccount.Create(
+                ExchangeAccountId.New(),
+                UserId.New(),
+                ExchangeId.Bybit,
+                ExchangeAccountConnectionStatus.Connected,
+                RequiredCapabilities,
+                lastSyncedAt: previousSyncAt,
+                lastAppliedBalanceObservationAt: ObservedAt.AddMinutes(-1),
+                lastAppliedPositionsObservationAt: ObservedAt.AddMinutes(-2)));
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        var previousPortfolio = PortfolioState.Create(
+            fixture.Account.Id,
+            [trackedPosition],
+            new PortfolioCapitalState(900m, 700m, previousSyncAt, 800m),
+            ObservedAt,
+            TimeSpan.FromMinutes(5));
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_100m, 1_000m, 900m, 50m, []),
+                ObservedAt.AddMinutes(-2)));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                [CreateOpenPosition() with { Size = 2m, PositionValue = 200m }]));
+        SetupPositionLoad(fixture, trackedPosition);
+        SetupPositionSave(fixture);
+        fixture.PortfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previousPortfolio);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    saved.ConnectionStatus == ExchangeAccountConnectionStatus.Connected &&
+                    saved.LastError == null &&
+                    saved.LastSyncedAt == previousSyncAt &&
+                    saved.LastAppliedBalanceObservationAt == ObservedAt.AddMinutes(-1) &&
+                    saved.LastAppliedPositionsObservationAt == ObservedAt),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        result.PortfolioState!.Capital.TotalEquity.Should().Be(900m);
+        result.PortfolioState.Positions.Should().ContainSingle()
+            .Which.Size.Should().Be(2m);
+        fixture.Account.LastSyncedAt.Should().Be(previousSyncAt);
+        fixture.Account.LastError.Should().BeNull();
     }
 
     [Fact]
@@ -188,7 +329,8 @@ public sealed class ExchangeAccountSyncServiceTests
             ExchangeId.Bybit,
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
-            lastAppliedObservationAt: ObservedAt);
+            lastAppliedBalanceObservationAt: ObservedAt,
+            lastAppliedPositionsObservationAt: ObservedAt);
         fixture.AccountRepository
             .SetupSequence(repository => repository.GetByIdAsync(
                 fixture.UserId,
@@ -237,7 +379,8 @@ public sealed class ExchangeAccountSyncServiceTests
             ExchangeId.Bybit,
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
-            lastAppliedObservationAt: ObservedAt);
+            lastAppliedBalanceObservationAt: ObservedAt,
+            lastAppliedPositionsObservationAt: ObservedAt);
         fixture.AccountRepository
             .SetupSequence(repository => repository.GetByIdAsync(
                 fixture.UserId,
