@@ -22,6 +22,10 @@ public sealed record ExchangeAccountSyncResult(
     public static ExchangeAccountSyncResult CredentialsUnavailable() =>
         new(ExchangeAccountSyncOutcome.CredentialsUnavailable, null, null);
 
+    public static ExchangeAccountSyncResult ExchangeUnavailable(
+        ExchangeAccount account) =>
+        new(ExchangeAccountSyncOutcome.ExchangeUnavailable, account, null);
+
     public static ExchangeAccountSyncResult ExchangeUnavailable() =>
         new(ExchangeAccountSyncOutcome.ExchangeUnavailable, null, null);
 

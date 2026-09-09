@@ -783,6 +783,8 @@ public sealed class ExchangeAccountSyncServiceTests
         var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.Account.Should().NotBeNull();
+        result.Account!.LastSyncedAt.Should().Be(previousSyncAt);
         trackedPosition.TrackingState.Should().Be(PositionTrackingState.Closed);
         savedState.Should().NotBeNull();
         savedState!.Capital.TotalEquity.Should().Be(1_000m);
