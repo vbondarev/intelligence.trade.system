@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -17,6 +18,7 @@ public sealed class ExchangeAccountSyncService(
     IPositionRepository positionRepository,
     IPortfolioStateRepository portfolioStateRepository,
     IExchangeAccountSyncTransaction persistenceTransaction,
+    IApplicationEventOutbox applicationEventOutbox,
     TimeProvider? timeProvider = null)
     : IExchangeAccountSyncService
 {
@@ -273,6 +275,43 @@ public sealed class ExchangeAccountSyncService(
                                     accountForPersistence,
                                     latest.Version,
                                     persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
+                            var positionsById = trackedById
+                                .ToDictionary(pair => pair.Key, pair => pair.Value.Value);
+                            foreach (var newPosition in reconciliation.NewPositions)
+                            {
+                                positionsById.Add(newPosition.Id, newPosition);
+                            }
+
+                            var applicationEvents = reconciliation.Changes
+                                .Select(change =>
+                                {
+                                    if (!positionsById.TryGetValue(change.PositionId, out var position))
+                                    {
+                                        throw new InvalidOperationException(
+                                            $"Position change {change.PositionId} has no position in the reconciliation result.");
+                                    }
+
+                                    return PositionApplicationEventFactory.Create(
+                                        userId,
+                                        accountForPersistence,
+                                        position,
+                                        change);
+                                })
+                                .ToList<IApplicationEvent>();
+                            if (persistedFailureReason is not null)
+                            {
+                                applicationEvents.Add(
+                                    PositionApplicationEventFactory.CreateSyncDegraded(
+                                        userId,
+                                        accountForPersistence,
+                                        persistedFailureReason,
+                                        clock.GetUtcNow()));
+                            }
+
+                            await applicationEventOutbox
+                                .AddRangeAsync(applicationEvents, persistenceCancellationToken)
                                 .ConfigureAwait(false);
                         },
                         cancellationToken)

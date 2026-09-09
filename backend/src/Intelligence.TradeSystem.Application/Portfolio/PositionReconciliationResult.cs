@@ -6,6 +6,11 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// <summary>
 /// Результат сопоставления наблюдения открытых позиций с текущими бизнес-позициями.
 /// </summary>
+/// <remarks>
+/// <see cref="Changes"/> contains only new domain history records produced by this reconciliation
+/// call. Loaded history is never included, so these records are the sole source for lifecycle
+/// application events in the current persistence attempt.
+/// </remarks>
 public sealed record PositionReconciliationResult(
     IReadOnlyList<Position> NewPositions,
     IReadOnlyList<PositionChange> Changes,

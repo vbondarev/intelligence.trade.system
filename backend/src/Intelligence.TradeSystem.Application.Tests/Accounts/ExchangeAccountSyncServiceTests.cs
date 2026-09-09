@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -1593,6 +1594,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 positionRepository.Object,
                 portfolioRepository.Object,
                 transaction,
+                new NoOpApplicationEventOutbox(),
                 new FixedTimeProvider(CalculatedAt)));
     }
 
@@ -1620,5 +1622,18 @@ public sealed class ExchangeAccountSyncServiceTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class NoOpApplicationEventOutbox : IApplicationEventOutbox
+    {
+        public Task AddAsync(
+            IApplicationEvent applicationEvent,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task AddRangeAsync(
+            IReadOnlyCollection<IApplicationEvent> applicationEvents,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

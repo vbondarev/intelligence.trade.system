@@ -79,6 +79,7 @@ public partial class Program
         if (!builder.Environment.IsEnvironment("Testing"))
         {
             builder.Services.AddExchangeAccountBackgroundSynchronization(builder.Configuration);
+            builder.Services.AddApplicationEventOutboxDispatcher(builder.Configuration);
         }
         ConfigureAuthentication(builder);
         var freshnessOptions = builder.Configuration

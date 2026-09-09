@@ -68,6 +68,16 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             1,
             await verificationContext.PositionChanges.CountAsync(
                 change => change.PositionId == persistedPositions.Single().Value.Id.Value));
+        var openedEvents = await verificationContext.OutboxMessages
+            .Where(message =>
+                message.EventType == "position.opened" &&
+                message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.Single(
+            openedEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
         Assert.Equal(
             1,
             await verificationContext.PortfolioStates.CountAsync(
@@ -161,6 +171,13 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             2,
             await verificationContext.PortfolioStates.CountAsync(
                 state => state.ExchangeAccountId == account.Id.Value));
+        var accountEvents = await verificationContext.OutboxMessages
+            .Where(message => message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.Equal(
+            2,
+            accountEvents.Count(message =>
+                message.Payload.Contains(account.UserId.Value.ToString(), StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -229,6 +246,48 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             await verificationContext.PortfolioStates
                 .Where(state => state.ExchangeAccountId == account.Id.Value)
                 .ToArrayAsync());
+        var supersededAccountEvents = await verificationContext.OutboxMessages
+            .Where(message => message.ProcessedAt == null)
+            .ToArrayAsync();
+        Assert.Single(
+            supersededAccountEvents,
+            message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Failed_persistence_rolls_back_business_state_and_outbox()
+    {
+        var account = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+        }
+        int baselinePositionChangeCount;
+        int baselineOutboxCount;
+        await using (var baselineContext = await CreateMigratedContext())
+        {
+            baselinePositionChangeCount = await baselineContext.PositionChanges.CountAsync();
+            baselineOutboxCount = await baselineContext.OutboxMessages.CountAsync();
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RunSynchronization(
+                account,
+                new TestPrivateProvider(CreateObservation(T1, 1m)),
+                T1,
+                throwAfterOperation: true));
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.Empty(await new PositionRepository(verificationContext)
+            .GetByExchangeAccountAsync(account.UserId, account.Id));
+        Assert.Equal(baselinePositionChangeCount, await verificationContext.PositionChanges.CountAsync());
+        Assert.Empty(await verificationContext.PortfolioStates
+            .Where(state => state.ExchangeAccountId == account.Id.Value)
+            .ToArrayAsync());
+        Assert.Equal(baselineOutboxCount, await verificationContext.OutboxMessages.CountAsync());
     }
 
     private async Task<ExchangeAccountSyncResult> RunSynchronization(
@@ -236,7 +295,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         TestPrivateProvider provider,
         DateTimeOffset calculatedAt,
         TaskCompletionSource<bool>? secondRead = null,
-        TaskCompletionSource<bool>? release = null)
+        TaskCompletionSource<bool>? release = null,
+        bool throwAfterOperation = false)
     {
         await using var context = fixture.CreateContext();
         IExchangeAccountRepository repository = new ExchangeAccountRepository(context);
@@ -254,7 +314,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             new TestPrivateProviderFactory(provider),
             new PositionRepository(context),
             new PortfolioStateRepository(context),
-            new ExchangeAccountSyncTransaction(context),
+            throwAfterOperation
+                ? new ThrowingAfterOperationSyncTransaction(context)
+                : new ExchangeAccountSyncTransaction(context),
+            new ApplicationEventOutbox(context),
             new FixedTimeProvider(calculatedAt.AddMinutes(1)));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);
@@ -317,6 +380,29 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class ThrowingAfterOperationSyncTransaction(TradeSystemDbContext dbContext)
+        : IExchangeAccountSyncTransaction
+    {
+        public async Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            await using var transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await operation(cancellationToken);
+                throw new InvalidOperationException("Injected post-outbox persistence failure.");
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                dbContext.ChangeTracker.Clear();
+                throw;
+            }
+        }
     }
 
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore

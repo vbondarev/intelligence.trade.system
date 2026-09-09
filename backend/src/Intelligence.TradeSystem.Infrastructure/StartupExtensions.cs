@@ -1,8 +1,10 @@
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
@@ -38,6 +40,7 @@ public static class StartupExtensions
 
         services.AddSingleton(keyRing);
         services.AddSingleton<IExchangeCredentialProtector, AesGcmExchangeCredentialProtector>();
+        services.TryAddSingleton<TimeProvider>(_ => TimeProvider.System);
         services
             .AddHealthChecks()
             .AddDbContextCheck<TradeSystemDbContext>("postgresql");
@@ -46,6 +49,11 @@ public static class StartupExtensions
         services.AddScoped<IExchangeAccountCredentialStore, ExchangeAccountCredentialStore>();
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
+        services.AddScoped<ApplicationEventOutbox>();
+        services.AddScoped<IApplicationEventOutbox>(
+            serviceProvider => serviceProvider.GetRequiredService<ApplicationEventOutbox>());
+        services.AddScoped<IOutboxMessageStore>(
+            serviceProvider => serviceProvider.GetRequiredService<ApplicationEventOutbox>());
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
         services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();
         services.AddScoped<IRecommendationRepository, RecommendationRepository>();
@@ -74,6 +82,27 @@ public static class StartupExtensions
 
         services.AddSingleton<IExchangeAccountBackgroundSyncSweep, ExchangeAccountBackgroundSyncSweep>();
         services.AddHostedService<ExchangeAccountBackgroundSyncWorker>();
+        return services;
+    }
+
+    public static IServiceCollection AddApplicationEventOutboxDispatcher(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services
+            .AddSingleton<IValidateOptions<ApplicationEventOutboxDispatcherOptions>,
+                ApplicationEventOutboxDispatcherOptionsValidator>();
+        services
+            .AddOptions<ApplicationEventOutboxDispatcherOptions>()
+            .Bind(configuration.GetSection(ApplicationEventOutboxDispatcherOptions.SectionName))
+            .ValidateOnStart();
+
+        if (string.IsNullOrWhiteSpace(configuration.GetConnectionString(ConnectionStringName)))
+        {
+            return services;
+        }
+
+        services.AddHostedService<ApplicationEventOutboxDispatcherWorker>();
         return services;
     }
 
