@@ -46,6 +46,7 @@
 - `Api` — resource server, а выпуск токенов выполняет отдельный `Identity` host;
 - защищённый business API использует OAuth 2.0 / OpenID Connect и Bearer access tokens;
 - не создавай собственный login/JWT/refresh-token протокол в `Api`;
+- для операций над user-owned данными `UserId` определяется только из аутентифицированного и проверенного principal через существующий current-user boundary; не принимай доверенный `UserId` из route, query, header или request DTO;
 - Domain `UserId` не должен зависеть от email, username, `ClaimsPrincipal` или конкретного identity provider;
 - machine/service principal не получает user-owned данные автоматически;
 - browser cookie допустим только на BFF boundary и требует отдельной CSRF-защиты.
@@ -54,7 +55,7 @@
 
 При изменении публичного snapshot/payload:
 
-- проверь `MarketIntelligence/Snapshots`;
+- проверь `Intelligence.TradeSystem.MarketIntelligence/Snapshots`;
 - assemblers/mappers;
 - API contract tests;
 - `schemaVersion` и downstream consumers.
