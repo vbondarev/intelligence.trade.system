@@ -1,48 +1,54 @@
-﻿# AGENTS.md
+# AGENTS.md
 
-## Scope
-- Applies to `Intelligence.TradeSystem.Exchanges/Bybit`.
-- Read `../../AGENTS.md` first for solution-level architecture and constraints.
+## Область действия
 
-## Inheritance
-- Shared repository rules for skills, build/test workflow, optional `dotnet-tools.json`, and the role of `copilot-instructions.md` are defined in `../../AGENTS.md`.
-- Shared anti-assumption rules, contract change checklists, and build/test baselines also live in `../../AGENTS.md` and should not be restated here unless the Bybit folder truly needs a stricter local rule.
-- This file should stay focused on Bybit-specific provider boundaries, mapping rules, logging, and transport normalization behavior.
+Этот файл применяется к `Intelligence.TradeSystem.Exchanges/Bybit` и дополняет `../../AGENTS.md` только правилами Bybit adapter boundary.
 
-## Do / Don't
-- Do keep Bybit-specific DTOs, enum mapping, and transport quirks inside this folder.
-- Do normalize transport data into domain models at the boundary and update exchange tests with behavior changes.
-- Don't leak Bybit transport types into `Domain`, `Application`, or public contracts.
-- Don't log secrets or change current null/empty failure behavior without updating dependent consumers and tests.
+## Назначение каталога
 
-## What this folder does
-- `Public/BybitPublicMarketProvider.cs` implements public market capabilities.
-- `PrivateAccounts/BybitPrivateAccountProvider.cs` implements account-specific private capabilities.
-- `Mapping` contains mappings between domain and Bybit.Net types.
+- `Public` реализует публичные market capabilities.
+- `PrivateAccounts` реализует чтение данных конкретного пользовательского аккаунта.
+- `Mapping` нормализует модели Bybit.Net в внутренние contracts.
 
-## Provider boundaries
-- Keep Bybit-specific enums, DTO quirks, and request details inside this folder.
-- Providers return normalized domain models (`Ticker`, `OrderBook`, `Kline`, `FundingRateEntry`, etc.), not raw Bybit responses.
-- The public provider implements `IMarketDataProvider` and `IDerivativesDataProvider`; private providers are created per credentials through `BybitPrivateAccountProviderFactory`.
+Bybit-specific transport details должны оставаться внутри этого каталога.
 
-## Current behavior to preserve
-- Failed exchange calls generally log and return `null` / empty collections instead of throwing transport-specific exceptions from the provider.
-- Spot market requests reject derivatives-only operations (`funding`, `open interest`, `long/short ratio`, `positions`) with `ArgumentException`.
-- Position queries filter out zero-quantity positions before mapping.
-- Mapping code currently normalizes missing Bybit bid/ask values to `0m` for domain tickers.
+## Границы адаптера
 
-## Mapping and time rules
-- Keep numeric/string normalization at the mapping boundary; do not leak Bybit transport types into `Domain` or `Application`.
-- Preserve UTC handling: timestamps from Bybit are mapped into `DateTimeOffset` with zero offset where needed.
-- Keep category/interval/account-type switch expressions exhaustive and fail fast on unsupported enum values.
-- If you add a new mapped field, update both provider code and exchange tests together.
+- Не протаскивай типы Bybit.Net в `Domain`, `Application`, `MarketIntelligence` или публичные API contracts.
+- Возвращай нормализованные внутренние модели (`Ticker`, `OrderBook`, `Kline`, `FundingRateEntry` и т.п.), а не raw Bybit response types.
+- Публичные capabilities не используют пользовательские credentials.
+- Private provider/client создаётся для конкретных credentials; не сохраняй расшифрованные credentials в singleton/global state.
+- Интеграция первого MVP остаётся read-only. Не добавляй создание/изменение/закрытие ордеров, изменение плеча, переводы средств или другие trading actions без отдельного этапа ROADMAP.
 
-## Logging and diagnostics
-- Use the existing public/private structured log-message helpers instead of ad-hoc message strings.
-- Include symbol, category, interval, or account type in failures when those inputs are relevant.
-- Never log API keys or other secrets.
+## Mapping и transport semantics
 
-## When changing code here
-- If you change Bybit request parameters or mapping behavior, inspect `Intelligence.TradeSystem.Exchanges.Tests` and `Intelligence.TradeSystem.Application.Tests`.
-- If you add a new public capability, update `Intelligence.TradeSystem.Exchanges/StartupExtensions.cs` if the DI surface changes.
-- If you introduce new domain fields, trace the impact into `CollectedPublicMarketData`, `PublicMarketDataCollector`, `MarketSnapshotService`, and any downstream assemblers.
+- Числовую, enum- и string-normalization выполняй на exchange boundary.
+- Сохраняй UTC/`DateTimeOffset` semantics при преобразовании временных значений.
+- Switch expressions для category/interval/account type должны быть исчерпывающими и fail-fast для неподдерживаемых значений.
+- Derivatives-only операции не должны молча работать для Spot.
+- Нулевые позиции не должны превращаться в активные Domain positions.
+- Не меняй существующую null/empty/failure semantics транспорта без проверки всех Application consumers и тестов.
+
+## Ошибки и устойчивость
+
+- Не выпускай transport-specific exceptions как часть публичного application contract, если существующий adapter contract нормализует ошибку иначе.
+- Сохраняй ограниченную политику retry/timeout существующего Bybit adapter; не наслаивай второй независимый resilience pipeline без отдельного решения.
+- Caller cancellation должна передаваться корректно и не превращаться в автоматический retry.
+
+## Логирование и телеметрия
+
+- Используй существующие structured logging/telemetry helpers вместо произвольных строк там, где они уже определены.
+- Не логируй API key, API secret, access token, decrypted credential material или raw headers.
+- Metric tags должны оставаться низкокардинальными; не добавляй symbol, account ID, user ID или credentials как metric dimensions.
+- Нормализуй failure kind вместо публикации raw exception/message как metric label.
+
+## При изменении кода
+
+Если меняется request parameter, mapping или transport behavior:
+
+- обнови `Intelligence.TradeSystem.Exchanges.Tests`;
+- проверь затронутые `Intelligence.TradeSystem.Application.Tests`;
+- проследи влияние новых полей до `CollectedPublicMarketData`, `PublicMarketDataCollector`, `MarketSnapshotService` и downstream assemblers, если изменение относится к public market data;
+- проверь private sync/reconciliation tests, если изменяется private account mapping.
+
+Если DI surface адаптера меняется, обнови соответствующий `StartupExtensions` и проверь scope/lifetime: пользовательские credentials не должны становиться захваченным singleton-состоянием.

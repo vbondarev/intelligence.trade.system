@@ -1,176 +1,104 @@
-﻿# AGENTS.md
+# AGENTS.md
 
-## Scope
-- This file applies to `backend/src`.
-- Read nested instructions when working inside `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.Exchanges/Bybit`, or `Intelligence.TradeSystem.MarketIntelligence`.
+## Область действия
 
-## Instruction layering
-- This file is the source of truth for repository-wide tooling, build, test, and skill-activation rules.
-- Nested `AGENTS.md` files should only add narrower folder-specific constraints and should not restate or contradict shared repository rules unless the folder truly needs a stricter local rule.
-- Keep long-lived repository guidance here, including anti-assumption rules, contract checklists, and build/test baselines; avoid splitting the same rule across multiple agent-instruction files.
+Этот файл применяется к `backend/src` и дополняет корневой `../../AGENTS.md` правилами .NET-решения. Для `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.MarketIntelligence` и `Intelligence.TradeSystem.Exchanges/Bybit` учитывай также их локальные `AGENTS.md`.
 
-## Skill activation map
-- `modern-csharp-coding-standards`: default guidance for new or refactored C# code across the solution.
-- `type-design-performance`: apply when designing types, choosing collection/API shapes, or touching hot-path logic.
-- `api-design`: apply when changing public API contracts, request/response models, payload schemas, serialized snapshot shape, or any wire-visible behavior that downstream consumers may depend on.
-- `dotnet-project-structure`: apply when changing solution/build layout (`*.slnx`, `Directory.Build.props`, `Directory.Packages.props`, shared MSBuild conventions). Do not assume `global.json` exists or should be introduced unless explicitly requested.
-- `dotnet-local-tools`: apply only if `.config/dotnet-tools.json` is introduced or the task is specifically about standardizing local CLI tooling. The repository does not currently require local tools.
-- `run-tests`: apply for test execution and filtering. Current test stack is `xUnit` + `Microsoft.NET.Test.Sdk`; no repository-level `Microsoft.Testing.Platform` or `global.json` test runner configuration is currently in use.
-- `OpenTelemetry-NET-Instrumentation`: apply only when changing observability/instrumentation code, custom `ActivitySource`/`Meter` usage, or telemetry-related contracts.
+Не копируй сюда текущее состояние этапов, номера PR и подробности уже завершённых реализаций — для этого используется `ROADMAP.md`, ADR и контрактные документы.
 
-## Tooling decisions in this repository
-- `global.json` is intentionally absent at the moment; do not document it as required infrastructure.
-- `.config/dotnet-tools.json` is optional future infrastructure. If introduced later, pin versions in the manifest and document `dotnet tool restore` usage from the repository root.
-- `copilot-instructions.md` is optional. Prefer keeping durable repository guidance in `AGENTS.md`; add `copilot-instructions.md` only if a short editor-specific layer is needed, and keep it aligned with this file instead of duplicating architecture or contract rules.
+## Структура решения
 
-## Agent workflow defaults
-- Read this file before making repository-wide assumptions about tooling, build, tests, or architecture.
-- When a nested `AGENTS.md` exists, combine it with this file: keep shared rules from here and apply nested rules only for the local folder.
-- Prefer minimal changes that preserve current contracts, DI shape, payload shape, and orchestration boundaries.
-- Do not introduce optional infrastructure (`global.json`, `.config/dotnet-tools.json`, `copilot-instructions.md`) unless the task explicitly requires it.
-- When changing tests or test commands, assume the current runner flow is `dotnet test` with xUnit + `Microsoft.NET.Test.Sdk` and VSTest-compatible CLI behavior.
+Сохраняй ответственность проектов:
 
-## What not to infer automatically
-- Do not infer that `global.json` should exist, should be added, or is missing by mistake.
-- Do not infer that `.config/dotnet-tools.json` is required just because the repository has multiple projects or shared build logic.
-- Do not infer that `copilot-instructions.md` is required when `AGENTS.md` already covers the durable repository guidance.
-- Do not infer that `Microsoft.Testing.Platform` is enabled unless the repository explicitly adds its configuration.
-- Do not infer support for partial snapshots or additional exchanges/providers beyond the currently documented constraints.
-- Do not infer that package versions, shared build settings, or common test behavior should be duplicated into individual project files when they already belong to centralized MSBuild files.
-- Do not infer that `Intelligence.TradeSystem.Ai` or `Intelligence.TradeSystem.Ai.Tests` are ready for use; both are currently empty placeholder projects with no source files.
+- `Intelligence.TradeSystem.Domain` — бизнес-модель, идентичности, жизненный цикл позиций, портфель, оценки и рекомендации;
+- `Intelligence.TradeSystem.MarketIntelligence` — детерминированные рыночные расчёты, диагностика и публичные market snapshots;
+- `Intelligence.TradeSystem.Application` — прикладные сценарии и оркестрация;
+- `Intelligence.TradeSystem.Infrastructure` — EF Core, PostgreSQL, защищённое хранение и технические реализации application ports;
+- `Intelligence.TradeSystem.Exchanges` — адаптеры бирж;
+- `Intelligence.TradeSystem.Api` — HTTP boundary и composition root;
+- `Intelligence.TradeSystem.Identity` — отдельный OAuth/OIDC authorization server;
+- `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost` — общая эксплуатационная и Aspire-обвязка.
 
-## Big picture
-- This solution combines public crypto market analysis with a pure business domain for accompanying already-open positions; the primary exchange is Bybit.
-- Main dependency direction: `Domain` contracts → `MarketIntelligence` / `Exchanges` → `Application` orchestration → `Api` HTTP surface; `Infrastructure` is composed by `Api` and depends inward on `Application` / `Domain`.
-- Stage B domain foundations are implemented in `Intelligence.TradeSystem.Domain`: typed identities, `ExchangeAccount`, `Position` lifecycle and `PositionChange` history, `PortfolioState` and portfolio risk policy, `PositionAssessment`, `Recommendation`, and separate decision vocabularies.
-- Position snapshot reconciliation and portfolio assembly live in `Intelligence.TradeSystem.Application/Portfolio`; they orchestrate domain behavior without adding persistence concerns.
-- Stage B foundations are persisted through Application repository ports implemented by Infrastructure. OAuth/OIDC authentication, user isolation, protected Bybit credential storage, account connection, and periodic account synchronization are implemented; user-facing recommendation services belong to later stages.
-- `Application` does not calculate indicators itself: `PublicMarketDataCollector` fetches raw data, then `MarketSnapshotService` delegates assembly to `MarketIntelligence.Analysis.Assemblers`.
-- Deterministic timeframe evaluation (bias, momentum, entry quality, risk flags, trend/level strength labels) lives in `MarketIntelligence/Analysis/Timeframes`; the API only converts the resulting analytical values into the wire payload (`ToString()` on enums, existing string fields). There is no separate `Analytics` project anymore.
-- `Application/AI` prepares deterministic textual AI context (`IAiContextFormatter` / `SnapshotTextFormatter`) from `AiAnalysisContext`, which combines public `MarketSnapshot` data with a separate legacy `PortfolioSnapshot`. It performs no trading calculations and does not call any LLM.
-- `MarketRegimePolicy` (in `MarketIntelligence/Analysis`) is the single source of market regime classification; no other classifier exists.
+`Domain` не зависит от persistence/HTTP/Bybit. `MarketIntelligence` не выполняет IO. `Application` не зависит от EF Core или конкретного exchange SDK. Bybit transport types не должны выходить за exchange adapter.
 
-## Request and data flow
-- Snapshot path: `MarketAnalysisController` -> `IMarketSnapshotService` -> `IPublicMarketDataCollector` -> public exchange capability interfaces (`IMarketDataProvider`, `IDerivativesDataProvider`) -> `MarketIntelligence.Analysis.Assemblers` -> `MarketSnapshot`.
-- Key files: `Intelligence.TradeSystem.Api/Controllers/MarketAnalysisController.cs`, `Intelligence.TradeSystem.Application/Market/PublicMarketDataCollector.cs`, `Intelligence.TradeSystem.Application/Market/MarketSnapshotService.cs`, `Intelligence.TradeSystem.MarketIntelligence/Analysis/Assemblers/MarketSnapshotAssembler.cs`.
+## Общие правила реализации
 
-## Current constraints
-- Orchestration is currently `Bybit`-only; both `PublicMarketDataCollector` and `MarketSnapshotService` reject other exchanges.
-- Partial snapshots are not supported yet: `SnapshotHealthEvaluator` always returns `IsPartial = false` and `MissingSections = []`.
-- Stage B domain state can be persisted and is connected to the manual/background synchronization workflow, but it is not yet exposed through a completed user API; do not treat persistence as a completed user-facing workflow.
+- Предпочитай небольшие изменения, сохраняющие существующие DI-границы и wire-контракты.
+- Не дублируй детерминированные вычисления в API или Application: рыночные расчёты принадлежат `MarketIntelligence`.
+- Не используй legacy snapshot-типы как persistence entities нового домена.
+- Пользовательские repository/application операции должны сохранять явный `UserId` scope и cross-user isolation.
+- `MarketSnapshot` остаётся публичным и не содержит позиции, портфель, `UserId`, `ExchangeAccountId` или credentials.
+- Биржевые credentials не являются частью Domain aggregate; расшифрованные значения должны жить только как краткоживущие transient inputs.
+- PostgreSQL schema меняется migrations. Не добавляй автоматическое применение migrations в startup API без отдельного решения.
+- Для mutable aggregate сохраняй существующий optimistic concurrency/CAS contract. Не переноси version token в Domain только ради persistence.
+- Для синхронизации сохраняй монотонность observation state и идемпотентность повторных наблюдений.
+- Transactional outbox остаётся атомарным с бизнес-состоянием и использует at-least-once delivery; consumers должны учитывать повторную доставку.
 
-## Authentication architecture
-- The universal API authentication contract is documented in `docs/adr/0002-universal-api-authentication-strategy.md`; ADR-0001 is retained as historical context and is superseded. The concrete Authorization Server selection is documented in `docs/adr/0003-authorization-server-selection.md`, which complements ADR-0002.
-- `Intelligence.TradeSystem.Api` is client-agnostic. Protected `/api/v1/*` endpoints use OAuth 2.0/OpenID Connect with Bearer access tokens; signed JWT is the target access-token format for the first MVP.
-- OAuth/OIDC is the protocol and identity contract, Bearer is the presentation scheme, and JWT is only the token format. The API is a resource server; token issuance belongs to a separately selected authorization server.
-- Do not implement a custom `POST /login` → homemade JWT/refresh-token protocol, `JwtTokenService`, `RefreshTokenRepository`, or custom token rotation/authorization protocol.
-- A browser cookie is not the authentication contract of the main API. It is allowed only at a browser/BFF boundary; React, mobile, desktop, CLI, and future clients use the same business API.
-- Any automatically sent browser cookie at a BFF boundary requires explicit CSRF protection; `HttpOnly` alone is insufficient. This is separate from the Bearer contract of `/api/v1/*`.
-- Domain `UserId` is a stable `Guid` business identifier and must not depend on email, username, `IdentityUser`, JWT, `ClaimsPrincipal`, cookie, machine identity, or a concrete identity provider. For user-delegated tokens, map stable `sub` to `UserId`, or map provider-controlled `issuer + sub` to an internal `UserId(Guid)` when the provider does not allow controlling the subject.
-- A Client Credentials subject is a machine/service principal, not a Domain user; it must not automatically receive user-owned data. The C-06 authorization boundary distinguishes user and machine principals and protects user-owned data.
-- Public market endpoints remain anonymous. C-05/C-05A established authenticated identity; C-06 owns authorization, ownership, user isolation, and cross-user protection.
-- Future SignalR uses the same Bearer identity model as REST; do not create a separate SignalR identity model.
+## Аутентификация и авторизация
 
-## Contract-sensitive areas
-- Treat `Intelligence.TradeSystem.MarketIntelligence/Snapshots` and `Intelligence.TradeSystem.Api/Models/Payloads` as stable contracts. `MarketSnapshot` contains only public market data and no embedded portfolio. `PortfolioSnapshot`, `OpenPositionSnapshot`, and `PositionSide` remain temporarily in `Intelligence.TradeSystem.Domain/Snapshots`, and the legacy `PortfolioSnapshotAssembler` lives in `Intelligence.TradeSystem.Application/Portfolio`.
-- Stage B types in the `Intelligence.TradeSystem.Domain` project root and its `History`, `Portfolio`, `Assessments`, `Recommendations`, `Decisions`, and `Identity` directories are internal business contracts. Preserve their invariants and do not reuse legacy snapshot types as persistence entities.
-- EF Core and persistence entities belong only to `Intelligence.TradeSystem.Infrastructure`; Domain and Application must remain persistence-ignorant. Domain rehydration must use explicit restore APIs that preserve typed IDs, timestamps, lifecycle state, and append-only history.
-- Production PostgreSQL schema evolves through migrations. Do not add automatic migration execution to API startup.
-- Exchange credentials never belong to Domain aggregate state; `ExchangeAccount` must remain free of API keys, API secrets, encrypted credential fields, and encryption metadata.
-- No plaintext exchange credentials may be stored in PostgreSQL, logs, responses, or checked-in configuration. Credential persistence is always user-scoped through `ExchangeAccount.UserId`.
-- Credential protection uses authenticated encryption bound to the user and exchange-account identity. Master encryption keys live outside the TradeSystem database; new writes use the explicit active key, while previous keys are decrypt-only during rollover.
-- Decrypted credential material must remain transient and must not be retained in DI, global state, or exchange client singletons. Bybit private clients continue to receive credentials only as transient inputs.
-- Optimistic concurrency (C-04) is implemented for the three mutable repositories only: ExchangeAccountRepository, PositionRepository, RecommendationRepository. It uses a persistence-neutral ConcurrencyVersion / Versioned<T> pair (Intelligence.TradeSystem.Application/Concurrency) surfaced from explicit user-scoped `GetByIdAsync(userId, ...)` operations (returns `Versioned<T>?`) and consumed by explicit user-scoped `SaveAsync(userId, entity, ConcurrencyVersion? expectedVersion)` operations (returns the new ConcurrencyVersion). expectedVersion: null means insert-only (conflicts if the row already exists); a non-null value performs a compare-and-swap against the EF concurrency token and conflicts if the row is missing, foreign, or was changed concurrently. Every conflict path throws Intelligence.TradeSystem.Application.Concurrency.ConcurrencyConflictException; a duplicate aggregate primary-key violation during insert-only is included, while other relational constraint violations remain persistence errors. There is no built-in retry. Domain models do not carry a Version property - it lives only on the corresponding Infrastructure entities (ExchangeAccountEntity, PositionEntity, RecommendationEntity) as a required bigint column (version, default 1, CHECK (version > 0), IsConcurrencyToken()). PositionRepository.SaveAsync performs the ownership/version CAS before reading, validating, or appending PositionChange rows inside one explicit transaction, so a stale or foreign writer's rejected save leaves no history behind; do not extend concurrency to PortfolioStateRepository or PositionAssessmentRepository, which remain append-only/immutable by design but still require explicit user scope.
-- Prefer additive contract evolution for snapshot and payload changes: extend existing contracts instead of silently renaming, removing, or reinterpreting fields.
-- If you change snapshot fields, update all affected assemblers, payload mappers, and tests.
-- Important mapping code lives in `Intelligence.TradeSystem.Api/Mappers/LlmPayloadMapperExtensions.cs`; schema version is currently `1.0`, and `GET /api/market-analysis/{symbol}/llm-payload` remains a purely public market contract. Legacy `POST /api/market-analysis/snapshot` still returns a `portfolio` object sourced from `PortfolioSnapshot.Unavailable` (zeroed values, no `isAvailable` field on the wire).
-- `AnalysisMode` drives payload shape and primary timeframes: `Intraday = 15m/1h/4h`, `Swing = 1h/4h/1d`, `Portfolio = 4h/1d`.
+Подробные решения находятся в:
 
-## Contract change checklist
-- If you change snapshot fields, review `MarketIntelligence/Snapshots`, `MarketIntelligence/Analysis/Assemblers`, API payload mappers, and affected tests together.
-- If you change API payload/request models, review controller validation, `ProblemDetails` mapping, schema/version assumptions, and API tests together.
-- If you change indicator-derived values, review downstream snapshot fields, payload mapping, analytics output, and indicator/analysis tests together.
-- If you change exchange-mapped fields, review provider mapping, normalized domain models, application orchestration, and exchange/application tests together.
-- If you change `Position`, its lifecycle, or reconciliation behavior, review `PositionChange`, `PositionReconciler`, and the corresponding Domain/Application tests together.
-- If you change `PortfolioState` or portfolio risk policy, review portfolio aggregation, risk decisions, reason-code classification, and Domain tests together.
-- If you change `PositionAssessment` or `Recommendation`, preserve input-version traceability, validity windows, lifecycle transitions, and the separation between `PositionAction`, `AddDecision`, and `RiskIncreaseDecision`.
-- For public or wire-visible contracts, prefer extend-only changes: add new fields or new paths instead of renaming/removing existing members or silently changing established semantics.
-- If a change is intentionally breaking, make the breaking impact explicit in the same change set and update dependent consumers, tests, and version/schema assumptions together.
-- Prefer additive contract evolution; if a breaking change is truly required, make every dependent layer explicit in the same change set.
-- If you change the concurrency contract (ConcurrencyVersion, Versioned<T>, ConcurrencyConflictException, or the Version column/check constraint), review all three repository implementations, their ports, call sites, and the PostgreSQL integration tests together.
+- `docs/adr/0002-universal-api-authentication-strategy.md`;
+- `docs/adr/0003-authorization-server-selection.md`.
 
-## Local patterns
-- DI registration is organized via `StartupExtensions` and `AddXyz(...)` methods (`AddApplication`, `AddBybitExchange`).
-- Keep orchestrators thin and push deterministic calculations into assemblers, formatters, and calculators.
-- `TimeframeSnapshotAssembler` sorts klines by `StartTime` ascending before indicator calculation; preserve that assumption if you touch timeframe assembly.
-- `MarketTagsBuilder` is the single source of snapshot tag ordering and whitelist.
-- `Console.Write*` is banned by `Directory.Build.targets`; use `ILogger`.
-- Bybit private read operations own their integration resilience at the exchange boundary: the
-  Bybit.Net request timeout is explicit, retries are bounded to one retry for timeout/network
-  failures, and caller cancellation is passed through without retry. Do not stack
-  `ConfigureHttpClientDefaults` resilience on the directly-created Bybit clients.
-- Private exchange telemetry is emitted from the Bybit adapter through the registered
-  `Intelligence.TradeSystem.Exchanges.Bybit` ActivitySource/Meter. Keep operation names stable,
-  failure fields normalized, and metric labels limited to bounded exchange/operation/outcome/
-  failure-kind/category values; never add symbols, account IDs, or credentials.
+Стабильные ограничения:
 
-## Build, test, run
-- Solution file: `Intelligence.TradeSystem.slnx`.
-- Authoritative build/test/tooling layers:
-  - `Intelligence.TradeSystem.slnx` is the solution entrypoint.
-  - `Directory.Build.props` is the shared source of compile/language/build defaults.
-  - `Directory.Build.targets` is the shared source of repo-wide build validations and enforcement.
-  - `Directory.Packages.props` is the single source of truth for package versions.
-  - Individual `*.csproj` files should keep only project-specific deltas rather than duplicating shared settings.
-- Shared project settings: `net10.0`, C# `14`, nullable enabled, centralized package versions via `Directory.Packages.props`.
-- Shared build behavior is defined through `Directory.Build.props` and `Directory.Build.targets`.
-- `Intelligence.TradeSystem.Domain.Tests` is the primary suite for stage B domain invariants; keep it in the solution and update it with domain behavior changes.
-- `Intelligence.TradeSystem.Infrastructure.IntegrationTests` and `Intelligence.TradeSystem.Authentication.IntegrationTests` validate PostgreSQL persistence, migrations, concurrency, user isolation, credential security, and real OAuth/OIDC flows through Testcontainers; Docker must be available when running them.
-- Verified from `backend/src`:
-  - `dotnet build .\Intelligence.TradeSystem.slnx --no-restore`
-  - `dotnet test .\Intelligence.TradeSystem.slnx --no-build --logger "console;verbosity=minimal"`
-- Use `Intelligence.TradeSystem.AppHost` for Aspire orchestration, or run `Intelligence.TradeSystem.Api` directly when debugging HTTP behavior.
+- `Api` — resource server, а выпуск токенов выполняет отдельный `Identity` host;
+- защищённый business API использует OAuth 2.0 / OpenID Connect и Bearer access tokens;
+- не создавай собственный login/JWT/refresh-token протокол в `Api`;
+- Domain `UserId` не должен зависеть от email, username, `ClaimsPrincipal` или конкретного identity provider;
+- machine/service principal не получает user-owned данные автоматически;
+- browser cookie допустим только на BFF boundary и требует отдельной CSRF-защиты.
 
-## Observability baseline
-- Common OpenTelemetry wiring already lives in `Intelligence.TradeSystem.ServiceDefaults/Extensions.cs` and is activated by `AddServiceDefaults()` in service entrypoints such as `Intelligence.TradeSystem.Api/Program.cs`.
-- When changing telemetry, preserve the current pattern: shared defaults in `ServiceDefaults`, app-specific additions only where they materially belong, and no instrumentation that changes business behavior.
-- Do not add new `ActivitySource`/`Meter` usage or app-specific telemetry conventions unless the change truly introduces new observability needs.
-- Treat telemetry shape as an operational contract: avoid ad-hoc naming or behavior changes that would fragment existing observability patterns.
+## Контрактно-чувствительные изменения
 
-## Impact map
-- Use this section as a quick dependency lookup after applying the `Contract change checklist`; it complements the checklist rather than replacing it.
-- If you change indicator calculations, check `Intelligence.TradeSystem.MarketIntelligence/Indicators`, `MarketIntelligence/Analysis/Assemblers`, and `Intelligence.TradeSystem.MarketIntelligence.Tests` for fallback/ordering regressions.
-- If you change exchange data collection, check Application market ports, Bybit public/private providers, `CollectedPublicMarketData`, and `Application.Tests` / `Exchanges.Tests`.
-- If you change position identity, lifecycle, or reconciliation, check `Intelligence.TradeSystem.Domain/Position.cs`, `Intelligence.TradeSystem.Domain/History`, `Intelligence.TradeSystem.Application/Portfolio/PositionReconciler.cs`, `Intelligence.TradeSystem.Domain.Tests`, and `Intelligence.TradeSystem.Application.Tests`.
-- If you change portfolio aggregation or risk rules, check `Intelligence.TradeSystem.Domain/Portfolio`, `Intelligence.TradeSystem.Application/Portfolio/PortfolioStateAssembler.cs`, `ReasonCodeClassification`, and `Intelligence.TradeSystem.Domain.Tests`.
-- If you change assessments or recommendations, check `Intelligence.TradeSystem.Domain/Assessments`, `Intelligence.TradeSystem.Domain/Recommendations`, `Intelligence.TradeSystem.Domain/Decisions`, and `Intelligence.TradeSystem.Domain.Tests/AssessmentsAndRecommendationsTests.cs`.
-- If you change snapshot assembly, check `MarketIntelligence/Analysis/Assemblers`, `MarketIntelligence/Snapshots`, payload mappers, and `MarketIntelligence.Tests` / `Api.Tests`.
-- If you change `EntryQualityEvaluator`, review `TimeframeSummaryBuilder` (riskFlags must stay in sync with quality downgrades), `EntryQualityEvaluatorTests`, and `TimeframeSummaryBuilderTests` in `MarketIntelligence.Tests`.
-- If you change `MarketTagsBuilder` or `TradeFlowPressureScoreAdjuster`, review `MarketTagsBuilderTests` and `TradeFlowPressureScoreAdjusterTests` in `MarketIntelligence.Tests`.
-- If you change higher-TF level wiring in `LlmPayloadMapperExtensions`, review `LlmPayloadMapperExtensionsTests` in `Api.Tests`.
+При изменении публичного snapshot/payload:
 
-## Authorization Server rules
-- ADR-0003 documents the selected ASP.NET Core Identity + OpenIddict Authorization Server and its separate `Intelligence.TradeSystem.Identity` boundary.
-- `Intelligence.TradeSystem.Identity` is a separate deployable host with ASP.NET Core Identity, OpenIddict, its own `IdentityDbContext`, and its own PostgreSQL database/migration stream.
-- Identity schema migrations are applied by explicit deployment/init tooling (`Intelligence.TradeSystem.Identity.Migrations`), never by `Database.Migrate()` inside the long-running production host.
-- `Intelligence.TradeSystem.Api` remains a resource server and must not issue its own user tokens.
-- Identity/OpenIddict persistence uses a separate DbContext and EF migration stream from `TradeSystemDbContext`; the preferred topology is a separate PostgreSQL database.
-- Domain and Application business code must not depend on ASP.NET Core Identity or OpenIddict.
-- User-delegated `sub` maps to the stable Domain `UserId` Guid without email-based mapping.
-- Client Credentials principals are machine principals and must not become Domain users.
-- Production signing private keys belong only to the Authorization Server; API validation uses public discovery/JWKS material and supports key rotation.
-- First-MVP access tokens are signed, non-encrypted JWTs; the API uses standard discovery/JWKS and does not receive a private signing key or access-token decryption secret.
-- The canonical public issuer is separate from the API's optional internal discovery/metadata address; resource servers may use an internal backchannel route for discovery/JWKS, while `iss` validation always uses the public issuer.
-- Signing rollover keeps overlapping asymmetric certificates registered together so discovery/JWKS can validate tokens during transition; OpenIddict selects new-token credentials by its documented validity rules, and JSON configuration order is not a protocol guarantee unless runtime explicitly enforces it.
-- Development database provisioning must be idempotent and must not require deleting business data; explicit database-init tooling runs before Identity migrations.
-- User-delegated `sub` is the stable non-empty `ApplicationUser.Id` Guid; machine principals are not Domain users.
-- Existing public market and health endpoints remain anonymous; C-06 owns user isolation and business authorization.
-- User-delegated HTTP operations obtain `UserId` only from a validated principal marked as a user; `UserId` is never accepted from client route, header, query, or DTO data.
-- User-owned Application repository operations require an explicit `UserId` scope. Missing and foreign resources are indistinguishable on user-facing read boundaries.
-- A machine principal is never a Domain user. Child ownership is resolved through `ExchangeAccount.UserId` unless the relational model proves denormalization is required.
-- `Infrastructure` receives `UserId` through repository arguments and never reads `HttpContext`, `ClaimsPrincipal`, or an ambient `AsyncLocal` current-user value.
-- Tracked EF entities are never an authorization proof; user-scoped repositories must validate persisted ownership explicitly before mutation.
-- Child IDs inside user-owned snapshots must be validated against their persisted ownership chain before save.
-- The BFF uses Authorization Code + PKCE with `S256`; browser JavaScript never receives access or refresh tokens.
-- Password grant, implicit flow, and custom JWT/refresh-token protocols are prohibited.
-- Self-contained JWT revoke/logout is not guaranteed to invalidate an already issued token immediately; immediate revocation, user isolation, and business authorization remain outside C-05A.
+- проверь `MarketIntelligence/Snapshots`;
+- assemblers/mappers;
+- API contract tests;
+- `schemaVersion` и downstream consumers.
+
+При изменении `Position` или reconciliation:
+
+- проверь `PositionChange`;
+- `PositionReconciler`;
+- Domain/Application tests;
+- persistence/concurrency integration tests, если меняется сохранение.
+
+При изменении `PortfolioState`, `PositionAssessment` или `Recommendation` сохраняй воспроизводимость входа, reason codes, validity/lifecycle semantics и разделение решений по действию над позицией и увеличению риска.
+
+При изменении persistence/security/concurrency выполняй PostgreSQL integration tests. При изменении exchange mapping — exchange tests и затронутые Application tests.
+
+## Tooling
+
+Основные файлы решения:
+
+- `Intelligence.TradeSystem.slnx` — solution entrypoint;
+- `Directory.Build.props` — общие build/language settings;
+- `Directory.Build.targets` — общие build validations;
+- `Directory.Packages.props` — единственный источник версий NuGet-пакетов.
+
+Текущая базовая платформа: `.NET 10`, C# 14, nullable enabled, central package management.
+
+Не предполагай автоматически наличие или необходимость `global.json`, `.config/dotnet-tools.json` или Microsoft.Testing.Platform. Добавляй подобную инфраструктуру только в рамках отдельной задачи.
+
+`Console.Write*` запрещён общими build rules; используй `ILogger` там, где logging допустим архитектурой слоя.
+
+## Сборка и тесты
+
+Из `backend/src`:
+
+```bash
+dotnet restore Intelligence.TradeSystem.slnx
+dotnet build Intelligence.TradeSystem.slnx --configuration Release --no-restore
+dotnet test Intelligence.TradeSystem.slnx --configuration Release --no-build --logger "console;verbosity=minimal"
+```
+
+`Infrastructure.IntegrationTests` и `Authentication.IntegrationTests` используют реальную инфраструктуру через Testcontainers, поэтому для полного прогона нужен Docker.
+
+После изменений composition root, persistence, authentication или Docker-конфигурации учитывай полный CI, включая PostgreSQL provisioning и OAuth/OIDC smoke tests.
+
+## Skills
+
+Общие правила работы с внешними skills заданы в корневом `AGENTS.md`. Не копируй содержимое skill в этот файл. Используй специализированный skill только тогда, когда текущая задача действительно соответствует его назначению.

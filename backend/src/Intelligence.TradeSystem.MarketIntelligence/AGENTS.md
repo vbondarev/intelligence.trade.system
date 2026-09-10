@@ -1,76 +1,67 @@
-﻿# AGENTS.md
+# AGENTS.md
 
-## Scope
-- Applies to `Intelligence.TradeSystem.MarketIntelligence`.
-- Contains deterministic `Indicators`, `Analysis` (including `Analysis/Timeframes` timeframe summary evaluation and `Analysis/MarketRegimePolicy` regime classification), `Diagnostics`, and market `Snapshots`.
-- Read `../AGENTS.md` first for solution-level architecture, orchestration boundaries, and snapshot flow.
+## Область действия
 
-See also: `INDICATOR_CONTRACTS.md` for the detailed missing-data, fallback and diagnostics policy.
+Этот файл применяется к `Intelligence.TradeSystem.MarketIntelligence` и дополняет `../AGENTS.md` только правилами детерминированной рыночной аналитики.
 
-## Inheritance
-- Shared repository rules for skills, build/test workflow, optional `dotnet-tools.json`, and the role of `copilot-instructions.md` are defined in `../AGENTS.md`.
-- Shared anti-assumption rules, contract change checklists, and build/test baselines also live in `../AGENTS.md` and should not be restated here unless MarketIntelligence needs a stricter local rule.
-- This file covers deterministic market calculations, diagnostics, snapshots, and ordering assumptions.
+Подробные контракты индикаторов, fallback/unavailable semantics и граничные случаи находятся в `INDICATOR_CONTRACTS.md`. Не дублируй их здесь.
 
-## Do / Don't
-- Do keep indicators, analysis assemblers, diagnostics, and snapshots deterministic and side-effect free.
-- Do update corresponding MarketIntelligence tests together with formula, threshold, fallback, or diagnostic changes.
-- Don't add logging, IO, exchange/API dependencies, or service orchestration into this project.
-- Don't use the current time or perform file/network IO from indicator code.
-- Don't mutate input collections.
-- Don't change fallback values or seed-window behavior without updating dependent assemblers and tests.
+## Назначение проекта
 
-## What this project does
-- This project contains deterministic market indicators, analysis assemblers, diagnostics, and market snapshot contracts; it does not call exchanges or services directly.
-- Key areas: `Indicators/*` for calculations, `Analysis/Assemblers/*` for snapshot construction, `Analysis/Timeframes/*` for deterministic per-timeframe bias/momentum/entry-quality/risk-flag evaluation (`TimeframeSummaryBuilder`, `EntryQualityEvaluator`, label mappers), `Analysis/MarketRegimePolicy` for the single canonical market regime classification, `Diagnostics/*` for fallback/unavailable reporting, and `Snapshots/*` for market-facing snapshot types.
-- Current dependency direction is `Application -> MarketIntelligence -> Domain`; `MarketSnapshot` contains only public market data and must not compose Domain `PortfolioSnapshot` or any private-account/provider types. `MarketIntelligence` never depends on `Api` or `Application`.
-- The API converts the analytical results from `Analysis/Timeframes` into wire payloads only (bias/momentum/entry quality via `ToString()`, trend/level strength via label mappers); it does not recompute or duplicate this logic.
+`MarketIntelligence` содержит:
 
-## Input assumptions to preserve
-- Callers provide market series in chronological order (oldest -> newest); several calculations use the last element as the current state.
-- `TimeframeSnapshotAssembler` sorts klines by `StartTime` before calling into indicators; preserve that expectation if you change series-based logic.
-- Keep calculations deterministic and side-effect free; indicator code should stay static/pure and free of logging/IO.
+- индикаторы;
+- детерминированные assemblers и market analysis;
+- timeframe evaluation;
+- market regime classification;
+- diagnostics;
+- публичные market snapshot contracts.
 
-## Current calculation contracts
-- `SmaCalculator` averages the last `period` values, returns `Unavailable(EmptyInput)` for an empty array, and returns `Fallback(average, PartialWindow)` when the series is shorter than `period`.
-- `EmaCalculator` seeds EMA with SMA of the first `period` values; if the series is shorter than `period`, it returns `Fallback(average, PartialWindow)`, and `Unavailable(EmptyInput)` for an empty array.
-- `RsiCalculator` uses Wilder smoothing, returns `Unavailable(InsufficientData)` when `closes.Length < period + 1`, and keeps the neutral/edge-case behavior `all flat -> 50`, `only gains -> 100`, `only losses -> 0`. RSI does not use fallback for insufficient data.
-- `AtrCalculator.Compute(...)` requires `highs`, `lows`, and `closes` arrays to have the same length and throws `ArgumentException` when lengths differ. Returns `Unavailable(InsufficientData)` when fewer than two candles are available, and `Fallback(average TR, PartialWindow)` when True Range count is less than `period`.
-- `TrendClassifier` requires strict alignment for directed trends (`EMA20 > EMA50 > EMA200` with price above `EMA200`, or the bearish mirror). Directed trends start at `0.80` strength, can gain at most `0.20` from `volumeRatio`, and sideways scores must stay `<= 0.49`.
-- `VolumeProfileDetector.Detect(klines, options?)` merges adjacent strong HVN buckets into clusters and returns the two closest supports/resistances relative to `klines[^1].Close`. Parameters are supplied via `VolumeProfileOptions` (defaults: `BucketCount = 100`, `HvnThresholdRatio = 0.70`); pass `null` to use `VolumeProfileOptions.Default`.
+Проект не обращается к бирже, HTTP, БД, filesystem и другим внешним источникам.
 
-## Testing patterns to follow
-- Indicator tests are highly contract-oriented: preserve boundary cases, exact fallback values, and deterministic output.
-- Reuse `Intelligence.TradeSystem.MarketIntelligence.Tests/Indicators/Helpers/KlineFactory.cs` for UTC, one-hour, deterministic candle sequences instead of ad-hoc fixtures.
-- When changing formulas or thresholds, update the matching calculator/levels/trend tests together; many tests intentionally guard against off-by-one, wrong seed window, and accidental reordering regressions.
+## Детерминизм и чистота
 
-## When changing code here
-- If you change a calculator return contract, update dependent `Analysis/Assemblers` expectations and `Intelligence.TradeSystem.MarketIntelligence.Tests`.
-- If you change `TrendClassifier` or `VolumeProfileDetector`, review downstream fields in `Snapshots` and API payloads. `PortfolioSnapshotAssembler` no longer lives in this project; portfolio assembly now belongs to `Intelligence.TradeSystem.Application/Portfolio`.
+- Расчёты должны быть детерминированными и без побочных эффектов.
+- Не используй текущую системную дату/время внутри расчётной логики; время должно приходить во входных данных.
+- Не добавляй logging в indicators/чистые calculators.
+- Не выполняй network/file/database IO.
+- Не мутируй входные коллекции.
+- Не добавляй скрытую зависимость от глобального состояния или DI в чистые вычисления.
 
-## Scalar indicator API
+## Входные данные
 
-- Scalar indicators expose a single public API: `Compute(...)`, returning `IndicatorValue`.
-- Do not add numeric `Compute(...)` overloads returning `decimal` or `decimal?`.
-- Do not add `ComputeValue(...)` methods.
-- Do not convert unavailable indicator values to `0m` in new snapshot/API/LLM contracts.
-- Use nullable values (`decimal?`) for unavailable indicators in DTOs and payloads.
-- Use `IndicatorDiagnostics` to surface fallback/unavailable reasons.
-- Do not serialize `IndicatorValue` directly into API/LLM payloads.
-- API/LLM payloads should expose scalar indicator fields as `number` or `null`, with reasons in `indicatorDiagnostics`.
-- `IndicatorValue.Available(...)` means the indicator was calculated normally on a full window.
-- `IndicatorValue.Fallback(...)` means a numeric value exists but was calculated using fallback logic, usually `PartialWindow`.
-- `IndicatorValue.Unavailable(...)` means no safe indicator value exists.
+Рыночные временные ряды рассматриваются в хронологическом порядке `oldest -> newest`, если конкретный контракт явно не говорит иное.
 
-## No fake-zero mapping
+`TimeframeSnapshotAssembler` сортирует klines по `StartTime` перед расчётами. Не ломай это предположение при изменении pipeline.
 
-- Never map unavailable indicator values to `0m` in new contracts.
-- Use `null` + `IndicatorDiagnostics` instead.
+## Отсутствующие и fallback-значения
 
-## Level / Volume Profile contracts
+- Не используй `0m` как универсальную замену отсутствующему индикатору или уровню.
+- Для scalar indicators сохраняй `IndicatorValue` semantics: available / fallback / unavailable.
+- Во внешние snapshot/API/LLM contracts передавай отсутствующие scalar values как nullable значения и сопровождай диагностиками там, где это предусмотрено контрактом.
+- Не сериализуй `IndicatorValue` напрямую во внешний wire contract.
+- Изменение fallback, seed-window или unavailable semantics требует обновления `INDICATOR_CONTRACTS.md` и связанных тестов.
 
-- `VolumeProfileDetector.Detect(Kline[] klines, VolumeProfileOptions? options = null)` returns a `LevelSet` with four nullable `LevelInfo?` fields: `Support1`, `Support2`, `Resistance1`, `Resistance2`.
-- `null` in any `LevelInfo?` field means the level was not detected; it does not mean `0`.
-- Do not use `0m` to represent a missing support or resistance level.
-- Parameters are configured through `VolumeProfileOptions`. Defaults: `BucketCount = 100`, `HvnThresholdRatio = 0.70`. Pass `null` to use `VolumeProfileOptions.Default`.
-- `VolumeProfileDetector` is a simplified volume profile implementation (not a precise Volume-at-Price model) unless explicitly replaced.
+## Архитектурные границы
+
+- `MarketIntelligence` может зависеть от Domain contracts, но не от `Api`, `Application`, `Infrastructure` или конкретного exchange SDK.
+- `MarketSnapshot` содержит только публичные рыночные данные и не должен включать `PortfolioState`, позиции, пользователя, exchange account или credentials.
+- API не должен дублировать вычисления MarketIntelligence; при изменении результата проверь downstream mapping, но оставляй расчёт в этом проекте.
+- `MarketRegimePolicy` остаётся единым источником классификации market regime, пока архитектурное решение явно не изменено.
+
+## Изменение алгоритмов
+
+Если меняешь формулу, threshold, ordering, fallback или diagnostic behavior:
+
+- обнови соответствующие `Intelligence.TradeSystem.MarketIntelligence.Tests`;
+- проверь assemblers и snapshot contracts;
+- проверь downstream API mapping/tests, если изменяется наблюдаемое значение;
+- явно обнови контрактную документацию, если меняется публично зафиксированная semantics.
+
+Не копируй числовые пороги и формулы в `AGENTS.md`: их источником истины должны быть код, тесты и специализированная контрактная документация.
+
+## Тестирование
+
+Тесты MarketIntelligence должны быть воспроизводимыми и проверять граничные значения, порядок входов, fallback/unavailable cases и отсутствие случайной зависимости от времени.
+
+Для indicator fixtures переиспользуй существующие test helpers, если они подходят сценарию, вместо создания несовместимых ad-hoc наборов данных.
