@@ -1,5 +1,6 @@
 ﻿using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Application.Accounts.Access;
+using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +28,8 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
         serviceProvider.GetRequiredService<BybitPrivateAccountProviderFactory>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IExchangeAccountAccessVerifier>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPublicMarketDataCollector>().Should().NotBeNull();
-        serviceProvider.GetRequiredService<IMarketSnapshotService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IMarketSnapshotService>()
+            .Should()
+            .BeOfType<CachedMarketSnapshotService>();
     }
 }

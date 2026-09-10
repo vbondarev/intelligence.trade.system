@@ -13,7 +13,9 @@ public static class StartupExtensions
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddScoped<IPublicMarketDataCollector, PublicMarketDataCollector>();
-        services.AddScoped<IMarketSnapshotService, MarketSnapshotService>();
+        services.AddScoped<MarketSnapshotService>();
+        services.AddScoped<IMarketSnapshotService>(
+            serviceProvider => serviceProvider.GetRequiredService<MarketSnapshotService>());
         services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();
         services.AddScoped<IExchangeAccountService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountService>(serviceProvider));

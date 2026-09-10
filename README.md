@@ -74,7 +74,7 @@
 
 ## Текущее состояние
 
-Этапы A, B и C завершены. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring. D-01 — D-06 реализованы; следующий этап — D-07: общий кэш публичного рыночного снимка.
+Этапы A, B, C и D завершены. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring. Следующий этап — E-01: единый вход оценки позиции.
 
 ### Уже реализовано
 
@@ -108,6 +108,7 @@
 - отдельные словари `PositionAction`, `AddDecision`, `RiskIncreaseDecision` и `ReasonCode`;
 - relational PostgreSQL schema, EF Core migrations, persistence repositories и Testcontainers integration tests для доменного состояния;
 - PostgreSQL transactional outbox для versioned application events; события durable сохраняются до появления downstream consumer. Доставка имеет at-least-once semantics, `EventId` используется для idempotency, а `PositionId + PositionChangeSequence` — для causal ordering. Dispatcher по умолчанию отключён и включается только после регистрации реальных `IApplicationEventHandler<TEvent>`; operational-параметры задаются в `ApplicationEventOutboxDispatcher` (polling, batch, concurrency, lease и retry delay);
+- общий process-local кэш финальных публичных `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный через `Trim()` `Symbol` и `MarketCategory`, без `UserId` и приватного состояния;
 - оптимистическая конкурентность (compare-and-swap по версии, без retry) для ExchangeAccount, Position и Recommendation;
 - изолированный публичный BTC Daily Check через OpenClaw и Telegram;
 - архитектурные, доменные, модульные, прикладные и API-тесты;
@@ -235,6 +236,8 @@ Secure HttpOnly cookie может использоваться только ме
 ## Market Intelligence — уже работающая часть системы
 
 Текущая наиболее зрелая часть проекта — подсистема публичного рыночного анализа. Она получает данные Bybit и формирует структурированный `MarketSnapshot`, который используется как подготовленный рыночный контекст.
+
+Готовый публичный `MarketSnapshot` переиспользуется между request scopes через короткоживущий process-local cache. Для одинаковых `ExchangeId + Symbol + MarketCategory` сборка выполняется один раз на cache miss (single-flight); `AnalysisMode`, пользовательские данные, приватные account state, credentials, Redis, PostgreSQL cache persistence и background refresh в этот кэш не входят.
 
 В анализ входят:
 
@@ -536,12 +539,11 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы B и C завершены. D-01 — D-06 завершены; текущий следующий этап — **D-07: общий кэш публичного рыночного снимка**.
+Этапы B, C и D завершены. Текущий следующий этап — **E-01: единый вход оценки позиции**.
 
 Основная ближайшая последовательность:
 
-1. устойчивые события синхронизации;
-2. детерминированная оценка позиции и политика рекомендаций;
+1. детерминированная оценка позиции и политика рекомендаций;
 3. пользовательский REST API и SignalR;
 4. React-панель;
 5. непрерывное наблюдение и Telegram-уведомления;

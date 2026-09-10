@@ -22,6 +22,8 @@ public static class Extensions
         "Intelligence.TradeSystem.Infrastructure.BackgroundSync";
     private const string ApplicationEventsTelemetryName =
         "Intelligence.TradeSystem.Infrastructure.ApplicationEvents";
+    private const string PublicMarketSnapshotCacheTelemetryName =
+        "Intelligence.TradeSystem.Infrastructure.MarketCaching";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -66,7 +68,8 @@ public static class Extensions
                     .AddRuntimeInstrumentation()
                     .AddMeter(BybitExchangeTelemetryName)
                     .AddMeter(BackgroundSyncTelemetryName)
-                    .AddMeter(ApplicationEventsTelemetryName);
+                    .AddMeter(ApplicationEventsTelemetryName)
+                    .AddMeter(PublicMarketSnapshotCacheTelemetryName);
             })
             .WithTracing(tracing =>
             {
@@ -75,6 +78,7 @@ public static class Extensions
                     .AddSource(BybitExchangeTelemetryName)
                     .AddSource(BackgroundSyncTelemetryName)
                     .AddSource(ApplicationEventsTelemetryName)
+                    .AddSource(PublicMarketSnapshotCacheTelemetryName)
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
