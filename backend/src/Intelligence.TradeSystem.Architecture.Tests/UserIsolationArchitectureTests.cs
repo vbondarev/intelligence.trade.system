@@ -8,6 +8,7 @@ using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Architecture.Tests;
@@ -80,9 +81,19 @@ public sealed class UserIsolationArchitectureTests
         typeof(CachedMarketSnapshotService).GetConstructors().Single().GetParameters()
             .Select(parameter => parameter.ParameterType)
             .Should()
-            .NotContain(typeof(ICurrentUserContext));
+            .NotContain(typeof(ICurrentUserContext))
+            .And
+            .NotContain(typeof(MarketSnapshotService));
 
-        typeof(PublicMarketSnapshotCache).GetConstructors().Single().GetParameters()
+        var cacheConstructorParameters = typeof(PublicMarketSnapshotCache)
+            .GetConstructors()
+            .Single()
+            .GetParameters();
+        cacheConstructorParameters
+            .Select(parameter => parameter.ParameterType)
+            .Should()
+            .Contain(typeof(IServiceScopeFactory));
+        cacheConstructorParameters
             .Select(parameter => parameter.ParameterType.Name)
             .Should()
             .NotContain(name =>

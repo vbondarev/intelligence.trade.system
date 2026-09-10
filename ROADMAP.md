@@ -2,8 +2,8 @@
 
 Версия документа: 3.4
 Дата актуализации: 10 сентября 2026 года
-Проверенная база: `develop` на коммите [`a22f3ff`](https://github.com/vbondarev/intelligence.trade.system/commit/a22f3ff51b93c937e4303e198f33e9abe4ab0467) перед реализацией D-07
-Последняя учтённая задача: [Issue #88](https://github.com/vbondarev/intelligence.trade.system/issues/88) «Добавить общий кэш публичного рыночного снимка» (PR не создавался)
+Проверенная база: `develop` на коммите [`a22f3ff`](https://github.com/vbondarev/intelligence.trade.system/commit/a22f3ff51b93c937e4303e198f33e9abe4ab0467) перед реализацией D-07; исправления выполняются в PR #89
+Последняя учтённая задача: [Issue #88](https://github.com/vbondarev/intelligence.trade.system/issues/88) «Добавить общий кэш публичного рыночного снимка» (PR #89)
 Текущий следующий этап: **E-01 — единый вход оценки позиции**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -390,7 +390,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 | 8 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 9 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы B и C завершены и больше не входят в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы B, C и D завершены и больше не входят в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -448,7 +448,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-10 | 3.4 | Реализован D-07 (Issue #88): добавлен process-local HybridCache для финального публичного `MarketSnapshot` с TTL 1 секунда, per-key single-flight, cancellation-safe ожиданием, fail-fast options validation и telemetry; Stage D завершён, следующим выбран E-01. |
+| 2026-09-10 | 3.4 | Реализован D-07 (Issue #88, PR #89): добавлен process-local HybridCache для финального публичного `MarketSnapshot` с TTL 1 секунда, per-key single-flight, independently owned DI scope для source build, cancellation-safe ожиданием, fail-fast options validation и telemetry; Stage D завершён, следующим выбран E-01. |
 | 2026-09-09 | 3.3 | Исправлены замечания D-06 в PR #87: no-op sync не создаёт lifecycle event, position events несут PositionChangeSequence и temporal metadata, dispatcher сериализует одну позицию внутри batch, default Enabled=false, bounded claim identity и добавлены dispatcher pipeline tests; D-07 остаётся следующим этапом. |
 | 2026-09-09 | 3.2 | Реализован D-06 (Issue #86): добавлены versioned position/sync-degraded events, PostgreSQL transactional outbox в общей sync-транзакции, at-least-once API dispatcher с lease/retry и explicit EventId idempotency contract; следующим выбран D-07. |
 | 2026-09-09 | 3.1 | Реализован D-05: добавлены system-scoped keyset-кандидаты Connected/Unavailable, bounded background sweep со scope на аккаунт, TimeProvider-расписание без overlap/catch-up storm, scheduler lag, LastSyncedAt telemetry и PostgreSQL candidate tests; следующая задача — D-06. |

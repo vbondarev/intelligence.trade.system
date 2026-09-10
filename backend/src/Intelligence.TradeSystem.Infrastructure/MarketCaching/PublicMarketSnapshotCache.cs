@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Intelligence.TradeSystem.Infrastructure.MarketCaching;
@@ -9,23 +10,24 @@ namespace Intelligence.TradeSystem.Infrastructure.MarketCaching;
 public sealed class PublicMarketSnapshotCache : IPublicMarketSnapshotCache
 {
     private readonly HybridCache _cache;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<PublicMarketSnapshotCacheOptions> _options;
 
     public PublicMarketSnapshotCache(
         HybridCache cache,
+        IServiceScopeFactory scopeFactory,
         IOptions<PublicMarketSnapshotCacheOptions> options)
     {
         _cache = cache;
+        _scopeFactory = scopeFactory;
         _options = options;
     }
 
     public async ValueTask<MarketSnapshot> GetOrCreateAsync(
         PublicMarketSnapshotCacheKey key,
-        Func<CancellationToken, ValueTask<MarketSnapshot>> factory,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(factory);
-
+        ArgumentNullException.ThrowIfNull(key);
         PublicMarketSnapshotCacheTelemetry.RecordRequest(key);
         using var activity = PublicMarketSnapshotCacheTelemetry.StartRequestActivity(key);
 
@@ -35,17 +37,14 @@ public sealed class PublicMarketSnapshotCache : IPublicMarketSnapshotCache
             var result = options.Enabled
                 ? await _cache.GetOrCreateAsync(
                     key.ToStableCacheKey(),
-                    cacheCancellationToken => BuildFromSourceAsync(
-                        key,
-                        factory,
-                        cacheCancellationToken),
+                    cacheCancellationToken => BuildFromSourceAsync(key, cacheCancellationToken),
                     new HybridCacheEntryOptions
                     {
                         Expiration = options.EntryLifetime,
                         LocalCacheExpiration = options.EntryLifetime,
                     },
                     cancellationToken: cancellationToken)
-                : await BuildFromSourceAsync(key, factory, cancellationToken);
+                : await BuildFromSourceAsync(key, cancellationToken);
 
             activity?.SetTag("cache.outcome", "success");
             return result;
@@ -62,9 +61,8 @@ public sealed class PublicMarketSnapshotCache : IPublicMarketSnapshotCache
         }
     }
 
-    private static async ValueTask<MarketSnapshot> BuildFromSourceAsync(
+    private async ValueTask<MarketSnapshot> BuildFromSourceAsync(
         PublicMarketSnapshotCacheKey key,
-        Func<CancellationToken, ValueTask<MarketSnapshot>> factory,
         CancellationToken cancellationToken)
     {
         PublicMarketSnapshotCacheTelemetry.RecordSourceBuildStarted(key);
@@ -72,7 +70,13 @@ public sealed class PublicMarketSnapshotCache : IPublicMarketSnapshotCache
 
         try
         {
-            var snapshot = await factory(cancellationToken);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var builder = scope.ServiceProvider.GetRequiredService<IPublicMarketSnapshotBuilder>();
+            var snapshot = await builder.BuildSnapshotAsync(
+                key.ExchangeId,
+                key.Symbol,
+                key.Category,
+                cancellationToken);
             PublicMarketSnapshotCacheTelemetry.RecordSourceBuildCompleted(
                 key,
                 Stopwatch.GetElapsedTime(startedAt),

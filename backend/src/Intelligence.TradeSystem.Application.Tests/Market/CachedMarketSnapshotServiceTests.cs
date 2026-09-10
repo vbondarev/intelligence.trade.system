@@ -1,9 +1,31 @@
+using System.Reflection;
 using Intelligence.TradeSystem.Domain;
 
 namespace Intelligence.TradeSystem.Application.Tests.Market;
 
 public sealed class CachedMarketSnapshotServiceTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_Rejects_Invalid_Symbols(string? symbol)
+    {
+        var action = () => PublicMarketSnapshotCacheKey.Create(
+            ExchangeId.Bybit,
+            symbol!,
+            MarketCategory.Linear);
+
+        Assert.ThrowsAny<ArgumentException>(action);
+    }
+
+    [Fact]
+    public void Key_Has_No_Public_Constructor()
+    {
+        Assert.Empty(typeof(PublicMarketSnapshotCacheKey)
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+    }
+
     [Fact]
     public async Task BuildSnapshotAsync_Normalizes_The_Symbol_Only_For_The_Public_Cache_Key()
     {
@@ -44,9 +66,7 @@ public sealed class CachedMarketSnapshotServiceTests
             Sentiment = new(),
         };
         var cache = new RecordingCache(expected);
-        var service = new CachedMarketSnapshotService(
-            new MarketSnapshotService(new ThrowingCollector()),
-            cache);
+        var service = new CachedMarketSnapshotService(cache);
 
         var result = await service.BuildSnapshotAsync(
             ExchangeId.Bybit,
@@ -68,13 +88,12 @@ public sealed class CachedMarketSnapshotServiceTests
 
     private sealed class RecordingCache(MarketSnapshot result) : IPublicMarketSnapshotCache
     {
-        public PublicMarketSnapshotCacheKey Key { get; private set; }
+        public PublicMarketSnapshotCacheKey Key { get; private set; } = null!;
 
         public int CallCount { get; private set; }
 
         public ValueTask<MarketSnapshot> GetOrCreateAsync(
             PublicMarketSnapshotCacheKey key,
-            Func<CancellationToken, ValueTask<MarketSnapshot>> factory,
             CancellationToken cancellationToken = default)
         {
             Key = key;
@@ -83,13 +102,4 @@ public sealed class CachedMarketSnapshotServiceTests
         }
     }
 
-    private sealed class ThrowingCollector : IPublicMarketDataCollector
-    {
-        public Task<CollectedPublicMarketData> CollectAsync(
-            ExchangeId exchangeId,
-            string symbol,
-            MarketCategory category,
-            CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("The cache should return before invoking the builder.");
-    }
 }

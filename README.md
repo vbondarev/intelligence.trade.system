@@ -237,7 +237,7 @@ Secure HttpOnly cookie может использоваться только ме
 
 Текущая наиболее зрелая часть проекта — подсистема публичного рыночного анализа. Она получает данные Bybit и формирует структурированный `MarketSnapshot`, который используется как подготовленный рыночный контекст.
 
-Готовый публичный `MarketSnapshot` переиспользуется между request scopes через короткоживущий process-local cache. Для одинаковых `ExchangeId + Symbol + MarketCategory` сборка выполняется один раз на cache miss (single-flight); `AnalysisMode`, пользовательские данные, приватные account state, credentials, Redis, PostgreSQL cache persistence и background refresh в этот кэш не входят.
+Готовый публичный `MarketSnapshot` переиспользуется между request scopes через короткоживущий process-local cache. Для одинаковых `ExchangeId + Symbol + MarketCategory` сборка выполняется один раз на cache miss (single-flight) в независимо управляемом DI scope; `AnalysisMode`, пользовательские данные, приватные account state, credentials, Redis, PostgreSQL cache persistence и background refresh в этот кэш не входят.
 
 В анализ входят:
 
@@ -544,11 +544,11 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 Основная ближайшая последовательность:
 
 1. детерминированная оценка позиции и политика рекомендаций;
-3. пользовательский REST API и SignalR;
-4. React-панель;
-5. непрерывное наблюдение и Telegram-уведомления;
-6. измерение качества рекомендаций;
-7. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
+2. пользовательский REST API и SignalR;
+3. React-панель;
+4. непрерывное наблюдение и Telegram-уведомления;
+5. измерение качества рекомендаций;
+6. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
 
 ---
 

@@ -14,6 +14,8 @@ public static class StartupExtensions
     {
         services.AddScoped<IPublicMarketDataCollector, PublicMarketDataCollector>();
         services.AddScoped<MarketSnapshotService>();
+        services.AddScoped<IPublicMarketSnapshotBuilder>(
+            serviceProvider => serviceProvider.GetRequiredService<MarketSnapshotService>());
         services.AddScoped<IMarketSnapshotService>(
             serviceProvider => serviceProvider.GetRequiredService<MarketSnapshotService>());
         services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();

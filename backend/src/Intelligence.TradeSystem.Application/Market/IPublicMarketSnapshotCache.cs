@@ -9,6 +9,5 @@ public interface IPublicMarketSnapshotCache
 {
     ValueTask<MarketSnapshot> GetOrCreateAsync(
         PublicMarketSnapshotCacheKey key,
-        Func<CancellationToken, ValueTask<MarketSnapshot>> factory,
         CancellationToken cancellationToken = default);
 }

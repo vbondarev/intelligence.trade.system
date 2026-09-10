@@ -8,14 +8,10 @@ namespace Intelligence.TradeSystem.Application.Market;
 /// </summary>
 public sealed class CachedMarketSnapshotService : IMarketSnapshotService
 {
-    private readonly MarketSnapshotService _snapshotBuilder;
     private readonly IPublicMarketSnapshotCache _cache;
 
-    public CachedMarketSnapshotService(
-        MarketSnapshotService snapshotBuilder,
-        IPublicMarketSnapshotCache cache)
+    public CachedMarketSnapshotService(IPublicMarketSnapshotCache cache)
     {
-        _snapshotBuilder = snapshotBuilder;
         _cache = cache;
     }
 
@@ -29,12 +25,6 @@ public sealed class CachedMarketSnapshotService : IMarketSnapshotService
 
         return await _cache.GetOrCreateAsync(
             key,
-            cacheCancellationToken => new ValueTask<MarketSnapshot>(
-                _snapshotBuilder.BuildSnapshotAsync(
-                    key.ExchangeId,
-                    key.Symbol,
-                    key.Category,
-                    cacheCancellationToken)),
             cancellationToken);
     }
 }
