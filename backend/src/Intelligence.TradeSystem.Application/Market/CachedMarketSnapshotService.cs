@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
-/// Shares completed public snapshots while keeping snapshot construction in the builder.
+/// Разделяет готовые публичные снимки, оставляя их построение в builder.
 /// </summary>
 public sealed class CachedMarketSnapshotService : IMarketSnapshotService
 {

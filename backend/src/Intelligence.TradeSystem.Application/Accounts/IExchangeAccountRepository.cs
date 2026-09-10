@@ -12,10 +12,10 @@ public interface IExchangeAccountRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Сохраняет аккаунт в указанном user scope с CAS-проверкой оптимистической конкурентности.
+    /// Сохраняет учётную запись в указанной области пользователя с CAS-проверкой оптимистической конкурентности.
     /// </summary>
     /// <param name="userId">Владелец прикладной операции.</param>
-    /// <param name="account">Аккаунт для сохранения.</param>
+    /// <param name="account">Учётная запись для сохранения.</param>
     /// <param name="expectedVersion">
     /// Версия, под которой был прочитан агрегат перед изменением, или <c>null</c>, если
     /// вызывающий код ожидает вставку новой строки (конфликт, если строка уже существует).

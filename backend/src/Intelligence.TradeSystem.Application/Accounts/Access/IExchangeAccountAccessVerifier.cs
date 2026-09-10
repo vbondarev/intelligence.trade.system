@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.Application.Accounts.Access;
 
 /// <summary>
-/// Exchange-neutral boundary for checking transient credentials and read-only access.
+/// Не зависящая от биржи граница проверки временных учётных данных и доступа только для чтения.
 /// </summary>
 public interface IExchangeAccountAccessVerifier
 {

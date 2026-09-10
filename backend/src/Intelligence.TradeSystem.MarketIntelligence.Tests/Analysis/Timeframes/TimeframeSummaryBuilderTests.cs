@@ -275,7 +275,7 @@ public sealed class TimeframeSummaryBuilderTests
         };
 
     /// <summary>
-    /// Test helper: вызывает <c>TimeframeSummaryBuilder.Build</c> с безопасными дефолтами
+    /// Тестовый помощник: вызывает <c>TimeframeSummaryBuilder.Build</c> с безопасными дефолтами
     /// (<c>snapshotIsFresh = true</c>, <c>marketRegime = MarketRegimes.Trending</c>).
     /// Используется для тестов, которые проверяют структурные инварианты,
     /// а не поведение параметров свежести/режима.

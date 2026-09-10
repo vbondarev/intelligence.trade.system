@@ -22,7 +22,7 @@ public sealed record MarketAnalysisResponse
     /// <summary>Текущее состояние цены инструмента и статистика за последние 24 часа.</summary>
     public required PriceModel Price { get; init; }
 
-    /// <summary>Деривативные метрики инструмента: funding rate, open interest и соотношение long/short.</summary>
+    /// <summary>Деривативные метрики инструмента: ставка финансирования, open interest и соотношение long/short.</summary>
     public required DerivativesModel Derivatives { get; init; }
 
     /// <summary>Агрегированное состояние стакана заявок на момент снимка.</summary>

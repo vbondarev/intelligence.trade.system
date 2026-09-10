@@ -7,8 +7,8 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 public interface IPositionRepository
 {
     /// <summary>
-    /// Loads every lifecycle for one exchange account in the requested user scope,
-    /// including the persistence version required for compare-and-swap updates.
+    /// Загружает весь жизненный цикл одной биржевой учётной записи в указанной области пользователя,
+    /// включая версию сохранения, необходимую для обновлений compare-and-swap.
     /// </summary>
     Task<IReadOnlyCollection<Versioned<Position>>> GetByExchangeAccountAsync(
         UserId userId,

@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Result of requesting an account wallet balance.
+/// Результат запроса баланса кошелька учётной записи.
 /// </summary>
 public sealed record AccountBalanceObservation
 {
@@ -22,17 +22,17 @@ public sealed record AccountBalanceObservation
     public AccountBalanceObservationStatus Status { get; }
 
     /// <summary>
-    /// The mapped balance for a <see cref="AccountBalanceObservationStatus.Complete"/> result.
+    /// Сопоставленный баланс для результата <see cref="AccountBalanceObservationStatus.Complete"/>.
     /// </summary>
     public AccountBalance? Balance { get; }
 
     /// <summary>
-    /// The neutral failure for a <see cref="AccountBalanceObservationStatus.Failed"/> result.
+    /// Нейтральное описание ошибки для результата <see cref="AccountBalanceObservationStatus.Failed"/>.
     /// </summary>
     public ExchangeFailure? Failure { get; }
 
     /// <summary>
-    /// The time at which the provider observed the balance.
+    /// Момент, когда провайдер наблюдал баланс.
     /// </summary>
     public DateTimeOffset ObservedAt { get; }
 

@@ -48,7 +48,7 @@ public readonly record struct ExchangePositionKey
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="exchangeAccountId"/> или <paramref name="instrumentId"/> не инициализированы
-    /// (переданы значением по умолчанию для соответствующего typed identifier).
+    /// (переданы значением по умолчанию для соответствующего типизированного идентификатора).
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="positionSide"/> равен <see cref="PositionSide.Unknown"/> или не является

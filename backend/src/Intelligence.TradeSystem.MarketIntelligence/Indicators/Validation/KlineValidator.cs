@@ -30,7 +30,7 @@ public static class KlineValidator
     /// Проверяет одну свечу и возвращает результат валидации.
     /// </summary>
     /// <param name="kline">Свеча для проверки.</param>
-    /// <param name="index">0-based индекс свечи в исходном массиве (для диагностики).</param>
+    /// <param name="index">Индекс свечи с нулевой базой в исходном массиве (для диагностики).</param>
     public static KlineValidationResult Validate(Kline kline, int index)
     {
         ArgumentNullException.ThrowIfNull(kline);

@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Neutral failure information returned by an exchange boundary.
+/// Нейтральная информация об ошибке, возвращённая границей биржи.
 /// </summary>
 public sealed record ExchangeFailure(
     ExchangeFailureKind Kind,

@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Owns the lifetime of one credentials-bound private account provider.
+/// Управляет временем жизни одного приватного провайдера учётной записи, связанного с учётными данными.
 /// </summary>
 public interface IPrivateAccountProviderLease : IDisposable
 {

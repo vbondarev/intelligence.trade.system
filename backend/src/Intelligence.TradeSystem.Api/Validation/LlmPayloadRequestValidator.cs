@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Api.Contracts;
 namespace Intelligence.TradeSystem.Api.Validation;
 
 /// <summary>
-/// Валидатор query-параметров запроса <c>GET /api/market-analysis/{symbol}/llm-payload</c>.
+/// Валидатор параметров запроса <c>GET /api/market-analysis/{symbol}/llm-payload</c>.
 /// Route-параметр <c>symbol</c> не входит в этот DTO и проверяется в контроллере отдельно.
 /// </summary>
 public sealed class LlmPayloadRequestValidator : AbstractValidator<LlmPayloadRequest>

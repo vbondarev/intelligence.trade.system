@@ -6,7 +6,7 @@ using Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 namespace Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 
 /// <summary>
-/// Adapts the Bybit-specific provider factory to the application exchange boundary.
+/// Адаптирует фабрику провайдеров Bybit к прикладной границе биржи.
 /// </summary>
 public sealed class BybitPrivateAccountProviderFactoryAdapter(
     BybitPrivateAccountProviderFactory providerFactory)

@@ -9,7 +9,7 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// health.IsFresh, warnings секций и EntryQuality из <see cref="TimeframeSummaryBuilder"/>.
 ///
 /// Теги добавляются поверх уже вычисленных тегов (от <c>MarketTagsBuilder</c>),
-/// получая наивысший приоритет (prepended перед base-тегами).
+/// получая наивысший приоритет (добавляясь перед базовыми тегами).
 /// Итоговый список дедуплицируется и ограничивается <see cref="MarketTagConstants.MaxTags"/>.
 /// </summary>
 internal static class LlmTagEnricher
@@ -59,8 +59,8 @@ internal static class LlmTagEnricher
     // ─── Internal helpers (testable) ─────────────────────────────────────────
 
     /// <summary>
-    /// Проверяет, содержит ли список предупреждений stale-сообщение для указанной секции.
-    /// Формат health warning: <c>"{sectionName} is stale (age: ...ms, max: ...ms)"</c>.
+    /// Проверяет, содержит ли список предупреждений сообщение об устаревании для указанной секции.
+    /// Формат предупреждения о состоянии: <c>"{sectionName} is stale (age: ...ms, max: ...ms)"</c>.
     /// </summary>
     internal static bool HasStaleWarning(IReadOnlyList<string> warnings, string sectionName) =>
         warnings.Any(w => w.StartsWith($"{sectionName} is stale", StringComparison.OrdinalIgnoreCase));

@@ -5,9 +5,9 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 /// <summary>
 /// Централизованное отображение <c>trendStrengthLabel</c> из <see cref="MarketTrend"/> и числового score.
 ///
-/// Whitelist допустимых значений V1:
+/// Белый список допустимых значений V1:
 /// <list type="table">
-///   <listheader><term>Label</term><description>Условие</description></listheader>
+///   <listheader><term>Метка</term><description>Условие</description></listheader>
 ///   <item><term>Undefined</term><description>trend == Unknown (score игнорируется)</description></item>
 ///   <item><term>Strong</term>   <description>trend != Unknown &amp;&amp; score &gt;= 0.80</description></item>
 ///   <item><term>Moderate</term> <description>trend != Unknown &amp;&amp; score &gt;= 0.50 &amp;&amp; score &lt; 0.80</description></item>

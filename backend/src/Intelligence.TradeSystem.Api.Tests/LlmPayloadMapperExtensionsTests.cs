@@ -5,16 +5,16 @@ using Intelligence.TradeSystem.Api.Tests.Helpers;
 namespace Intelligence.TradeSystem.Api.Tests;
 
 /// <summary>
-/// Mapper-level integration tests for <c>LlmPayloadMapperExtensions.ToLlmPayload</c>.
+/// Интеграционные тесты уровня mapper для <c>LlmPayloadMapperExtensions.ToLlmPayload</c>.
 ///
-/// These tests verify:
-/// 1. Higher-TF opposite levels are correctly propagated to lower-TF summary (cross-TF wiring).
-/// 2. EntryQuality.Good is impossible in weak/conflicted conditions through the full pipeline.
-/// 3. EntryQuality.Good is still reachable in clean setups through the full pipeline.
-/// 4. JSON structure is not changed: only entryQuality values change as expected.
-/// 5. riskFlags are consistent with entryQuality (no contradictions).
+/// Эти тесты проверяют:
+/// 1. Уровни противоположного направления со старшего таймфрейма корректно передаются в сводку младшего таймфрейма (связь между таймфреймами).
+/// 2. EntryQuality.Good недостижимо при слабых или противоречивых условиях во всём конвейере.
+/// 3. EntryQuality.Good по-прежнему достижимо в чистых сценариях во всём конвейере.
+/// 4. Структура JSON не изменяется: меняются только ожидаемые значения entryQuality.
+/// 5. riskFlags согласованы с entryQuality (противоречия отсутствуют).
 ///
-/// Tests go through <c>ToLlmPayload</c> the same path as the real API endpoint.
+/// Тесты проходят через <c>ToLlmPayload</c> тем же путём, что и реальная конечная точка API.
 /// </summary>
 public sealed class LlmPayloadMapperExtensionsTests
 {
@@ -559,8 +559,8 @@ public sealed class LlmPayloadMapperExtensionsTests
     // ===========================================================================
 
     /// <summary>
-    /// Creates a full <see cref="MarketSnapshot"/> with overridable TF snapshots.
-    /// All TF snapshots default to a neutral, non-constraining state unless overridden.
+    /// Создаёт полный <see cref="MarketSnapshot"/> с переопределяемыми снимками таймфреймов.
+    /// Все снимки таймфреймов по умолчанию находятся в нейтральном состоянии без ограничений, если не переопределены.
     /// </summary>
     private static MarketSnapshot MakeSnapshot(
         TimeframeAnalysisSnapshot? m15 = null,
@@ -581,8 +581,8 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     /// <summary>
-    /// Creates a bullish timeframe snapshot with good defaults and overridable level distances/volumes.
-    /// All indicators are reliable, price is above both EMAs, trend is confirmed.
+    /// Создаёт снимок бычьего таймфрейма с подходящими значениями по умолчанию и переопределяемыми расстояниями до уровней и объёмами.
+    /// Все индикаторы надёжны, цена выше обеих EMA, тренд подтверждён.
     /// </summary>
     private static TimeframeAnalysisSnapshot MakeBullishTf(
         string timeframe,
@@ -630,8 +630,8 @@ public sealed class LlmPayloadMapperExtensionsTests
         };
 
     /// <summary>
-    /// Creates a bearish timeframe snapshot with good defaults and overridable level distances/volumes.
-    /// All indicators are reliable, price is below both EMAs, trend is confirmed.
+    /// Создаёт снимок медвежьего таймфрейма с подходящими значениями по умолчанию и переопределяемыми расстояниями до уровней и объёмами.
+    /// Все индикаторы надёжны, цена ниже обеих EMA, тренд подтверждён.
     /// </summary>
     private static TimeframeAnalysisSnapshot MakeBearishTf(
         string timeframe,
@@ -679,7 +679,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         };
 
     /// <summary>
-    /// Creates a neutral/sideways snapshot � does not constrain or help any TF's entryQuality.
+    /// Создаёт нейтральный/боковой снимок — он не ограничивает и не улучшает entryQuality ни одного таймфрейма.
     /// </summary>
     private static TimeframeAnalysisSnapshot MakeNeutralTf(string timeframe) =>
         new()

@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Intelligence.TradeSystem.Api.Contracts;
 
 /// <summary>
-/// Query-параметры эндпоинта <c>GET /api/market-analysis/{symbol}/llm-payload</c>.
+/// Параметры запроса эндпоинта <c>GET /api/market-analysis/{symbol}/llm-payload</c>.
 /// </summary>
 public sealed record LlmPayloadRequest
 {

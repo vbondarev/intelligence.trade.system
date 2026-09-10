@@ -4,7 +4,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 
 /// <summary>
 /// Единая pure-policy для классификации рыночного режима по агрегированным таймфреймовым снапшотам.
-/// Используется как analysis-layer, так и analytics-layer, чтобы исключить рассинхронизацию эвристики.
+/// Используется как в слое анализа, так и в слое аналитики, чтобы исключить рассинхронизацию эвристики.
 /// </summary>
 public static class MarketRegimePolicy
 {
@@ -24,8 +24,8 @@ public static class MarketRegimePolicy
     /// Классифицирует рыночный режим по снапшотам H1 и H4.
     /// Приоритет классификации: Trending → Volatile → MeanReversion → Neutral.
     /// </summary>
-    /// <param name="h1">Снапшот технического анализа на таймфрейме 1 час.</param>
-    /// <param name="h4">Снапшот технического анализа на таймфрейме 4 часа.</param>
+    /// <param name="h1">Снимок технического анализа на таймфрейме 1 час.</param>
+    /// <param name="h4">Снимок технического анализа на таймфрейме 4 часа.</param>
     /// <returns>Одно из канонических значений <see cref="MarketRegimes"/>.</returns>
     /// <exception cref="ArgumentNullException">Если <paramref name="h1"/> или <paramref name="h4"/> равен <c>null</c>.</exception>
     public static string Classify(TimeframeAnalysisSnapshot h1, TimeframeAnalysisSnapshot h4)

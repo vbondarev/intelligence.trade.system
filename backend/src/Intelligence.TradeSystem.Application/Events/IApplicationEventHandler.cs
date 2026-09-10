@@ -3,13 +3,13 @@ using System.Diagnostics.CodeAnalysis;
 namespace Intelligence.TradeSystem.Application.Events;
 
 /// <summary>
-/// Handles one typed application event.
+/// Обрабатывает одно типизированное прикладное событие.
 /// </summary>
 /// <remarks>
-/// Handlers must be idempotent by <see cref="IApplicationEvent.EventId"/>. The dispatcher marks
-/// an outbox row processed only after all registered handlers complete successfully.
-/// Position lifecycle handlers should additionally reject a position event whose
-/// <c>PositionId + PositionChangeSequence</c> is not newer than their last accepted sequence.
+/// Обработчики должны быть идемпотентными по <see cref="IApplicationEvent.EventId"/>. Диспетчер помечает
+/// запись outbox как обработанную только после успешного завершения всех зарегистрированных обработчиков.
+/// Обработчики жизненного цикла позиции должны дополнительно отклонять событие позиции, если его
+/// <c>PositionId + PositionChangeSequence</c> не новее последней принятой ими последовательности.
 /// </remarks>
 [SuppressMessage(
     "Naming",

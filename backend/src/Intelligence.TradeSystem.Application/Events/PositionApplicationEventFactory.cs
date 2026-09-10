@@ -5,7 +5,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 namespace Intelligence.TradeSystem.Application.Events;
 
 /// <summary>
-/// Projects a newly-created domain history record into one application event.
+/// Преобразует новую запись доменной истории в одно прикладное событие.
 /// </summary>
 public static class PositionApplicationEventFactory
 {

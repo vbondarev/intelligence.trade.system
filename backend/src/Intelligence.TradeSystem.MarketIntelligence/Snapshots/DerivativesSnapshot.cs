@@ -8,7 +8,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 public sealed record DerivativesSnapshot
 {
     /// <summary>
-    /// Текущая ставка финансирования (funding rate).
+    /// Текущая ставка финансирования.
     /// Положительное значение означает, что лонги платят шортам; отрицательное — наоборот.
     /// </summary>
     public decimal FundingRate { get; init; }

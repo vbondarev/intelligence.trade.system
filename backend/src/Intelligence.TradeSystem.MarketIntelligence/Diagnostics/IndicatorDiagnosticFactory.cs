@@ -4,7 +4,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Diagnostics;
 
 /// <summary>
 /// Создаёт <see cref="IndicatorDiagnostic"/> из <see cref="IndicatorValue"/>.
-/// Возвращает <c>null</c> для полноценных available значений без fallback.
+/// Возвращает <c>null</c> для полноценных доступных значений без fallback.
 /// </summary>
 public static class IndicatorDiagnosticFactory
 {

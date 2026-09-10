@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Events;
 
 /// <summary>
-/// Persistence port for events that must commit with the business state that produced them.
+/// Порт сохранения событий, которые должны фиксироваться вместе с породившим их бизнес-состоянием.
 /// </summary>
 public interface IApplicationEventOutbox
 {

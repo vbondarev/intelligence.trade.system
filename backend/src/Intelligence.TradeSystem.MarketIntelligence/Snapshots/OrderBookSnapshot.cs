@@ -3,7 +3,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 /// <summary>
 /// Агрегированный снимок стакана заявок на конкретный момент времени.
 /// Содержит суммарные объёмы на нескольких глубинах, метрики дисбаланса бид/аск,
-/// а также значимые уровни концентрации ликвидности (liquidity walls).
+/// а также значимые уровни концентрации ликвидности (стены ликвидности).
 /// </summary>
 public sealed record OrderBookSnapshot
 {

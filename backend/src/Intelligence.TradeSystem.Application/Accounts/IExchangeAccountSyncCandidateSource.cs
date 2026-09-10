@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
-/// Enumerates active accounts for internal system work without exposing credentials.
+/// Перечисляет активные учётные записи для внутренних системных операций, не раскрывая учётные данные.
 /// </summary>
 public interface IExchangeAccountSyncCandidateSource
 {

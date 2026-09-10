@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
 /// <summary>
-/// Значимый уровень ликвидности (liquidity wall) — концентрация большого объёма заявок
+/// Значимый уровень ликвидности (стена ликвидности) — концентрация большого объёма заявок
 /// на одном ценовом уровне, способная оказывать существенное влияние на движение цены.
 /// </summary>
 public sealed record LiquidityWall

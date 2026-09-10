@@ -7,7 +7,7 @@ using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 namespace Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 
 /// <summary>
-/// Creates isolated Bybit REST clients for public and account-specific private operations.
+/// Создаёт изолированные REST-клиенты Bybit для публичных и приватных операций конкретной учётной записи.
 /// </summary>
 public static class BybitClientFactory
 {

@@ -1,6 +1,6 @@
 namespace Intelligence.TradeSystem.Domain;
 
-/// <summary>Read-only возможности биржевого аккаунта.</summary>
+/// <summary>Возможности биржевой учётной записи в режиме только для чтения.</summary>
 [Flags]
 public enum ExchangeAccountCapabilities
 {

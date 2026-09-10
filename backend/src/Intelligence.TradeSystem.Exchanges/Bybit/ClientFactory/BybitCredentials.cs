@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Exchanges.Bybit.ClientFactory;
 
 /// <summary>
-/// Transient infrastructure input for an authenticated Bybit client.
+/// Временный инфраструктурный вход для аутентифицированного клиента Bybit.
 /// </summary>
 public sealed class BybitCredentials
 {

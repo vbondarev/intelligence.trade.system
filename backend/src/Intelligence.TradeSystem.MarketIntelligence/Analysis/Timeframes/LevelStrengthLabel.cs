@@ -3,9 +3,9 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 /// <summary>
 /// Текстовая метка силы ценового уровня, вычисленная из нормализованного <c>strength</c>.
 ///
-/// Whitelist допустимых значений V1:
+/// Белый список допустимых значений V1:
 /// <list type="table">
-///   <listheader><term>Label</term><description>Условие</description></listheader>
+///   <listheader><term>Метка</term><description>Условие</description></listheader>
 ///   <item><term>Strong</term>      <description>strength &gt;= 0.70</description></item>
 ///   <item><term>Moderate</term>    <description>strength &gt;= 0.40 &amp;&amp; strength &lt; 0.70</description></item>
 ///   <item><term>Weak</term>        <description>strength &lt; 0.40</description></item>

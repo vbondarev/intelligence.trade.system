@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain.History;
 namespace Intelligence.TradeSystem.Application.Events;
 
 /// <summary>
-/// Stable versioned snapshot of the position state at the time of a lifecycle event.
+/// Стабильный версионированный снимок состояния позиции на момент события жизненного цикла.
 /// </summary>
 public sealed record PositionStateEventPayloadV1(
     decimal Size,

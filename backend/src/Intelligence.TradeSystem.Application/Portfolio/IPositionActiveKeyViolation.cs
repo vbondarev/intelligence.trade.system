@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Marks an active exchange-position-key constraint failure so synchronization can
-/// distinguish a verified insert race from an ordinary persistence error.
+/// Помечает ошибку ограничения активного ключа биржевой позиции, чтобы синхронизация могла
+/// отличить подтверждённую гонку вставки от обычной ошибки сохранения.
 /// </summary>
 public interface IPositionActiveKeyViolation;

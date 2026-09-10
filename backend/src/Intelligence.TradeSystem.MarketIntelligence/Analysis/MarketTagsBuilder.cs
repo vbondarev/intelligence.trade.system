@@ -4,19 +4,19 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 /// <summary>
 /// Централизованный builder тегов снапшота V2.
 ///
-/// Whitelist V1 (сохранён для совместимости):
+/// Белый список V1 (сохранён для совместимости):
 ///   trending · neutral · positive-funding · negative-funding
 ///   bid-pressure · ask-pressure · aggressive-buying · aggressive-selling
 ///
-/// Whitelist V2 (расширен):
+/// Белый список V2 (расширен):
 ///   Режим:      volatile-regime · bullish-regime · bearish-regime · mean-reversion-regime · unknown-market-regime
-///   Funding:    neutral-funding
-///   OrderBook:  strong-orderbook-imbalance · upper-liquidity-heavy · lower-liquidity-heavy
-///   TradeFlow:  stale-tradeflow · short-tradeflow-window · low-tradeflow-volume
+///   Финансирование: neutral-funding
+///   Стакан:         strong-orderbook-imbalance · upper-liquidity-heavy · lower-liquidity-heavy
+///   Поток сделок:   stale-tradeflow · short-tradeflow-window · low-tradeflow-volume
 ///               orderbook-tradeflow-conflict · weak-tradeflow-confirmation
 ///   OI:         oi-declining · oi-rising · long-crowded · short-crowded
 ///               possible-short-covering · possible-long-unwinding
-///   Price:      near-24h-high · near-24h-low
+///   Цена:       near-24h-high · near-24h-low
 ///   Таймфреймы: low-volume · rsi-overbought · rsi-oversold · weak-trend · range-bound
 ///               neutral-timeframes · near-resistance · near-support · overextended-momentum
 ///               directional-trend-with-neutral-regime
@@ -107,7 +107,7 @@ internal static class MarketTagsBuilder
     /// <summary>Порог для сильного дисбаланса стакана (|OBPressureScore| >= threshold).</summary>
     internal const decimal StrongOrderBookImbalanceThreshold = 0.75m;
 
-    /// <summary>Порог направленного давления для score-based условий.</summary>
+    /// <summary>Порог направленного давления для условий на основе score.</summary>
     internal const decimal DirectionalPressureThreshold = 0.25m;
 
     /// <summary>Порог близости к 24ч high/low в процентах.</summary>
@@ -128,7 +128,7 @@ internal static class MarketTagsBuilder
     /// <summary>Порог близости к уровню (0.30%) для near-resistance/near-support.</summary>
     internal const decimal NearLevelThreshold = 0.30m;
 
-    /// <summary>Порог скоса ликвидности для upper/lower liquidity heavy.</summary>
+    /// <summary>Порог скоса ликвидности для преобладания верхней/нижней ликвидности.</summary>
     private const decimal LiquiditySkewThreshold = 0.15m;
 
     // ─── Public API ──────────────────────────────────────────────────────────
@@ -143,13 +143,13 @@ internal static class MarketTagsBuilder
     /// <param name="tradeFlow">Снапшот потока сделок (обязательный).</param>
     /// <param name="sentiment">Снапшот сентимента (обязательный).</param>
     /// <param name="price">Снапшот цены для проверки близости к 24ч high/low (опционально).</param>
-    /// <param name="m15">Таймфрейм M15 для rule-based тегов (опционально).</param>
-    /// <param name="h1">Таймфрейм H1 для rule-based тегов (опционально).</param>
-    /// <param name="h4">Таймфрейм H4 для rule-based тегов (опционально).</param>
+    /// <param name="m15">Таймфрейм M15 для тегов на основе правил (опционально).</param>
+    /// <param name="h1">Таймфрейм H1 для тегов на основе правил (опционально).</param>
+    /// <param name="h4">Таймфрейм H4 для тегов на основе правил (опционально).</param>
     /// <param name="capturedAtUtc">
-    /// Время фиксации снапшота — используется только для freshness-проверки tradeFlow.
-    /// Если <c>null</c>, freshness-cap не применяется (рекомендуется <c>null</c> из assembler,
-    /// т.к. mode-specific пороги известны только в API-слое).
+    /// Время фиксации снапшота — используется только для проверки актуальности tradeFlow.
+    /// Если <c>null</c>, ограничение актуальности не применяется (рекомендуется <c>null</c> из assembler,
+    /// т.к. зависящие от режима пороги известны только в API-слое).
     /// </param>
     public static List<string> Build(
         DerivativesSnapshot derivatives,
@@ -243,8 +243,8 @@ internal static class MarketTagsBuilder
     // ─── V1 rule helpers (сохранены для обратной совместимости тестов) ─────────
 
     /// <summary>
-    /// Rule V1 4.1: только Trending → "trending" и Neutral → "neutral".
-    /// Другие режимы — вне V1 whitelist.
+    /// Правило V1 4.1: только Trending → "trending" и Neutral → "neutral".
+    /// Другие режимы — вне белого списка V1.
     /// </summary>
     internal static string? GetRegimeTag(string regime) => regime switch
     {
@@ -254,21 +254,21 @@ internal static class MarketTagsBuilder
     };
 
     /// <summary>
-    /// Rule V1 4.2: fundingRate &gt; 0 → "positive-funding"; &lt; 0 → "negative-funding"; == 0 → нет тега.
+    /// Правило V1 4.2: fundingRate &gt; 0 → "positive-funding"; &lt; 0 → "negative-funding"; == 0 → нет тега.
     /// </summary>
     internal static string? GetFundingTag(decimal fundingRate) =>
         fundingRate > 0m ? TagPositiveFunding :
         fundingRate < 0m ? TagNegativeFunding : null;
 
     /// <summary>
-    /// Rule V1 4.3: ImbalanceTop5 &gt; threshold → "bid-pressure"; &lt; -threshold → "ask-pressure".
+    /// Правило V1 4.3: ImbalanceTop5 &gt; threshold → "bid-pressure"; &lt; -threshold → "ask-pressure".
     /// </summary>
     internal static string? GetPressureTag(decimal imbalanceTop5) =>
         imbalanceTop5 > OrderBookPressureThreshold ? TagBidPressure :
         imbalanceTop5 < -OrderBookPressureThreshold ? TagAskPressure : null;
 
     /// <summary>
-    /// Rule V1 4.4: buying имеет приоритет над selling при одновременном срабатывании.
+    /// Правило V1 4.4: buying имеет приоритет над selling при одновременном срабатывании.
     /// </summary>
     internal static string? GetAggressionTag(bool hasBuyPressure, bool hasSellPressure) =>
         hasBuyPressure ? TagAggressiveBuying :

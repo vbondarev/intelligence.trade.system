@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Domain;
 
 /// <summary>
-/// Одна свеча (candlestick / kline) торгового инструмента.
+/// Одна свеча (kline) торгового инструмента.
 /// Содержит агрегированные данные о цене и объёме за один временной период.
 /// </summary>
 public sealed record Kline(

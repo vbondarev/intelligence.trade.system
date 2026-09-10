@@ -1,6 +1,6 @@
 namespace Intelligence.TradeSystem.Application.Accounts.Access;
 
 /// <summary>
-/// Neutral metadata needed to decide whether an exchange API key can be used safely.
+/// Нейтральные метаданные, необходимые для решения, можно ли безопасно использовать API-ключ биржи.
 /// </summary>
 public sealed record ApiKeyAccessMetadata(bool IsReadOnly);

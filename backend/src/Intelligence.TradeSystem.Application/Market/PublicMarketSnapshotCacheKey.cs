@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
-/// Public dimensions that identify a shared market snapshot.
+/// Публичные измерения, однозначно определяющие общий рыночный снимок.
 /// </summary>
 public sealed record PublicMarketSnapshotCacheKey
 {
