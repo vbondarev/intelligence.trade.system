@@ -6,9 +6,11 @@ using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
+using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Intelligence.TradeSystem.Infrastructure.Security;
+using Intelligence.TradeSystem.Application.Market;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +22,25 @@ namespace Intelligence.TradeSystem.Infrastructure;
 public static class StartupExtensions
 {
     private const string ConnectionStringName = "TradeSystem";
+
+    public static IServiceCollection AddPublicMarketSnapshotCaching(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSingleton<
+            IValidateOptions<PublicMarketSnapshotCacheOptions>,
+            PublicMarketSnapshotCacheOptionsValidator>();
+        services
+            .AddOptions<PublicMarketSnapshotCacheOptions>()
+            .Bind(configuration.GetSection(PublicMarketSnapshotCacheOptions.SectionName))
+            .ValidateOnStart();
+        services.AddHybridCache();
+        services.AddSingleton<IPublicMarketSnapshotCache, PublicMarketSnapshotCache>();
+        services.RemoveAll<IMarketSnapshotService>();
+        services.AddScoped<IMarketSnapshotService, CachedMarketSnapshotService>();
+
+        return services;
+    }
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {

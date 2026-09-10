@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.Application.Market;
 /// <summary>
 /// Оркестрирует сбор сырых данных и последовательную сборку всех аналитических снапшотов.
 /// </summary>
-public sealed class MarketSnapshotService : IMarketSnapshotService
+public sealed class MarketSnapshotService : IMarketSnapshotService, IPublicMarketSnapshotBuilder
 {
     private readonly IPublicMarketDataCollector _marketDataCollector;
 
