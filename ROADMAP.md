@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.4
+Версия документа: 3.5
 Дата актуализации: 10 сентября 2026 года
-Проверенная база: `develop` на коммите [`a22f3ff`](https://github.com/vbondarev/intelligence.trade.system/commit/a22f3ff51b93c937e4303e198f33e9abe4ab0467) перед реализацией D-07; исправления выполняются в PR #89
-Последняя учтённая задача: [Issue #88](https://github.com/vbondarev/intelligence.trade.system/issues/88) «Добавить общий кэш публичного рыночного снимка» (PR #89)
+Проверенная база: `develop` на коммите [`cfec960`](https://github.com/vbondarev/intelligence.trade.system/commit/cfec96041b044888df32a88328dc0f008e414fd3) после завершения D-07; техническая подготовка перед этапом E выполняется в PR #91
+Последняя учтённая задача: [Issue #90](https://github.com/vbondarev/intelligence.trade.system/issues/90) «Обновить ИИ документацию» (PR #91)
 Текущий следующий этап: **E-01 — единый вход оценки позиции**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -70,6 +70,13 @@
 - **Tech-02** ✅ (PR #71): единый `ProblemDetails` contract, центральный `IExceptionHandler` и безопасное mapping exception → HTTP.
 - **Tech-03** ✅ (PR #73): структурированное логирование, прикладная телеметрия и контролируемая устойчивость внешних вызовов.
 
+### Техническая подготовка перед этапом E
+
+- **Tech-E01** ✅ (PR #91): нормализованы общие и backend-инструкции для coding agents; `openclaw/**` зафиксирован как отдельная замороженная область до этапа K.
+- **Tech-E02** ✅ (PR #91): внешний набор Agent Skills сокращён до конкретных project-scoped skills, перенесён в общий для Codex и Copilot каталог `.agents/skills` и снабжён фиксированным происхождением upstream-копий.
+- **Tech-E03** ✅ (PR #91): project-owned XML-документация C# переведена на русский язык без изменения поведения кода и машинных контрактов.
+- **Tech-E04** ✅ (PR #91): ROADMAP и связанная проектная документация сверены с фактическим состоянием после Stage D; устранены устаревшие формулировки перед E-01.
+
 ## 4. Подтверждённое состояние проекта
 
 ### Уже реализовано
@@ -95,13 +102,16 @@
 - ✅ Добавлены архитектурные, доменные, прикладные, API- и модульные тесты.
 - ✅ CI для PR #38, #40, #42, #44 и #46 успешно выполнил сборку и тесты.
 - ✅ Базовая обвязка OpenTelemetry и проверки состояния сервиса присутствует в `ServiceDefaults`.
-- ✅ Создан `Infrastructure` с EF Core `DbContext`, PostgreSQL provider, первой доменной migration, repository implementations и Testcontainers integration tests; пользовательский workflow пока не подключён.
+- ✅ Создан `Infrastructure` с EF Core `DbContext`, PostgreSQL provider, migrations, repository implementations и Testcontainers integration tests; Application repository ports подключены к сценариям подключения и синхронизации Bybit.
 - ✅ Публичные и приватные возможности Bybit разделены; public client не использует пользовательские credentials, а private provider создаётся для конкретных credentials.
 - ✅ Реализована основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
 - ✅ Реализована изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ✅ Реализовано безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
+- ✅ Реализованы подключение Bybit-аккаунта только для чтения, ручная и фоновая синхронизация баланса, открытых позиций и `PortfolioState`.
+- ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
+- ✅ Реализован общий process-local кэш публичного `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный `Symbol` и `MarketCategory`, без пользовательских и приватных измерений.
 
 ### Есть только как заготовка
 
@@ -110,7 +120,6 @@
 
 ### Пока отсутствует
 
-- ⬜ Пользовательский workflow чтения и синхронизации сохранённых позиций, оценок и рекомендаций.
 - ⬜ Детерминированный сервис оценки позиции и политика формирования рекомендаций.
 - ⬜ API версии 1 для аккаунтов, позиций, портфеля и рекомендаций.
 - ⬜ SignalR-обновления.
@@ -448,6 +457,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-10 | 3.5 | Выполнена техническая подготовка перед этапом E в Issue #90 / PR #91: нормализованы инструкции для coding agents, OpenClaw изолирован до этапа K, набор project-scoped Agent Skills приведён к общей для Codex и Copilot структуре, XML-документация C# переведена на русский язык и ROADMAP синхронизирован с завершённым Stage D. Следующим остаётся E-01. |
 | 2026-09-10 | 3.4 | Реализован D-07 (Issue #88, PR #89): добавлен process-local HybridCache для финального публичного `MarketSnapshot` с TTL 1 секунда, per-key single-flight, independently owned DI scope для source build, cancellation-safe ожиданием, fail-fast options validation и telemetry; Stage D завершён, следующим выбран E-01. |
 | 2026-09-09 | 3.3 | Исправлены замечания D-06 в PR #87: no-op sync не создаёт lifecycle event, position events несут PositionChangeSequence и temporal metadata, dispatcher сериализует одну позицию внутри batch, default Enabled=false, bounded claim identity и добавлены dispatcher pipeline tests; D-07 остаётся следующим этапом. |
 | 2026-09-09 | 3.2 | Реализован D-06 (Issue #86): добавлены versioned position/sync-degraded events, PostgreSQL transactional outbox в общей sync-транзакции, at-least-once API dispatcher с lease/retry и explicit EventId idempotency contract; следующим выбран D-07. |
