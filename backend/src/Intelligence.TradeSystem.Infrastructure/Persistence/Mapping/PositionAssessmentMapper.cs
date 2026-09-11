@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -20,7 +21,11 @@ internal static class PositionAssessmentMapper
         RuleVersion = assessment.RuleVersion.Value,
         PolicyConfigurationVersion = assessment.PolicyConfigurationIdentity.Version,
         PolicyConfigurationHash = assessment.PolicyConfigurationIdentity.Hash,
-        ResultJson = JsonSerializer.Serialize(assessment.Result, PositionAssessmentJson.Options),
+        ResultJson = JsonSerializer.Serialize(
+            new PositionAssessmentResultDocument(
+                PositionAssessmentResultDocument.CurrentSchemaVersion,
+                assessment.Result),
+            PositionAssessmentJson.Options),
         CreatedAt = PersistenceDateTime.ToUtc(assessment.CreatedAt),
         ValidUntil = PersistenceDateTime.ToUtc(assessment.ValidUntil),
         PortfolioRiskDecision = assessment.PortfolioRiskDecision,
@@ -45,11 +50,7 @@ internal static class PositionAssessmentMapper
 
         var result = string.IsNullOrWhiteSpace(entity.ResultJson)
             ? PositionAssessmentResult.Legacy(entity.PortfolioRiskDecision)
-            : JsonSerializer.Deserialize<PositionAssessmentResult>(
-                entity.ResultJson,
-                PositionAssessmentJson.Options)
-                ?? throw new InvalidOperationException(
-                    $"Position assessment {entity.Id} contains an empty result payload.");
+            : DeserializeResult(entity.ResultJson, entity.Id);
 
         return PositionAssessment.Restore(
             PositionAssessmentId.FromGuid(entity.Id),
@@ -70,6 +71,30 @@ internal static class PositionAssessmentMapper
             result,
             reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode));
     }
+
+    private static PositionAssessmentResult DeserializeResult(string json, Guid assessmentId)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.TryGetProperty("schemaVersion", out _))
+        {
+            var persisted = JsonSerializer.Deserialize<PositionAssessmentResultDocument>(
+                json,
+                PositionAssessmentJson.Options)
+                ?? throw new InvalidOperationException(
+                    $"Position assessment {assessmentId} contains an empty result payload.");
+            if (persisted.SchemaVersion != PositionAssessmentResultDocument.CurrentSchemaVersion)
+                throw new InvalidOperationException(
+                    $"Position assessment {assessmentId} uses unsupported result schema " +
+                    $"{persisted.SchemaVersion}.");
+            return persisted.Result;
+        }
+
+        return JsonSerializer.Deserialize<PositionAssessmentResult>(
+                   json,
+                   PositionAssessmentJson.Options)
+               ?? throw new InvalidOperationException(
+                   $"Position assessment {assessmentId} contains an empty result payload.");
+    }
 }
 
 internal static class PositionAssessmentJson
@@ -78,5 +103,13 @@ internal static class PositionAssessmentJson
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
+}
+
+internal sealed record PositionAssessmentResultDocument(
+    int SchemaVersion,
+    PositionAssessmentResult Result)
+{
+    public const int CurrentSchemaVersion = 1;
 }

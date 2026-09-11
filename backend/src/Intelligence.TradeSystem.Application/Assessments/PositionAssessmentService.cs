@@ -24,7 +24,8 @@ public sealed class PositionAssessmentService
         ArgumentNullException.ThrowIfNull(input);
         ValidateInput(input);
 
-        var marketQuality = ResolveMarketQuality(input);
+        var currentPrice = PositionAssessmentFeatureCalculator.GetCurrentPrice(input.MarketSnapshot);
+        var marketQuality = ResolveMarketQuality(input, currentPrice);
         var portfolioQuality = ResolvePortfolioQuality(input);
         var overallQuality = MaxQuality(marketQuality, portfolioQuality);
 
@@ -34,7 +35,6 @@ public sealed class PositionAssessmentService
         portfolioRiskResult = ApplyExplicitPortfolioQuality(portfolioRiskResult, portfolioQuality);
 
         var timeframe = input.MarketSnapshot.H4;
-        var currentPrice = PositionAssessmentFeatureCalculator.GetCurrentPrice(input.MarketSnapshot);
         var result = PositionAssessmentFeatureCalculator.BuildResult(
             input,
             timeframe,
@@ -110,12 +110,17 @@ public sealed class PositionAssessmentService
             throw new ArgumentException("Market snapshot contains data captured after its root timestamp.", nameof(input));
     }
 
-    private static AssessmentDataQuality ResolveMarketQuality(PositionAssessmentInput input)
+    private static AssessmentDataQuality ResolveMarketQuality(
+        PositionAssessmentInput input,
+        decimal? currentPrice)
     {
         var quality = input.MarketDataQuality;
         if (input.MarketSnapshot.IndicatorDiagnostics.Any(diagnostic => !diagnostic.IsFallback) ||
             input.MarketSnapshot.H4.Rsi14 is null ||
             input.MarketSnapshot.H4.Atr14 is null ||
+            !input.MarketSnapshot.H4.Rsi14IsReliable ||
+            !input.MarketSnapshot.H4.AtrIsReliable ||
+            currentPrice is null ||
             input.MarketSnapshot.H4.Trend == MarketTrend.Unknown)
             quality = MaxQuality(quality, AssessmentDataQuality.Uncertain);
         else if (input.MarketSnapshot.IndicatorDiagnostics.Any(diagnostic => diagnostic.IsFallback))

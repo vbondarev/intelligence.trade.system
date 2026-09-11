@@ -83,7 +83,10 @@ public sealed record OpenPosition(
     /// <summary>Уровень стоп-лосса. <c>null</c> если не установлен.</summary>
     public decimal? StopLoss { get; init; } = StopLoss;
 
-    /// <summary>Трейлинг-стоп. <c>null</c> если не установлен.</summary>
+    /// <summary>
+    /// Дистанция/offset trailing stop в формате источника.
+    /// Не является абсолютной ценой trigger; <c>null</c> если не установлен.
+    /// </summary>
     public decimal? TrailingStop { get; init; } = TrailingStop;
 
     /// <summary>Идентификатор уровня риска (риск-лимита).</summary>

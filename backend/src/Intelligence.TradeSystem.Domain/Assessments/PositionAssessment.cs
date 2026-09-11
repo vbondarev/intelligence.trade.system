@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Domain.Assessments;
 
@@ -78,6 +79,11 @@ public sealed class PositionAssessment
             throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
         if (!Enum.IsDefined(portfolioRiskResult.Decision))
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskResult));
+        if (!result.IsLegacy &&
+            result.PositionSide is not (PositionSide.Long or PositionSide.Short))
+            throw new ArgumentException(
+                "Structured assessments must contain a Long or Short position side.",
+                nameof(result));
         if (result.PortfolioRisk.PolicyDecision != portfolioRiskResult.Decision)
             throw new ArgumentException(
                 "Assessment result must describe the supplied portfolio risk result.",
@@ -89,7 +95,9 @@ public sealed class PositionAssessment
             throw new ArgumentException(
                 "Portfolio risk reasons must come from RiskIncreasePolicyResult.", nameof(additionalReasonCodes));
 
-        var safetyBlocked = result.DataQuality.SafetyState == AssessmentSafetyState.Blocked;
+        var safetyBlocked = !result.IsLegacy &&
+            (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+             result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
         var effectiveDecision = safetyBlocked
             ? RiskIncreaseDecision.Blocked
             : portfolioRiskResult.Decision;
@@ -166,10 +174,20 @@ public sealed class PositionAssessment
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskDecision));
         if (result.PortfolioRisk.PolicyDecision is not (RiskIncreaseDecision.Allowed or RiskIncreaseDecision.Blocked))
             throw new ArgumentOutOfRangeException(nameof(result));
-        if (result.DataQuality.SafetyState == AssessmentSafetyState.Blocked &&
-            portfolioRiskDecision != RiskIncreaseDecision.Blocked)
+        if (!result.IsLegacy &&
+            result.PositionSide is not (PositionSide.Long or PositionSide.Short))
             throw new ArgumentException(
-                "A data quality safety block cannot be restored as an allowed assessment.",
+                "Structured assessments must contain a Long or Short position side.",
+                nameof(result));
+        var safetyBlocked = !result.IsLegacy &&
+            (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+             result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
+        var expectedDecision = safetyBlocked
+            ? RiskIncreaseDecision.Blocked
+            : result.PortfolioRisk.PolicyDecision;
+        if (portfolioRiskDecision != expectedDecision)
+            throw new ArgumentException(
+                "Restored assessment decision does not match its portfolio and data-quality contexts.",
                 nameof(portfolioRiskDecision));
 
         var reasons = reasonCodes.ToArray();
@@ -181,7 +199,7 @@ public sealed class PositionAssessment
         ValidatePortfolioRiskConsistency(
             portfolioRiskDecision,
             reasons,
-            result.DataQuality.SafetyState == AssessmentSafetyState.Blocked);
+            safetyBlocked);
 
         return new(
             id,

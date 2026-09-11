@@ -72,7 +72,13 @@ public sealed class Position
     public decimal? LiquidationPrice { get; private set; }
     public decimal? UnrealizedPnl { get; private set; }
     public decimal? TakeProfit { get; private set; }
+    /// <summary>Абсолютная цена фиксированного stop-loss, если она задана.</summary>
     public decimal? StopLoss { get; private set; }
+
+    /// <summary>
+    /// Дистанция/offset trailing stop, если он задан биржевым источником.
+    /// Не является абсолютной ценой trigger без дополнительного anchor-контекста.
+    /// </summary>
     public decimal? TrailingStop { get; private set; }
     public DateTimeOffset FirstDetectedAt { get; }
     public DateTimeOffset LastObservedAt { get; private set; }

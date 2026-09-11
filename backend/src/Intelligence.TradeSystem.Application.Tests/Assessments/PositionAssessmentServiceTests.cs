@@ -119,6 +119,216 @@ public sealed class PositionAssessmentServiceTests
     }
 
     [Fact]
+    public void Level_Distances_And_Nearby_Reasons_Use_Current_Mark_Price()
+    {
+        var assessment = new PositionAssessmentService().Assess(
+            CreateInput(
+                PositionSide.Long,
+                MarketTrend.Bullish,
+                candleClose: 100m,
+                supportPrice: 109m,
+                resistancePrice: 111m));
+
+        assessment.Result.CurrentPrice.Should().Be(110m);
+        assessment.Result.Levels.DistanceToSupport1Percent.Should().BeApproximately(0.909m, 0.001m);
+        assessment.Result.Levels.DistanceToResistance1Percent.Should().BeApproximately(0.909m, 0.001m);
+        assessment.ReasonCodes.Should().Contain(ReasonCode.SupportNearby);
+        assessment.ReasonCodes.Should().Contain(ReasonCode.ResistanceNearby);
+    }
+
+    [Fact]
+    public void Missing_Current_Price_Blocks_Risk_Increase()
+    {
+        var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var market = input.MarketSnapshot with
+        {
+            Price = input.MarketSnapshot.Price with { MarkPrice = 0m, LastPrice = 0m },
+        };
+
+        var assessment = new PositionAssessmentService().Assess(
+            RecreateInput(input, marketSnapshot: market));
+
+        assessment.Result.CurrentPrice.Should().BeNull();
+        assessment.Result.DataQuality.Market.Should().Be(AssessmentDataQuality.Uncertain);
+        assessment.Result.DataQuality.SafetyState.Should().Be(AssessmentSafetyState.Blocked);
+        assessment.PortfolioRiskDecision.Should().Be(RiskIncreaseDecision.Blocked);
+    }
+
+    [Fact]
+    public void Last_Price_Is_Used_When_Mark_Price_Is_Invalid()
+    {
+        var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var market = input.MarketSnapshot with
+        {
+            Price = input.MarketSnapshot.Price with { MarkPrice = 0m, LastPrice = 105m },
+        };
+
+        var assessment = new PositionAssessmentService().Assess(
+            RecreateInput(input, marketSnapshot: market));
+
+        assessment.Result.CurrentPrice.Should().Be(105m);
+        assessment.Result.DataQuality.SafetyState.Should().Be(AssessmentSafetyState.Allowed);
+    }
+
+    [Fact]
+    public void Unreliable_Rsi_Blocks_Fully_Reliable_Assessment()
+    {
+        var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var market = input.MarketSnapshot with
+        {
+            H4 = input.MarketSnapshot.H4 with { Rsi14IsReliable = false },
+        };
+
+        var assessment = new PositionAssessmentService().Assess(
+            RecreateInput(input, marketSnapshot: market));
+
+        assessment.Result.DataQuality.Market.Should().Be(AssessmentDataQuality.Uncertain);
+        assessment.PortfolioRiskDecision.Should().Be(RiskIncreaseDecision.Blocked);
+    }
+
+    [Fact]
+    public void Unreliable_Atr_Blocks_Fully_Reliable_Assessment()
+    {
+        var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var market = input.MarketSnapshot with
+        {
+            H4 = input.MarketSnapshot.H4 with { AtrIsReliable = false },
+        };
+
+        var assessment = new PositionAssessmentService().Assess(
+            RecreateInput(input, marketSnapshot: market));
+
+        assessment.Result.DataQuality.Market.Should().Be(AssessmentDataQuality.Uncertain);
+        assessment.PortfolioRiskDecision.Should().Be(RiskIncreaseDecision.Blocked);
+    }
+
+    [Theory]
+    [InlineData(PositionSide.Long)]
+    [InlineData(PositionSide.Short)]
+    public void Trailing_Stop_Distance_Is_Not_Reported_As_Absolute_Stop_Price(PositionSide side)
+    {
+        var assessment = new PositionAssessmentService().Assess(
+            CreateInput(side, MarketTrend.Bullish, includeStop: false, trailingStop: 5m));
+
+        assessment.Result.Stop.StopPrice.Should().BeNull();
+        assessment.Result.Stop.TrailingStopDistance.Should().Be(5m);
+        assessment.Result.Stop.HasTrailingStop.Should().BeTrue();
+        assessment.ReasonCodes.Should().Contain(ReasonCode.TrailingStopDistanceAvailable);
+        assessment.ReasonCodes.Should().NotContain(ReasonCode.StopMissing);
+    }
+
+    [Fact]
+    public void Fixed_Stop_Takes_Priority_While_Trailing_Distance_Is_Retained()
+    {
+        var assessment = new PositionAssessmentService().Assess(
+            CreateInput(PositionSide.Long, MarketTrend.Bullish, trailingStop: 5m));
+
+        assessment.Result.Stop.StopPrice.Should().Be(95m);
+        assessment.Result.Stop.TrailingStopDistance.Should().Be(5m);
+        assessment.Result.Stop.State.Should().Be(AssessmentStopState.Protective);
+    }
+
+    [Fact]
+    public void Zero_Pnl_Is_Flat_And_Null_Pnl_Is_Unavailable()
+    {
+        var zero = new PositionAssessmentService().Assess(
+            CreateInput(PositionSide.Long, MarketTrend.Bullish, unrealizedPnl: 0m));
+        var unavailable = new PositionAssessmentService().Assess(
+            CreateInput(PositionSide.Long, MarketTrend.Bullish, unrealizedPnl: null));
+
+        zero.ReasonCodes.Should().Contain(ReasonCode.PnlFlat);
+        zero.ReasonCodes.Should().NotContain(ReasonCode.PnlUnavailable);
+        unavailable.ReasonCodes.Should().Contain(ReasonCode.PnlUnavailable);
+    }
+
+    [Theory]
+    [InlineData(PositionSide.Long)]
+    [InlineData(PositionSide.Short)]
+    public void Price_At_Breakeven_Uses_Neutral_Reason(PositionSide side)
+    {
+        var currentPrice = side == PositionSide.Long ? 110m : 90m;
+        var assessment = new PositionAssessmentService().Assess(
+            CreateInput(
+                side,
+                MarketTrend.Bullish,
+                customBreakEvenPrice: currentPrice));
+
+        assessment.Result.Breakeven.PriceRelativeToBreakEven.Should().Be(AssessmentPricePosition.At);
+        assessment.ReasonCodes.Should().Contain(ReasonCode.BreakevenAt);
+        assessment.ReasonCodes.Should().NotContain(ReasonCode.BreakevenUnprofitable);
+    }
+
+    [Fact]
+    public void Configuration_Identity_Changes_With_Risk_Settings_Rules_And_Quality()
+    {
+        var first = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var sameConfiguration = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var changedSettings = CreateInput(
+            PositionSide.Long,
+            MarketTrend.Bullish,
+            portfolioRiskPolicySettings: new PortfolioRiskPolicySettings(1m, 99m, 99m));
+        var changedRules = CreateInput(
+            PositionSide.Long,
+            MarketTrend.Bullish,
+            rules: new PositionAssessmentRules(
+                new RuleVersion("assessment-v1"),
+                71m,
+                30m,
+                1m,
+                5m,
+                0.5m,
+                TimeSpan.FromMinutes(5)));
+        var changedQuality = CreateInput(
+            PositionSide.Long,
+            MarketTrend.Bullish,
+            marketDataQuality: AssessmentDataQuality.Stale);
+
+        first.InputVersions.PolicyConfigurationIdentity
+            .Should().Be(sameConfiguration.InputVersions.PolicyConfigurationIdentity);
+        first.InputVersions.PolicyConfigurationIdentity
+            .Should().NotBe(changedSettings.InputVersions.PolicyConfigurationIdentity);
+        first.InputVersions.PolicyConfigurationIdentity
+            .Should().NotBe(changedRules.InputVersions.PolicyConfigurationIdentity);
+        first.InputVersions.PolicyConfigurationIdentity
+            .Should().NotBe(changedQuality.InputVersions.PolicyConfigurationIdentity);
+    }
+
+    [Fact]
+    public void Assessment_Factory_Derives_Safety_Block_From_Data_Quality()
+    {
+        var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var source = new PositionAssessmentService().Assess(input);
+        var staleResult = new PositionAssessmentResult(
+            source.Result.PositionSide,
+            source.Result.CurrentPrice,
+            source.Result.Trend,
+            source.Result.Momentum,
+            source.Result.Volatility,
+            source.Result.Levels,
+            source.Result.Pnl,
+            source.Result.Stop,
+            source.Result.Breakeven,
+            source.Result.Liquidation,
+            source.Result.PortfolioRisk,
+            new(
+                AssessmentDataQuality.Stale,
+                AssessmentDataQuality.FreshCompleteReliable,
+                AssessmentDataQuality.Stale,
+                AssessmentSafetyState.Allowed));
+
+        var assessment = PositionAssessment.Create(
+            input.InputVersions,
+            input.Rules.Version,
+            RiskIncreasePolicyResult.Allowed(),
+            staleResult,
+            [],
+            input.AsOf,
+            input.AsOf.Add(input.Rules.ValidityPeriod));
+
+        assessment.PortfolioRiskDecision.Should().Be(RiskIncreaseDecision.Blocked);
+    }
+
+    [Fact]
     public void Low_Volume_Is_Recorded_And_Fallback_Diagnostics_Make_Data_Partial()
     {
         var lowVolume = new PositionAssessmentService().Assess(
@@ -287,9 +497,16 @@ public sealed class PositionAssessmentServiceTests
         bool includeStop = true,
         bool includeLiquidation = true,
         decimal? customLiquidationPrice = null,
+        decimal? customBreakEvenPrice = null,
+        decimal? trailingStop = null,
+        decimal? unrealizedPnl = 10m,
         decimal volumeRatio = 1m,
         IReadOnlyList<IndicatorDiagnosticSnapshot>? marketSnapshotDiagnostics = null,
-        DateTimeOffset? asOf = null)
+        DateTimeOffset? asOf = null,
+        PositionAssessmentRules? rules = null,
+        decimal? candleClose = null,
+        decimal? supportPrice = null,
+        decimal? resistancePrice = null)
     {
         var accountId = ExchangeAccountId.New();
         var position = Position.Create(
@@ -306,11 +523,12 @@ public sealed class PositionAssessmentServiceTests
             positionValue: 100m,
             leverage: 2m,
             markPrice: side == PositionSide.Long ? 110m : 90m,
-            breakEvenPrice: side == PositionSide.Long ? 105m : 95m,
+            breakEvenPrice: customBreakEvenPrice ?? (side == PositionSide.Long ? 105m : 95m),
             liquidationPrice: includeLiquidation
                 ? customLiquidationPrice ?? (side == PositionSide.Long ? 80m : 120m)
                 : null,
-            unrealizedPnl: 10m,
+            unrealizedPnl: unrealizedPnl,
+            trailingStop: trailingStop,
             stopLoss: includeStop ? side == PositionSide.Long ? 95m : 105m : null);
         var portfolio = PortfolioState.Create(
             accountId,
@@ -324,7 +542,10 @@ public sealed class PositionAssessmentServiceTests
             rsi,
             side == PositionSide.Long ? 110m : 90m,
             volumeRatio,
-            marketSnapshotDiagnostics);
+            marketSnapshotDiagnostics,
+            candleClose,
+            supportPrice,
+            resistancePrice);
 
         return new PositionAssessmentInput(
             position,
@@ -342,23 +563,27 @@ public sealed class PositionAssessmentServiceTests
             marketDataQuality,
             AssessmentDataQuality.FreshCompleteReliable,
             asOf ?? T0.AddMinutes(3),
-            Rules);
+            rules ?? Rules);
     }
 
     private static PositionAssessmentInput RecreateInput(
         PositionAssessmentInput input,
         MarketSnapshot? marketSnapshot = null,
-        PositionAssessmentInputVersions? inputVersions = null) =>
+        PositionAssessmentInputVersions? inputVersions = null,
+        PortfolioRiskPolicySettings? portfolioRiskPolicySettings = null,
+        AssessmentDataQuality? marketDataQuality = null,
+        AssessmentDataQuality? portfolioDataQuality = null,
+        PositionAssessmentRules? rules = null) =>
         new(
             input.Position,
             marketSnapshot ?? input.MarketSnapshot,
             input.PortfolioState,
-            input.PortfolioRiskPolicySettings,
+            portfolioRiskPolicySettings ?? input.PortfolioRiskPolicySettings,
             inputVersions ?? input.InputVersions,
-            input.MarketDataQuality,
-            input.PortfolioDataQuality,
+            marketDataQuality ?? input.MarketDataQuality,
+            portfolioDataQuality ?? input.PortfolioDataQuality,
             input.AsOf,
-            input.Rules);
+            rules ?? input.Rules);
 
     private static MarketSnapshot CreateMarketSnapshot(
         DateTimeOffset capturedAt,
@@ -366,7 +591,10 @@ public sealed class PositionAssessmentServiceTests
         decimal rsi,
         decimal currentPrice = 110m,
         decimal volumeRatio = 1m,
-        IReadOnlyList<IndicatorDiagnosticSnapshot>? diagnostics = null)
+        IReadOnlyList<IndicatorDiagnosticSnapshot>? diagnostics = null,
+        decimal? candleClose = null,
+        decimal? supportPrice = null,
+        decimal? resistancePrice = null)
     {
         var timeframe = new TimeframeAnalysisSnapshot
         {
@@ -378,7 +606,7 @@ public sealed class PositionAssessmentServiceTests
                 Open = currentPrice,
                 High = currentPrice + 2m,
                 Low = currentPrice - 2m,
-                Close = currentPrice,
+                Close = candleClose ?? currentPrice,
                 Volume = 100m,
                 Turnover = 100m * currentPrice,
             },
@@ -390,10 +618,10 @@ public sealed class PositionAssessmentServiceTests
             VolumeRatioIsReliable = true,
             Trend = trend,
             TrendStrengthScore = 0.8m,
-            Support1 = currentPrice - 5m,
+            Support1 = supportPrice ?? currentPrice - 5m,
             Support1Strength = 0.7m,
             DistanceToSupport1Pct = 4.5m,
-            Resistance1 = currentPrice + 5m,
+            Resistance1 = resistancePrice ?? currentPrice + 5m,
             Resistance1Strength = 0.7m,
             DistanceToResistance1Pct = 4.5m,
         };

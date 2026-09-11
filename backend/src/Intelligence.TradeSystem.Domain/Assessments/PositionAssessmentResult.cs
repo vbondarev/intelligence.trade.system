@@ -27,8 +27,8 @@ public sealed record PositionAssessmentResult
         PositionAssessmentPortfolioRiskContext portfolioRisk,
         PositionAssessmentDataQualityContext dataQuality)
     {
-        if (positionSide is not (PositionSide.Long or PositionSide.Short))
-            throw new ArgumentOutOfRangeException(nameof(positionSide), positionSide, "Position side must be Long or Short.");
+        if (!Enum.IsDefined(positionSide))
+            throw new ArgumentOutOfRangeException(nameof(positionSide), positionSide, "Position side must be defined.");
 
         ArgumentNullException.ThrowIfNull(trend);
         ArgumentNullException.ThrowIfNull(momentum);
@@ -58,6 +58,11 @@ public sealed record PositionAssessmentResult
 
     /// <summary>Направление позиции.</summary>
     public PositionSide PositionSide { get; }
+
+    /// <summary>
+    /// Признак legacy-результата, созданного до появления структурированного assessment context.
+    /// </summary>
+    public bool IsLegacy { get; init; }
 
     /// <summary>Цена, использованная для расчёта производных признаков.</summary>
     public decimal? CurrentPrice { get; }
@@ -120,14 +125,21 @@ public sealed record PositionAssessmentResult
     /// </summary>
     public static PositionAssessmentResult Legacy(RiskIncreaseDecision portfolioRiskDecision) =>
         new(
-            PositionSide.Long,
+            PositionSide.Unknown,
             null,
             new(AssessmentTrendDirection.Unknown, PositionTrendAlignment.FlatOrUnknown, 0m, "legacy"),
             new(null, false, AssessmentMomentumState.Unavailable, false),
             new(null, null, false, false),
             new(null, null, null, null, null, null, null),
             new(null, null, null, null, AssessmentPricePosition.Unavailable),
-            new(null, null, null, AssessmentStopState.Unavailable, AssessmentPricePosition.Unavailable),
+            new(
+                null,
+                null,
+                null,
+                AssessmentStopState.Unavailable,
+                AssessmentPricePosition.Unavailable,
+                null,
+                false),
             new(null, null, null, AssessmentPricePosition.Unavailable),
             new(null, null, AssessmentLiquidationState.Unavailable),
             new(
@@ -143,7 +155,10 @@ public sealed record PositionAssessmentResult
                 AssessmentDataQuality.Uncertain,
                 AssessmentDataQuality.Uncertain,
                 AssessmentDataQuality.Uncertain,
-                AssessmentSafetyState.NotEvaluated));
+                AssessmentSafetyState.NotEvaluated))
+        {
+            IsLegacy = true,
+        };
 }
 
 /// <summary>Контекст рыночного тренда относительно позиции.</summary>
@@ -195,7 +210,9 @@ public sealed record PositionAssessmentStopContext(
     decimal? DistanceFromCurrentPercent,
     decimal? StopRelativeToEntryPercent,
     AssessmentStopState State,
-    AssessmentPricePosition PriceRelativeToEntry);
+    AssessmentPricePosition PriceRelativeToEntry,
+    decimal? TrailingStopDistance,
+    bool HasTrailingStop);
 
 /// <summary>Контекст цены безубытка.</summary>
 public sealed record PositionAssessmentBreakevenContext(

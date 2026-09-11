@@ -35,12 +35,27 @@ public sealed record PositionAssessmentInput
         if (!Enum.IsDefined(portfolioDataQuality))
             throw new ArgumentOutOfRangeException(
                 nameof(portfolioDataQuality), portfolioDataQuality, "Portfolio data quality is not defined.");
+        inputVersions.Validate();
+
+        var effectiveIdentity = PositionAssessmentConfigurationIdentity.Compose(
+            inputVersions.PolicyConfigurationIdentity,
+            portfolioRiskPolicySettings,
+            rules,
+            marketDataQuality,
+            portfolioDataQuality);
 
         Position = position;
         MarketSnapshot = marketSnapshot;
         PortfolioState = portfolioState;
         PortfolioRiskPolicySettings = portfolioRiskPolicySettings;
-        InputVersions = inputVersions;
+        InputVersions = new PositionAssessmentInputVersions(
+            inputVersions.PositionId,
+            inputVersions.ExchangeAccountId,
+            inputVersions.InstrumentId,
+            inputVersions.PositionObservedAt,
+            inputVersions.PortfolioCalculatedAt,
+            inputVersions.MarketCapturedAt,
+            effectiveIdentity);
         MarketDataQuality = marketDataQuality;
         PortfolioDataQuality = portfolioDataQuality;
         AsOf = asOf;

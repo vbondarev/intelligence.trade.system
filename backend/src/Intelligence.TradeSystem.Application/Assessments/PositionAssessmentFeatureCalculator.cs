@@ -22,13 +22,15 @@ internal static class PositionAssessmentFeatureCalculator
         var trend = MapTrend(timeframe.Trend);
         var alignment = GetTrendAlignment(trend, side);
         var momentum = BuildMomentum(timeframe, input.Rules, trend, side);
+        var supportDistance = CalculateAbsoluteDistancePercent(currentPrice, timeframe.Support1);
+        var resistanceDistance = CalculateAbsoluteDistancePercent(currentPrice, timeframe.Resistance1);
         var levels = new PositionAssessmentLevelsContext(
             currentPrice,
             timeframe.Support1,
-            timeframe.DistanceToSupport1Pct,
+            supportDistance,
             timeframe.Support1Strength,
             timeframe.Resistance1,
-            timeframe.DistanceToResistance1Pct,
+            resistanceDistance,
             timeframe.Resistance1Strength);
 
         return new PositionAssessmentResult(
@@ -104,20 +106,23 @@ internal static class PositionAssessmentFeatureCalculator
 
         reasons.Add(result.Pnl.UnrealizedPnl switch
         {
+            null => ReasonCode.PnlUnavailable,
             > 0m => ReasonCode.PnlPositive,
             < 0m => ReasonCode.PnlNegative,
-            _ => ReasonCode.PnlUnavailable,
+            _ => ReasonCode.PnlFlat,
         });
         reasons.Add(result.Stop.State switch
         {
             AssessmentStopState.Protective => ReasonCode.StopProtective,
             AssessmentStopState.NonProtective => ReasonCode.StopNonProtective,
             AssessmentStopState.Unknown => ReasonCode.StopUnknown,
+            _ when result.Stop.HasTrailingStop => ReasonCode.TrailingStopDistanceAvailable,
             _ => ReasonCode.StopMissing,
         });
         reasons.Add(result.Breakeven.PriceRelativeToBreakEven switch
         {
             AssessmentPricePosition.Unavailable => ReasonCode.BreakevenUnavailable,
+            AssessmentPricePosition.At => ReasonCode.BreakevenAt,
             _ => result.Breakeven.IsProfitable
                 ? ReasonCode.BreakevenProfitable
                 : ReasonCode.BreakevenUnprofitable,
@@ -201,20 +206,35 @@ internal static class PositionAssessmentFeatureCalculator
         decimal? currentPrice,
         PositionSide side)
     {
-        var stop = position.StopLoss ?? position.TrailingStop;
-        if (!stop.HasValue)
-            return new(null, null, null, AssessmentStopState.Unavailable, AssessmentPricePosition.Unavailable);
+        var fixedStop = position.StopLoss;
+        var trailingStopDistance = position.TrailingStop;
+        if (!fixedStop.HasValue)
+            return new(
+                null,
+                null,
+                null,
+                AssessmentStopState.Unavailable,
+                AssessmentPricePosition.Unavailable,
+                trailingStopDistance,
+                trailingStopDistance.HasValue);
 
-        var distance = CalculateAbsoluteDistancePercent(currentPrice, stop);
-        var stopRelativeToEntry = CalculateSignedDistancePercent(position.AverageEntryPrice, stop);
-        var relativeToEntry = GetPricePosition(stop, position.AverageEntryPrice);
+        var distance = CalculateAbsoluteDistancePercent(currentPrice, fixedStop);
+        var stopRelativeToEntry = CalculateSignedDistancePercent(position.AverageEntryPrice, fixedStop);
+        var relativeToEntry = GetPricePosition(fixedStop, position.AverageEntryPrice);
         var state = currentPrice is null
             ? AssessmentStopState.Unknown
             : side == PositionSide.Long
-                ? stop < currentPrice ? AssessmentStopState.Protective : AssessmentStopState.NonProtective
-                : stop > currentPrice ? AssessmentStopState.Protective : AssessmentStopState.NonProtective;
+                ? fixedStop < currentPrice ? AssessmentStopState.Protective : AssessmentStopState.NonProtective
+                : fixedStop > currentPrice ? AssessmentStopState.Protective : AssessmentStopState.NonProtective;
 
-        return new(stop, distance, stopRelativeToEntry, state, relativeToEntry);
+        return new(
+            fixedStop,
+            distance,
+            stopRelativeToEntry,
+            state,
+            relativeToEntry,
+            trailingStopDistance,
+            trailingStopDistance.HasValue);
     }
 
     private static PositionAssessmentBreakevenContext BuildBreakeven(
