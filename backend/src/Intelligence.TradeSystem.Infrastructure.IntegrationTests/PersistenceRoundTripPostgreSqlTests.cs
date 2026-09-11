@@ -675,10 +675,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(reloaded);
         Assert.Equal(assessment.Id, reloaded!.Id);
         Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
+        Assert.Equal(assessment.PolicyConfigurationIdentity, reloaded.PolicyConfigurationIdentity);
         Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);
         Assert.Equal(assessment.CreatedAt, reloaded.CreatedAt);
         Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
         Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
+        Assert.Equal(assessment.Result, reloaded.Result);
         Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
     }
 

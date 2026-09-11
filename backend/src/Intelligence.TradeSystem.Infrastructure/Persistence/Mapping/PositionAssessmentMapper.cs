@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -17,6 +18,9 @@ internal static class PositionAssessmentMapper
         PortfolioCalculatedAt = PersistenceDateTime.ToUtc(assessment.InputVersions.PortfolioCalculatedAt),
         MarketCapturedAt = PersistenceDateTime.ToUtc(assessment.InputVersions.MarketCapturedAt),
         RuleVersion = assessment.RuleVersion.Value,
+        PolicyConfigurationVersion = assessment.PolicyConfigurationIdentity.Version,
+        PolicyConfigurationHash = assessment.PolicyConfigurationIdentity.Hash,
+        ResultJson = JsonSerializer.Serialize(assessment.Result, PositionAssessmentJson.Options),
         CreatedAt = PersistenceDateTime.ToUtc(assessment.CreatedAt),
         ValidUntil = PersistenceDateTime.ToUtc(assessment.ValidUntil),
         PortfolioRiskDecision = assessment.PortfolioRiskDecision,
@@ -39,6 +43,14 @@ internal static class PositionAssessmentMapper
     {
         ArgumentNullException.ThrowIfNull(reasons);
 
+        var result = string.IsNullOrWhiteSpace(entity.ResultJson)
+            ? PositionAssessmentResult.Legacy(entity.PortfolioRiskDecision)
+            : JsonSerializer.Deserialize<PositionAssessmentResult>(
+                entity.ResultJson,
+                PositionAssessmentJson.Options)
+                ?? throw new InvalidOperationException(
+                    $"Position assessment {entity.Id} contains an empty result payload.");
+
         return PositionAssessment.Restore(
             PositionAssessmentId.FromGuid(entity.Id),
             new PositionAssessmentInputVersions(
@@ -47,11 +59,24 @@ internal static class PositionAssessmentMapper
                 InstrumentId.From(entity.InstrumentId),
                 PersistenceDateTime.ToUtc(entity.PositionObservedAt),
                 PersistenceDateTime.ToUtc(entity.PortfolioCalculatedAt),
-                PersistenceDateTime.ToUtc(entity.MarketCapturedAt)),
+                PersistenceDateTime.ToUtc(entity.MarketCapturedAt),
+                PolicyConfigurationIdentity.From(
+                    entity.PolicyConfigurationVersion,
+                    entity.PolicyConfigurationHash)),
             RuleVersion.From(entity.RuleVersion),
             PersistenceDateTime.ToUtc(entity.CreatedAt),
             PersistenceDateTime.ToUtc(entity.ValidUntil),
             entity.PortfolioRiskDecision,
+            result,
             reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode));
     }
+}
+
+internal static class PositionAssessmentJson
+{
+    public static readonly JsonSerializerOptions Options = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
 }

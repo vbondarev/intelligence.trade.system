@@ -138,7 +138,9 @@ public sealed class PositionAssessmentRepository(TradeSystemDbContext dbContext)
         IReadOnlyList<Domain.Decisions.ReasonCode> current,
         PositionAssessmentId id)
     {
-        if (!persisted.SequenceEqual(current))
+        if (!persisted
+                .OrderBy(reason => (int)reason)
+                .SequenceEqual(current.OrderBy(reason => (int)reason)))
             throw new InvalidOperationException(
                 $"Position assessment {id} reason codes are immutable and cannot be replaced.");
     }

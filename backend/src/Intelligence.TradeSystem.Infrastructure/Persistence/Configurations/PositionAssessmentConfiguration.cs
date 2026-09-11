@@ -38,6 +38,17 @@ public sealed class PositionAssessmentConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("rule_version")
             .HasMaxLength(128)
             .IsRequired();
+        builder.Property(assessment => assessment.PolicyConfigurationVersion)
+            .HasColumnName("policy_configuration_version")
+            .HasMaxLength(128)
+            .IsRequired();
+        builder.Property(assessment => assessment.PolicyConfigurationHash)
+            .HasColumnName("policy_configuration_hash")
+            .HasMaxLength(256)
+            .IsRequired();
+        builder.Property(assessment => assessment.ResultJson)
+            .HasColumnName("result_json")
+            .HasColumnType("jsonb");
         builder.Property(assessment => assessment.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone");

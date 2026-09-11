@@ -47,9 +47,24 @@ public sealed class RiskIncreasePolicyResultTests
     [Fact]
     public void Portfolio_Risk_Reason_Classification_Is_Explicit()
     {
+        var portfolioReasons = Enum.GetValues<ReasonCode>()
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .ToArray();
+
+        portfolioReasons.Should().BeEquivalentTo(
+        [
+            ReasonCode.PortfolioDataIncomplete,
+            ReasonCode.PortfolioDataStale,
+            ReasonCode.PortfolioDataUncertain,
+            ReasonCode.InsufficientFreeCapital,
+            ReasonCode.GrossExposureLimitExceeded,
+            ReasonCode.ConcentrationLimitExceeded,
+            ReasonCode.RiskWithinLimits,
+        ]);
         Enum.GetValues<ReasonCode>()
-        .Should()
-        .OnlyContain(reason => ReasonCodeClassification.IsPortfolioRiskReason(reason));
+            .Where(reason => !ReasonCodeClassification.IsPortfolioRiskReason(reason))
+            .Should()
+            .NotBeEmpty();
     }
 
     [Fact]

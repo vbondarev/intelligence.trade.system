@@ -14,6 +14,7 @@ public readonly record struct PositionAssessmentInputVersions
     public DateTimeOffset PositionObservedAt { get; }
     public DateTimeOffset PortfolioCalculatedAt { get; }
     public DateTimeOffset MarketCapturedAt { get; }
+    public PolicyConfigurationIdentity PolicyConfigurationIdentity { get; }
 
     public PositionAssessmentInputVersions(
         PositionId positionId,
@@ -22,6 +23,25 @@ public readonly record struct PositionAssessmentInputVersions
         DateTimeOffset positionObservedAt,
         DateTimeOffset portfolioCalculatedAt,
         DateTimeOffset marketCapturedAt)
+        : this(
+            positionId,
+            exchangeAccountId,
+            instrumentId,
+            positionObservedAt,
+            portfolioCalculatedAt,
+            marketCapturedAt,
+            PolicyConfigurationIdentity.Legacy)
+    {
+    }
+
+    public PositionAssessmentInputVersions(
+        PositionId positionId,
+        ExchangeAccountId exchangeAccountId,
+        InstrumentId instrumentId,
+        DateTimeOffset positionObservedAt,
+        DateTimeOffset portfolioCalculatedAt,
+        DateTimeOffset marketCapturedAt,
+        PolicyConfigurationIdentity policyConfigurationIdentity)
     {
         if (positionId == default)
             throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
@@ -36,6 +56,7 @@ public readonly record struct PositionAssessmentInputVersions
         PositionObservedAt = positionObservedAt;
         PortfolioCalculatedAt = portfolioCalculatedAt;
         MarketCapturedAt = marketCapturedAt;
+        PolicyConfigurationIdentity = policyConfigurationIdentity;
     }
 
     public static PositionAssessmentInputVersions Create(
@@ -48,6 +69,17 @@ public readonly record struct PositionAssessmentInputVersions
         new(positionId, exchangeAccountId, instrumentId, positionObservedAt,
             portfolioCalculatedAt, marketCapturedAt);
 
+    public static PositionAssessmentInputVersions Create(
+        PositionId positionId,
+        ExchangeAccountId exchangeAccountId,
+        InstrumentId instrumentId,
+        DateTimeOffset positionObservedAt,
+        DateTimeOffset portfolioCalculatedAt,
+        DateTimeOffset marketCapturedAt,
+        PolicyConfigurationIdentity policyConfigurationIdentity) =>
+        new(positionId, exchangeAccountId, instrumentId, positionObservedAt,
+            portfolioCalculatedAt, marketCapturedAt, policyConfigurationIdentity);
+
     public void Validate()
     {
         if (PositionId == default)
@@ -56,5 +88,10 @@ public readonly record struct PositionAssessmentInputVersions
             throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(ExchangeAccountId));
         if (InstrumentId.Value is null)
             throw new ArgumentException("InstrumentId must be initialized.", nameof(InstrumentId));
+        if (string.IsNullOrWhiteSpace(PolicyConfigurationIdentity.Version) ||
+            string.IsNullOrWhiteSpace(PolicyConfigurationIdentity.Hash))
+            throw new ArgumentException(
+                "Policy configuration identity must contain both version and hash.",
+                nameof(PolicyConfigurationIdentity));
     }
 }
