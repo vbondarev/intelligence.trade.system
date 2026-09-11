@@ -9,7 +9,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Assemblers;
 /// </summary>
 public sealed record TimeframeAssemblyResult
 {
-    /// <summary>Снапшот технического анализа для одного таймфрейма.</summary>
+    /// <summary>Снимок технического анализа для одного таймфрейма.</summary>
     public required TimeframeAnalysisSnapshot Snapshot { get; init; }
 
     /// <summary>

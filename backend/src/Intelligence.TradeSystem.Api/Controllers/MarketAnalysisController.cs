@@ -86,7 +86,7 @@ public sealed class MarketAnalysisController : ControllerBase
     /// Содержит только сигнальные данные, пригодные как прямой вход для GPT / Qwen / DeepSeek.
     /// </summary>
     /// <param name="symbol">Тикер торгового инструмента, например <c>BTCUSDT</c>.</param>
-    /// <param name="request">Query-параметры запроса.</param>
+    /// <param name="request">Параметры запроса.</param>
     /// <param name="cancellationToken">Токен отмены HTTP-запроса.</param>
     /// <returns>
     /// HTTP 200 с <see cref="LlmMarketAnalysisPayload"/>, если payload успешно построен;

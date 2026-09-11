@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Infrastructure.Security;
 
 /// <summary>
-/// Controlled failure for invalid, unavailable, or tampered credential protection data.
+/// Контролируемая ошибка для недействительных, недоступных или подменённых данных защиты учётных данных.
 /// </summary>
 public sealed class CredentialProtectionException : Exception
 {

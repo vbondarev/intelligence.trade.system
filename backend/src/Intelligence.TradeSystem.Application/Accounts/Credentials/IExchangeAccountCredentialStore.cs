@@ -4,13 +4,13 @@ using Intelligence.TradeSystem.Domain.Identity;
 namespace Intelligence.TradeSystem.Application.Accounts.Credentials;
 
 /// <summary>
-/// User-scoped storage boundary for exchange credential pairs.
+/// Граница хранения пар учётных данных биржи в области пользователя.
 /// </summary>
 public interface IExchangeAccountCredentialStore
 {
     /// <summary>
-    /// Reads credentials owned by <paramref name="userId"/>. Missing and foreign rows
-    /// have the same observable result.
+    /// Читает учётные данные, принадлежащие <paramref name="userId"/>. Отсутствующие и чужие строки
+    /// дают одинаковый наблюдаемый результат.
     /// </summary>
     Task<ExchangeAccountCredential?> GetAsync(
         UserId userId,
@@ -18,8 +18,8 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads only technical metadata for a stored pair without decrypting it.
-    /// Missing and foreign rows have the same observable result.
+    /// Читает только технические метаданные сохранённой пары, не расшифровывая её.
+    /// Отсутствующие и чужие строки дают одинаковый наблюдаемый результат.
     /// </summary>
     Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
         UserId userId,
@@ -27,7 +27,7 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Creates credentials for an existing account without replacing an existing pair.
+    /// Создаёт учётные данные для существующей учётной записи, не заменяя имеющуюся пару.
     /// </summary>
     Task<ConcurrencyVersion> CreateAsync(
         UserId userId,
@@ -36,7 +36,7 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Replaces the complete credential pair using compare-and-swap.
+    /// Заменяет полную пару учётных данных с помощью compare-and-swap.
     /// </summary>
     Task<ConcurrencyVersion> RotateAsync(
         UserId userId,
@@ -46,8 +46,8 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes the locally stored pair using compare-and-swap. This does not revoke
-    /// the corresponding key at the exchange.
+    /// Удаляет локально сохранённую пару с помощью compare-and-swap. Это не отзывает
+    /// соответствующий ключ на бирже.
     /// </summary>
     Task RevokeAsync(
         UserId userId,
@@ -56,7 +56,7 @@ public interface IExchangeAccountCredentialStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-encrypts the same pair with the currently active protection key using
+    /// Повторно шифрует ту же пару текущим активным ключом защиты с помощью
     /// compare-and-swap.
     /// </summary>
     Task<ConcurrencyVersion> ReprotectAsync(

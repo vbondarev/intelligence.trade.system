@@ -7,9 +7,9 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// Результат сопоставления наблюдения открытых позиций с текущими бизнес-позициями.
 /// </summary>
 /// <remarks>
-/// <see cref="Changes"/> contains only new domain history records produced by this reconciliation
-/// call. Loaded history is never included, so these records are the sole source for lifecycle
-/// application events in the current persistence attempt.
+/// <see cref="Changes"/> содержит только новые записи доменной истории, созданные этим вызовом сопоставления.
+/// Загруженная история никогда не включается, поэтому эти записи являются единственным источником для жизненного цикла
+/// прикладных событий в текущей попытке сохранения.
 /// </remarks>
 public sealed record PositionReconciliationResult(
     IReadOnlyList<Position> NewPositions,
@@ -17,14 +17,14 @@ public sealed record PositionReconciliationResult(
     IReadOnlyList<string> Warnings)
 {
     /// <summary>
-    /// Existing positions whose current state was affected by this observation.
-    /// Includes dynamic-only updates that do not create a history record.
+    /// Существующие позиции, чьё текущее состояние затронуто этим наблюдением.
+    /// Включает обновления только динамических данных, не создающие запись истории.
     /// </summary>
     public IReadOnlyList<Position> PositionsToPersist { get; init; } = [];
 
     /// <summary>
-    /// Indicates that the observation covered its requested scope completely and without
-    /// mapping ambiguity, so absence can be used as evidence of closure.
+    /// Указывает, что наблюдение полностью охватило запрошенную область без
+    /// неоднозначности сопоставления, поэтому отсутствие можно считать признаком закрытия.
     /// </summary>
     public bool IsFullyReconciled { get; init; }
 }

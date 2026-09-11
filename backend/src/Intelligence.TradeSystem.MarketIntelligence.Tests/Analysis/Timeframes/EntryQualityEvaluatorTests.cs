@@ -1139,7 +1139,7 @@ public sealed class EntryQualityEvaluatorTests
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    /// <summary>Dispatches by bias with clean defaults — used for symmetric Theory tests.</summary>
+    /// <summary>Выбирает обработчик по bias с чистыми значениями по умолчанию — используется симметричными Theory-тестами.</summary>
     private static EntryQuality EvaluateByBias(
         TimeframeBias bias,
         bool confirmed = true,
@@ -1165,7 +1165,7 @@ public sealed class EntryQualityEvaluatorTests
                 oppDistancePct: oppDistancePct,
                 oppStrength: oppStrength);
 
-    /// <summary>Bullish helper. Permissive defaults для параметров, чтобы старые тесты не ограничивались.</summary>
+    /// <summary>Помощник для Bullish. Либеральные значения параметров по умолчанию, чтобы старые тесты не ограничивались.</summary>
     private static EntryQuality EvaluateBullish(
         bool confirmed, decimal? support1, decimal? distS, bool overbought = false,
         decimal? volumeRatio = 1.0m,
@@ -1181,7 +1181,7 @@ public sealed class EntryQualityEvaluatorTests
             volumeRatio, isAboveEma20, isAboveEma50, snapshotIsFresh, marketRegime,
             entryLevelStrength, oppDistancePct, oppStrength);
 
-    /// <summary>Bearish helper. Permissive defaults: цена ниже обеих EMA (медвежий сценарий).</summary>
+    /// <summary>Помощник для Bearish. Либеральные значения по умолчанию: цена ниже обеих EMA (медвежий сценарий).</summary>
     private static EntryQuality EvaluateBearish(
         bool confirmed, decimal? resistance1, decimal? distR, bool oversold = false,
         decimal? volumeRatio = 1.0m,
@@ -1197,7 +1197,7 @@ public sealed class EntryQualityEvaluatorTests
             volumeRatio, isAboveEma20, isAboveEma50, snapshotIsFresh, marketRegime,
             entryLevelStrength, oppDistancePct, oppStrength);
 
-    /// <summary>Полный вызов со всеми параметрами (permissive новые параметры).</summary>
+    /// <summary>Полный вызов со всеми параметрами (свободные значения новых параметров).</summary>
     private static EntryQuality Evaluate(
         TimeframeBias bias, bool confirmed,
         decimal? support1, decimal? distS, bool overbought,

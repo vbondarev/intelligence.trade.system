@@ -369,7 +369,7 @@ public sealed class SentimentSnapshotAssemblerTests
     /// <summary>
     /// Регрессионный тест: BTCUSDT-подобный снапшот с устаревшим tradeFlow,
     /// коротким окном, малым объёмом и конфликтом orderBook должен давать
-    /// tradeFlowPressureScore &lt;= 0.25 (строгий cap).
+    /// tradeFlowPressureScore &lt;= 0.25 (строгое ограничение).
     ///
     /// Исходные данные:
     ///   buyVolume = 0.872, sellVolume = 0.1
@@ -377,8 +377,8 @@ public sealed class SentimentSnapshotAssemblerTests
     ///   windowDuration = 8 s       → windowCap = 0.25
     ///   tradeFlowAge = 5 824 ms, maxAge = 5 000 ms → staleCap = 0.50
     ///   totalVolume = 0.972 BTC    → volumeCap = 0.35
-    ///   orderBook conflict + short window → conflictWithWeaknessCap = 0.25
-    ///   strictest cap = 0.25
+    ///   конфликт orderBook + короткое окно → conflictWithWeaknessCap = 0.25
+    ///   строгое ограничение = 0.25
     /// </summary>
     [Fact]
     public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()

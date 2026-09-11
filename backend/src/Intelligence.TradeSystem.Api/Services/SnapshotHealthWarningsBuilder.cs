@@ -3,13 +3,13 @@
 namespace Intelligence.TradeSystem.Api.Services;
 
 /// <summary>
-/// Генерирует мягкие ("soft") предупреждения для <c>snapshotHealth.warnings</c>.
+/// Генерирует мягкие предупреждения для <c>snapshotHealth.warnings</c>.
 /// Предупреждения не влияют на <c>isFresh</c> / <c>isPartial</c>, но сигнализируют
 /// об ограничениях интерпретации данных.
 ///
 /// Правила V1 (по приоритету при усечении):
-///   — Data-quality:          near-staleness для orderBook / tradeFlow / derivatives
-///   — Market-interpretation: low volume · conflicting signals · directional+neutral · far from level
+///   — Качество данных:          близость к устареванию для orderBook / tradeFlow / derivatives
+///   — Интерпретация рынка: низкий объём · противоречивые сигналы · направленный режим + нейтральный · далеко от уровня
 ///
 /// Итоговый список урезается до <see cref="MaxWarnings"/> сообщений.
 /// </summary>
@@ -61,7 +61,7 @@ internal static class SnapshotHealthWarningsBuilder
     // ─── Rule implementations ────────────────────────────────────────────────
 
     /// <summary>
-    /// Rule 6.1: секция OrderBook / TradeFlow / Derivatives достигла порога близости к staleness,
+    /// Правило 6.1: секция OrderBook / TradeFlow / Derivatives достигла порога близости к устареванию,
     /// но ещё не протухла.
     /// </summary>
     internal static void AddNearStalenessWarnings(
@@ -91,7 +91,7 @@ internal static class SnapshotHealthWarningsBuilder
     }
 
     /// <summary>
-    /// Rule 6.2: на любом первичном таймфрейме VolumeRatio &lt; 0.5.
+    /// Правило 6.2: на любом первичном таймфрейме VolumeRatio &lt; 0.5.
     /// </summary>
     internal static void AddLowVolumeWarning(
         MarketSnapshot snapshot,
@@ -109,7 +109,7 @@ internal static class SnapshotHealthWarningsBuilder
     }
 
     /// <summary>
-    /// Rule 6.3: знаки OrderBookPressureScore и TradeFlowPressureScore противоположны.
+    /// Правило 6.3: знаки OrderBookPressureScore и TradeFlowPressureScore противоположны.
     /// </summary>
     internal static void AddConflictingMicrostructureWarning(
         SentimentSnapshot sentiment,
@@ -125,7 +125,7 @@ internal static class SnapshotHealthWarningsBuilder
     }
 
     /// <summary>
-    /// Rule 6.4: хотя бы один первичный таймфрейм directional (Bullish/Bearish),
+    /// Правило 6.4: хотя бы один первичный таймфрейм направленный (Bullish/Bearish),
     /// но sentiment.MarketRegime == "Neutral".
     /// </summary>
     internal static void AddDirectionalNeutralRegimeWarning(
@@ -147,7 +147,7 @@ internal static class SnapshotHealthWarningsBuilder
     }
 
     /// <summary>
-    /// Rule 6.5: Bullish → distanceToSupport1Pct &gt; 1.5 || Bearish → distanceToResistance1Pct &gt; 1.5.
+    /// Правило 6.5: Bullish → distanceToSupport1Pct &gt; 1.5 || Bearish → distanceToResistance1Pct &gt; 1.5.
     /// </summary>
     internal static void AddFarFromLevelWarning(
         MarketSnapshot snapshot,

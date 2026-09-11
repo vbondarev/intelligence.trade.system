@@ -1,8 +1,8 @@
 namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
-/// Indicates that required upstream market data is temporarily unavailable,
-/// so a market snapshot cannot be built correctly.
+/// Указывает, что необходимые вышестоящие рыночные данные временно недоступны,
+/// поэтому рыночный снимок нельзя корректно построить.
 /// </summary>
 public sealed class MarketDataUnavailableException : Exception
 {

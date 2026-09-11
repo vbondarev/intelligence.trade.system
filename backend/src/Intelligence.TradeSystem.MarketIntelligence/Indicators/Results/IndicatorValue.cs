@@ -14,7 +14,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 /// </list>
 /// <para>
 /// <see cref="Value"/> равен <see langword="null"/> только когда <see cref="IsAvailable"/> = <see langword="false"/>.
-/// Для создания экземпляров используйте factory methods:
+/// Для создания экземпляров используйте фабричные методы:
 /// <see cref="Available"/>, <see cref="Fallback"/>, <see cref="Unavailable"/>.
 /// </para>
 /// </remarks>

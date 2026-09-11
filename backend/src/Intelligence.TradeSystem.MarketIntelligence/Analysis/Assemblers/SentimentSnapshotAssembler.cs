@@ -53,17 +53,17 @@ public static class SentimentSnapshotAssembler
     /// <summary>
     /// Вычисляет и возвращает <see cref="SentimentSnapshot"/> для переданных рыночных снапшотов.
     /// </summary>
-    /// <param name="derivatives">Снапшот деривативных данных: funding rate, long/short ratios.</param>
+    /// <param name="derivatives">Снимок деривативных данных: ставка финансирования, long/short ratios.</param>
     /// <param name="orderBook">Снапшот стакана заявок.</param>
     /// <param name="tradeFlow">Снапшот потока совершённых сделок.</param>
-    /// <param name="h1">Снапшот технического анализа на таймфрейме 1 ч.</param>
-    /// <param name="h4">Снапшот технического анализа на таймфрейме 4 ч.</param>
+    /// <param name="h1">Снимок технического анализа на таймфрейме 1 ч.</param>
+    /// <param name="h4">Снимок технического анализа на таймфрейме 4 ч.</param>
     /// <param name="capturedAtUtc">
-    /// Момент фиксации снапшота. Используется для проверки freshness tradeFlow.
-    /// Если <c>null</c>, freshness cap не применяется.
+    /// Момент фиксации снапшота. Используется для проверки актуальности tradeFlow.
+    /// Если <c>null</c>, ограничение актуальности не применяется.
     /// </param>
     /// <param name="maxTradeFlowAgeMs">
-    /// Максимальный допустимый возраст tradeFlow в мс для freshness cap.
+    /// Максимальный допустимый возраст tradeFlow в мс для ограничения актуальности.
     /// По умолчанию — <see cref="TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs"/>.
     /// </param>
     /// <exception cref="ArgumentNullException">Если любой из обязательных параметров равен <c>null</c>.</exception>
@@ -149,8 +149,8 @@ public static class SentimentSnapshotAssembler
     /// <list type="bullet">
     ///   <item>Нормализует <c>DeltaPct</c> в [−1, 1] делением на <see cref="TradeFlowNormalizationFactor"/>.</item>
     ///   <item>Обеспечивает минимальный абсолютный скор <see cref="AggressivePressureFloor"/> при выставленных флагах агрессии.</item>
-    ///   <item>Применяет quality caps через <see cref="TradeFlowPressureScoreAdjuster.ApplyCaps"/>:
-    ///     freshness, window duration, volume и конфликт с orderBook.</item>
+    ///   <item>Применяет ограничения качества через <see cref="TradeFlowPressureScoreAdjuster.ApplyCaps"/>:
+    ///     актуальность, длительность окна, объём и конфликт с orderBook.</item>
     /// </list>
     /// </summary>
     private static decimal ComputeTradeFlowPressureScore(

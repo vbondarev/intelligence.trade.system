@@ -3,8 +3,8 @@ using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 namespace Intelligence.TradeSystem.MarketIntelligence.Diagnostics;
 
 /// <summary>
-/// Extension methods для удобного добавления <see cref="IndicatorDiagnostic"/> в список
-/// без boilerplate-кода в assembler-ах.
+/// Методы расширения для удобного добавления <see cref="IndicatorDiagnostic"/> в список
+/// без шаблонного кода в assembler-ах.
 /// </summary>
 public static class IndicatorDiagnosticListExtensions
 {

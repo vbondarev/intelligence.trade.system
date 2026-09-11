@@ -9,9 +9,9 @@ using Moq;
 namespace Intelligence.TradeSystem.Api.Tests;
 
 /// <summary>
-/// Golden / integration tests для LLM payload с unavailable/fallback-индикаторами.
+/// Эталонные интеграционные тесты для LLM payload с unavailable/fallback-индикаторами.
 /// Проверяют:
-/// - nullable indicator fields сериализуются как <c>null</c>, не как <c>0</c>;
+/// - nullable-поля индикаторов сериализуются как <c>null</c>, не как <c>0</c>;
 /// - <c>indicatorDiagnostics</c> появляются при unavailable/fallback-индикаторах;
 /// - при полном наборе данных <c>indicatorDiagnostics</c> пустой;
 /// - JSON-контракт стабилен.
@@ -407,7 +407,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicati
     }
 
     /// <summary>
-    /// Builds a snapshot with the given diagnostics and optional overrides for indicator values.
+    /// Строит снимок с указанными диагностическими данными и необязательными переопределениями значений индикаторов.
     /// </summary>
     private static MarketSnapshot BuildSnapshotWithDiagnostics(
         IReadOnlyList<IndicatorDiagnosticSnapshot> diagnostics,

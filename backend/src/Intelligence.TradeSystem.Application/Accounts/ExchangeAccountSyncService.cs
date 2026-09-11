@@ -9,7 +9,7 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
-/// Coordinates one explicitly scoped, read-only exchange account synchronization.
+/// Координирует одну синхронизацию биржевой учётной записи с явно заданной пользовательской областью в режиме только для чтения.
 /// </summary>
 public sealed class ExchangeAccountSyncService(
     IExchangeAccountRepository accountRepository,

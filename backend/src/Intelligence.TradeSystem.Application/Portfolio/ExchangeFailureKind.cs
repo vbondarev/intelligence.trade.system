@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Exchange failure categories understood by the application boundary.
+/// Категории ошибок биржи, понятные прикладной границе.
 /// </summary>
 public enum ExchangeFailureKind
 {

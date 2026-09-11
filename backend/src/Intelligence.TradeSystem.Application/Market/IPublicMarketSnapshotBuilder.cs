@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 namespace Intelligence.TradeSystem.Application.Market;
 
 /// <summary>
-/// Builds a public market snapshot without owning cache or request lifetime concerns.
+/// Строит публичный рыночный снимок, не управляя временем жизни кэша или запроса.
 /// </summary>
 public interface IPublicMarketSnapshotBuilder
 {

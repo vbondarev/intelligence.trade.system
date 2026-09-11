@@ -6,7 +6,7 @@ using Intelligence.TradeSystem.Domain.Snapshots;
 namespace Intelligence.TradeSystem.Application.Events;
 
 /// <summary>
-/// Explicit registry and JSON serializer for durable application event contracts.
+/// Явный реестр и сериализатор JSON для долговечных контрактов прикладных событий.
 /// </summary>
 public static class ApplicationEventSerializer
 {

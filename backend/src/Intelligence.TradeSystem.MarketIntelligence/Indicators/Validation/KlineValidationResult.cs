@@ -13,7 +13,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Indicators.Validation;
 /// </remarks>
 public sealed record KlineValidationResult
 {
-    /// <summary>Индекс свечи в исходном массиве (0-based).</summary>
+    /// <summary>Индекс свечи в исходном массиве (с нулевой базой).</summary>
     public required int KlineIndex { get; init; }
 
     /// <summary>

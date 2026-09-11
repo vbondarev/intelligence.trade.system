@@ -32,7 +32,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
 
     // ─── Bullish: Healthy ────────────────────────────────────────────────────
 
-    /// <summary>Confirmed Bullish trend + RSI in healthy zone [55, 70] → Healthy.</summary>
+    /// <summary>Подтверждённый тренд Bullish + RSI в здоровой зоне [55, 70] → Healthy.</summary>
     [Theory]
     [InlineData(55)]   // lower boundary
     [InlineData(60)]   // typical healthy RSI

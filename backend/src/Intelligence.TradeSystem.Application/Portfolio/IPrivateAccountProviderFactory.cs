@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Creates a private provider for one exchange account without exposing transport types.
+/// Создаёт приватный провайдер для одной биржевой учётной записи, не раскрывая транспортные типы.
 /// </summary>
 public interface IPrivateAccountProviderFactory
 {

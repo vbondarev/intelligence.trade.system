@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 namespace Intelligence.TradeSystem.Application.Users;
 
 /// <summary>
-/// Supplies the validated user identity for a user-delegated application operation.
+/// Предоставляет проверенную идентичность пользователя для прикладной операции от его имени.
 /// </summary>
 public interface ICurrentUserContext
 {

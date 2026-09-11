@@ -2,7 +2,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 
 namespace Intelligence.TradeSystem.Domain;
 
-/// <summary>Конкретный подключённый биржевой аккаунт пользователя.</summary>
+/// <summary>Конкретная подключённая биржевая учётная запись пользователя.</summary>
 public sealed class ExchangeAccount
 {
     private ExchangeAccount(
@@ -35,8 +35,8 @@ public sealed class ExchangeAccount
     public DateTimeOffset? LastSyncedAt { get; private set; }
     public string? LastError { get; private set; }
     /// <summary>
-    /// The newest accepted balance observation. It is independent from
-    /// <see cref="LastSyncedAt"/>, which records only a fully successful system sync.
+    /// Самое новое принятое наблюдение баланса. Оно не зависит от
+    /// <see cref="LastSyncedAt"/>, который фиксирует только полностью успешную системную синхронизацию.
     /// </summary>
     public DateTimeOffset? LastAppliedBalanceObservationAt { get; private set; }
     public DateTimeOffset? LastAppliedPositionsObservationAt { get; private set; }

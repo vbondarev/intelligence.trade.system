@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 
 /// <summary>
-/// Creates an account-specific private provider lease without retaining credentials in DI.
+/// Создаёт аренду приватного провайдера для конкретной учётной записи, не сохраняя учётные данные в DI.
 /// </summary>
 public sealed class BybitPrivateAccountProviderFactory
 {

@@ -1,6 +1,6 @@
 namespace Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 
-/// <summary>OHLCV-данные одной свечи (candlestick).</summary>
+/// <summary>OHLCV-данные одной свечи.</summary>
 public sealed record CandleSnapshot
 {
     /// <summary>Время открытия свечи (UTC).</summary>

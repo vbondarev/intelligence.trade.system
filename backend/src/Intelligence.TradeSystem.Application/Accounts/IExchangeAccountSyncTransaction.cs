@@ -1,8 +1,8 @@
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
-/// Atomic persistence boundary for one exchange-account synchronization.
-/// External exchange calls must happen before this boundary is entered.
+/// Атомарная граница сохранения для одной синхронизации биржевой учётной записи.
+/// Вызовы внешней биржи должны завершиться до входа в эту границу.
 /// </summary>
 public interface IExchangeAccountSyncTransaction
 {

@@ -1,8 +1,8 @@
 namespace Intelligence.TradeSystem.Application.Accounts.Credentials;
 
 /// <summary>
-/// Transient API credential pair. The values are intentionally available only through
-/// a controlled callback and are never exposed as public properties.
+/// Временная пара API-учётных данных. Значения намеренно доступны только через
+/// контролируемый обратный вызов и никогда не раскрываются в открытых свойствах.
 /// </summary>
 public sealed class ExchangeAccountCredentialSecret
 {
@@ -19,7 +19,7 @@ public sealed class ExchangeAccountCredentialSecret
     }
 
     /// <summary>
-    /// Uses the credential values for the duration of the callback.
+    /// Использует значения учётных данных в течение обратного вызова.
     /// </summary>
     public void Use(Action<string, string> use)
     {
@@ -28,7 +28,7 @@ public sealed class ExchangeAccountCredentialSecret
     }
 
     /// <summary>
-    /// Uses the credential values for the duration of the callback and returns its result.
+    /// Использует значения учётных данных в течение обратного вызова и возвращает его результат.
     /// </summary>
     public TResult Use<TResult>(Func<string, string, TResult> use)
     {

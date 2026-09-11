@@ -5,14 +5,14 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 /// <summary>
 /// Централизованное вычисление <c>summary.entryQuality</c> V1.
 ///
-/// Whitelist допустимых значений:
+/// Допустимые значения:
 /// <list type="bullet">
 ///   <item><term>Good</term>  <description>Подтверждённый bias, цена близко к релевантному уровню (в т.ч. ретест), RSI не экстремальный, объём нормальный, EMA подтверждают направление, снапшот свежий, режим не Neutral.</description></item>
 ///   <item><term>Fair</term>  <description>Bias присутствует, умеренная дистанция до уровня, RSI не экстремальный. Допустим при небольших ограничениях.</description></item>
 ///   <item><term>Poor</term>  <description>Нейтральный bias, отсутствие уровня, дальняя дистанция, RSI экстремальный, низкий объём, EMA-конфликт, устаревший снапшот или neutral режим без подтверждений.</description></item>
 /// </list>
 ///
-/// Детерминированная формула V1 (baseQuality + downgrade rules):
+/// Детерминированная формула V1 (baseQuality + правила понижения):
 /// <code>
 /// Neutral  → Poor
 /// Bullish/Bearish:
@@ -31,14 +31,14 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis.Timeframes;
 /// - resistance1 == null (bearish)      →  entryQuality == Poor
 /// - rsiOverbought (bullish)            →  entryQuality == Poor
 /// - rsiOversold (bearish)              →  entryQuality == Poor
-/// - distancePct == null || &lt; 0      →  entryQuality == Poor (absent/wrong-side)
+/// - distancePct == null || &lt; 0      →  entryQuality == Poor (отсутствует/неверная сторона)
 /// - distancePct == 0                   →  ретест уровня; Good/Fair возможны при прочих подтверждениях
 /// - entryQuality == Good               →  isTrendConfirmed == true &amp;&amp; dist &lt;= GoodMaxDistance
 /// - entryQuality == Good               →  volumeRatio &gt;= 0.5 (или недоступен → не Good)
 /// - entryQuality == Good               →  EMA подтверждают bias (null EMA = conflict → не Good)
 /// - entryQuality == Good               →  snapshotIsFresh == true
-/// - entryQuality == Good               →  marketRegime != Neutral (null/empty → cap Fair)
-/// - entryQuality == Good               →  entryLevelStrength &gt; WeakStrengthMax (null → cap Fair)
+/// - entryQuality == Good               →  marketRegime != Neutral (null/empty → ограничение Fair)
+/// - entryQuality == Good               →  entryLevelStrength &gt; WeakStrengthMax (null → ограничение Fair)
 /// </summary>
 internal static class EntryQualityEvaluator
 {
@@ -62,7 +62,7 @@ internal static class EntryQualityEvaluator
 
     /// <summary>
     /// Порог «близкого» противоположного уровня.
-    /// Если уровень ближе этого значения → <c>Good</c> запрещён (cap <c>Fair</c>).
+    /// Если уровень ближе этого значения → <c>Good</c> запрещён (ограничение <c>Fair</c>).
     /// </summary>
     internal const decimal NearOppositeThreshold = 0.30m;
 
@@ -85,7 +85,7 @@ internal static class EntryQualityEvaluator
     /// <param name="resistance1">Ближайший уровень сопротивления (для Bearish). <c>null</c> → Poor.</param>
     /// <param name="distanceToResistance1Pct">Дистанция до resistance1 в процентах. <c>null</c> / &lt; 0 → Poor.</param>
     /// <param name="rsiOversold"><c>true</c> — RSI перепродан; при Bearish → Poor.</param>
-    /// <param name="volumeRatio">Отношение объёма к среднему. &lt; 0.25 → Poor; &lt; 0.5 → cap Fair; <c>null</c> → cap Fair.</param>
+    /// <param name="volumeRatio">Отношение объёма к среднему. &lt; 0.25 → Poor; &lt; 0.5 → ограничение Fair; <c>null</c> → ограничение Fair.</param>
     /// <param name="isAboveEma20">
     /// <c>true</c> — цена выше EMA20; <c>false</c> — ниже; <c>null</c> — EMA недоступен.
     /// Неизвестное значение трактуется консервативно: считается конфликтом с bias.
@@ -93,14 +93,14 @@ internal static class EntryQualityEvaluator
     /// <param name="isAboveEma50">Аналогично <paramref name="isAboveEma20"/> для EMA50.</param>
     /// <param name="marketRegime">
     /// Рыночный режим (<see cref="MarketRegimes"/>). Сравнение регистронезависимо, пробелы обрезаются.
-    /// <c>null</c> или пустая строка → неизвестный режим; трактуется консервативно: cap Fair.
+    /// <c>null</c> или пустая строка → неизвестный режим; трактуется консервативно: ограничение Fair.
     /// </param>
-    /// <param name="snapshotIsFresh"><c>false</c> → cap Fair; <c>false</c> + низкий объём → Poor.</param>
+    /// <param name="snapshotIsFresh"><c>false</c> → ограничение Fair; <c>false</c> + низкий объём → Poor.</param>
     /// <param name="oppDistancePct">Дистанция до противоположного уровня в процентах. Отрицательная → игнорируется.</param>
     /// <param name="oppStrength">Нормализованная сила противоположного уровня [0, 1].</param>
     /// <param name="entryLevelStrength">
     /// Нормализованная сила уровня входа [0, 1].
-    /// <c>null</c> (по умолчанию) → неизвестная сила; cap Fair (Good запрещён).
+    /// <c>null</c> (по умолчанию) → неизвестная сила; ограничение Fair (Good запрещён).
     /// </param>
     public static EntryQuality Evaluate(
         TimeframeBias bias,
@@ -143,7 +143,7 @@ internal static class EntryQualityEvaluator
     // ─── Downgrade rules ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Понижает quality при низком объёме.<br/>
+    /// Понижает качество при низком объёме.<br/>
     /// &lt; 0.25 → Poor; &lt; 0.5 → не выше Fair; null → не выше Fair (консервативно).
     /// </summary>
     internal static EntryQuality ApplyVolumeRule(EntryQuality quality, decimal? volumeRatio)
@@ -155,7 +155,7 @@ internal static class EntryQualityEvaluator
     }
 
     /// <summary>
-    /// Понижает quality при EMA-конфликте с bias.<br/>
+    /// Понижает качество при EMA-конфликте с bias.<br/>
     /// Bullish: цена ниже обеих EMA → Poor; ниже одной → не выше Fair.<br/>
     /// Bearish: цена выше обеих EMA → Poor; выше одной → не выше Fair.<br/>
     /// <c>null</c> (неизвестное положение) трактуется консервативно — считается конфликтом.
@@ -191,8 +191,8 @@ internal static class EntryQualityEvaluator
     }
 
     /// <summary>
-    /// Понижает quality при устаревшем снапшоте.<br/>
-    /// !fresh → не выше Fair; !fresh + low volume → Poor.
+    /// Понижает качество при устаревшем снапшоте.<br/>
+    /// !fresh → не выше Fair; !fresh + низкий объём → Poor.
     /// </summary>
     internal static EntryQuality ApplySnapshotFreshnessRule(
         EntryQuality quality, bool snapshotIsFresh, decimal? volumeRatio)
@@ -204,9 +204,9 @@ internal static class EntryQualityEvaluator
     }
 
     /// <summary>
-    /// Понижает quality при нейтральном или неизвестном рыночном режиме.<br/>
-    /// null/empty → неизвестный режим → cap Fair.<br/>
-    /// Neutral + (low volume || EMA-конфликт) → Poor; Neutral → не выше Fair.<br/>
+    /// Понижает качество при нейтральном или неизвестном рыночном режиме.<br/>
+    /// null/empty → неизвестный режим → ограничение Fair.<br/>
+    /// Neutral + (низкий объём || EMA-конфликт) → Poor; Neutral → не выше Fair.<br/>
     /// Сравнение регистронезависимо (OrdinalIgnoreCase), пробелы обрезаются.
     /// </summary>
     internal static EntryQuality ApplyMarketRegimeRule(
@@ -224,7 +224,7 @@ internal static class EntryQualityEvaluator
     }
 
     /// <summary>
-    /// Понижает quality при слабом или неизвестном уровне входа.<br/>
+    /// Понижает качество при слабом или неизвестном уровне входа.<br/>
     /// Weak (≤ 0.35) или null → не выше Fair.
     /// </summary>
     internal static EntryQuality ApplyEntryLevelStrengthRule(EntryQuality quality, decimal? strength)
@@ -235,9 +235,9 @@ internal static class EntryQualityEvaluator
     }
 
     /// <summary>
-    /// Понижает quality при наличии близкого противоположного уровня (препятствие перед ценой).<br/>
+    /// Понижает качество при наличии близкого противоположного уровня (препятствие перед ценой).<br/>
     /// Отрицательная дистанция означает, что уровень находится на неправильной стороне цены — игнорируется.<br/>
-    /// dist &lt; <see cref="NearOppositeThreshold"/> → <c>Good</c> запрещён (cap Fair).<br/>
+    /// dist &lt; <see cref="NearOppositeThreshold"/> → <c>Good</c> запрещён (ограничение Fair).<br/>
     /// dist &lt; <see cref="CloseOppositeThreshold"/> + Moderate/Strong → Poor.
     /// </summary>
     internal static EntryQuality ApplyOppositeLevelRule(
@@ -318,5 +318,5 @@ internal static class EntryQualityEvaluator
         => quality < maxQuality ? maxQuality : quality;
 }
 
-/// <summary>Категория силы уровня (support / resistance).</summary>
+/// <summary>Категория силы уровня (поддержка / сопротивление).</summary>
 internal enum LevelStrengthCategory { Unknown, Weak, Moderate, Strong }

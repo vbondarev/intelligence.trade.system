@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 namespace Intelligence.TradeSystem.Application.Accounts.Credentials;
 
 /// <summary>
-/// A user-scoped credential pair together with its independent persistence version.
+/// Пара учётных данных в области пользователя вместе с независимой версией сохранения.
 /// </summary>
 public sealed class ExchangeAccountCredential
 {
@@ -21,12 +21,12 @@ public sealed class ExchangeAccountCredential
     public ConcurrencyVersion Version { get; }
 
     /// <summary>
-    /// Uses the transient credential values without exposing them as object properties.
+    /// Использует временные значения учётных данных, не раскрывая их в свойствах объекта.
     /// </summary>
     public void Use(Action<string, string> use) => secret.Use(use);
 
     /// <summary>
-    /// Uses the transient credential values and returns the callback result.
+    /// Использует временные значения учётных данных и возвращает результат обратного вызова.
     /// </summary>
     public TResult Use<TResult>(Func<string, string, TResult> use) => secret.Use(use);
 

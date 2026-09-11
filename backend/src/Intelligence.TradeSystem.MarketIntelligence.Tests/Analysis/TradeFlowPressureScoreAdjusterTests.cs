@@ -7,20 +7,20 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis;
 /// Unit-тесты для <see cref="TradeFlowPressureScoreAdjuster"/>.
 ///
 /// Проверяемые сценарии:
-///   1.  Stale tradeFlow (age > maxAge)                  → score ≤ 0.50
-///   2.  Very stale (age > maxAge × 2)                   → score ≤ 0.25
-///   3.  Window &lt; 10 s                                 → score ≤ 0.25
-///   4.  Window ∈ [10, 30) s                             → score ≤ 0.35
-///   5.  Window ∈ [30, 60) s                             → score ≤ 0.50
-///   6.  Total volume &lt; 1 BTC                          → score ≤ 0.35
-///   7.  Total volume ∈ [1, 3) BTC                       → score ≤ 0.50
-///   8.  Conflict: orderBookScore &lt; 0                   → score ≤ 0.50
-///   9.  Conflict + short window (&lt; 30 s)              → score ≤ 0.25
-///   10. Negative raw score with caps                     → sign preserved
-///   11. Raw score below active cap                       → score unchanged
-///   12. Clean scenario: all conditions green             → score unchanged
-///   13. Composition: strictest cap wins
-///   14. Regression: BTCUSDT-like stale + short + conflict → score ≤ 0.25
+///   1.  Устаревший tradeFlow (age > maxAge)              → score ≤ 0.50
+///   2.  Сильно устаревший снимок (age > maxAge × 2)       → score ≤ 0.25
+///   3.  Окно &lt; 10 s                                      → score ≤ 0.25
+///   4.  Окно ∈ [10, 30) s                                → score ≤ 0.35
+///   5.  Окно ∈ [30, 60) s                                → score ≤ 0.50
+///   6.  Общий объём &lt; 1 BTC                             → score ≤ 0.35
+///   7.  Общий объём ∈ [1, 3) BTC                         → score ≤ 0.50
+///   8.  Конфликт: orderBookScore &lt; 0                     → score ≤ 0.50
+///   9.  Конфликт + короткое окно (&lt; 30 s)                → score ≤ 0.25
+///   10. Отрицательная исходная оценка с ограничениями     → знак сохраняется
+///   11. Исходная оценка ниже активного ограничения        → значение score не изменяется
+///   12. Чистый сценарий: все условия выполнены            → значение score не изменяется
+///   13. Составление: строгое ограничение побеждает
+///   14. Регрессия: устаревший BTCUSDT-подобный снимок + короткое окно + конфликт → score ≤ 0.25
 /// </summary>
 public sealed class TradeFlowPressureScoreAdjusterTests
 {

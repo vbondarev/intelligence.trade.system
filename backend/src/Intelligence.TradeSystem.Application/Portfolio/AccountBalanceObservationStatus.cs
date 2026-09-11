@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Application.Portfolio;
 
 /// <summary>
-/// Describes whether an account balance was obtained successfully.
+/// Описывает, был ли баланс учётной записи получен успешно.
 /// </summary>
 public enum AccountBalanceObservationStatus
 {

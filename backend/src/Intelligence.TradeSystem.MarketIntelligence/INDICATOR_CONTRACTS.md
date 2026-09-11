@@ -1,18 +1,18 @@
-﻿# Indicator Contracts
+# Контракты индикаторов
 
-This document describes the production contract for technical indicators used by Intelligence.TradeSystem.
+Этот документ описывает production-контракт технических индикаторов, используемых в Intelligence.TradeSystem.
 
-The goal is to make indicator values explicit:
-- whether a value is fully available;
-- whether it was calculated using fallback logic;
-- whether it is unavailable;
-- why fallback/unavailable happened.
+Цель — сделать состояние значений индикаторов явным:
+- доступно ли значение полностью;
+- было ли оно рассчитано с использованием fallback-логики;
+- недоступно ли оно;
+- по какой причине использован fallback или значение недоступно.
 
 ---
 
 ## IndicatorValue
 
-`IndicatorValue` is the structured result type returned by all `Compute(...)` methods.
+`IndicatorValue` — структурированный тип результата, возвращаемый всеми методами `Compute(...)`.
 
 ```csharp
 public sealed record IndicatorValue
@@ -24,38 +24,38 @@ public sealed record IndicatorValue
 }
 ```
 
-**Fields:**
+**Поля:**
 
-| Field | Meaning |
+| Поле | Значение |
 |---|---|
-| `Value` | Numeric indicator value. `null` only when `IsAvailable = false`. |
-| `IsAvailable` | `true` means the value is safe to use. |
-| `IsFallback` | `true` means the value was calculated using fallback logic (e.g. partial window). |
-| `Reason` | Why fallback/unavailable happened. `None` for fully normal results only. |
+| `Value` | Числовое значение индикатора. `null` только при `IsAvailable = false`. |
+| `IsAvailable` | `true` означает, что значение безопасно использовать. |
+| `IsFallback` | `true` означает, что значение рассчитано с использованием fallback-логики (например, по неполному окну). |
+| `Reason` | Причина использования fallback или недоступности. `None` используется только для полностью штатных результатов. |
 
-### Rules
+### Правила
 
-- `IsAvailable = true` means `Value` must be non-null.
-- `IsAvailable = false` means `Value` must be null.
-- `IsFallback = true` means `IsAvailable` must also be true.
-- `Reason = None` is valid only for fully available non-fallback values.
-- Fallback/unavailable values must always have a non-`None` reason.
+- `IsAvailable = true` означает, что `Value` не может быть `null`.
+- `IsAvailable = false` означает, что `Value` должен быть `null`.
+- `IsFallback = true` означает, что `IsAvailable` также должен быть `true`.
+- `Reason = None` допустим только для полностью доступных значений, рассчитанных без fallback.
+- Fallback- и недоступные значения всегда должны иметь причину, отличную от `None`.
 
 ---
 
 ## IndicatorValueReason
 
-| Reason | Meaning |
+| Причина | Значение |
 |---|---|
-| `None` | Value was calculated normally. |
-| `EmptyInput` | Input collection was empty. |
-| `InsufficientData` | There was not enough data to calculate the indicator. |
-| `PartialWindow` | Value was calculated using a partial window fallback. |
-| `InvalidInput` | Input data is invalid from the market-data/domain perspective. |
+| `None` | Значение рассчитано штатно. |
+| `EmptyInput` | Входная коллекция пуста. |
+| `InsufficientData` | Для расчёта индикатора недостаточно данных. |
+| `PartialWindow` | Значение рассчитано по неполному окну с использованием fallback. |
+| `InvalidInput` | Входные данные некорректны с точки зрения рыночных данных или домена. |
 
 ---
 
-## Factory methods
+## Фабричные методы
 
 ```csharp
 IndicatorValue.Available(decimal value)
@@ -63,15 +63,15 @@ IndicatorValue.Fallback(decimal value, IndicatorValueReason reason)
 IndicatorValue.Unavailable(IndicatorValueReason reason)
 ```
 
-| Factory | When to use |
+| Фабрика | Когда использовать |
 |---|---|
-| `Available(value)` | Indicator was calculated normally on a full window. |
-| `Fallback(value, reason)` | A numeric value exists but was calculated using fallback logic (e.g. partial window). |
-| `Unavailable(reason)` | No safe indicator value exists (e.g. insufficient data, empty input). |
+| `Available(value)` | Индикатор штатно рассчитан по полному окну. |
+| `Fallback(value, reason)` | Числовое значение существует, но рассчитано с использованием fallback-логики (например, по неполному окну). |
+| `Unavailable(reason)` | Безопасного значения индикатора нет (например, недостаточно данных или вход пуст). |
 
-**Constraints:**
-- `Fallback(..., None)` is **not allowed** — throws `ArgumentException`.
-- `Unavailable(None)` is **not allowed** — throws `ArgumentException`.
+**Ограничения:**
+- `Fallback(..., None)` **запрещён** — выбрасывается `ArgumentException`.
+- `Unavailable(None)` **запрещён** — выбрасывается `ArgumentException`.
 
 ---
 
@@ -86,125 +86,124 @@ ShouldReportDiagnostic()
 
 ### `OrNull()`
 
-- **Preferred method for nullable contracts.**
-- Use when mapping indicator values to snapshot/API/LLM payload fields.
-- Returns `null` when the indicator is unavailable — explicitly communicates the absence of a value.
+- **Предпочтительный метод для nullable-контрактов.**
+- Используется при преобразовании значений индикаторов в поля snapshot/API/LLM payload.
+- Возвращает `null`, если индикатор недоступен, явно сообщая об отсутствии значения.
 
 ### `RequireValue()`
 
-- Use where the absence of a value is a bug, not a normal state.
-- Throws `InvalidOperationException` when `IsAvailable = false`.
-- Fallback values (`IsFallback = true`) are considered available and are returned without exception.
+- Используется там, где отсутствие значения является ошибкой, а не штатным состоянием.
+- Выбрасывает `InvalidOperationException`, если `IsAvailable = false`.
+- Fallback-значения (`IsFallback = true`) считаются доступными и возвращаются без исключения.
 
 ### `HasUsableValue()`
 
-- Safe availability check. Returns `false` for `null` receiver instead of throwing.
-- Returns `true` for both fully-available and fallback values.
+- Безопасная проверка доступности. Возвращает `false` для `null` receiver вместо исключения.
+- Возвращает `true` как для полностью доступных, так и для fallback-значений.
 
 ### `ShouldReportDiagnostic()`
 
-- Returns `true` when the value is fallback or unavailable.
-- Used to decide whether to create an `IndicatorDiagnostic` entry.
+- Возвращает `true`, если значение рассчитано через fallback или недоступно.
+- Используется для определения необходимости создания записи `IndicatorDiagnostic`.
 
 ---
 
-## Indicator-specific contracts
+## Контракты конкретных индикаторов
 
-All calculators expect inputs in **chronological order (oldest → newest)**.
+Все калькуляторы ожидают входные данные в **хронологическом порядке (от старых к новым)**.
 
 ### SmaCalculator
 
-| Case | Result |
+| Случай | Результат |
 |---|---|
 | `values == null` | `ArgumentNullException` |
 | `period <= 0` | `ArgumentOutOfRangeException` |
 | `values.Length == 0` | `Unavailable(EmptyInput)` |
-| `values.Length < period` | `Fallback(average of all values, PartialWindow)` |
-| `values.Length >= period` | `Available(sma of last period values)` |
-
+| `values.Length < period` | `Fallback(среднее всех значений, PartialWindow)` |
+| `values.Length >= period` | `Available(SMA последних period значений)` |
 
 ### EmaCalculator
 
-| Case | Result |
+| Случай | Результат |
 |---|---|
 | `values == null` | `ArgumentNullException` |
 | `period <= 0` | `ArgumentOutOfRangeException` |
 | `values.Length == 0` | `Unavailable(EmptyInput)` |
-| `values.Length < period` | `Fallback(average of all values, PartialWindow)` |
-| `values.Length == period` | `Available(SMA seed — not a fallback)` |
+| `values.Length < period` | `Fallback(среднее всех значений, PartialWindow)` |
+| `values.Length == period` | `Available(начальное значение SMA — не fallback)` |
 | `values.Length > period` | `Available(EMA)` |
 
-- When `values.Length == period`, the result is seeded by SMA and is **not** a fallback — it is `Available`.
+- При `values.Length == period` начальное значение рассчитывается через SMA и **не считается fallback** — результат имеет состояние `Available`.
 
 ### RsiCalculator
 
-| Case | Result |
+| Случай | Результат |
 |---|---|
 | `closes == null` | `ArgumentNullException` |
 | `period <= 0` | `ArgumentOutOfRangeException` |
 | `closes.Length == 0` | `Unavailable(EmptyInput)` |
 | `closes.Length < period + 1` | `Unavailable(InsufficientData)` |
-| Flat market (no price movement) | `Available(50m)` |
-| Only gains | `Available(100m)` |
-| Only losses | `Available(0m)` |
-| Normal data | `Available(rsi)` |
+| Флэт без движения цены | `Available(50m)` |
+| Только рост | `Available(100m)` |
+| Только снижение | `Available(0m)` |
+| Штатные данные | `Available(rsi)` |
 
-- **RSI does not use fallback when data is insufficient** — it returns `Unavailable`, never `Fallback`.
+- **RSI не использует fallback при недостатке данных** — возвращается `Unavailable`, но никогда не `Fallback`.
 
 ### AtrCalculator
 
-| Case | Result |
+| Случай | Результат |
 |---|---|
-| `highs`, `lows`, or `closes == null` | `ArgumentNullException` |
+| `highs`, `lows` или `closes == null` | `ArgumentNullException` |
 | `period <= 0` | `ArgumentOutOfRangeException` |
-| Array lengths differ | `ArgumentException` (fail-fast — mismatched arrays indicate a pipeline bug) |
+| Длины массивов различаются | `ArgumentException` (fail-fast: несовпадающие массивы указывают на ошибку конвейера) |
 | `count < 2` | `Unavailable(InsufficientData)` |
-| `trueRanges.Count < period` | `Fallback(average TR, PartialWindow)` |
-| Enough data | `Available(ATR by Wilder smoothing)` |
+| `trueRanges.Count < period` | `Fallback(среднее TR, PartialWindow)` |
+| Данных достаточно | `Available(ATR со сглаживанием Wilder)` |
 
-- ATR requires a minimum of **2 candles**.
-- ATR requires `highs`, `lows`, and `closes` arrays to have **the same length** — mismatched lengths are rejected with `ArgumentException`.
+- Для ATR требуется минимум **2 свечи**.
+- Массивы `highs`, `lows` и `closes` для ATR должны иметь **одинаковую длину**; несовпадающие длины отклоняются с `ArgumentException`.
 
 ---
 
-## Level indicators
+## Индикаторы уровней
 
-`VolumeProfileDetector` returns a `LevelSet` and does **not** use `IndicatorValue`.
+`VolumeProfileDetector` возвращает `LevelSet` и **не** использует `IndicatorValue`.
 
-> **Production status:** `VolumeProfileDetector` is the active, production-enabled level detector.
-> It uses a simplified Volume Profile algorithm (kline volume distributed uniformly across the `Low–High` range) and is **not** a precise Volume-at-Price model.
-> The wire value of the `source` field in the LLM payload is always `"volume-profile"` (kebab-case string constant).
-> This limitation is communicated to LLM consumers via the `source` field and the `strengthLabel` field.
-> Replace this detector only when a full VAP implementation is introduced; update `LevelSource` and the `LevelSourceV1` constant in `LlmPayloadMapperExtensions` together.
+> **Production-статус:** `VolumeProfileDetector` — активный детектор уровней, используемый в production.
+> Он применяет упрощённый алгоритм Volume Profile (объём свечи равномерно распределяется по диапазону `Low–High`) и **не** является точной моделью Volume-at-Price.
+> Wire-значение поля `source` в LLM payload всегда равно `"volume-profile"` (строковая константа в kebab-case).
+> Это ограничение передаётся LLM-потребителям через поля `source` и `strengthLabel`.
+> Заменяй этот детектор только при появлении полноценной реализации VAP; при этом одновременно обновляй `LevelSource` и константу `LevelSourceV1` в `LlmPayloadMapperExtensions`.
 
 ---
 
 ### VolumeProfileOptions
 
-Configuration for `VolumeProfileDetector.Detect(...)`. Pass `null` to use `VolumeProfileOptions.Default`.
+Конфигурация для `VolumeProfileDetector.Detect(...)`. Передай `null`, чтобы использовать `VolumeProfileOptions.Default`.
 
 ```csharp
 public sealed class VolumeProfileOptions
 {
     public static readonly VolumeProfileOptions Default = new();
 
-    public int BucketCount { get; }           // default: 100
-    public decimal HvnThresholdRatio { get; } // default: 0.70
+    public int BucketCount { get; }           // по умолчанию: 100
+    public decimal HvnThresholdRatio { get; } // по умолчанию: 0.70
 
     public VolumeProfileOptions(int bucketCount = 100, decimal hvnThresholdRatio = 0.70m);
 }
 ```
 
-| Parameter | Default | Constraint | Meaning |
+| Параметр | По умолчанию | Ограничение | Значение |
 |---|---|---|---|
-| `BucketCount` | `100` | Must be `> 0` | Number of equal-width price buckets that divide `[min(Low), max(High)]` |
-| `HvnThresholdRatio` | `0.70` | Must be in `(0, 1]` | Fraction of the maximum bucket volume above which a bucket is considered a High Volume Node (HVN) |
+| `BucketCount` | `100` | Должен быть `> 0` | Количество ценовых корзин одинаковой ширины, разделяющих диапазон `[min(Low), max(High)]` |
+| `HvnThresholdRatio` | `0.70` | Должен находиться в `(0, 1]` | Доля максимального объёма корзины, выше которой корзина считается High Volume Node (HVN) |
 
 ---
 
 ### LevelSet
 
-The return type of `VolumeProfileDetector.Detect(...)`.
+Тип результата `VolumeProfileDetector.Detect(...)`.
 
 ```csharp
 public sealed record LevelSet(
@@ -215,21 +214,21 @@ public sealed record LevelSet(
 );
 ```
 
-| Field | Meaning |
+| Поле | Значение |
 |---|---|
-| `Support1` | Nearest detected support below `klines[^1].Close`, or `null` if not found |
-| `Support2` | Second nearest support below current price, or `null` |
-| `Resistance1` | Nearest detected resistance above current price, or `null` |
-| `Resistance2` | Second nearest resistance above current price, or `null` |
+| `Support1` | Ближайшая обнаруженная поддержка ниже `klines[^1].Close` или `null`, если уровень не найден |
+| `Support2` | Вторая ближайшая поддержка ниже текущей цены или `null` |
+| `Resistance1` | Ближайшее обнаруженное сопротивление выше текущей цены или `null` |
+| `Resistance2` | Второе ближайшее сопротивление выше текущей цены или `null` |
 
-- **`null` means the level was not detected** — it does **not** mean `0`.
-- Never substitute `0m` for a `null` level.
+- **`null` означает, что уровень не обнаружен** — это **не** означает `0`.
+- Никогда не подставляй `0m` вместо уровня `null`.
 
 ---
 
 ### LevelInfo
 
-Each non-null level is a `LevelInfo` record with four fields.
+Каждый ненулевой уровень представлен record `LevelInfo` с четырьмя полями.
 
 ```csharp
 public sealed record LevelInfo(
@@ -240,24 +239,24 @@ public sealed record LevelInfo(
 );
 ```
 
-| Field | Type | Meaning |
+| Поле | Тип | Значение |
 |---|---|---|
-| `Price` | `decimal` | Volume-weighted centroid of the HVN cluster (price at the centre of mass of the merged buckets) |
-| `Strength` | `decimal` | Relative strength of the level in the range `[0, 1]`; see formula below |
-| `Source` | `LevelSource` | How the level was detected; currently always `LevelSource.SimplifiedVolumeProfile`; serialized in LLM payload as `"simplified-volume-profile"` (kebab-case) |
-| `ClusterVolume` | `decimal` | Total volume of all buckets that make up the cluster |
+| `Price` | `decimal` | Взвешенный по объёму центр HVN-кластера — цена в центре масс объединённых корзин |
+| `Strength` | `decimal` | Относительная сила уровня в диапазоне `[0, 1]`; формула приведена ниже |
+| `Source` | `LevelSource` | Способ обнаружения уровня; сейчас всегда `LevelSource.SimplifiedVolumeProfile`; в LLM payload сериализуется как `"volume-profile"` (kebab-case) |
+| `ClusterVolume` | `decimal` | Суммарный объём всех корзин, составляющих кластер |
 
-**`Strength` formula:**
+**Формула `Strength`:**
 
 ```
 Strength = Math.Round(ClusterVolume / maxClusterVolume, 4)
 ```
 
-Where `maxClusterVolume` is the total volume of the largest HVN cluster in the current profile.
+где `maxClusterVolume` — суммарный объём крупнейшего HVN-кластера в текущем профиле.
 
-- `Strength = 1.0` → the cluster has the highest volume in the profile.
-- `Strength < 1.0` → the cluster is weaker relative to the dominant cluster.
-- `Strength = 0.0` → fallback only (cluster volume sum was `0`). Never use `0` as a proxy for "level not found" — use `null` on `LevelSet` fields instead.
+- `Strength = 1.0` → кластер имеет максимальный объём в профиле.
+- `Strength < 1.0` → кластер слабее относительно доминирующего кластера.
+- `Strength = 0.0` → только fallback (суммарный объём кластера равен `0`). Никогда не используй `0` как замену состояния «уровень не найден» — вместо этого используй `null` в полях `LevelSet`.
 
 ---
 
@@ -270,22 +269,22 @@ public enum LevelSource
 }
 ```
 
-`SimplifiedVolumeProfile` means the level was detected by the simplified Volume Profile algorithm: kline volume is distributed uniformly across the `Low–High` range. This is **not** a precise Volume-at-Price model.
+`SimplifiedVolumeProfile` означает, что уровень обнаружен упрощённым алгоритмом Volume Profile: объём свечи равномерно распределяется по диапазону `Low–High`. Это **не** точная модель Volume-at-Price.
 
 ---
 
-### Rules
+### Правила
 
-- `VolumeProfileDetector` is a simplified volume profile implementation. Do not assume it is a precise VAP model unless explicitly replaced.
-- A detected level is always a full `LevelInfo` object — never a plain `decimal`.
-- `null` on a `LevelSet` field means the level was not found; there is no fallback numeric substitute.
-- `VolumeProfileDetector` does not produce `IndicatorDiagnostics`; missing levels are expressed as `null` fields on `LevelSet`.
+- `VolumeProfileDetector` — упрощённая реализация Volume Profile. Не считай её точной VAP-моделью, пока она явно не заменена соответствующей реализацией.
+- Обнаруженный уровень всегда является полноценным объектом `LevelInfo`, а не обычным `decimal`.
+- `null` в поле `LevelSet` означает, что уровень не найден; числовой fallback отсутствует.
+- `VolumeProfileDetector` не создаёт `IndicatorDiagnostics`; отсутствующие уровни представлены полями `null` в `LevelSet`.
 
 ---
 
-### Example
+### Пример
 
-**C# snapshot shape:**
+**Форма C# snapshot:**
 ```csharp
 LevelSet levels = new(
     Support1: null,
@@ -295,7 +294,7 @@ LevelSet levels = new(
 );
 ```
 
-**Corresponding LLM payload shape:**
+**Соответствующая форма LLM payload:**
 ```json
 {
   "support1": null,
@@ -323,7 +322,7 @@ LevelSet levels = new(
 
 ## IndicatorDiagnostics
 
-`IndicatorDiagnostic` records explain why an indicator is fallback or unavailable.
+Записи `IndicatorDiagnostic` объясняют, почему индикатор рассчитан через fallback или недоступен.
 
 ```csharp
 public sealed record IndicatorDiagnostic
@@ -336,13 +335,13 @@ public sealed record IndicatorDiagnostic
 }
 ```
 
-**Rules:**
-- A diagnostic is created when `ShouldReportDiagnostic()` returns `true` (value is fallback or unavailable).
-- A diagnostic is **not** created for fully `Available(...)` values.
-- Diagnostics must be emitted in a **stable order**: by timeframe (`15m → 1h → 4h → 1d`), then by indicator within each timeframe. Within each timeframe the order is: kline-level diagnostics first (`kline`, `kline.lastFiltered`, `kline.highViolationRate`, `kline.insufficientData`), then scalar indicators (`ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20`), then derived indicators (`volumeRatio`).
-- Diagnostics are surfaced in API/LLM payloads and analysis warnings — they must not be silently dropped.
+**Правила:**
+- Диагностика создаётся, когда `ShouldReportDiagnostic()` возвращает `true` (значение является fallback или недоступно).
+- Для полностью доступных значений `Available(...)` диагностика **не** создаётся.
+- Диагностика должна формироваться в **стабильном порядке**: сначала по таймфрейму (`15m → 1h → 4h → 1d`), затем по индикатору внутри таймфрейма. В каждом таймфрейме порядок следующий: сначала диагностика уровня свечей (`kline`, `kline.lastFiltered`, `kline.highViolationRate`, `kline.insufficientData`), затем скалярные индикаторы (`ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20`), затем производные индикаторы (`volumeRatio`).
+- Диагностика передаётся в API/LLM payload и предупреждения анализа; её нельзя молча отбрасывать.
 
-**Message format examples:**
+**Примеры формата `Message`:**
 ```
 15m.ema200 calculated using fallback: PartialWindow.
 1h.rsi14 unavailable: InsufficientData.
@@ -351,17 +350,17 @@ public sealed record IndicatorDiagnostic
 
 ---
 
-## LLM payload mapping
+## Преобразование в LLM payload
 
-Rules for mapping `IndicatorValue` results into API/LLM payloads:
+Правила преобразования результатов `IndicatorValue` в API/LLM payload:
 
-- **Do not serialize `IndicatorValue` directly** into API or LLM payloads.
-- Indicator fields in LLM payload must be `number` or `null` (use `decimal?` in DTOs).
-- Use `OrNull()` when mapping to payload fields.
-- Fallback/unavailable reasons are communicated through `indicatorDiagnostics`, not through the scalar field itself.
-- **Never use `0m` as a substitute for an unavailable indicator** in new contracts.
+- **Не сериализуй `IndicatorValue` напрямую** в API или LLM payload.
+- Поля индикаторов в LLM payload должны быть `number` или `null` (в DTO используй `decimal?`).
+- При преобразовании в поля payload используй `OrNull()`.
+- Причины fallback/недоступности передаются через `indicatorDiagnostics`, а не через само скалярное поле.
+- **Никогда не используй `0m` вместо недоступного индикатора** в новых контрактах.
 
-**Example:**
+**Пример:**
 ```json
 {
   "rsi14": null,
@@ -380,54 +379,54 @@ Rules for mapping `IndicatorValue` results into API/LLM payloads:
 
 ---
 
-## Summary behavior with unavailable/fallback indicators
+## Поведение сводки при недоступных и fallback-индикаторах
 
-When indicators are unavailable or fallback, summary logic must be conservative:
+Когда индикаторы недоступны или рассчитаны через fallback, логика сводки должна быть консервативной:
 
-- **Unavailable RSI** must not create false `rsiOversold` or `rsiOverbought` flags.
-- **Unavailable EMA** must not create fake bullish/bearish alignment or trend confirmation.
-- **Unavailable ATR** must not be interpreted as zero volatility.
-- **`entryQuality = Good`** must not be returned when critical indicators (RSI, ATR) are unavailable.
-- **Fallback indicators** may contribute to summary calculations but must reduce confidence and add risk flags.
+- **Недоступный RSI** не должен создавать ложные флаги `rsiOversold` или `rsiOverbought`.
+- **Недоступная EMA** не должна создавать ложное бычье/медвежье выравнивание или подтверждение тренда.
+- **Недоступный ATR** не должен интерпретироваться как нулевая волатильность.
+- **`entryQuality = Good`** не должен возвращаться, если критические индикаторы (RSI, ATR) недоступны.
+- **Fallback-индикаторы** могут участвовать в расчётах сводки, но должны снижать уверенность и добавлять флаги риска.
 
-**Expected risk flags for indicator issues:**
+**Ожидаемые флаги риска при проблемах с индикаторами:**
 
-| Flag | Trigger |
+| Флаг | Условие |
 |---|---|
-| `IndicatorUnavailable` | Any critical indicator is unavailable |
-| `IndicatorFallback` | Any indicator was calculated with fallback |
-| `RsiUnavailable` | RSI is unavailable |
-| `AtrUnavailable` | ATR is unavailable |
-| `VolumeDataUnavailable` | VolumeRatio is unavailable |
-| `VolumeDataFallback` | VolumeSma20 used partial window |
+| `IndicatorUnavailable` | Любой критический индикатор недоступен |
+| `IndicatorFallback` | Любой индикатор рассчитан через fallback |
+| `RsiUnavailable` | RSI недоступен |
+| `AtrUnavailable` | ATR недоступен |
+| `VolumeDataUnavailable` | VolumeRatio недоступен |
+| `VolumeDataFallback` | VolumeSma20 использовал неполное окно |
 
 ---
 
-## Scalar indicator API
+## API скалярных индикаторов
 
-All scalar indicators expose a single production API:
+Все скалярные индикаторы предоставляют один production API:
 
 ```csharp
 public static IndicatorValue Compute(...)
 ```
 
-Scalar indicators do not expose legacy numeric `Compute(...)` methods.
+Скалярные индикаторы не предоставляют устаревшие числовые методы `Compute(...)`.
 
-Use:
+Используй:
 
-* `result.OrNull()` for nullable snapshot/API/LLM contracts;
-* `result.RequireValue()` when the value is mandatory;
-* `result.ShouldReportDiagnostic()` to create diagnostics.
+* `result.OrNull()` для nullable-контрактов snapshot/API/LLM;
+* `result.RequireValue()`, когда значение обязательно;
+* `result.ShouldReportDiagnostic()` для создания диагностики.
 
-Do not convert unavailable indicators to `0m`.
+Не преобразовывай недоступные индикаторы в `0m`.
 
-**Example:**
+**Пример:**
 ```csharp
 var rsi = RsiCalculator.Compute(closes, 14);
 
 if (rsi.ShouldReportDiagnostic())
 {
-    // create IndicatorDiagnostic
+    // создать IndicatorDiagnostic
 }
 
 var rsiValue = rsi.OrNull();

@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 
 /// <summary>
-/// Extension methods для централизованного извлечения значений из <see cref="IndicatorValue"/>.
+/// Методы расширения для централизованного извлечения значений из <see cref="IndicatorValue"/>.
 /// </summary>
 public static class IndicatorValueExtensions
 {

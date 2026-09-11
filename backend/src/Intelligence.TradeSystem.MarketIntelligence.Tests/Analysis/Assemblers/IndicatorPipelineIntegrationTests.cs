@@ -8,13 +8,13 @@ using Xunit;
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Assemblers;
 
 /// <summary>
-/// Integration tests для полного pipeline:
+/// Интеграционные тесты полного конвейера:
 /// klines → <see cref="TimeframeSnapshotAssembler"/> → <see cref="TimeframeAnalysisSnapshot"/>.
 ///
 /// Защищают от регрессий в поведении nullable-индикаторов:
 /// - unavailable → null в snapshot, не fake-zero;
 /// - fallback → числовое значение + diagnostic;
-/// - boolean flags корректны при null EMA/RSI.
+/// - логические флаги корректны при null EMA/RSI.
 /// </summary>
 public sealed class IndicatorPipelineIntegrationTests
 {
@@ -287,8 +287,8 @@ public sealed class IndicatorPipelineIntegrationTests
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Builds minimal market snapshot and returns its aggregated diagnostics,
-    /// bypassing real exchange data by calling MarketSnapshotAssembler directly.
+    /// Строит минимальный рыночный снимок и возвращает его агрегированные диагностические данные,
+    /// обходя реальные биржевые данные прямым вызовом MarketSnapshotAssembler.
     /// </summary>
     private static (MarketSnapshot Snapshot, IReadOnlyList<IndicatorDiagnosticSnapshot> Diagnostics)
         BuildMinimalMarketSnapshot(

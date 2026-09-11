@@ -225,8 +225,8 @@ public sealed class Recommendation
     }
 
     /// <summary>
-    /// Determines effectiveness in the current lifecycle state at a point in time.
-    /// This is not a historical lifecycle reconstruction query.
+    /// Определяет актуальность в текущем состоянии жизненного цикла на заданный момент.
+    /// Это не запрос на восстановление исторического жизненного цикла.
     /// </summary>
     public bool IsEffectiveAt(DateTimeOffset at) =>
         Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged &&

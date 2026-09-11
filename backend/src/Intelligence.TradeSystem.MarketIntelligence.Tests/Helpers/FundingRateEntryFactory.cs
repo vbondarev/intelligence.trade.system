@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain;
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Helpers;
 
 /// <summary>
-/// Фабрика тестовых записей funding rate с детерминированными значениями по умолчанию.
+/// Фабрика тестовых записей ставки финансирования с детерминированными значениями по умолчанию.
 /// Позволяет в тестах переопределять только timestamp и fundingRate.
 /// </summary>
 public static class FundingRateEntryFactory

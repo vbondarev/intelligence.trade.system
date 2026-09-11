@@ -18,7 +18,7 @@ internal static class ApiSnapshotTestData
         CreateSnapshot(trend, overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null);
 
     /// <summary>
-    /// Создаёт снапшот с явными override'ами EMA-флагов для всех таймфреймов.
+    /// Создаёт снапшот с явными переопределениями EMA-флагов для всех таймфреймов.
     /// Используется для тестирования граничных случаев <c>isTrendConfirmed</c>.
     /// </summary>
     public static MarketSnapshot CreateSnapshot(

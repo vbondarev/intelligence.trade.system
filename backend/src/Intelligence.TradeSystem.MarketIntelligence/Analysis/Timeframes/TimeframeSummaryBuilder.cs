@@ -158,10 +158,10 @@ public static class TimeframeSummaryBuilder
     // ─── Step 3: IsTrendConfirmed ────────────────────────────────────────────
 
     /// <summary>
-    /// Structural confirmation:
-    /// Bullish: emaBullishAlignment &amp;&amp; price above EMA200.
-    /// Bearish: emaBearishAlignment &amp;&amp; price below EMA200.
-    /// Execution filters are applied later by EntryQuality/RiskFlags.
+    /// Структурное подтверждение:
+    /// Bullish: emaBullishAlignment &amp;&amp; цена выше EMA200.
+    /// Bearish: emaBearishAlignment &amp;&amp; цена ниже EMA200.
+    /// Фильтры исполнения применяются позже через EntryQuality/RiskFlags.
     /// </summary>
     private static bool ComputeIsTrendConfirmed(
         MarketTrend trend,
@@ -546,7 +546,7 @@ public static class TimeframeSummaryBuilder
     /// Возвращает ближайший противоположный уровень.
     /// Для Bullish — ближайший resistance.
     /// Для Bearish — ближайший support.
-    /// Отрицательная дистанция означает wrong-side-of-price и считается отсутствующей.
+    /// Отрицательная дистанция означает неверную сторону цены и считается отсутствующей.
     /// </summary>
     private static (decimal? dist, decimal? strength, bool isHigherTf) ResolveNearestOppositeLevel(
         TimeframeBias bias,

@@ -3,7 +3,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
-/// Minimal system-scoped input for an internal background synchronization attempt.
+/// Минимальный вход с системной областью видимости для внутренней попытки фоновой синхронизации.
 /// </summary>
 public sealed record ExchangeAccountSyncCandidate(
     UserId UserId,

@@ -4,9 +4,9 @@ using Intelligence.TradeSystem.MarketIntelligence.Indicators.Results;
 namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Results;
 
 /// <summary>
-/// Invariant / property-style tests for the <see cref="IndicatorValue"/> contract.
-/// These tests guard mathematical and structural constraints that must hold
-/// regardless of which calculator produced the value.
+/// Инвариантные тесты и тесты свойств для контракта <see cref="IndicatorValue"/>.
+/// Эти тесты защищают математические и структурные ограничения, которые должны выполняться
+/// независимо от того, какой калькулятор сформировал значение.
 /// </summary>
 public sealed class IndicatorValueInvariantTests
 {
