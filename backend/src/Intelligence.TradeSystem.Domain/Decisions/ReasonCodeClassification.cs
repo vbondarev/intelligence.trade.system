@@ -5,6 +5,7 @@ public static class ReasonCodeClassification
     public static bool IsPortfolioRiskReason(ReasonCode reason) => reason is
         ReasonCode.PortfolioDataIncomplete or
         ReasonCode.PortfolioDataStale or
+        ReasonCode.PortfolioDataUncertain or
         ReasonCode.InsufficientFreeCapital or
         ReasonCode.GrossExposureLimitExceeded or
         ReasonCode.ConcentrationLimitExceeded or

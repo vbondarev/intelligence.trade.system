@@ -42,8 +42,38 @@ public sealed class AssessmentsAndRecommendationsTests
         assessment.RuleVersion.Value.Should().Be("assessment-v1");
         assessment.ReasonCodes.Should().Equal(ReasonCode.RiskWithinLimits);
         assessment.ReasonCodes.Should().NotBeAssignableTo<List<ReasonCode>>();
+        assessment.Result.IsLegacy.Should().BeTrue();
+        assessment.Result.PositionSide.Should().Be(PositionSide.Unknown);
+        assessment.Result.DataQuality.SafetyState.Should().Be(AssessmentSafetyState.NotEvaluated);
         assessment.IsValidAt(assessment.CreatedAt).Should().BeTrue();
         assessment.IsValidAt(assessment.ValidUntil).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Legacy_Result_Cannot_Use_Structured_Create_Or_Restore()
+    {
+        var legacy = PositionAssessmentResult.Legacy(RiskIncreaseDecision.Allowed);
+
+        FluentActions.Invoking(() => PositionAssessment.Create(
+                Inputs,
+                new RuleVersion("v1"),
+                RiskIncreasePolicyResult.Allowed(),
+                legacy,
+                [],
+                Inputs.MarketCapturedAt,
+                Inputs.MarketCapturedAt.AddHours(1)))
+            .Should().Throw<ArgumentException>();
+
+        FluentActions.Invoking(() => PositionAssessment.Restore(
+                PositionAssessmentId.New(),
+                Inputs,
+                new RuleVersion("v1"),
+                Inputs.MarketCapturedAt,
+                Inputs.MarketCapturedAt.AddHours(1),
+                RiskIncreaseDecision.Allowed,
+                legacy,
+                [ReasonCode.RiskWithinLimits]))
+            .Should().Throw<ArgumentException>();
     }
 
     [Fact]

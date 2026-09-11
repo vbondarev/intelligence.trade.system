@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Domain.Assessments;
 
@@ -14,7 +15,8 @@ public sealed class PositionAssessment
         DateTimeOffset createdAt,
         DateTimeOffset validUntil,
         RiskIncreaseDecision portfolioRiskDecision,
-        IReadOnlyList<ReasonCode> reasonCodes)
+        IReadOnlyList<ReasonCode> reasonCodes,
+        PositionAssessmentResult result)
     {
         Id = id;
         InputVersions = inputVersions;
@@ -23,6 +25,7 @@ public sealed class PositionAssessment
         ValidUntil = validUntil;
         PortfolioRiskDecision = portfolioRiskDecision;
         ReasonCodes = reasonCodes;
+        Result = result;
     }
 
     public PositionAssessmentId Id { get; }
@@ -33,6 +36,9 @@ public sealed class PositionAssessment
     public DateTimeOffset ValidUntil { get; }
     public RiskIncreaseDecision PortfolioRiskDecision { get; }
     public IReadOnlyList<ReasonCode> ReasonCodes { get; }
+    public PositionAssessmentResult Result { get; }
+    public PolicyConfigurationIdentity PolicyConfigurationIdentity =>
+        InputVersions.PolicyConfigurationIdentity;
 
     public static PositionAssessment Create(
         PositionAssessmentInputVersions inputVersions,
@@ -41,8 +47,54 @@ public sealed class PositionAssessment
         IEnumerable<ReasonCode> additionalReasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil)
+        => CreateCore(
+            inputVersions,
+            ruleVersion,
+            portfolioRiskResult,
+            PositionAssessmentResult.Legacy(portfolioRiskResult?.Decision ?? default),
+            additionalReasonCodes,
+            createdAt,
+            validUntil,
+            legacy: true);
+
+    public static PositionAssessment Create(
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        RiskIncreasePolicyResult portfolioRiskResult,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> additionalReasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.IsLegacy)
+            throw new ArgumentException(
+                "Legacy results must use the legacy assessment creation overload.",
+                nameof(result));
+
+        return CreateCore(
+            inputVersions,
+            ruleVersion,
+            portfolioRiskResult,
+            result,
+            additionalReasonCodes,
+            createdAt,
+            validUntil,
+            legacy: false);
+    }
+
+    private static PositionAssessment CreateCore(
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        RiskIncreasePolicyResult portfolioRiskResult,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> additionalReasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        bool legacy)
     {
         ArgumentNullException.ThrowIfNull(portfolioRiskResult);
+        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(additionalReasonCodes);
         inputVersions.Validate();
         ValidateRuleVersion(ruleVersion);
@@ -55,6 +107,15 @@ public sealed class PositionAssessment
             throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
         if (!Enum.IsDefined(portfolioRiskResult.Decision))
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskResult));
+        if (!legacy &&
+            result.PositionSide is not (PositionSide.Long or PositionSide.Short))
+            throw new ArgumentException(
+                "Structured assessments must contain a Long or Short position side.",
+                nameof(result));
+        if (result.PortfolioRisk.PolicyDecision != portfolioRiskResult.Decision)
+            throw new ArgumentException(
+                "Assessment result must describe the supplied portfolio risk result.",
+                nameof(result));
 
         var additionalReasons = additionalReasonCodes.Distinct().ToArray();
         ValidateReasons(additionalReasons);
@@ -62,10 +123,23 @@ public sealed class PositionAssessment
             throw new ArgumentException(
                 "Portfolio risk reasons must come from RiskIncreasePolicyResult.", nameof(additionalReasonCodes));
 
-        var reasons = portfolioRiskResult.ReasonCodes.Concat(additionalReasons).Distinct().ToArray();
+        var safetyBlocked = !legacy &&
+            (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+             result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
+        var effectiveDecision = safetyBlocked
+            ? RiskIncreaseDecision.Blocked
+            : portfolioRiskResult.Decision;
+        var reasons = portfolioRiskResult.ReasonCodes
+            .Concat(additionalReasons)
+            .Where(reason => !(safetyBlocked && reason == ReasonCode.RiskWithinLimits))
+            .Distinct()
+            .ToList();
+        if (safetyBlocked && !reasons.Any(reason => !ReasonCodeClassification.IsPortfolioRiskReason(reason)))
+            reasons.Add(ReasonCode.RiskIncreaseBlockedByDataQuality);
+
         ValidateReasons(reasons);
-        ValidatePortfolioRiskConsistency(portfolioRiskResult.Decision, reasons);
-        if (reasons.Length == 0)
+        ValidatePortfolioRiskConsistency(effectiveDecision, reasons, safetyBlocked);
+        if (reasons.Count == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(additionalReasonCodes));
 
         return new(
@@ -74,8 +148,9 @@ public sealed class PositionAssessment
             ruleVersion,
             createdAt,
             validUntil,
-            portfolioRiskResult.Decision,
-            new ReadOnlyCollection<ReasonCode>(reasons));
+            effectiveDecision,
+            new ReadOnlyCollection<ReasonCode>(reasons.OrderBy(reason => (int)reason).ToArray()),
+            result);
     }
 
     /// <summary>
@@ -89,7 +164,57 @@ public sealed class PositionAssessment
         DateTimeOffset validUntil,
         RiskIncreaseDecision portfolioRiskDecision,
         IEnumerable<ReasonCode> reasonCodes)
+        => RestoreCore(
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
+            portfolioRiskDecision,
+            PositionAssessmentResult.Legacy(portfolioRiskDecision),
+            reasonCodes,
+            legacy: true);
+
+    public static PositionAssessment Restore(
+        PositionAssessmentId id,
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RiskIncreaseDecision portfolioRiskDecision,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> reasonCodes)
     {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.IsLegacy)
+            throw new ArgumentException(
+                "Legacy results must use the legacy assessment restore overload.",
+                nameof(result));
+
+        return RestoreCore(
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
+            portfolioRiskDecision,
+            result,
+            reasonCodes,
+            legacy: false);
+    }
+
+    private static PositionAssessment RestoreCore(
+        PositionAssessmentId id,
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RiskIncreaseDecision portfolioRiskDecision,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> reasonCodes,
+        bool legacy)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(reasonCodes);
         if (id == default)
             throw new ArgumentException("PositionAssessmentId must be initialized.", nameof(id));
@@ -105,6 +230,23 @@ public sealed class PositionAssessment
             throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
         if (!Enum.IsDefined(portfolioRiskDecision))
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskDecision));
+        if (result.PortfolioRisk.PolicyDecision is not (RiskIncreaseDecision.Allowed or RiskIncreaseDecision.Blocked))
+            throw new ArgumentOutOfRangeException(nameof(result));
+        if (!legacy &&
+            result.PositionSide is not (PositionSide.Long or PositionSide.Short))
+            throw new ArgumentException(
+                "Structured assessments must contain a Long or Short position side.",
+                nameof(result));
+        var safetyBlocked = !legacy &&
+            (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+             result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
+        var expectedDecision = safetyBlocked
+            ? RiskIncreaseDecision.Blocked
+            : result.PortfolioRisk.PolicyDecision;
+        if (portfolioRiskDecision != expectedDecision)
+            throw new ArgumentException(
+                "Restored assessment decision does not match its portfolio and data-quality contexts.",
+                nameof(portfolioRiskDecision));
 
         var reasons = reasonCodes.ToArray();
         ValidateReasons(reasons);
@@ -112,7 +254,10 @@ public sealed class PositionAssessment
             throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
         if (reasons.Distinct().Count() != reasons.Length)
             throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
-        ValidatePortfolioRiskConsistency(portfolioRiskDecision, reasons);
+        ValidatePortfolioRiskConsistency(
+            portfolioRiskDecision,
+            reasons,
+            safetyBlocked);
 
         return new(
             id,
@@ -121,7 +266,8 @@ public sealed class PositionAssessment
             createdAt,
             validUntil,
             portfolioRiskDecision,
-            new ReadOnlyCollection<ReasonCode>(reasons));
+            new ReadOnlyCollection<ReasonCode>(reasons.OrderBy(reason => (int)reason).ToArray()),
+            result);
     }
 
     public bool IsValidAt(DateTimeOffset at) => CreatedAt <= at && at < ValidUntil;
@@ -140,7 +286,8 @@ public sealed class PositionAssessment
 
     private static void ValidatePortfolioRiskConsistency(
         RiskIncreaseDecision decision,
-        IEnumerable<ReasonCode> reasons)
+        IEnumerable<ReasonCode> reasons,
+        bool safetyBlocked)
     {
         var portfolioRiskReasons = reasons
             .Where(ReasonCodeClassification.IsPortfolioRiskReason)
@@ -154,7 +301,11 @@ public sealed class PositionAssessment
                         "Allowed assessments must contain exactly the RiskWithinLimits reason.");
                 break;
             case RiskIncreaseDecision.Blocked:
-                _ = RiskIncreasePolicyResult.Blocked(portfolioRiskReasons);
+                if (portfolioRiskReasons.Length > 0)
+                    _ = RiskIncreasePolicyResult.Blocked(portfolioRiskReasons);
+                else if (!safetyBlocked)
+                    throw new ArgumentException(
+                        "Blocked assessments must contain a portfolio risk reason.");
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(decision), decision, "Risk decision must be defined.");

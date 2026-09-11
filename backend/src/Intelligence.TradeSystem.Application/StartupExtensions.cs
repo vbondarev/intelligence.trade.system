@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Application.AI;
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Market;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,7 @@ public static class StartupExtensions
         services.AddScoped<IMarketSnapshotService>(
             serviceProvider => serviceProvider.GetRequiredService<MarketSnapshotService>());
         services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();
+        services.AddScoped<PositionAssessmentService>();
         services.AddScoped<IExchangeAccountService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountService>(serviceProvider));
         services.AddScoped<IExchangeAccountSyncService>(

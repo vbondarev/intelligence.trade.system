@@ -12,6 +12,11 @@ public sealed class PositionAssessmentEntity
     public DateTimeOffset PortfolioCalculatedAt { get; set; }
     public DateTimeOffset MarketCapturedAt { get; set; }
     public string RuleVersion { get; set; } = null!;
+    public string BasePolicyConfigurationVersion { get; set; } = null!;
+    public string BasePolicyConfigurationHash { get; set; } = null!;
+    public string PolicyConfigurationVersion { get; set; } = null!;
+    public string PolicyConfigurationHash { get; set; } = null!;
+    public string? ResultJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset ValidUntil { get; set; }
     public RiskIncreaseDecision PortfolioRiskDecision { get; set; }

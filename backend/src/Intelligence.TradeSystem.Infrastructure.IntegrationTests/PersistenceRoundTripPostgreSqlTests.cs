@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio;
@@ -10,10 +11,12 @@ using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
+using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using System.Data.Common;
+using System.Text.Json;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -675,11 +678,97 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(reloaded);
         Assert.Equal(assessment.Id, reloaded!.Id);
         Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
+        Assert.Equal(assessment.PolicyConfigurationIdentity, reloaded.PolicyConfigurationIdentity);
         Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);
         Assert.Equal(assessment.CreatedAt, reloaded.CreatedAt);
         Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
         Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
+        Assert.Equal(assessment.Result, reloaded.Result);
+        Assert.True(reloaded.Result.IsLegacy);
+        Assert.Equal(PositionSide.Unknown, reloaded.Result.PositionSide);
+        Assert.Equal(AssessmentSafetyState.NotEvaluated, reloaded.Result.DataQuality.SafetyState);
         Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+    }
+
+    [Fact]
+    public async Task Structured_position_assessment_round_trips_through_postgresql()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var market = CreateAssessmentMarketSnapshot(T0.AddMinutes(2));
+        var input = new PositionAssessmentInput(
+            position,
+            market,
+            portfolio,
+            new PortfolioRiskPolicySettings(0m, 100m, 100m),
+            new PositionAssessmentInputVersions(
+                position.Id,
+                account.Id,
+                position.ExchangePositionKey.InstrumentId,
+                position.LastObservedAt,
+                portfolio.CalculatedAt,
+                market.CapturedAtUtc,
+                new PolicyConfigurationIdentity("policy-v7", "external-hash")),
+            AssessmentDataQuality.FreshCompleteReliable,
+            AssessmentDataQuality.FreshCompleteReliable,
+            T0.AddMinutes(3),
+            PositionAssessmentRules.Default);
+        var assessment = new PositionAssessmentService().Assess(input);
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(dbContext).SaveAsync(account.UserId, assessment);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var persistedJson = await reloadedContext.PositionAssessments
+            .Where(entity => entity.Id == assessment.Id.Value)
+            .Select(entity => entity.ResultJson)
+            .SingleAsync();
+        var reloaded = await new PositionAssessmentRepository(reloadedContext)
+            .GetByIdAsync(account.UserId, assessment.Id);
+
+        Assert.NotNull(reloaded);
+        Assert.NotNull(persistedJson);
+        Assert.NotEqual(PolicyConfigurationIdentity.Legacy, assessment.PolicyConfigurationIdentity);
+        using var persistedDocument = JsonDocument.Parse(persistedJson!);
+        var persistedRoot = persistedDocument.RootElement;
+        Assert.Equal(1, persistedRoot.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(
+            "long",
+            persistedRoot.GetProperty("result").GetProperty("positionSide").GetString());
+        Assert.Equal(assessment.Id, reloaded!.Id);
+        Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
+        Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);
+        Assert.Equal(
+            assessment.InputVersions.BasePolicyConfigurationIdentity,
+            reloaded.InputVersions.BasePolicyConfigurationIdentity);
+        Assert.Equal(assessment.PolicyConfigurationIdentity, reloaded.PolicyConfigurationIdentity);
+        Assert.Equal(assessment.CreatedAt, reloaded.CreatedAt);
+        Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
+        Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
+        Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
+        Assert.Equal(assessment.Result, reloaded.Result);
+        Assert.False(reloaded.Result.IsLegacy);
+        Assert.Equal(PositionSide.Long, reloaded.Result.PositionSide);
+        Assert.Equal(assessment.Result.Trend, reloaded.Result.Trend);
+        Assert.Equal(assessment.Result.Momentum, reloaded.Result.Momentum);
+        Assert.Equal(assessment.Result.Volatility, reloaded.Result.Volatility);
+        Assert.Equal(assessment.Result.Levels, reloaded.Result.Levels);
+        Assert.Equal(assessment.Result.Pnl, reloaded.Result.Pnl);
+        Assert.Equal(assessment.Result.Stop, reloaded.Result.Stop);
+        Assert.Equal(assessment.Result.Breakeven, reloaded.Result.Breakeven);
+        Assert.Equal(assessment.Result.Liquidation, reloaded.Result.Liquidation);
+        Assert.Equal(assessment.Result.PortfolioRisk, reloaded.Result.PortfolioRisk);
+        Assert.Equal(assessment.Result.DataQuality, reloaded.Result.DataQuality);
     }
 
     [Fact]
@@ -1438,6 +1527,60 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             takeProfit: 120.123456789012345678m,
             stopLoss: 90.123456789012345678m,
             trailingStop: 95.123456789012345678m);
+
+    private static MarketSnapshot CreateAssessmentMarketSnapshot(DateTimeOffset capturedAt)
+    {
+        var timeframe = new TimeframeAnalysisSnapshot
+        {
+            Timeframe = "4h",
+            LastCandleOpenTimeUtc = capturedAt.AddMinutes(-1),
+            LastCandle = new CandleSnapshot
+            {
+                OpenTimeUtc = capturedAt.AddMinutes(-1),
+                Open = 101m,
+                High = 102m,
+                Low = 100m,
+                Close = 101m,
+                Volume = 100m,
+                Turnover = 10_100m,
+            },
+            Rsi14 = 55m,
+            Rsi14IsReliable = true,
+            Atr14 = 1m,
+            AtrIsReliable = true,
+            VolumeRatio = 1m,
+            VolumeRatioIsReliable = true,
+            Trend = MarketTrend.Bullish,
+            TrendStrengthScore = 0.8m,
+            Support1 = 99m,
+            Support1Strength = 0.7m,
+            DistanceToSupport1Pct = 1.98m,
+            Resistance1 = 103m,
+            Resistance1Strength = 0.7m,
+            DistanceToResistance1Pct = 1.98m,
+        };
+
+        return new MarketSnapshot
+        {
+            Exchange = "Bybit",
+            Symbol = "BTCUSDT",
+            Category = "Linear",
+            CapturedAtUtc = capturedAt,
+            Price = new PriceSnapshot
+            {
+                LastPrice = 101m,
+                MarkPrice = 101m,
+            },
+            Derivatives = new(),
+            OrderBook = new() { CapturedAtUtc = capturedAt },
+            TradeFlow = new() { WindowEndUtc = capturedAt },
+            M15 = timeframe with { Timeframe = "15m" },
+            H1 = timeframe with { Timeframe = "1h" },
+            H4 = timeframe,
+            D1 = timeframe with { Timeframe = "1d" },
+            Sentiment = new(),
+        };
+    }
 
     private static DateTimeOffset CanonicalTimestamp(DateTimeOffset value)
     {

@@ -3,6 +3,7 @@ using System;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TradeSystemDbContext))]
-    partial class TradeSystemDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911180234_PersistPositionAssessmentDetails")]
+    partial class PersistPositionAssessmentDetails
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -423,18 +426,6 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("position_assessment_id");
-
-                    b.Property<string>("BasePolicyConfigurationHash")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("base_policy_configuration_hash");
-
-                    b.Property<string>("BasePolicyConfigurationVersion")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("base_policy_configuration_version");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
