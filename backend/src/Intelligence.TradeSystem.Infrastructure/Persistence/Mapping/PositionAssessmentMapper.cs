@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
-using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 
@@ -53,42 +52,64 @@ internal static class PositionAssessmentMapper
     {
         ArgumentNullException.ThrowIfNull(reasons);
 
-        var result = string.IsNullOrWhiteSpace(entity.ResultJson)
-            ? PositionAssessmentResult.Legacy(entity.PortfolioRiskDecision)
-            : DeserializeResult(entity.ResultJson, entity.Id, entity.PortfolioRiskDecision);
+        var id = PositionAssessmentId.FromGuid(entity.Id);
+        var inputVersions = new PositionAssessmentInputVersions(
+            PositionId.FromGuid(entity.PositionId),
+            ExchangeAccountId.FromGuid(entity.ExchangeAccountId),
+            InstrumentId.From(entity.InstrumentId),
+            PersistenceDateTime.ToUtc(entity.PositionObservedAt),
+            PersistenceDateTime.ToUtc(entity.PortfolioCalculatedAt),
+            PersistenceDateTime.ToUtc(entity.MarketCapturedAt),
+            PolicyConfigurationIdentity.From(
+                entity.BasePolicyConfigurationVersion,
+                entity.BasePolicyConfigurationHash),
+            PolicyConfigurationIdentity.From(
+                entity.PolicyConfigurationVersion,
+                entity.PolicyConfigurationHash));
+        var ruleVersion = RuleVersion.From(entity.RuleVersion);
+        var createdAt = PersistenceDateTime.ToUtc(entity.CreatedAt);
+        var validUntil = PersistenceDateTime.ToUtc(entity.ValidUntil);
+        var orderedReasons = reasons.OrderBy(reason => reason.Sequence)
+            .Select(reason => reason.ReasonCode);
 
+        if (string.IsNullOrWhiteSpace(entity.ResultJson))
+            return PositionAssessment.Restore(
+                id,
+                inputVersions,
+                ruleVersion,
+                createdAt,
+                validUntil,
+                entity.PortfolioRiskDecision,
+                orderedReasons);
+
+        using var document = JsonDocument.Parse(entity.ResultJson);
+        if (IsLegacyPayload(document.RootElement))
+            return PositionAssessment.Restore(
+                id,
+                inputVersions,
+                ruleVersion,
+                createdAt,
+                validUntil,
+                entity.PortfolioRiskDecision,
+                orderedReasons);
+
+        var result = DeserializeStructuredResult(entity.ResultJson, entity.Id);
         return PositionAssessment.Restore(
-            PositionAssessmentId.FromGuid(entity.Id),
-            new PositionAssessmentInputVersions(
-                PositionId.FromGuid(entity.PositionId),
-                ExchangeAccountId.FromGuid(entity.ExchangeAccountId),
-                InstrumentId.From(entity.InstrumentId),
-                PersistenceDateTime.ToUtc(entity.PositionObservedAt),
-                PersistenceDateTime.ToUtc(entity.PortfolioCalculatedAt),
-                PersistenceDateTime.ToUtc(entity.MarketCapturedAt),
-                PolicyConfigurationIdentity.From(
-                    entity.BasePolicyConfigurationVersion,
-                    entity.BasePolicyConfigurationHash),
-                PolicyConfigurationIdentity.From(
-                    entity.PolicyConfigurationVersion,
-                    entity.PolicyConfigurationHash)),
-            RuleVersion.From(entity.RuleVersion),
-            PersistenceDateTime.ToUtc(entity.CreatedAt),
-            PersistenceDateTime.ToUtc(entity.ValidUntil),
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
             entity.PortfolioRiskDecision,
             result,
-            reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode));
+            orderedReasons);
     }
 
-    private static PositionAssessmentResult DeserializeResult(
+    private static PositionAssessmentResult DeserializeStructuredResult(
         string json,
-        Guid assessmentId,
-        RiskIncreaseDecision portfolioRiskDecision)
+        Guid assessmentId)
     {
         using var document = JsonDocument.Parse(json);
-        if (IsLegacyPayload(document.RootElement))
-            return PositionAssessmentResult.Legacy(portfolioRiskDecision);
-
         if (document.RootElement.TryGetProperty("schemaVersion", out _))
         {
             var persisted = JsonSerializer.Deserialize<PositionAssessmentResultDocument>(

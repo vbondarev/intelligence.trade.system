@@ -684,6 +684,9 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
         Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
         Assert.Equal(assessment.Result, reloaded.Result);
+        Assert.True(reloaded.Result.IsLegacy);
+        Assert.Equal(PositionSide.Unknown, reloaded.Result.PositionSide);
+        Assert.Equal(AssessmentSafetyState.NotEvaluated, reloaded.Result.DataQuality.SafetyState);
         Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
     }
 
@@ -745,12 +748,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(assessment.Id, reloaded!.Id);
         Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
         Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);
+        Assert.Equal(
+            assessment.InputVersions.BasePolicyConfigurationIdentity,
+            reloaded.InputVersions.BasePolicyConfigurationIdentity);
         Assert.Equal(assessment.PolicyConfigurationIdentity, reloaded.PolicyConfigurationIdentity);
         Assert.Equal(assessment.CreatedAt, reloaded.CreatedAt);
         Assert.Equal(assessment.ValidUntil, reloaded.ValidUntil);
         Assert.Equal(assessment.PortfolioRiskDecision, reloaded.PortfolioRiskDecision);
         Assert.Equal(assessment.ReasonCodes.ToArray(), reloaded.ReasonCodes.ToArray());
         Assert.Equal(assessment.Result, reloaded.Result);
+        Assert.False(reloaded.Result.IsLegacy);
+        Assert.Equal(PositionSide.Long, reloaded.Result.PositionSide);
         Assert.Equal(assessment.Result.Trend, reloaded.Result.Trend);
         Assert.Equal(assessment.Result.Momentum, reloaded.Result.Momentum);
         Assert.Equal(assessment.Result.Volatility, reloaded.Result.Volatility);

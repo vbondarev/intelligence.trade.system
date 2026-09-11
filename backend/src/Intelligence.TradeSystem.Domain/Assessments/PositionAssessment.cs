@@ -47,14 +47,15 @@ public sealed class PositionAssessment
         IEnumerable<ReasonCode> additionalReasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil)
-        => Create(
+        => CreateCore(
             inputVersions,
             ruleVersion,
             portfolioRiskResult,
             PositionAssessmentResult.Legacy(portfolioRiskResult?.Decision ?? default),
             additionalReasonCodes,
             createdAt,
-            validUntil);
+            validUntil,
+            legacy: true);
 
     public static PositionAssessment Create(
         PositionAssessmentInputVersions inputVersions,
@@ -64,6 +65,33 @@ public sealed class PositionAssessment
         IEnumerable<ReasonCode> additionalReasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.IsLegacy)
+            throw new ArgumentException(
+                "Legacy results must use the legacy assessment creation overload.",
+                nameof(result));
+
+        return CreateCore(
+            inputVersions,
+            ruleVersion,
+            portfolioRiskResult,
+            result,
+            additionalReasonCodes,
+            createdAt,
+            validUntil,
+            legacy: false);
+    }
+
+    private static PositionAssessment CreateCore(
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        RiskIncreasePolicyResult portfolioRiskResult,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> additionalReasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        bool legacy)
     {
         ArgumentNullException.ThrowIfNull(portfolioRiskResult);
         ArgumentNullException.ThrowIfNull(result);
@@ -79,7 +107,7 @@ public sealed class PositionAssessment
             throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
         if (!Enum.IsDefined(portfolioRiskResult.Decision))
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskResult));
-        if (!result.IsLegacy &&
+        if (!legacy &&
             result.PositionSide is not (PositionSide.Long or PositionSide.Short))
             throw new ArgumentException(
                 "Structured assessments must contain a Long or Short position side.",
@@ -95,7 +123,7 @@ public sealed class PositionAssessment
             throw new ArgumentException(
                 "Portfolio risk reasons must come from RiskIncreasePolicyResult.", nameof(additionalReasonCodes));
 
-        var safetyBlocked = !result.IsLegacy &&
+        var safetyBlocked = !legacy &&
             (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
              result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
         var effectiveDecision = safetyBlocked
@@ -136,7 +164,7 @@ public sealed class PositionAssessment
         DateTimeOffset validUntil,
         RiskIncreaseDecision portfolioRiskDecision,
         IEnumerable<ReasonCode> reasonCodes)
-        => Restore(
+        => RestoreCore(
             id,
             inputVersions,
             ruleVersion,
@@ -144,7 +172,8 @@ public sealed class PositionAssessment
             validUntil,
             portfolioRiskDecision,
             PositionAssessmentResult.Legacy(portfolioRiskDecision),
-            reasonCodes);
+            reasonCodes,
+            legacy: true);
 
     public static PositionAssessment Restore(
         PositionAssessmentId id,
@@ -155,6 +184,35 @@ public sealed class PositionAssessment
         RiskIncreaseDecision portfolioRiskDecision,
         PositionAssessmentResult result,
         IEnumerable<ReasonCode> reasonCodes)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.IsLegacy)
+            throw new ArgumentException(
+                "Legacy results must use the legacy assessment restore overload.",
+                nameof(result));
+
+        return RestoreCore(
+            id,
+            inputVersions,
+            ruleVersion,
+            createdAt,
+            validUntil,
+            portfolioRiskDecision,
+            result,
+            reasonCodes,
+            legacy: false);
+    }
+
+    private static PositionAssessment RestoreCore(
+        PositionAssessmentId id,
+        PositionAssessmentInputVersions inputVersions,
+        RuleVersion ruleVersion,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RiskIncreaseDecision portfolioRiskDecision,
+        PositionAssessmentResult result,
+        IEnumerable<ReasonCode> reasonCodes,
+        bool legacy)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(reasonCodes);
@@ -174,12 +232,12 @@ public sealed class PositionAssessment
             throw new ArgumentOutOfRangeException(nameof(portfolioRiskDecision));
         if (result.PortfolioRisk.PolicyDecision is not (RiskIncreaseDecision.Allowed or RiskIncreaseDecision.Blocked))
             throw new ArgumentOutOfRangeException(nameof(result));
-        if (!result.IsLegacy &&
+        if (!legacy &&
             result.PositionSide is not (PositionSide.Long or PositionSide.Short))
             throw new ArgumentException(
                 "Structured assessments must contain a Long or Short position side.",
                 nameof(result));
-        var safetyBlocked = !result.IsLegacy &&
+        var safetyBlocked = !legacy &&
             (result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
              result.DataQuality.SafetyState != AssessmentSafetyState.Allowed);
         var expectedDecision = safetyBlocked
