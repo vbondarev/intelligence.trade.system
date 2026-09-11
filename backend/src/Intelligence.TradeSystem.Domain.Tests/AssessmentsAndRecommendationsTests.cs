@@ -301,6 +301,75 @@ public sealed class AssessmentsAndRecommendationsTests
     }
 
     [Fact]
+    public void Legacy_create_rejects_new_add_allowed_and_not_evaluated_states()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+
+        FluentActions.Invoking(() => Recommendation.Create(
+                assessment,
+                PositionAction.Hold,
+                AddDecision.AddAllowed,
+                new RuleVersion("policy-v1"),
+                [],
+                assessment.CreatedAt.AddMinutes(1),
+                assessment.ValidUntil))
+            .Should().Throw<InvalidOperationException>();
+
+        FluentActions.Invoking(() => Recommendation.Create(
+                assessment,
+                PositionAction.Hold,
+                AddDecision.NotEvaluated,
+                new RuleVersion("policy-v1"),
+                [],
+                assessment.CreatedAt.AddMinutes(1),
+                assessment.ValidUntil))
+            .Should().Throw<ArgumentException>();
+
+        var restored = Recommendation.Restore(
+            RecommendationId.New(),
+            assessment,
+            PositionAction.Hold,
+            AddDecision.NotEvaluated,
+            new RuleVersion("policy-v1"),
+            assessment.ReasonCodes,
+            assessment.CreatedAt.AddMinutes(1),
+            assessment.ValidUntil,
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
+        restored.AddDecision.Should().Be(AddDecision.NotEvaluated);
+    }
+
+    [Fact]
+    public void Legacy_create_preserves_specific_non_portfolio_reasons()
+    {
+        var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
+
+        var recommendation = Recommendation.Create(
+            assessment,
+            PositionAction.Watch,
+            AddDecision.DoNotAdd,
+            new RuleVersion("policy-v1"),
+            [ReasonCode.LowVolume],
+            assessment.CreatedAt.AddMinutes(1),
+            assessment.ValidUntil);
+
+        recommendation.ReasonCodes.Should().Contain(ReasonCode.LowVolume);
+        FluentActions.Invoking(() => Recommendation.Create(
+                assessment,
+                PositionAction.Watch,
+                AddDecision.DoNotAdd,
+                new RuleVersion("policy-v1"),
+                [ReasonCode.RiskWithinLimits],
+                assessment.CreatedAt.AddMinutes(1),
+                assessment.ValidUntil))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void Recommendation_Lifecycle_Is_Chronological_And_Idempotent()
     {
         var assessment = CreateAssessment(RiskIncreasePolicyResult.Allowed());
@@ -380,11 +449,11 @@ public sealed class AssessmentsAndRecommendationsTests
             [], assessment.CreatedAt.AddMinutes(1), assessment.CreatedAt.AddMinutes(1)))
             .Should().Throw<ArgumentException>();
         Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil)
             .ValidUntil.Should().Be(assessment.ValidUntil);
         FluentActions.Invoking(() => Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil.AddTicks(1)))
             .Should().Throw<ArgumentException>();
     }
@@ -402,7 +471,7 @@ public sealed class AssessmentsAndRecommendationsTests
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
             .Should().Throw<ArgumentOutOfRangeException>();
         FluentActions.Invoking(() => Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.NotEvaluated, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [(ReasonCode)999], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
             .Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -651,10 +720,20 @@ public sealed class AssessmentsAndRecommendationsTests
 
     private static Recommendation CreateRecommendation(
         PositionAssessment assessment, AddDecision addDecision, DateTimeOffset createdAt, DateTimeOffset validUntil) =>
-        Recommendation.Create(
-            assessment, PositionAction.Hold, addDecision, new RuleVersion("policy-v1"),
-            [], createdAt,
-            validUntil);
+        Recommendation.Restore(
+            RecommendationId.New(),
+            assessment,
+            PositionAction.Hold,
+            addDecision == AddDecision.NotEvaluated ? AddDecision.DoNotAdd : addDecision,
+            new RuleVersion("policy-v1"),
+            assessment.ReasonCodes, createdAt,
+            validUntil,
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     private static Recommendation RestoreRecommendation(
         Recommendation recommendation,

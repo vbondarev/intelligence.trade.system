@@ -741,7 +741,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotEqual(PolicyConfigurationIdentity.Legacy, assessment.PolicyConfigurationIdentity);
         using var persistedDocument = JsonDocument.Parse(persistedJson!);
         var persistedRoot = persistedDocument.RootElement;
-        Assert.Equal(1, persistedRoot.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, persistedRoot.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(
             "long",
             persistedRoot.GetProperty("result").GetProperty("positionSide").GetString());
@@ -789,14 +789,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v3"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
         recommendation.Acknowledge(T0.AddMinutes(5));
 
         await using (var dbContext = await CreateMigratedContext())
@@ -826,6 +833,155 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Null(reloadedRecommendation.DismissedAt);
         Assert.Null(reloadedRecommendation.SupersededAt);
         Assert.Null(reloadedRecommendation.ExpiredAt);
+    }
+
+    [Fact]
+    public async Task Structured_recommendation_round_trips_policy_identity_decision_and_add_context()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, T0.AddMinutes(4));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+        recommendation.Acknowledge(T0.AddMinutes(5));
+
+        await using (var dbContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(dbContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(dbContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using var reloadedContext = await CreateMigratedContext();
+        var reloaded = await new RecommendationRepository(reloadedContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+
+        Assert.NotNull(reloaded);
+        var value = reloaded!.Value;
+        Assert.Equal(recommendation.PolicyIdentity, value.PolicyIdentity);
+        Assert.Equal(recommendation.RecommendedAction, value.RecommendedAction);
+        Assert.Equal(recommendation.AddDecision, value.AddDecision);
+        Assert.Equal(recommendation.Confidence, value.Confidence);
+        Assert.Equal(recommendation.Priority, value.Priority);
+        Assert.Equal(recommendation.ActionReasonCodes, value.ActionReasonCodes);
+        Assert.Equal(recommendation.AddReasonCodes, value.AddReasonCodes);
+        Assert.Equal(recommendation.MaximumAdditionalPositionValue, value.MaximumAdditionalPositionValue);
+        Assert.Equal(recommendation.MaximumAdditionalQuantity, value.MaximumAdditionalQuantity);
+        Assert.Equal(recommendation.AddConditions, value.AddConditions);
+        Assert.Equal(recommendation.ValidUntil, value.ValidUntil);
+        Assert.Equal(RecommendationStatus.Acknowledged, value.Status);
+    }
+
+    [Fact]
+    public async Task Structured_recommendation_lifecycle_update_survives_jsonb_round_trip()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, T0.AddMinutes(4));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var loaded = await new RecommendationRepository(readerContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(loaded);
+        loaded!.Value.Acknowledge(T0.AddMinutes(5));
+
+        await using (var writerContext = await CreateMigratedContext())
+        {
+            var nextVersion = await new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, loaded.Value, loaded.Version);
+            Assert.Equal(loaded.Version.Next(), nextVersion);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var verified = await new RecommendationRepository(verificationContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(verified);
+        Assert.Equal(ConcurrencyVersion.Initial.Next(), verified!.Version);
+        Assert.Equal(RecommendationStatus.Acknowledged, verified.Value.Status);
+        Assert.Equal(recommendation.PolicyIdentity, verified.Value.PolicyIdentity);
+        Assert.Equal(recommendation.ActionDecision.Action, verified.Value.ActionDecision.Action);
+        Assert.Equal(recommendation.ActionDecision.Confidence, verified.Value.ActionDecision.Confidence);
+        Assert.Equal(recommendation.ActionDecision.Priority, verified.Value.ActionDecision.Priority);
+        Assert.Equal(
+            recommendation.ActionDecision.ReasonCodes,
+            verified.Value.ActionDecision.ReasonCodes);
+        Assert.Equal(recommendation.AddDecisionResult.Decision, verified.Value.AddDecisionResult.Decision);
+        Assert.Equal(
+            recommendation.AddDecisionResult.ReasonCodes,
+            verified.Value.AddDecisionResult.ReasonCodes);
+        Assert.Equal(
+            recommendation.AddDecisionResult.MaximumAdditionalPositionValue,
+            verified.Value.AddDecisionResult.MaximumAdditionalPositionValue);
+        Assert.Equal(
+            recommendation.AddDecisionResult.MaximumAdditionalQuantity,
+            verified.Value.AddDecisionResult.MaximumAdditionalQuantity);
+        Assert.Equal(recommendation.ValidUntil, verified.Value.ValidUntil);
+    }
+
+    [Fact]
+    public async Task Structured_decision_context_changes_are_rejected_as_immutable()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, T0.AddMinutes(4));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using (var mutationContext = await CreateMigratedContext())
+        {
+            var entity = await mutationContext.Recommendations
+                .SingleAsync(row => row.Id == recommendation.Id.Value);
+            entity.DecisionContextJson =
+                """
+                {
+                  "schemaVersion": 1,
+                  "actionReasonCodes": ["trendAligned"],
+                  "addReasonCodes": ["addAllowedWithinLimits"],
+                  "maximumAdditionalPositionValue": 1,
+                  "maximumAdditionalQuantity": 0.01,
+                  "conditions": {
+                    "requiredTrendAlignment": "aligned",
+                    "requiredMomentumState": "normal",
+                    "protectiveStopRequired": true,
+                    "minimumLiquidationDistancePercent": 5
+                  }
+                }
+                """;
+            await mutationContext.SaveChangesAsync();
+        }
+
+        await using var writerContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, recommendation, ConcurrencyVersion.Initial));
     }
 
     [Fact]
@@ -927,14 +1083,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v4"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
         await using (var setupContext = await CreateMigratedContext())
         {
@@ -1364,14 +1527,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v4"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
         await using (var setupContext = await CreateMigratedContext())
         {
@@ -1505,6 +1675,65 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
+
+    private static PositionAssessment CreateStructuredAssessment(
+        ExchangeAccount account,
+        Position position,
+        PolicyDefinition policy)
+    {
+        var inputVersions = new PositionAssessmentInputVersions(
+            position.Id,
+            account.Id,
+            position.ExchangePositionKey.InstrumentId,
+            T0,
+            T0.AddMinutes(1),
+            T0.AddMinutes(2),
+            policy.Identity,
+            policy.Identity);
+        var result = new PositionAssessmentResult(
+            PositionSide.Long,
+            105m,
+            new(AssessmentTrendDirection.Bullish, PositionTrendAlignment.Aligned, 0.8m, "4h"),
+            new(50m, true, AssessmentMomentumState.Normal, false),
+            new(1m, 1m, true, false),
+            new(105m, 99m, 1m, 0.7m, 110m, 1m, 0.7m),
+            new(1m, 1m, 100m, 105m, AssessmentPricePosition.Above) { IsFavorable = true },
+            new(90m, 14m, -10m, AssessmentStopState.Protective, AssessmentPricePosition.Below, null, false),
+            new(100m, 4.7m, 0m, AssessmentPricePosition.Above) { IsProfitable = true },
+            new(40m, 61m, AssessmentLiquidationState.Far),
+            new(
+                RiskIncreaseDecision.Allowed,
+                80m,
+                50m,
+                10m,
+                1m,
+                2_000m,
+                true,
+                true,
+                10_000m,
+                8_000m,
+                1_000m,
+                10m,
+                10m,
+                100m,
+                25m),
+            new(AssessmentDataQuality.FreshCompleteReliable, AssessmentDataQuality.FreshCompleteReliable));
+
+        return PositionAssessment.Create(
+            inputVersions,
+            new RuleVersion("assessment-v1"),
+            RiskIncreasePolicyResult.Allowed(),
+            result,
+            [
+                ReasonCode.TrendAligned,
+                ReasonCode.MomentumNormal,
+                ReasonCode.PnlPositive,
+                ReasonCode.StopProtective,
+                ReasonCode.LiquidationFar
+            ],
+            T0.AddMinutes(3),
+            T0.AddHours(1));
+    }
 
     private static Position CreatePosition(ExchangeAccountId accountId) =>
         Position.Create(

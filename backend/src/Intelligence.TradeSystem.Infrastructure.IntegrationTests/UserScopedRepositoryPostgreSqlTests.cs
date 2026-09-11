@@ -472,14 +472,21 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v1"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
         return new AggregateSet(account, position, portfolio, assessment, recommendation);
     }

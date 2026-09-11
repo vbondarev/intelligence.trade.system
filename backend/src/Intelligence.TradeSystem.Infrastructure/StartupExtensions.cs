@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
 using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
+using Intelligence.TradeSystem.Infrastructure.RecommendationPolicy;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Intelligence.TradeSystem.Application.Market;
 using Microsoft.EntityFrameworkCore;
@@ -42,8 +43,13 @@ public static class StartupExtensions
         return services;
     }
 
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string? contentRootPath = null)
     {
+        RegisterRecommendationPolicy(services, configuration, contentRootPath);
+
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -80,6 +86,22 @@ public static class StartupExtensions
         services.AddScoped<IRecommendationRepository, RecommendationRepository>();
 
         return services;
+    }
+
+    private static void RegisterRecommendationPolicy(
+        IServiceCollection services,
+        IConfiguration configuration,
+        string? contentRootPath)
+    {
+        var path = configuration
+            .GetSection(RecommendationPolicyOptions.SectionName)["Path"];
+        if (string.IsNullOrWhiteSpace(path))
+            throw new InvalidOperationException(
+                "RecommendationPolicy:Path configuration is required.");
+
+        services.AddSingleton<IRecommendationPolicyDefinitionProvider>(
+            new JsonRecommendationPolicyDefinitionProvider(path, contentRootPath));
+        services.AddScoped<RecommendationService>();
     }
 
     public static IServiceCollection AddExchangeAccountBackgroundSynchronization(
