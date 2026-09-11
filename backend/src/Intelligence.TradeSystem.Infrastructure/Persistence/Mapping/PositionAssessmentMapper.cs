@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
+using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 
@@ -19,13 +20,17 @@ internal static class PositionAssessmentMapper
         PortfolioCalculatedAt = PersistenceDateTime.ToUtc(assessment.InputVersions.PortfolioCalculatedAt),
         MarketCapturedAt = PersistenceDateTime.ToUtc(assessment.InputVersions.MarketCapturedAt),
         RuleVersion = assessment.RuleVersion.Value,
+        BasePolicyConfigurationVersion = assessment.InputVersions.BasePolicyConfigurationIdentity.Version,
+        BasePolicyConfigurationHash = assessment.InputVersions.BasePolicyConfigurationIdentity.Hash,
         PolicyConfigurationVersion = assessment.PolicyConfigurationIdentity.Version,
         PolicyConfigurationHash = assessment.PolicyConfigurationIdentity.Hash,
-        ResultJson = JsonSerializer.Serialize(
-            new PositionAssessmentResultDocument(
-                PositionAssessmentResultDocument.CurrentSchemaVersion,
-                assessment.Result),
-            PositionAssessmentJson.Options),
+        ResultJson = assessment.Result.IsLegacy
+            ? null
+            : JsonSerializer.Serialize(
+                new PositionAssessmentResultDocument(
+                    PositionAssessmentResultDocument.CurrentSchemaVersion,
+                    assessment.Result),
+                PositionAssessmentJson.Options),
         CreatedAt = PersistenceDateTime.ToUtc(assessment.CreatedAt),
         ValidUntil = PersistenceDateTime.ToUtc(assessment.ValidUntil),
         PortfolioRiskDecision = assessment.PortfolioRiskDecision,
@@ -50,7 +55,7 @@ internal static class PositionAssessmentMapper
 
         var result = string.IsNullOrWhiteSpace(entity.ResultJson)
             ? PositionAssessmentResult.Legacy(entity.PortfolioRiskDecision)
-            : DeserializeResult(entity.ResultJson, entity.Id);
+            : DeserializeResult(entity.ResultJson, entity.Id, entity.PortfolioRiskDecision);
 
         return PositionAssessment.Restore(
             PositionAssessmentId.FromGuid(entity.Id),
@@ -62,6 +67,9 @@ internal static class PositionAssessmentMapper
                 PersistenceDateTime.ToUtc(entity.PortfolioCalculatedAt),
                 PersistenceDateTime.ToUtc(entity.MarketCapturedAt),
                 PolicyConfigurationIdentity.From(
+                    entity.BasePolicyConfigurationVersion,
+                    entity.BasePolicyConfigurationHash),
+                PolicyConfigurationIdentity.From(
                     entity.PolicyConfigurationVersion,
                     entity.PolicyConfigurationHash)),
             RuleVersion.From(entity.RuleVersion),
@@ -72,9 +80,15 @@ internal static class PositionAssessmentMapper
             reasons.OrderBy(reason => reason.Sequence).Select(reason => reason.ReasonCode));
     }
 
-    private static PositionAssessmentResult DeserializeResult(string json, Guid assessmentId)
+    private static PositionAssessmentResult DeserializeResult(
+        string json,
+        Guid assessmentId,
+        RiskIncreaseDecision portfolioRiskDecision)
     {
         using var document = JsonDocument.Parse(json);
+        if (IsLegacyPayload(document.RootElement))
+            return PositionAssessmentResult.Legacy(portfolioRiskDecision);
+
         if (document.RootElement.TryGetProperty("schemaVersion", out _))
         {
             var persisted = JsonSerializer.Deserialize<PositionAssessmentResultDocument>(
@@ -94,6 +108,25 @@ internal static class PositionAssessmentMapper
                    PositionAssessmentJson.Options)
                ?? throw new InvalidOperationException(
                    $"Position assessment {assessmentId} contains an empty result payload.");
+    }
+
+    private static bool IsLegacyPayload(JsonElement root)
+    {
+        if (root.TryGetProperty("isLegacy", out var isLegacy) &&
+            isLegacy.ValueKind == JsonValueKind.True)
+            return true;
+
+        if (!root.TryGetProperty("dataQuality", out var dataQuality) ||
+            !dataQuality.TryGetProperty("safetyState", out var safetyState))
+            return false;
+
+        return safetyState.ValueKind switch
+        {
+            JsonValueKind.String =>
+                string.Equals(safetyState.GetString(), "notEvaluated", StringComparison.OrdinalIgnoreCase),
+            JsonValueKind.Number => safetyState.TryGetInt32(out var value) && value == 0,
+            _ => false,
+        };
     }
 }
 

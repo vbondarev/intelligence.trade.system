@@ -14,6 +14,7 @@ public readonly record struct PositionAssessmentInputVersions
     public DateTimeOffset PositionObservedAt { get; }
     public DateTimeOffset PortfolioCalculatedAt { get; }
     public DateTimeOffset MarketCapturedAt { get; }
+    public PolicyConfigurationIdentity BasePolicyConfigurationIdentity { get; }
     public PolicyConfigurationIdentity PolicyConfigurationIdentity { get; }
 
     public PositionAssessmentInputVersions(
@@ -30,6 +31,7 @@ public readonly record struct PositionAssessmentInputVersions
             positionObservedAt,
             portfolioCalculatedAt,
             marketCapturedAt,
+            PolicyConfigurationIdentity.Legacy,
             PolicyConfigurationIdentity.Legacy)
     {
     }
@@ -41,6 +43,27 @@ public readonly record struct PositionAssessmentInputVersions
         DateTimeOffset positionObservedAt,
         DateTimeOffset portfolioCalculatedAt,
         DateTimeOffset marketCapturedAt,
+        PolicyConfigurationIdentity policyConfigurationIdentity)
+        : this(
+            positionId,
+            exchangeAccountId,
+            instrumentId,
+            positionObservedAt,
+            portfolioCalculatedAt,
+            marketCapturedAt,
+            policyConfigurationIdentity,
+            policyConfigurationIdentity)
+    {
+    }
+
+    public PositionAssessmentInputVersions(
+        PositionId positionId,
+        ExchangeAccountId exchangeAccountId,
+        InstrumentId instrumentId,
+        DateTimeOffset positionObservedAt,
+        DateTimeOffset portfolioCalculatedAt,
+        DateTimeOffset marketCapturedAt,
+        PolicyConfigurationIdentity basePolicyConfigurationIdentity,
         PolicyConfigurationIdentity policyConfigurationIdentity)
     {
         if (positionId == default)
@@ -56,6 +79,7 @@ public readonly record struct PositionAssessmentInputVersions
         PositionObservedAt = positionObservedAt;
         PortfolioCalculatedAt = portfolioCalculatedAt;
         MarketCapturedAt = marketCapturedAt;
+        BasePolicyConfigurationIdentity = basePolicyConfigurationIdentity;
         PolicyConfigurationIdentity = policyConfigurationIdentity;
     }
 
@@ -93,5 +117,10 @@ public readonly record struct PositionAssessmentInputVersions
             throw new ArgumentException(
                 "Policy configuration identity must contain both version and hash.",
                 nameof(PolicyConfigurationIdentity));
+        if (string.IsNullOrWhiteSpace(BasePolicyConfigurationIdentity.Version) ||
+            string.IsNullOrWhiteSpace(BasePolicyConfigurationIdentity.Hash))
+            throw new ArgumentException(
+                "Base policy configuration identity must contain both version and hash.",
+                nameof(BasePolicyConfigurationIdentity));
     }
 }

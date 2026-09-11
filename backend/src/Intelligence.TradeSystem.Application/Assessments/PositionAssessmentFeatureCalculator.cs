@@ -22,8 +22,14 @@ internal static class PositionAssessmentFeatureCalculator
         var trend = MapTrend(timeframe.Trend);
         var alignment = GetTrendAlignment(trend, side);
         var momentum = BuildMomentum(timeframe, input.Rules, trend, side);
-        var supportDistance = CalculateAbsoluteDistancePercent(currentPrice, timeframe.Support1);
-        var resistanceDistance = CalculateAbsoluteDistancePercent(currentPrice, timeframe.Resistance1);
+        var supportDistance = CalculateActionableLevelDistancePercent(
+            currentPrice,
+            timeframe.Support1,
+            isSupport: true);
+        var resistanceDistance = CalculateActionableLevelDistancePercent(
+            currentPrice,
+            timeframe.Resistance1,
+            isSupport: false);
         var levels = new PositionAssessmentLevelsContext(
             currentPrice,
             timeframe.Support1,
@@ -55,11 +61,7 @@ internal static class PositionAssessmentFeatureCalculator
                 input.PortfolioState.IsFresh),
             new(
                 marketQuality,
-                portfolioQuality,
-                overallQuality,
-                overallQuality == AssessmentDataQuality.FreshCompleteReliable
-                    ? AssessmentSafetyState.Allowed
-                    : AssessmentSafetyState.Blocked));
+                portfolioQuality));
     }
 
     public static List<ReasonCode> BuildReasonCodes(
@@ -328,6 +330,22 @@ internal static class PositionAssessmentFeatureCalculator
         current is > 0m && target.HasValue
             ? Math.Abs(current.Value - target.Value) / current.Value * 100m
             : null;
+
+    private static decimal? CalculateActionableLevelDistancePercent(
+        decimal? current,
+        decimal? level,
+        bool isSupport)
+    {
+        if (current is not > 0m || !level.HasValue)
+            return null;
+
+        var remainsActionable = isSupport
+            ? level.Value <= current.Value
+            : level.Value >= current.Value;
+        return remainsActionable
+            ? Math.Abs(current.Value - level.Value) / current.Value * 100m
+            : null;
+    }
 
     private static decimal? CalculateSignedDistancePercent(decimal? origin, decimal? target) =>
         origin is > 0m && target.HasValue

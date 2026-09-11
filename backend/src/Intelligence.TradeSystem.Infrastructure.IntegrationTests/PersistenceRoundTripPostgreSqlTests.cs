@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using System.Data.Common;
+using System.Text.Json;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -735,8 +736,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.NotNull(reloaded);
         Assert.NotNull(persistedJson);
         Assert.NotEqual(PolicyConfigurationIdentity.Legacy, assessment.PolicyConfigurationIdentity);
-        Assert.Contains("\"schemaVersion\":1", persistedJson, StringComparison.Ordinal);
-        Assert.Contains("\"positionSide\":\"long\"", persistedJson, StringComparison.Ordinal);
+        using var persistedDocument = JsonDocument.Parse(persistedJson!);
+        var persistedRoot = persistedDocument.RootElement;
+        Assert.Equal(1, persistedRoot.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(
+            "long",
+            persistedRoot.GetProperty("result").GetProperty("positionSide").GetString());
         Assert.Equal(assessment.Id, reloaded!.Id);
         Assert.Equal(assessment.InputVersions, reloaded.InputVersions);
         Assert.Equal(assessment.RuleVersion, reloaded.RuleVersion);

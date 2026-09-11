@@ -38,6 +38,14 @@ public sealed class PositionAssessmentConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("rule_version")
             .HasMaxLength(128)
             .IsRequired();
+        builder.Property(assessment => assessment.BasePolicyConfigurationVersion)
+            .HasColumnName("base_policy_configuration_version")
+            .HasMaxLength(128)
+            .IsRequired();
+        builder.Property(assessment => assessment.BasePolicyConfigurationHash)
+            .HasColumnName("base_policy_configuration_hash")
+            .HasMaxLength(256)
+            .IsRequired();
         builder.Property(assessment => assessment.PolicyConfigurationVersion)
             .HasColumnName("policy_configuration_version")
             .HasMaxLength(128)

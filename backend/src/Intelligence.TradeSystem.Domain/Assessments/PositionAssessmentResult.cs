@@ -26,6 +26,37 @@ public sealed record PositionAssessmentResult
         PositionAssessmentLiquidationContext liquidation,
         PositionAssessmentPortfolioRiskContext portfolioRisk,
         PositionAssessmentDataQualityContext dataQuality)
+        : this(
+            positionSide,
+            currentPrice,
+            trend,
+            momentum,
+            volatility,
+            levels,
+            pnl,
+            stop,
+            breakeven,
+            liquidation,
+            portfolioRisk,
+            dataQuality,
+            isLegacy: false)
+    {
+    }
+
+    private PositionAssessmentResult(
+        PositionSide positionSide,
+        decimal? currentPrice,
+        PositionAssessmentTrendContext trend,
+        PositionAssessmentMomentumContext momentum,
+        PositionAssessmentVolatilityContext volatility,
+        PositionAssessmentLevelsContext levels,
+        PositionAssessmentPnlContext pnl,
+        PositionAssessmentStopContext stop,
+        PositionAssessmentBreakevenContext breakeven,
+        PositionAssessmentLiquidationContext liquidation,
+        PositionAssessmentPortfolioRiskContext portfolioRisk,
+        PositionAssessmentDataQualityContext dataQuality,
+        bool isLegacy)
     {
         if (!Enum.IsDefined(positionSide))
             throw new ArgumentOutOfRangeException(nameof(positionSide), positionSide, "Position side must be defined.");
@@ -54,6 +85,7 @@ public sealed record PositionAssessmentResult
         Liquidation = liquidation;
         PortfolioRisk = portfolioRisk;
         DataQuality = dataQuality;
+        IsLegacy = isLegacy;
     }
 
     /// <summary>Направление позиции.</summary>
@@ -62,7 +94,7 @@ public sealed record PositionAssessmentResult
     /// <summary>
     /// Признак legacy-результата, созданного до появления структурированного assessment context.
     /// </summary>
-    public bool IsLegacy { get; init; }
+    public bool IsLegacy { get; }
 
     /// <summary>Цена, использованная для расчёта производных признаков.</summary>
     public decimal? CurrentPrice { get; }
@@ -151,14 +183,8 @@ public sealed record PositionAssessmentResult
                 null,
                 false,
                 false),
-            new(
-                AssessmentDataQuality.Uncertain,
-                AssessmentDataQuality.Uncertain,
-                AssessmentDataQuality.Uncertain,
-                AssessmentSafetyState.NotEvaluated))
-        {
-            IsLegacy = true,
-        };
+            PositionAssessmentDataQualityContext.CreateLegacy(),
+            isLegacy: true);
 }
 
 /// <summary>Контекст рыночного тренда относительно позиции.</summary>
@@ -243,8 +269,53 @@ public sealed record PositionAssessmentPortfolioRiskContext(
     bool IsFresh);
 
 /// <summary>Сводный контекст качества источников и safety guard.</summary>
-public sealed record PositionAssessmentDataQualityContext(
-    AssessmentDataQuality Market,
-    AssessmentDataQuality Portfolio,
-    AssessmentDataQuality Overall,
-    AssessmentSafetyState SafetyState);
+public sealed record PositionAssessmentDataQualityContext
+{
+    public PositionAssessmentDataQualityContext(
+        AssessmentDataQuality market,
+        AssessmentDataQuality portfolio)
+    {
+        ValidateQuality(market, nameof(market));
+        ValidateQuality(portfolio, nameof(portfolio));
+
+        Market = market;
+        Portfolio = portfolio;
+        Overall = Max(market, portfolio);
+        SafetyState = Overall == AssessmentDataQuality.FreshCompleteReliable
+            ? AssessmentSafetyState.Allowed
+            : AssessmentSafetyState.Blocked;
+    }
+
+    private PositionAssessmentDataQualityContext(
+        AssessmentDataQuality market,
+        AssessmentDataQuality portfolio,
+        AssessmentSafetyState safetyState)
+    {
+        Market = market;
+        Portfolio = portfolio;
+        Overall = Max(market, portfolio);
+        SafetyState = safetyState;
+    }
+
+    public AssessmentDataQuality Market { get; }
+    public AssessmentDataQuality Portfolio { get; }
+    public AssessmentDataQuality Overall { get; }
+    public AssessmentSafetyState SafetyState { get; }
+
+    internal static PositionAssessmentDataQualityContext CreateLegacy() =>
+        new(
+            AssessmentDataQuality.Uncertain,
+            AssessmentDataQuality.Uncertain,
+            AssessmentSafetyState.NotEvaluated);
+
+    private static AssessmentDataQuality Max(
+        AssessmentDataQuality first,
+        AssessmentDataQuality second) =>
+        (AssessmentDataQuality)Math.Max((int)first, (int)second);
+
+    private static void ValidateQuality(AssessmentDataQuality value, string parameterName)
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(parameterName, value, "Data quality is not defined.");
+    }
+}

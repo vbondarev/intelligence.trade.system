@@ -137,6 +137,22 @@ public sealed class PositionAssessmentServiceTests
     }
 
     [Fact]
+    public void Crossed_Levels_Are_Not_Reported_As_Nearby_Actionable_Levels()
+    {
+        var assessment = new PositionAssessmentService().Assess(
+            CreateInput(
+                PositionSide.Long,
+                MarketTrend.Bullish,
+                supportPrice: 111m,
+                resistancePrice: 99m));
+
+        assessment.Result.Levels.DistanceToSupport1Percent.Should().BeNull();
+        assessment.Result.Levels.DistanceToResistance1Percent.Should().BeNull();
+        assessment.ReasonCodes.Should().NotContain(ReasonCode.SupportNearby);
+        assessment.ReasonCodes.Should().NotContain(ReasonCode.ResistanceNearby);
+    }
+
+    [Fact]
     public void Missing_Current_Price_Blocks_Risk_Increase()
     {
         var input = CreateInput(PositionSide.Long, MarketTrend.Bullish);
@@ -262,7 +278,8 @@ public sealed class PositionAssessmentServiceTests
     public void Configuration_Identity_Changes_With_Risk_Settings_Rules_And_Quality()
     {
         var first = CreateInput(PositionSide.Long, MarketTrend.Bullish);
-        var sameConfiguration = CreateInput(PositionSide.Long, MarketTrend.Bullish);
+        var recreated = RecreateInput(first);
+        var recreatedAgain = RecreateInput(recreated);
         var changedSettings = CreateInput(
             PositionSide.Long,
             MarketTrend.Bullish,
@@ -284,7 +301,9 @@ public sealed class PositionAssessmentServiceTests
             marketDataQuality: AssessmentDataQuality.Stale);
 
         first.InputVersions.PolicyConfigurationIdentity
-            .Should().Be(sameConfiguration.InputVersions.PolicyConfigurationIdentity);
+            .Should().Be(recreated.InputVersions.PolicyConfigurationIdentity);
+        recreated.InputVersions.PolicyConfigurationIdentity
+            .Should().Be(recreatedAgain.InputVersions.PolicyConfigurationIdentity);
         first.InputVersions.PolicyConfigurationIdentity
             .Should().NotBe(changedSettings.InputVersions.PolicyConfigurationIdentity);
         first.InputVersions.PolicyConfigurationIdentity
@@ -312,9 +331,7 @@ public sealed class PositionAssessmentServiceTests
             source.Result.PortfolioRisk,
             new(
                 AssessmentDataQuality.Stale,
-                AssessmentDataQuality.FreshCompleteReliable,
-                AssessmentDataQuality.Stale,
-                AssessmentSafetyState.Allowed));
+                AssessmentDataQuality.FreshCompleteReliable));
 
         var assessment = PositionAssessment.Create(
             input.InputVersions,
@@ -326,6 +343,38 @@ public sealed class PositionAssessmentServiceTests
             input.AsOf.Add(input.Rules.ValidityPeriod));
 
         assessment.PortfolioRiskDecision.Should().Be(RiskIncreaseDecision.Blocked);
+    }
+
+    [Fact]
+    public void Data_Quality_Context_Computes_Overall_And_Safety_Deterministically()
+    {
+        var marketStale = new PositionAssessmentDataQualityContext(
+            AssessmentDataQuality.Stale,
+            AssessmentDataQuality.FreshCompleteReliable);
+        var portfolioPartial = new PositionAssessmentDataQualityContext(
+            AssessmentDataQuality.FreshCompleteReliable,
+            AssessmentDataQuality.Partial);
+        var marketUncertain = new PositionAssessmentDataQualityContext(
+            AssessmentDataQuality.Uncertain,
+            AssessmentDataQuality.FreshCompleteReliable);
+
+        marketStale.Overall.Should().Be(AssessmentDataQuality.Stale);
+        marketStale.SafetyState.Should().Be(AssessmentSafetyState.Blocked);
+        portfolioPartial.Overall.Should().Be(AssessmentDataQuality.Partial);
+        portfolioPartial.SafetyState.Should().Be(AssessmentSafetyState.Blocked);
+        marketUncertain.Overall.Should().Be(AssessmentDataQuality.Uncertain);
+        marketUncertain.SafetyState.Should().Be(AssessmentSafetyState.Blocked);
+    }
+
+    [Fact]
+    public void Structured_Result_Cannot_Be_Marked_As_Legacy()
+    {
+        var structured = new PositionAssessmentService().Assess(
+            CreateInput(PositionSide.Long, MarketTrend.Bullish));
+
+        structured.Result.IsLegacy.Should().BeFalse();
+        PositionAssessmentResult.Legacy(RiskIncreaseDecision.Allowed)
+            .IsLegacy.Should().BeTrue();
     }
 
     [Fact]
@@ -506,7 +555,8 @@ public sealed class PositionAssessmentServiceTests
         PositionAssessmentRules? rules = null,
         decimal? candleClose = null,
         decimal? supportPrice = null,
-        decimal? resistancePrice = null)
+        decimal? resistancePrice = null,
+        AssessmentDataQuality portfolioDataQuality = AssessmentDataQuality.FreshCompleteReliable)
     {
         var accountId = ExchangeAccountId.New();
         var position = Position.Create(
@@ -561,7 +611,7 @@ public sealed class PositionAssessmentServiceTests
                 market.CapturedAtUtc,
                 PolicyIdentity),
             marketDataQuality,
-            AssessmentDataQuality.FreshCompleteReliable,
+            portfolioDataQuality,
             asOf ?? T0.AddMinutes(3),
             rules ?? Rules);
     }

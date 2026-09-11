@@ -38,7 +38,7 @@ public sealed record PositionAssessmentInput
         inputVersions.Validate();
 
         var effectiveIdentity = PositionAssessmentConfigurationIdentity.Compose(
-            inputVersions.PolicyConfigurationIdentity,
+            inputVersions.BasePolicyConfigurationIdentity,
             portfolioRiskPolicySettings,
             rules,
             marketDataQuality,
@@ -55,6 +55,7 @@ public sealed record PositionAssessmentInput
             inputVersions.PositionObservedAt,
             inputVersions.PortfolioCalculatedAt,
             inputVersions.MarketCapturedAt,
+            inputVersions.BasePolicyConfigurationIdentity,
             effectiveIdentity);
         MarketDataQuality = marketDataQuality;
         PortfolioDataQuality = portfolioDataQuality;
