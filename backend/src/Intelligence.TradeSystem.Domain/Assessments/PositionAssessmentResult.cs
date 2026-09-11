@@ -266,7 +266,14 @@ public sealed record PositionAssessmentPortfolioRiskContext(
     decimal? TotalUnrealizedPnl,
     decimal? UsedCapital,
     bool IsComplete,
-    bool IsFresh);
+    bool IsFresh,
+    decimal? TotalEquity = null,
+    decimal? AvailableCapital = null,
+    decimal? CurrentPositionValue = null,
+    decimal? CurrentPositionConcentrationPercent = null,
+    decimal? MinimumFreeCapitalPercent = null,
+    decimal? MaximumGrossExposureToEquityPercent = null,
+    decimal? MaximumPositionConcentrationPercent = null);
 
 /// <summary>Сводный контекст качества источников и safety guard.</summary>
 public sealed record PositionAssessmentDataQualityContext

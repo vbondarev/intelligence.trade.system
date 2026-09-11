@@ -11,6 +11,10 @@ public sealed class RecommendationEntity
     public PositionAction RecommendedAction { get; set; }
     public AddDecision AddDecision { get; set; }
     public string PolicyVersion { get; set; } = null!;
+    public string? PolicyHash { get; set; }
+    public decimal? Confidence { get; set; }
+    public RecommendationPriority? Priority { get; set; }
+    public string? DecisionContextJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset ValidUntil { get; set; }
     public RecommendationStatus Status { get; set; }

@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
 using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
+using Intelligence.TradeSystem.Infrastructure.RecommendationPolicy;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Intelligence.TradeSystem.Application.Market;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +45,8 @@ public static class StartupExtensions
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        RegisterRecommendationPolicy(services, configuration);
+
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -80,6 +83,20 @@ public static class StartupExtensions
         services.AddScoped<IRecommendationRepository, RecommendationRepository>();
 
         return services;
+    }
+
+    private static void RegisterRecommendationPolicy(
+        IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var path = configuration
+            .GetSection(RecommendationPolicyOptions.SectionName)["Path"];
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        services.AddSingleton<IRecommendationPolicyDefinitionProvider>(
+            new JsonRecommendationPolicyDefinitionProvider(path));
+        services.AddScoped<RecommendationService>();
     }
 
     public static IServiceCollection AddExchangeAccountBackgroundSynchronization(

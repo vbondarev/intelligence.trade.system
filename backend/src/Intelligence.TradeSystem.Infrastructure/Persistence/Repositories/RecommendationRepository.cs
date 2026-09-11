@@ -121,10 +121,13 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
                 .OrderBy(reason => reason.Sequence)
                 .ToArrayAsync(cancellationToken);
         if (existing is not null)
+        {
             EnsureReasonsMatch(
                 persistedReasons.Select(reason => reason.ReasonCode),
                 recommendation.ReasonCodes,
                 recommendation.Id);
+            EnsureDecisionMatches(existing, mapped, recommendation.Id);
+        }
 
         if (existing is null)
         {
@@ -202,5 +205,26 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         if (!persisted.SequenceEqual(current))
             throw new InvalidOperationException(
                 $"Recommendation {id} reason codes are immutable and cannot be replaced.");
+    }
+
+    private static void EnsureDecisionMatches(
+        RecommendationEntity persisted,
+        RecommendationEntity current,
+        RecommendationId id)
+    {
+        if (persisted.RecommendedAction != current.RecommendedAction ||
+            persisted.AddDecision != current.AddDecision ||
+            !string.Equals(persisted.PolicyVersion, current.PolicyVersion, StringComparison.Ordinal) ||
+            !string.Equals(persisted.PolicyHash, current.PolicyHash, StringComparison.Ordinal) ||
+            persisted.Confidence != current.Confidence ||
+            persisted.Priority != current.Priority ||
+            !string.Equals(
+                persisted.DecisionContextJson,
+                current.DecisionContextJson,
+                StringComparison.Ordinal) ||
+            persisted.CreatedAt != current.CreatedAt ||
+            persisted.ValidUntil != current.ValidUntil)
+            throw new InvalidOperationException(
+                $"Recommendation {id} decision fields are immutable and cannot be replaced.");
     }
 }

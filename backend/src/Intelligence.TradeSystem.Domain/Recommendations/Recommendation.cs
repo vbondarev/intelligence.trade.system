@@ -11,9 +11,9 @@ public sealed class Recommendation
         RecommendationId id,
         PositionAssessmentId assessmentId,
         PositionId positionId,
-        PositionAction recommendedAction,
-        AddDecision addDecision,
-        RuleVersion policyVersion,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        PolicyConfigurationIdentity policyIdentity,
         IReadOnlyList<ReasonCode> reasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil,
@@ -27,9 +27,9 @@ public sealed class Recommendation
         Id = id;
         AssessmentId = assessmentId;
         PositionId = positionId;
-        RecommendedAction = recommendedAction;
-        AddDecision = addDecision;
-        PolicyVersion = policyVersion;
+        ActionDecision = action;
+        AddDecisionResult = addDecision;
+        PolicyIdentity = policyIdentity;
         ReasonCodes = reasonCodes;
         CreatedAt = createdAt;
         ValidUntil = validUntil;
@@ -44,9 +44,21 @@ public sealed class Recommendation
     public RecommendationId Id { get; }
     public PositionAssessmentId AssessmentId { get; }
     public PositionId PositionId { get; }
-    public PositionAction RecommendedAction { get; }
-    public AddDecision AddDecision { get; }
-    public RuleVersion PolicyVersion { get; }
+    public RecommendedActionDecision ActionDecision { get; }
+    public AddDecisionResult AddDecisionResult { get; }
+    public PolicyConfigurationIdentity PolicyIdentity { get; }
+    public PositionAction RecommendedAction => ActionDecision.Action;
+    public AddDecision AddDecision => AddDecisionResult.Decision;
+    public RuleVersion PolicyVersion => RuleVersion.From(PolicyIdentity.Version);
+    public string PolicyHash => PolicyIdentity.Hash;
+    public decimal? Confidence => ActionDecision.ReasonCodes.Count == 0 ? null : ActionDecision.Confidence;
+    public RecommendationPriority? Priority =>
+        ActionDecision.ReasonCodes.Count == 0 ? null : ActionDecision.Priority;
+    public IReadOnlyList<ReasonCode> ActionReasonCodes => ActionDecision.ReasonCodes;
+    public IReadOnlyList<ReasonCode> AddReasonCodes => AddDecisionResult.ReasonCodes;
+    public decimal? MaximumAdditionalPositionValue => AddDecisionResult.MaximumAdditionalPositionValue;
+    public decimal? MaximumAdditionalQuantity => AddDecisionResult.MaximumAdditionalQuantity;
+    public AddDecisionConditions? AddConditions => AddDecisionResult.Conditions;
     public IReadOnlyList<ReasonCode> ReasonCodes { get; }
     public DateTimeOffset CreatedAt { get; }
     public DateTimeOffset ValidUntil { get; }
@@ -57,6 +69,16 @@ public sealed class Recommendation
     public DateTimeOffset? ExpiredAt { get; private set; }
     public RecommendationId? SupersededByRecommendationId { get; private set; }
 
+    /// <summary>Есть ли у записи полные E.2 decision metadata, а не legacy semantics.</summary>
+    public bool HasStructuredDecision =>
+        PolicyIdentity.Hash != PolicyConfigurationIdentity.Legacy.Hash &&
+        ActionDecision.ReasonCodes.Count > 0 &&
+        AddDecision != Decisions.AddDecision.NotEvaluated;
+
+    /// <summary>
+    /// Совместимый factory для старых callers. Такие записи сохраняют legacy metadata и
+    /// допускают NotEvaluated только как backward-compatible semantics.
+    /// </summary>
     public static Recommendation Create(
         PositionAssessment assessment,
         PositionAction recommendedAction,
@@ -66,46 +88,91 @@ public sealed class Recommendation
         DateTimeOffset createdAt,
         DateTimeOffset validUntil)
     {
-        ArgumentNullException.ThrowIfNull(assessment);
         ArgumentNullException.ThrowIfNull(reasonCodes);
-        ValidateEnum(recommendedAction, nameof(recommendedAction));
-        ValidateEnum(addDecision, nameof(addDecision));
-        if (addDecision == AddDecision.AddAllowed &&
-            assessment.PortfolioRiskDecision == RiskIncreaseDecision.Blocked)
-            throw new InvalidOperationException("A blocked portfolio risk decision cannot produce AddAllowed.");
+        var specificReasons = reasonCodes.Distinct().ToArray();
+        var action = RecommendedActionDecision.Legacy(recommendedAction);
+        var add = AddDecisionResult.Legacy(addDecision);
+        return CreateCore(
+            assessment,
+            action,
+            add,
+            PolicyConfigurationIdentity.From(policyVersion.Value, PolicyConfigurationIdentity.Legacy.Hash),
+            specificReasons,
+            createdAt,
+            validUntil,
+            legacy: true);
+    }
+
+    /// <summary>Создаёт новую рекомендацию из полного результата E.2 policy.</summary>
+    public static Recommendation Create(
+        PositionAssessment assessment,
+        RecommendationPolicyEvaluation evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(evaluation);
+        return CreateCore(
+            assessment,
+            evaluation.Action,
+            evaluation.AddDecision,
+            evaluation.PolicyIdentity,
+            evaluation.Action.ReasonCodes.Concat(evaluation.AddDecision.ReasonCodes).ToArray(),
+            evaluation.CreatedAt,
+            evaluation.ValidUntil,
+            legacy: false);
+    }
+
+    private static Recommendation CreateCore(
+        PositionAssessment assessment,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        PolicyConfigurationIdentity policyIdentity,
+        IEnumerable<ReasonCode> specificReasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        bool legacy)
+    {
+        ArgumentNullException.ThrowIfNull(assessment);
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(addDecision);
+        ArgumentNullException.ThrowIfNull(specificReasonCodes);
+        ValidateIdentity(policyIdentity);
+        ValidateDecision(assessment, action, addDecision, legacy);
+        if (!legacy &&
+            policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
+            throw new InvalidOperationException(
+                "Recommendation policy identity must match the assessment base policy identity.");
+
         if (createdAt < assessment.CreatedAt || createdAt >= assessment.ValidUntil)
             throw new ArgumentException("CreatedAt must be within the assessment validity window.", nameof(createdAt));
         if (validUntil <= createdAt)
             throw new ArgumentException("ValidUntil must be after CreatedAt.", nameof(validUntil));
         if (validUntil > assessment.ValidUntil)
             throw new ArgumentException("Recommendation cannot outlive its assessment.", nameof(validUntil));
-        if (string.IsNullOrWhiteSpace(policyVersion.Value))
-            throw new ArgumentException("PolicyVersion must be initialized.", nameof(policyVersion));
 
-        var specificReasons = reasonCodes.Distinct().ToArray();
-        if (specificReasons.Any(reason => !Enum.IsDefined(reason)))
-            throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
+        var specificReasons = specificReasonCodes.Distinct().ToArray();
+        ValidateReasons(specificReasons);
         if (specificReasons.Any(ReasonCodeClassification.IsPortfolioRiskReason))
             throw new ArgumentException(
-                "Portfolio risk reasons must be inherited from the assessment.", nameof(reasonCodes));
+                "Portfolio risk reasons must be inherited from the assessment.", nameof(specificReasonCodes));
 
-        var reasons = assessment.ReasonCodes
-            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
-            .Concat(specificReasons)
-            .Distinct()
-            .ToArray();
+        var reasons = BuildReasonCodes(assessment, action, addDecision, legacy);
         if (reasons.Length == 0)
-            throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
+            throw new ArgumentException("At least one reason code is required.", nameof(specificReasonCodes));
         ValidateReasonInheritance(assessment, reasons);
 
         return new(
-            RecommendationId.New(), assessment.Id, assessment.PositionId, recommendedAction, addDecision,
-            policyVersion, new ReadOnlyCollection<ReasonCode>(reasons), createdAt, validUntil);
+            RecommendationId.New(),
+            assessment.Id,
+            assessment.PositionId,
+            action,
+            addDecision,
+            policyIdentity,
+            new ReadOnlyCollection<ReasonCode>(reasons.ToArray()),
+            createdAt,
+            validUntil);
     }
 
     /// <summary>
-    /// Восстанавливает рекомендацию с сохранённым идентификатором и текущим состоянием lifecycle.
-    /// Переходы состояния при восстановлении не выполняются.
+    /// Восстанавливает старую запись, для которой structured E.2 metadata ещё отсутствует.
     /// </summary>
     public static Recommendation Restore(
         RecommendationId id,
@@ -123,19 +190,91 @@ public sealed class Recommendation
         DateTimeOffset? expiredAt,
         RecommendationId? supersededByRecommendationId)
     {
+        ArgumentNullException.ThrowIfNull(reasonCodes);
+        return RestoreCore(
+            id,
+            assessment,
+            RecommendedActionDecision.Legacy(recommendedAction),
+            AddDecisionResult.Legacy(addDecision),
+            PolicyConfigurationIdentity.From(policyVersion.Value, PolicyConfigurationIdentity.Legacy.Hash),
+            reasonCodes,
+            createdAt,
+            validUntil,
+            status,
+            acknowledgedAt,
+            dismissedAt,
+            supersededAt,
+            expiredAt,
+            supersededByRecommendationId,
+            legacy: true);
+    }
+
+    /// <summary>Восстанавливает recommendation с полным E.2 decision context.</summary>
+    public static Recommendation Restore(
+        RecommendationId id,
+        PositionAssessment assessment,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        PolicyConfigurationIdentity policyIdentity,
+        IEnumerable<ReasonCode> reasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RecommendationStatus status,
+        DateTimeOffset? acknowledgedAt,
+        DateTimeOffset? dismissedAt,
+        DateTimeOffset? supersededAt,
+        DateTimeOffset? expiredAt,
+        RecommendationId? supersededByRecommendationId)
+    {
+        return RestoreCore(
+            id,
+            assessment,
+            action,
+            addDecision,
+            policyIdentity,
+            reasonCodes,
+            createdAt,
+            validUntil,
+            status,
+            acknowledgedAt,
+            dismissedAt,
+            supersededAt,
+            expiredAt,
+            supersededByRecommendationId,
+            legacy: false);
+    }
+
+    private static Recommendation RestoreCore(
+        RecommendationId id,
+        PositionAssessment assessment,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        PolicyConfigurationIdentity policyIdentity,
+        IEnumerable<ReasonCode> reasonCodes,
+        DateTimeOffset createdAt,
+        DateTimeOffset validUntil,
+        RecommendationStatus status,
+        DateTimeOffset? acknowledgedAt,
+        DateTimeOffset? dismissedAt,
+        DateTimeOffset? supersededAt,
+        DateTimeOffset? expiredAt,
+        RecommendationId? supersededByRecommendationId,
+        bool legacy)
+    {
         ArgumentNullException.ThrowIfNull(assessment);
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(addDecision);
         ArgumentNullException.ThrowIfNull(reasonCodes);
         if (id == default)
             throw new ArgumentException("RecommendationId must be initialized.", nameof(id));
-
-        ValidateEnum(recommendedAction, nameof(recommendedAction));
-        ValidateEnum(addDecision, nameof(addDecision));
+        ValidateIdentity(policyIdentity);
+        ValidateDecision(assessment, action, addDecision, legacy);
+        if (!legacy &&
+            policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
+            throw new InvalidOperationException(
+                "Recommendation policy identity must match the assessment base policy identity.");
         ValidateEnum(status, nameof(status));
-        if (addDecision == AddDecision.AddAllowed &&
-            assessment.PortfolioRiskDecision == RiskIncreaseDecision.Blocked)
-            throw new InvalidOperationException("A blocked portfolio risk decision cannot produce AddAllowed.");
-        if (string.IsNullOrWhiteSpace(policyVersion.Value))
-            throw new ArgumentException("PolicyVersion must be initialized.", nameof(policyVersion));
+
         if (createdAt < assessment.CreatedAt || createdAt >= assessment.ValidUntil)
             throw new ArgumentException("CreatedAt must be within the assessment validity window.", nameof(createdAt));
         if (validUntil <= createdAt || validUntil > assessment.ValidUntil)
@@ -144,11 +283,14 @@ public sealed class Recommendation
         var reasons = reasonCodes.ToArray();
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(reasonCodes));
-        if (reasons.Any(reason => !Enum.IsDefined(reason)))
-            throw new ArgumentOutOfRangeException(nameof(reasonCodes), "Reason code must be defined.");
+        ValidateReasons(reasons);
         if (reasons.Distinct().Count() != reasons.Length)
             throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
         ValidateReasonInheritance(assessment, reasons);
+        if (!legacy && !reasons.SequenceEqual(BuildReasonCodes(assessment, action, addDecision, legacy)))
+            throw new ArgumentException(
+                "Recommendation reason codes must match the persisted action and add decisions.",
+                nameof(reasonCodes));
 
         ValidateLifecycle(
             id,
@@ -165,9 +307,9 @@ public sealed class Recommendation
             id,
             assessment.Id,
             assessment.PositionId,
-            recommendedAction,
+            action,
             addDecision,
-            policyVersion,
+            policyIdentity,
             new ReadOnlyCollection<ReasonCode>(reasons),
             createdAt,
             validUntil,
@@ -224,34 +366,67 @@ public sealed class Recommendation
         ExpiredAt = now;
     }
 
-    /// <summary>
-    /// Определяет актуальность в текущем состоянии жизненного цикла на заданный момент.
-    /// Это не запрос на восстановление исторического жизненного цикла.
-    /// </summary>
     public bool IsEffectiveAt(DateTimeOffset at) =>
         Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged &&
         CreatedAt <= at && at < ValidUntil;
 
-    private void EnsureNotPastValidity(DateTimeOffset at, string operation)
+    private static ReasonCode[] BuildReasonCodes(
+        PositionAssessment assessment,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        bool legacy)
     {
-        if (at >= ValidUntil)
-            throw new InvalidOperationException($"{operation} cannot occur at or after ValidUntil.");
-        if (at < CreatedAt)
-            throw new InvalidOperationException($"{operation} cannot occur before CreatedAt.");
+        var inherited = assessment.ReasonCodes
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .ToArray();
+        if (legacy)
+            return inherited
+                .Concat(action.ReasonCodes)
+                .Distinct()
+                .ToArray();
+
+        return inherited
+            .Concat(action.ReasonCodes)
+            .Concat(addDecision.ReasonCodes)
+            .Distinct()
+            .ToArray();
     }
 
-    private void EnsureStatus(string operation, params RecommendationStatus[] allowed)
+    private static void ValidateDecision(
+        PositionAssessment assessment,
+        RecommendedActionDecision action,
+        AddDecisionResult addDecision,
+        bool legacy)
     {
-        if (!allowed.Contains(Status))
-            throw new InvalidOperationException($"{operation} cannot transition recommendation from {Status}.");
+        if (!Enum.IsDefined(action.Action))
+            throw new ArgumentOutOfRangeException(nameof(action), action.Action, "Action must be defined.");
+        if (!Enum.IsDefined(addDecision.Decision))
+            throw new ArgumentOutOfRangeException(
+                nameof(addDecision),
+                addDecision.Decision,
+                "Add decision must be defined.");
+        if (addDecision.Decision == Decisions.AddDecision.AddAllowed &&
+            assessment.PortfolioRiskDecision == RiskIncreaseDecision.Blocked)
+            throw new InvalidOperationException("A blocked portfolio risk decision cannot produce AddAllowed.");
+        if (!legacy && addDecision.Decision == Decisions.AddDecision.NotEvaluated)
+            throw new InvalidOperationException("New recommendations cannot use NotEvaluated.");
+        if (!legacy &&
+            (action.ReasonCodes.Any(ReasonCodeClassification.IsPortfolioRiskReason) ||
+             addDecision.ReasonCodes.Any(ReasonCodeClassification.IsPortfolioRiskReason)))
+            throw new ArgumentException(
+                "Structured decision reasons cannot contain inherited portfolio-risk codes.");
     }
 
-    private void EnsureStatus(RecommendationStatus expected, string operation) => EnsureStatus(operation, expected);
-
-    private static void ValidateEnum<T>(T value, string name) where T : struct, Enum
+    private static void ValidateIdentity(PolicyConfigurationIdentity identity)
     {
-        if (!Enum.IsDefined(value))
-            throw new ArgumentOutOfRangeException(name, value, "Value must be defined.");
+        if (string.IsNullOrWhiteSpace(identity.Version) || string.IsNullOrWhiteSpace(identity.Hash))
+            throw new ArgumentException("Policy identity must contain version and hash.", nameof(identity));
+    }
+
+    private static void ValidateReasons(IEnumerable<ReasonCode> reasons)
+    {
+        if (reasons.Any(reason => !Enum.IsDefined(reason)))
+            throw new ArgumentOutOfRangeException(nameof(reasons), "Reason code must be defined.");
     }
 
     private static void ValidateReasonInheritance(
@@ -275,6 +450,29 @@ public sealed class Recommendation
         if (!reasons.SequenceEqual(inheritedReasons.Concat(specificReasons)))
             throw new ArgumentException(
                 "Recommendation reasons must contain inherited reasons before specific reasons.");
+    }
+
+    private void EnsureNotPastValidity(DateTimeOffset at, string operation)
+    {
+        if (at >= ValidUntil)
+            throw new InvalidOperationException($"{operation} cannot occur at or after ValidUntil.");
+        if (at < CreatedAt)
+            throw new InvalidOperationException($"{operation} cannot occur before CreatedAt.");
+    }
+
+    private void EnsureStatus(string operation, params RecommendationStatus[] allowed)
+    {
+        if (!allowed.Contains(Status))
+            throw new InvalidOperationException($"{operation} cannot transition recommendation from {Status}.");
+    }
+
+    private void EnsureStatus(RecommendationStatus expected, string operation) =>
+        EnsureStatus(operation, expected);
+
+    private static void ValidateEnum<T>(T value, string name) where T : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(name, value, "Value must be defined.");
     }
 
     private static void ValidateLifecycle(

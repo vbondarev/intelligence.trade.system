@@ -58,7 +58,14 @@ internal static class PositionAssessmentFeatureCalculator
                 input.PortfolioState.TotalUnrealizedPnl,
                 input.PortfolioState.UsedCapital,
                 input.PortfolioState.IsComplete,
-                input.PortfolioState.IsFresh),
+                input.PortfolioState.IsFresh,
+                input.PortfolioState.Capital.TotalEquity,
+                input.PortfolioState.Capital.AvailableCapital,
+                input.Position.PositionValue,
+                CalculatePositionConcentrationPercent(input.Position.PositionValue, input.PortfolioState.Capital.TotalEquity),
+                input.PortfolioRiskPolicySettings.MinimumFreeCapitalPercent,
+                input.PortfolioRiskPolicySettings.MaximumGrossExposureToEquityPercent,
+                input.PortfolioRiskPolicySettings.MaximumPositionConcentrationPercent),
             new(
                 marketQuality,
                 portfolioQuality));
@@ -350,5 +357,12 @@ internal static class PositionAssessmentFeatureCalculator
     private static decimal? CalculateSignedDistancePercent(decimal? origin, decimal? target) =>
         origin is > 0m && target.HasValue
             ? (target.Value - origin.Value) / origin.Value * 100m
+            : null;
+
+    private static decimal? CalculatePositionConcentrationPercent(
+        decimal? positionValue,
+        decimal? totalEquity) =>
+        positionValue is >= 0m && totalEquity is > 0m
+            ? positionValue.Value / totalEquity.Value * 100m
             : null;
 }
