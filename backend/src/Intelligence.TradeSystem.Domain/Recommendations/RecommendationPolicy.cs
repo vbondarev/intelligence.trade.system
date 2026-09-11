@@ -22,9 +22,6 @@ public sealed class RecommendationPolicy
         ArgumentNullException.ThrowIfNull(assessment);
         ArgumentNullException.ThrowIfNull(policyDefinition);
 
-        if (assessment.InputVersions.BasePolicyConfigurationIdentity != policyDefinition.Identity)
-            throw new InvalidOperationException(
-                "Position assessment and recommendation policy identities do not match.");
         if (!assessment.IsValidAt(asOf))
             throw new ArgumentException("Recommendation evaluation must occur within assessment validity.", nameof(asOf));
 
@@ -50,6 +47,10 @@ public sealed class RecommendationPolicy
                 asOf,
                 validUntil);
         }
+
+        if (assessment.InputVersions.BasePolicyConfigurationIdentity != policyDefinition.Identity)
+            throw new InvalidOperationException(
+                "Position assessment and recommendation policy identities do not match.");
 
         var actionDecision = EvaluateAction(assessment, policyDefinition);
         var addDecision = EvaluateAddDecision(assessment, policyDefinition, actionDecision.Action);
@@ -109,18 +110,10 @@ public sealed class RecommendationPolicy
         }
 
         if (!CanSafelyHold(assessment))
-        {
-            var reasons = new List<ReasonCode> { ReasonCode.TrendFlatOrUnknown };
-            if (result.Trend.PositionAlignment == PositionTrendAlignment.Adverse)
-                reasons[0] = ReasonCode.TrendAdverse;
-            if (result.Pnl.PnlPercent is null)
-                reasons.Add(ReasonCode.PnlUnavailable);
-            if (!result.Momentum.IsReliable)
-                reasons.Add(ReasonCode.MomentumUnavailable);
-            if (result.Liquidation.State != AssessmentLiquidationState.Far)
-                reasons.Add(ReasonCode.LiquidationUnavailable);
-            return CreateActionDecision(PositionAction.Watch, policyDefinition, reasons.Distinct());
-        }
+            return CreateActionDecision(
+                PositionAction.Watch,
+                policyDefinition,
+                BuildWatchReasons(assessment));
 
         return CreateActionDecision(PositionAction.Hold, policyDefinition, [ReasonCode.TrendAligned]);
     }
@@ -219,20 +212,23 @@ public sealed class RecommendationPolicy
         var grossExposureRoom =
             equity * portfolioRisk.MaximumGrossExposureToEquityPercent.Value / 100m -
             equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
-        var positionConcentrationRoom =
-            equity * portfolioRisk.MaximumPositionConcentrationPercent.Value / 100m -
-            portfolioRisk.CurrentPositionValue.Value;
+        var maximumConcentration =
+            portfolioRisk.MaximumPositionConcentrationPercent.Value / 100m;
+        var currentGrossExposure =
+            equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
+        var positionConcentrationRoom = maximumConcentration >= 1m
+            ? decimal.MaxValue
+            : (maximumConcentration * currentGrossExposure -
+               portfolioRisk.CurrentPositionValue.Value) / (1m - maximumConcentration);
         var policyRelativeRoom =
             equity * limits.MaximumAdditionalPositionPercentOfEquity / 100m;
         var policyAvailableRoom =
             available * limits.MaximumAdditionalAvailableCapitalPercent / 100m;
 
-        if (freeCapitalRoom <= 0m)
-            reasons.Add(ReasonCode.InsufficientFreeCapital);
-        if (grossExposureRoom <= 0m)
-            reasons.Add(ReasonCode.GrossExposureLimitExceeded);
-        if (positionConcentrationRoom <= 0m)
-            reasons.Add(ReasonCode.ConcentrationLimitExceeded);
+        if (freeCapitalRoom <= 0m ||
+            grossExposureRoom <= 0m ||
+            positionConcentrationRoom <= 0m)
+            reasons.Add(ReasonCode.AddBlockedByPortfolioRisk);
 
         var maximum = Math.Max(
             0m,
@@ -277,11 +273,16 @@ public sealed class RecommendationPolicy
         (!result.Stop.StopPrice.HasValue ||
          result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Unavailable);
 
-    private static bool IsStopProtectingProfit(PositionAssessmentResult result) =>
-        result.PositionSide == PositionSide.Long
+    private static bool IsStopProtectingProfit(PositionAssessmentResult result)
+    {
+        if (result.Stop.State != AssessmentStopState.Protective)
+            return false;
+
+        return result.PositionSide == PositionSide.Long
             ? result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Above
             : result.PositionSide == PositionSide.Short &&
               result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Below;
+    }
 
     private static bool IsProfitable(PositionAssessmentResult result) =>
         result.Pnl.UnrealizedPnl > 0m && result.Pnl.PnlPercent > 0m;
@@ -294,7 +295,54 @@ public sealed class RecommendationPolicy
             result.Pnl.PnlPercent.HasValue &&
             result.Momentum.IsReliable &&
             result.Momentum.State != AssessmentMomentumState.Unavailable &&
-            !assessment.ReasonCodes.Contains(ReasonCode.LowVolume);
+            !assessment.ReasonCodes.Contains(ReasonCode.LowVolume) &&
+            result.Stop.StopPrice.HasValue &&
+            result.Stop.State == AssessmentStopState.Protective;
+    }
+
+    private static ReasonCode[] BuildWatchReasons(PositionAssessment assessment)
+    {
+        var result = assessment.Result;
+        var reasons = new List<ReasonCode>();
+
+        switch (result.Trend.PositionAlignment)
+        {
+            case PositionTrendAlignment.Adverse:
+                reasons.Add(ReasonCode.TrendAdverse);
+                break;
+            case PositionTrendAlignment.FlatOrUnknown:
+                reasons.Add(ReasonCode.TrendFlatOrUnknown);
+                break;
+        }
+
+        if (result.Pnl.PnlPercent is null)
+            reasons.Add(ReasonCode.PnlUnavailable);
+        if (!result.Momentum.IsReliable || result.Momentum.State == AssessmentMomentumState.Unavailable)
+            reasons.Add(ReasonCode.MomentumUnavailable);
+
+        ReasonCode? liquidationReason = result.Liquidation.State switch
+        {
+            AssessmentLiquidationState.Invalid => ReasonCode.LiquidationInvalid,
+            AssessmentLiquidationState.Unavailable => ReasonCode.LiquidationUnavailable,
+            AssessmentLiquidationState.Near => ReasonCode.LiquidationNearby,
+            _ => (ReasonCode?)null
+        };
+        if (liquidationReason.HasValue)
+            reasons.Add(liquidationReason.Value);
+
+        if (assessment.ReasonCodes.Contains(ReasonCode.LowVolume))
+            reasons.Add(ReasonCode.LowVolume);
+
+        if (!result.Stop.StopPrice.HasValue)
+            reasons.Add(ReasonCode.StopMissing);
+        else if (result.Stop.State == AssessmentStopState.NonProtective)
+            reasons.Add(ReasonCode.StopNonProtective);
+        else if (result.Stop.State == AssessmentStopState.Unknown)
+            reasons.Add(ReasonCode.StopUnknown);
+
+        return reasons
+            .Distinct()
+            .ToArray();
     }
 
     private static RecommendedActionDecision CreateActionDecision(

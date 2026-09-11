@@ -98,9 +98,12 @@ public sealed class RecommendationPolicyTests
             portfolioDecision: RiskIncreaseDecision.Blocked);
 
         var result = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
+        var recommendation = Recommendation.Create(assessment, result);
 
         result.Action.Action.Should().Be(PositionAction.Watch);
         result.AddDecision.Decision.Should().Be(AddDecision.DoNotAdd);
+        recommendation.RecommendedAction.Should().Be(PositionAction.Watch);
+        recommendation.AddDecision.Should().Be(AddDecision.DoNotAdd);
         result.AddDecision.MaximumAdditionalPositionValue.Should().BeNull();
     }
 
@@ -114,9 +117,12 @@ public sealed class RecommendationPolicyTests
             legacy: true);
 
         var result = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
+        var recommendation = Recommendation.Create(assessment, result);
 
         result.Action.Action.Should().Be(PositionAction.Watch);
         result.AddDecision.Decision.Should().Be(AddDecision.DoNotAdd);
+        recommendation.RecommendedAction.Should().Be(PositionAction.Watch);
+        recommendation.AddDecision.Should().Be(AddDecision.DoNotAdd);
     }
 
     [Fact]
@@ -126,11 +132,15 @@ public sealed class RecommendationPolicyTests
         var assessment = CreateAssessment(policy, PositionTrendAlignment.Aligned);
 
         var result = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
+        var recommendation = Recommendation.Create(assessment, result);
 
         result.Action.Action.Should().Be(PositionAction.Hold);
         result.AddDecision.Decision.Should().Be(AddDecision.AddAllowed);
-        result.AddDecision.MaximumAdditionalPositionValue.Should().Be(1_000m);
-        result.AddDecision.MaximumAdditionalQuantity.Should().Be(1_000m / 105m);
+        recommendation.AddDecision.Should().Be(AddDecision.AddAllowed);
+        recommendation.AddConditions.Should().NotBeNull();
+        result.AddDecision.MaximumAdditionalPositionValue.Should().Be(333.33333333333333333333333333m);
+        result.AddDecision.MaximumAdditionalQuantity
+            .Should().Be(333.33333333333333333333333333m / 105m);
         result.AddDecision.Conditions.Should().NotBeNull();
     }
 
@@ -178,6 +188,113 @@ public sealed class RecommendationPolicyTests
             .Action.Action.Should().Be(PositionAction.Watch);
     }
 
+    [Fact]
+    public void Non_protective_stops_never_produce_hold()
+    {
+        var policy = PolicyDefinition.Default;
+
+        var longResult = new RecommendationPolicy().Evaluate(
+            CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                pnlPercent: 3m,
+                stopState: AssessmentStopState.NonProtective,
+                stopPrice: 110m,
+                stopPosition: AssessmentPricePosition.Above),
+            policy,
+            T0.AddMinutes(3));
+        var shortResult = new RecommendationPolicy().Evaluate(
+            CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                pnlPercent: 3m,
+                side: PositionSide.Short,
+                stopState: AssessmentStopState.NonProtective,
+                stopPrice: 90m,
+                stopPosition: AssessmentPricePosition.Below),
+            policy,
+            T0.AddMinutes(3));
+
+        longResult.Action.Action.Should().Be(PositionAction.MoveStop);
+        shortResult.Action.Action.Should().Be(PositionAction.MoveStop);
+    }
+
+    [Fact]
+    public void Protective_stop_on_the_profit_side_allows_hold()
+    {
+        var policy = PolicyDefinition.Default;
+        var result = new RecommendationPolicy().Evaluate(
+            CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                pnlPercent: 3m,
+                stopState: AssessmentStopState.Protective,
+                stopPrice: 101m,
+                stopPosition: AssessmentPricePosition.Above),
+            policy,
+            T0.AddMinutes(3));
+
+        result.Action.Action.Should().Be(PositionAction.Hold);
+    }
+
+    [Fact]
+    public void Watch_reasons_report_low_volume_without_claiming_flat_trend()
+    {
+        var policy = PolicyDefinition.Default;
+        var result = new RecommendationPolicy().Evaluate(
+            CreateAssessment(policy, PositionTrendAlignment.Aligned, lowVolume: true),
+            policy,
+            T0.AddMinutes(3));
+
+        result.Action.Action.Should().Be(PositionAction.Watch);
+        result.Action.ReasonCodes.Should().Contain(ReasonCode.LowVolume);
+        result.Action.ReasonCodes.Should().NotContain(ReasonCode.TrendFlatOrUnknown);
+    }
+
+    [Theory]
+    [InlineData(AssessmentLiquidationState.Invalid, ReasonCode.LiquidationInvalid)]
+    [InlineData(AssessmentLiquidationState.Unavailable, ReasonCode.LiquidationUnavailable)]
+    public void Watch_preserves_liquidation_state_reason(
+        AssessmentLiquidationState state,
+        ReasonCode expectedReason)
+    {
+        var policy = PolicyDefinition.Default;
+        var result = new RecommendationPolicy().Evaluate(
+            CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                liquidationState: state,
+                liquidationDistance: null),
+            policy,
+            T0.AddMinutes(3));
+
+        result.Action.Action.Should().Be(PositionAction.Watch);
+        result.Action.ReasonCodes.Should().Contain(expectedReason);
+    }
+
+    [Fact]
+    public void Headroom_blockers_create_structured_do_not_add_recommendations()
+    {
+        var policy = PolicyDefinition.Default;
+        var scenarios = new[]
+        {
+            CreateAssessment(policy, PositionTrendAlignment.Aligned, availableCapital: 1_000m),
+            CreateAssessment(policy, PositionTrendAlignment.Aligned, grossExposurePercent: 100m),
+            CreateAssessment(policy, PositionTrendAlignment.Aligned, currentPositionValue: 3_000m),
+            CreateAssessment(policy, PositionTrendAlignment.Aligned, totalEquity: null)
+        };
+
+        foreach (var assessment in scenarios)
+        {
+            var evaluation = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
+            var recommendation = Recommendation.Create(assessment, evaluation);
+
+            evaluation.AddDecision.Decision.Should().Be(AddDecision.DoNotAdd);
+            recommendation.AddDecision.Should().Be(AddDecision.DoNotAdd);
+            recommendation.MaximumAdditionalPositionValue.Should().BeNull();
+        }
+    }
+
     private static PositionAssessment CreateAssessment(
         PolicyDefinition policy,
         PositionTrendAlignment alignment,
@@ -190,7 +307,16 @@ public sealed class RecommendationPolicyTests
         bool supportNearby = false,
         bool stopMissing = false,
         AssessmentPricePosition stopPosition = AssessmentPricePosition.Below,
-        PositionSide side = PositionSide.Long)
+        PositionSide side = PositionSide.Long,
+        AssessmentStopState stopState = AssessmentStopState.Protective,
+        decimal stopPrice = 90m,
+        bool lowVolume = false,
+        AssessmentLiquidationState liquidationState = AssessmentLiquidationState.Far,
+        decimal? liquidationDistance = 61m,
+        decimal? totalEquity = 10_000m,
+        decimal? availableCapital = 8_000m,
+        decimal? currentPositionValue = 1_000m,
+        decimal grossExposurePercent = 50m)
     {
         var inputVersions = new PositionAssessmentInputVersions(
             PositionId.New(),
@@ -215,27 +341,27 @@ public sealed class RecommendationPolicyTests
                     IsFavorable = pnlPercent > 0m
                 },
                 new(
-                    stopMissing ? null : 90m,
+                    stopMissing ? null : stopPrice,
                     14m,
                     stopMissing ? null : stopPosition == AssessmentPricePosition.Above ? 2m : -10m,
-                    stopMissing ? AssessmentStopState.Unavailable : AssessmentStopState.Protective,
+                    stopMissing ? AssessmentStopState.Unavailable : stopState,
                     stopMissing ? AssessmentPricePosition.Unavailable : stopPosition,
                     null,
                     false),
                 new(100m, 4.7m, 0m, AssessmentPricePosition.Above) { IsProfitable = pnlPercent > 0m },
-                new(40m, 61m, AssessmentLiquidationState.Far),
+                new(40m, liquidationDistance, liquidationState),
                 new(
                     portfolioDecision,
                     80m,
-                    50m,
+                    grossExposurePercent,
                     10m,
                     pnlPercent,
                     2_000m,
                     true,
                     true,
-                    10_000m,
-                    8_000m,
-                    1_000m,
+                    totalEquity,
+                    availableCapital,
+                    currentPositionValue,
                     10m,
                     10m,
                     100m,
@@ -274,6 +400,8 @@ public sealed class RecommendationPolicyTests
             reasons.Add(ReasonCode.ResistanceNearby);
         if (supportNearby)
             reasons.Add(ReasonCode.SupportNearby);
+        if (lowVolume)
+            reasons.Add(ReasonCode.LowVolume);
         if (quality != AssessmentDataQuality.FreshCompleteReliable)
             reasons.Add(ReasonCode.MarketDataUncertain);
         return PositionAssessment.Create(

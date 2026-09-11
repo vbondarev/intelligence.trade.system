@@ -218,10 +218,9 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             !string.Equals(persisted.PolicyHash, current.PolicyHash, StringComparison.Ordinal) ||
             persisted.Confidence != current.Confidence ||
             persisted.Priority != current.Priority ||
-            !string.Equals(
+            !RecommendationMapper.DecisionContextsEqual(
                 persisted.DecisionContextJson,
-                current.DecisionContextJson,
-                StringComparison.Ordinal) ||
+                current.DecisionContextJson) ||
             persisted.CreatedAt != current.CreatedAt ||
             persisted.ValidUntil != current.ValidUntil)
             throw new InvalidOperationException(

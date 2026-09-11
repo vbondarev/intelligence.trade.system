@@ -19,15 +19,21 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         ReadCommentHandling = JsonCommentHandling.Disallow,
         AllowTrailingCommas = false,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
     };
 
     private readonly PolicyDefinition definition;
 
-    public JsonRecommendationPolicyDefinitionProvider(string path)
+    public JsonRecommendationPolicyDefinitionProvider(
+        string path,
+        string? baseDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var fullPath = System.IO.Path.GetFullPath(path);
+        var fullPath = System.IO.Path.IsPathRooted(path)
+            ? System.IO.Path.GetFullPath(path)
+            : System.IO.Path.GetFullPath(
+                path,
+                baseDirectory ?? AppContext.BaseDirectory);
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("Recommendation policy file was not found.", fullPath);
 

@@ -88,6 +88,10 @@ public sealed class RecommendationPolicyDefinitionTests
     public void Unknown_priority_enum_fails_fast() =>
         AssertInvalid(DefaultJson.Replace("\"close\": \"critical\"", "\"close\": \"urgent\""));
 
+    [Fact]
+    public void Integer_priority_enum_fails_fast() =>
+        AssertInvalid(DefaultJson.Replace("\"close\": \"critical\"", "\"close\": 1"));
+
     private static void AssertInvalid(string json)
     {
         var path = WritePolicy(json);

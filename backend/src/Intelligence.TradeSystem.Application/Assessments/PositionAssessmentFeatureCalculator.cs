@@ -62,7 +62,7 @@ internal static class PositionAssessmentFeatureCalculator
                 input.PortfolioState.Capital.TotalEquity,
                 input.PortfolioState.Capital.AvailableCapital,
                 input.Position.PositionValue,
-                CalculatePositionConcentrationPercent(input.Position.PositionValue, input.PortfolioState.Capital.TotalEquity),
+                CalculatePositionConcentrationPercent(input.Position.PositionValue, input.PortfolioState.GrossExposure),
                 input.PortfolioRiskPolicySettings.MinimumFreeCapitalPercent,
                 input.PortfolioRiskPolicySettings.MaximumGrossExposureToEquityPercent,
                 input.PortfolioRiskPolicySettings.MaximumPositionConcentrationPercent),
@@ -361,8 +361,8 @@ internal static class PositionAssessmentFeatureCalculator
 
     private static decimal? CalculatePositionConcentrationPercent(
         decimal? positionValue,
-        decimal? totalEquity) =>
-        positionValue is >= 0m && totalEquity is > 0m
-            ? positionValue.Value / totalEquity.Value * 100m
+        decimal? grossExposure) =>
+        positionValue is >= 0m && grossExposure is > 0m
+            ? positionValue.Value / grossExposure.Value * 100m
             : null;
 }

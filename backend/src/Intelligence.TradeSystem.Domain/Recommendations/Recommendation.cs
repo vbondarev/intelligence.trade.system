@@ -89,6 +89,23 @@ public sealed class Recommendation
         DateTimeOffset validUntil)
     {
         ArgumentNullException.ThrowIfNull(reasonCodes);
+        if (!Enum.IsDefined(recommendedAction))
+            throw new ArgumentOutOfRangeException(
+                nameof(recommendedAction),
+                recommendedAction,
+                "Action must be defined.");
+        if (!Enum.IsDefined(addDecision))
+            throw new ArgumentOutOfRangeException(
+                nameof(addDecision),
+                addDecision,
+                "Add decision must be defined.");
+        if (addDecision == AddDecision.AddAllowed)
+            throw new InvalidOperationException(
+                "AddAllowed can only be produced by RecommendationPolicy.");
+        if (addDecision == AddDecision.NotEvaluated)
+            throw new ArgumentException(
+                "NotEvaluated is reserved for restoring persisted legacy recommendations.");
+
         var specificReasons = reasonCodes.Distinct().ToArray();
         var action = RecommendedActionDecision.Legacy(recommendedAction);
         var add = AddDecisionResult.Legacy(addDecision);
@@ -137,6 +154,7 @@ public sealed class Recommendation
         ValidateIdentity(policyIdentity);
         ValidateDecision(assessment, action, addDecision, legacy);
         if (!legacy &&
+            !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
             throw new InvalidOperationException(
                 "Recommendation policy identity must match the assessment base policy identity.");
@@ -154,7 +172,12 @@ public sealed class Recommendation
             throw new ArgumentException(
                 "Portfolio risk reasons must be inherited from the assessment.", nameof(specificReasonCodes));
 
-        var reasons = BuildReasonCodes(assessment, action, addDecision, legacy);
+        var reasons = BuildReasonCodes(
+            assessment,
+            action,
+            addDecision,
+            specificReasons,
+            legacy);
         if (reasons.Length == 0)
             throw new ArgumentException("At least one reason code is required.", nameof(specificReasonCodes));
         ValidateReasonInheritance(assessment, reasons);
@@ -270,6 +293,7 @@ public sealed class Recommendation
         ValidateIdentity(policyIdentity);
         ValidateDecision(assessment, action, addDecision, legacy);
         if (!legacy &&
+            !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
             throw new InvalidOperationException(
                 "Recommendation policy identity must match the assessment base policy identity.");
@@ -287,7 +311,8 @@ public sealed class Recommendation
         if (reasons.Distinct().Count() != reasons.Length)
             throw new ArgumentException("Reason codes cannot contain duplicates.", nameof(reasonCodes));
         ValidateReasonInheritance(assessment, reasons);
-        if (!legacy && !reasons.SequenceEqual(BuildReasonCodes(assessment, action, addDecision, legacy)))
+        if (!legacy &&
+            !reasons.SequenceEqual(BuildReasonCodes(assessment, action, addDecision, [], legacy)))
             throw new ArgumentException(
                 "Recommendation reason codes must match the persisted action and add decisions.",
                 nameof(reasonCodes));
@@ -374,6 +399,7 @@ public sealed class Recommendation
         PositionAssessment assessment,
         RecommendedActionDecision action,
         AddDecisionResult addDecision,
+        IEnumerable<ReasonCode> legacySpecificReasons,
         bool legacy)
     {
         var inherited = assessment.ReasonCodes
@@ -381,7 +407,7 @@ public sealed class Recommendation
             .ToArray();
         if (legacy)
             return inherited
-                .Concat(action.ReasonCodes)
+                .Concat(legacySpecificReasons)
                 .Distinct()
                 .ToArray();
 
@@ -422,6 +448,11 @@ public sealed class Recommendation
         if (string.IsNullOrWhiteSpace(identity.Version) || string.IsNullOrWhiteSpace(identity.Hash))
             throw new ArgumentException("Policy identity must contain version and hash.", nameof(identity));
     }
+
+    private static bool IsSafetyBlocked(PositionAssessment assessment) =>
+        assessment.Result.IsLegacy ||
+        assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+        assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
 
     private static void ValidateReasons(IEnumerable<ReasonCode> reasons)
     {

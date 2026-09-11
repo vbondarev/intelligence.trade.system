@@ -65,6 +65,16 @@ internal static class RecommendationMapper
             })
             .ToArray();
 
+    public static bool DecisionContextsEqual(string? left, string? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        using var leftDocument = JsonDocument.Parse(left);
+        using var rightDocument = JsonDocument.Parse(right);
+        return JsonElementsEqual(leftDocument.RootElement, rightDocument.RootElement);
+    }
+
     public static Recommendation ToDomain(
         RecommendationEntity entity,
         IReadOnlyCollection<RecommendationReasonEntity> reasons,
@@ -160,6 +170,47 @@ internal static class RecommendationMapper
                 $"Recommendation {entity.Id} contains incomplete structured decision metadata.");
         return complete;
     }
+
+    private static bool JsonElementsEqual(JsonElement left, JsonElement right)
+    {
+        if (left.ValueKind != right.ValueKind)
+            return false;
+
+        return left.ValueKind switch
+        {
+            JsonValueKind.Object => ObjectsEqual(left, right),
+            JsonValueKind.Array => left.EnumerateArray().Zip(
+                    right.EnumerateArray(),
+                    JsonElementsEqual)
+                .All(equal => equal) &&
+                left.GetArrayLength() == right.GetArrayLength(),
+            JsonValueKind.Number => NumbersEqual(left, right),
+            JsonValueKind.String => left.GetString() == right.GetString(),
+            JsonValueKind.True or JsonValueKind.False =>
+                left.GetBoolean() == right.GetBoolean(),
+            JsonValueKind.Null => true,
+            _ => false
+        };
+    }
+
+    private static bool ObjectsEqual(JsonElement left, JsonElement right)
+    {
+        var rightProperties = right.EnumerateObject()
+            .ToDictionary(property => property.Name, property => property.Value, StringComparer.Ordinal);
+        foreach (var property in left.EnumerateObject())
+        {
+            if (!rightProperties.TryGetValue(property.Name, out var rightValue) ||
+                !JsonElementsEqual(property.Value, rightValue))
+                return false;
+        }
+
+        return left.EnumerateObject().Count() == rightProperties.Count;
+    }
+
+    private static bool NumbersEqual(JsonElement left, JsonElement right) =>
+        left.TryGetDecimal(out var leftValue) &&
+        right.TryGetDecimal(out var rightValue) &&
+        leftValue == rightValue;
 }
 
 internal sealed record RecommendationDecisionDocument(

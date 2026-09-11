@@ -870,6 +870,114 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Structured_recommendation_lifecycle_update_survives_jsonb_round_trip()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, T0.AddMinutes(4));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var loaded = await new RecommendationRepository(readerContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(loaded);
+        loaded!.Value.Acknowledge(T0.AddMinutes(5));
+
+        await using (var writerContext = await CreateMigratedContext())
+        {
+            var nextVersion = await new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, loaded.Value, loaded.Version);
+            Assert.Equal(loaded.Version.Next(), nextVersion);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var verified = await new RecommendationRepository(verificationContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(verified);
+        Assert.Equal(ConcurrencyVersion.Initial.Next(), verified!.Version);
+        Assert.Equal(RecommendationStatus.Acknowledged, verified.Value.Status);
+        Assert.Equal(recommendation.PolicyIdentity, verified.Value.PolicyIdentity);
+        Assert.Equal(recommendation.ActionDecision.Action, verified.Value.ActionDecision.Action);
+        Assert.Equal(recommendation.ActionDecision.Confidence, verified.Value.ActionDecision.Confidence);
+        Assert.Equal(recommendation.ActionDecision.Priority, verified.Value.ActionDecision.Priority);
+        Assert.Equal(
+            recommendation.ActionDecision.ReasonCodes,
+            verified.Value.ActionDecision.ReasonCodes);
+        Assert.Equal(recommendation.AddDecisionResult.Decision, verified.Value.AddDecisionResult.Decision);
+        Assert.Equal(
+            recommendation.AddDecisionResult.ReasonCodes,
+            verified.Value.AddDecisionResult.ReasonCodes);
+        Assert.Equal(
+            recommendation.AddDecisionResult.MaximumAdditionalPositionValue,
+            verified.Value.AddDecisionResult.MaximumAdditionalPositionValue);
+        Assert.Equal(
+            recommendation.AddDecisionResult.MaximumAdditionalQuantity,
+            verified.Value.AddDecisionResult.MaximumAdditionalQuantity);
+        Assert.Equal(recommendation.ValidUntil, verified.Value.ValidUntil);
+    }
+
+    [Fact]
+    public async Task Structured_decision_context_changes_are_rejected_as_immutable()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, T0.AddMinutes(4));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using (var mutationContext = await CreateMigratedContext())
+        {
+            var entity = await mutationContext.Recommendations
+                .SingleAsync(row => row.Id == recommendation.Id.Value);
+            entity.DecisionContextJson =
+                """
+                {
+                  "schemaVersion": 1,
+                  "actionReasonCodes": ["trendAligned"],
+                  "addReasonCodes": ["addAllowedWithinLimits"],
+                  "maximumAdditionalPositionValue": 1,
+                  "maximumAdditionalQuantity": 0.01,
+                  "conditions": {
+                    "requiredTrendAlignment": "aligned",
+                    "requiredMomentumState": "normal",
+                    "protectiveStopRequired": true,
+                    "minimumLiquidationDistancePercent": 5
+                  }
+                }
+                """;
+            await mutationContext.SaveChangesAsync();
+        }
+
+        await using var writerContext = await CreateMigratedContext();
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, recommendation, ConcurrencyVersion.Initial));
+    }
+
+    [Fact]
     public async Task Critical_columns_use_relational_postgresql_types()
     {
         await using var dbContext = await CreateMigratedContext();

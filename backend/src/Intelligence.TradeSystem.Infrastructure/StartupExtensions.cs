@@ -43,9 +43,12 @@ public static class StartupExtensions
         return services;
     }
 
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string? contentRootPath = null)
     {
-        RegisterRecommendationPolicy(services, configuration);
+        RegisterRecommendationPolicy(services, configuration, contentRootPath);
 
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -87,7 +90,8 @@ public static class StartupExtensions
 
     private static void RegisterRecommendationPolicy(
         IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string? contentRootPath)
     {
         var path = configuration
             .GetSection(RecommendationPolicyOptions.SectionName)["Path"];
@@ -95,7 +99,7 @@ public static class StartupExtensions
             return;
 
         services.AddSingleton<IRecommendationPolicyDefinitionProvider>(
-            new JsonRecommendationPolicyDefinitionProvider(path));
+            new JsonRecommendationPolicyDefinitionProvider(path, contentRootPath));
         services.AddScoped<RecommendationService>();
     }
 
