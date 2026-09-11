@@ -350,7 +350,7 @@ public sealed class AssessmentsAndRecommendationsTests
 
         var recommendation = Recommendation.Create(
             assessment,
-            PositionAction.Hold,
+            PositionAction.Watch,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v1"),
             [ReasonCode.LowVolume],
@@ -360,7 +360,7 @@ public sealed class AssessmentsAndRecommendationsTests
         recommendation.ReasonCodes.Should().Contain(ReasonCode.LowVolume);
         FluentActions.Invoking(() => Recommendation.Create(
                 assessment,
-                PositionAction.Hold,
+                PositionAction.Watch,
                 AddDecision.DoNotAdd,
                 new RuleVersion("policy-v1"),
                 [ReasonCode.RiskWithinLimits],
@@ -449,11 +449,11 @@ public sealed class AssessmentsAndRecommendationsTests
             [], assessment.CreatedAt.AddMinutes(1), assessment.CreatedAt.AddMinutes(1)))
             .Should().Throw<ArgumentException>();
         Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.DoNotAdd, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil)
             .ValidUntil.Should().Be(assessment.ValidUntil);
         FluentActions.Invoking(() => Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.DoNotAdd, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil.AddTicks(1)))
             .Should().Throw<ArgumentException>();
     }
@@ -471,7 +471,7 @@ public sealed class AssessmentsAndRecommendationsTests
             [], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
             .Should().Throw<ArgumentOutOfRangeException>();
         FluentActions.Invoking(() => Recommendation.Create(
-            assessment, PositionAction.Hold, AddDecision.DoNotAdd, new RuleVersion("v1"),
+            assessment, PositionAction.Watch, AddDecision.DoNotAdd, new RuleVersion("v1"),
             [(ReasonCode)999], assessment.CreatedAt.AddMinutes(1), assessment.ValidUntil))
             .Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -720,13 +720,20 @@ public sealed class AssessmentsAndRecommendationsTests
 
     private static Recommendation CreateRecommendation(
         PositionAssessment assessment, AddDecision addDecision, DateTimeOffset createdAt, DateTimeOffset validUntil) =>
-        Recommendation.Create(
+        Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Hold,
             addDecision == AddDecision.NotEvaluated ? AddDecision.DoNotAdd : addDecision,
             new RuleVersion("policy-v1"),
-            [], createdAt,
-            validUntil);
+            assessment.ReasonCodes, createdAt,
+            validUntil,
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     private static Recommendation RestoreRecommendation(
         Recommendation recommendation,

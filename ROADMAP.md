@@ -1,8 +1,8 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.10
+Версия документа: 3.11
 Дата актуализации: 12 сентября 2026 года
-Проверенная база: рабочая ветка `task/95-recommendation-policy` на HEAD [`6a0c49b`](https://github.com/vbondarev/intelligence.trade.system/commit/6a0c49bf1db7c48d6cb3388352e1efe1ad478739); review-fix изменения E.2 подготовлены в PR #96 и ещё не merged в `develop`
+Проверенная база: рабочая ветка `task/95-recommendation-policy` на исходном HEAD `b0046606230463c0e111da1f2b907be5a9352160`; текущие corrective changes PR #96 находятся в рабочем дереве и ещё не merged в `develop`
 Последняя учтённая задача: PR #96 к [Issue #95](https://github.com/vbondarev/intelligence.trade.system/issues/95) «Исправлены замечания ревью политики рекомендаций»
 Текущий следующий этап: **E-07 — условия отмены и следующей проверки**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
@@ -461,6 +461,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-12 | 3.11 | Закрыты финальные замечания PR #96: trusted `RecommendationPolicyEvaluation` больше нельзя собрать публичным constructor’ом, degraded compatibility creation ограничен `Watch + DoNotAdd`, отсутствие policy path стало fail-fast; E-07/E-08 не начаты. |
 | 2026-09-12 | 3.10 | В PR #96 исправлены review issues E.2: NonProtective stop, legacy creation bypass, preservation of compatibility reasons, truthful Watch/liquidation reasons, portfolio-safe headroom reasons, gross-exposure concentration sizing, semantic jsonb immutability comparison и runtime/API/Docker policy wiring; E-07/E-08 не начаты. |
 | 2026-09-11 | 3.9 | Реализован PR E.2 (Issue #95): добавлены строгий внешний JSON `PolicyDefinition` с canonical SHA-256 identity, чистая детерминированная `RecommendationPolicy`, все семь `PositionAction`, структурированные confidence/priority/action reasons, независимый `AddDecisionResult` с hard guards и консервативным maximum additional size, policy identity binding, immutable decision persistence и безопасное legacy-восстановление; E-07 и E-08 не начаты, E-10 остаётся частичным. |
 | 2026-09-11 | 3.8 | Уточнён статус PR E.1: добавлены level/current-price и data-quality regression cases, исправлена trailing-stop semantics, расширена configuration identity и structured persistence coverage; E-09 остаётся частичным до enforcement recommendation actions, E-10 — до появления correlation-модели. |

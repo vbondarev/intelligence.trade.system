@@ -12,6 +12,15 @@ public sealed class RecommendationPolicyTests
     private static readonly DateTimeOffset T0 = new(2026, 9, 11, 20, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void Policy_evaluation_has_no_public_constructor()
+    {
+        typeof(RecommendationPolicyEvaluation)
+            .GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+            .Should()
+            .BeEmpty();
+    }
+
+    [Fact]
     public void Canonical_policy_hash_is_stable_and_changes_with_behavior()
     {
         var first = PolicyDefinition.Default;
@@ -123,6 +132,69 @@ public sealed class RecommendationPolicyTests
         result.AddDecision.Decision.Should().Be(AddDecision.DoNotAdd);
         recommendation.RecommendedAction.Should().Be(PositionAction.Watch);
         recommendation.AddDecision.Should().Be(AddDecision.DoNotAdd);
+    }
+
+    [Theory]
+    [InlineData(PositionAction.Close, AssessmentDataQuality.FreshCompleteReliable, false)]
+    [InlineData(PositionAction.Reduce, AssessmentDataQuality.Stale, false)]
+    [InlineData(PositionAction.Hold, AssessmentDataQuality.Partial, false)]
+    [InlineData(PositionAction.MoveStop, AssessmentDataQuality.Uncertain, false)]
+    [InlineData(PositionAction.Watch, AssessmentDataQuality.Stale, true)]
+    public void Legacy_compatibility_creation_enforces_degraded_safety(
+        PositionAction action,
+        AssessmentDataQuality quality,
+        bool allowed)
+    {
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            quality,
+            legacy: quality == AssessmentDataQuality.FreshCompleteReliable,
+            portfolioDecision: quality == AssessmentDataQuality.FreshCompleteReliable
+                ? RiskIncreaseDecision.Allowed
+                : RiskIncreaseDecision.Blocked);
+
+        var create = () => Recommendation.Create(
+            assessment,
+            action,
+            AddDecision.DoNotAdd,
+            new RuleVersion("legacy-policy"),
+            [],
+            assessment.CreatedAt.AddMinutes(1),
+            assessment.ValidUntil);
+
+        if (allowed)
+            create().AddDecision.Should().Be(AddDecision.DoNotAdd);
+        else
+            FluentActions.Invoking(create).Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Legacy_restore_preserves_historical_strong_action()
+    {
+        var assessment = CreateAssessment(
+            PolicyDefinition.Default,
+            PositionTrendAlignment.Aligned,
+            legacy: true);
+
+        var restored = Recommendation.Restore(
+            RecommendationId.New(),
+            assessment,
+            PositionAction.Close,
+            AddDecision.DoNotAdd,
+            new RuleVersion("legacy-policy"),
+            assessment.ReasonCodes,
+            assessment.CreatedAt.AddMinutes(1),
+            assessment.ValidUntil,
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+        restored.RecommendedAction.Should().Be(PositionAction.Close);
     }
 
     [Fact]

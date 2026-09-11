@@ -5,7 +5,7 @@ namespace Intelligence.TradeSystem.Domain.Recommendations;
 /// <summary>Полный детерминированный результат оценки RecommendationPolicy.</summary>
 public sealed record RecommendationPolicyEvaluation
 {
-    public RecommendationPolicyEvaluation(
+    internal RecommendationPolicyEvaluation(
         PolicyConfigurationIdentity policyIdentity,
         RecommendedActionDecision action,
         AddDecisionResult addDecision,

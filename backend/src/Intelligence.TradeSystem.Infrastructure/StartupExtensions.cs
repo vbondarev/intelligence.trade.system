@@ -96,7 +96,8 @@ public static class StartupExtensions
         var path = configuration
             .GetSection(RecommendationPolicyOptions.SectionName)["Path"];
         if (string.IsNullOrWhiteSpace(path))
-            return;
+            throw new InvalidOperationException(
+                "RecommendationPolicy:Path configuration is required.");
 
         services.AddSingleton<IRecommendationPolicyDefinitionProvider>(
             new JsonRecommendationPolicyDefinitionProvider(path, contentRootPath));

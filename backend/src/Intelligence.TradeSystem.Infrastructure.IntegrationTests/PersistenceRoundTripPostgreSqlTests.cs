@@ -789,14 +789,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v3"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
         recommendation.Acknowledge(T0.AddMinutes(5));
 
         await using (var dbContext = await CreateMigratedContext())
@@ -1076,14 +1083,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v4"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
         await using (var setupContext = await CreateMigratedContext())
         {
@@ -1513,14 +1527,21 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Create(
+        var recommendation = Recommendation.Restore(
+            RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
             AddDecision.DoNotAdd,
             new RuleVersion("policy-v4"),
-            [],
+            assessment.ReasonCodes,
             T0.AddMinutes(4),
-            T0.AddMinutes(30));
+            T0.AddMinutes(30),
+            RecommendationStatus.Active,
+            null,
+            null,
+            null,
+            null,
+            null);
 
         await using (var setupContext = await CreateMigratedContext())
         {

@@ -89,6 +89,7 @@ public sealed class Recommendation
         DateTimeOffset validUntil)
     {
         ArgumentNullException.ThrowIfNull(reasonCodes);
+        ArgumentNullException.ThrowIfNull(assessment);
         if (!Enum.IsDefined(recommendedAction))
             throw new ArgumentOutOfRangeException(
                 nameof(recommendedAction),
@@ -105,6 +106,10 @@ public sealed class Recommendation
         if (addDecision == AddDecision.NotEvaluated)
             throw new ArgumentException(
                 "NotEvaluated is reserved for restoring persisted legacy recommendations.");
+        if (IsSafetyBlocked(assessment) &&
+            (recommendedAction != PositionAction.Watch || addDecision != AddDecision.DoNotAdd))
+            throw new InvalidOperationException(
+                "Legacy recommendation creation for degraded assessment is limited to Watch and DoNotAdd.");
 
         var specificReasons = reasonCodes.Distinct().ToArray();
         var action = RecommendedActionDecision.Legacy(recommendedAction);
