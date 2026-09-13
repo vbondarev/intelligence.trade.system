@@ -27,5 +27,15 @@
     "maximumAdditionalPositionPercentOfEquity": 10,
     "maximumAdditionalAvailableCapitalPercent": 25,
     "minimumLiquidationDistancePercent": 5
+  },
+  "reevaluationProfile": {
+    "hold": "00:04:00",
+    "watch": "00:02:00",
+    "protectProfit": "00:02:00",
+    "reduce": "00:01:00",
+    "close": "00:01:00",
+    "moveStop": "00:02:00",
+    "takePartialProfit": "00:02:00",
+    "addAllowed": "00:02:00"
   }
 }

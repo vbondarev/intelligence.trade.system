@@ -15,6 +15,8 @@ public sealed class RecommendationEntity
     public decimal? Confidence { get; set; }
     public RecommendationPriority? Priority { get; set; }
     public string? DecisionContextJson { get; set; }
+    public DateTimeOffset? NextEvaluationAt { get; set; }
+    public string? ContinuationContextJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset ValidUntil { get; set; }
     public RecommendationStatus Status { get; set; }

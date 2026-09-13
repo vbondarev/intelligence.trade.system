@@ -49,6 +49,12 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
         builder.Property(recommendation => recommendation.DecisionContextJson)
             .HasColumnName("decision_context_json")
             .HasColumnType("jsonb");
+        builder.Property(recommendation => recommendation.NextEvaluationAt)
+            .HasColumnName("next_evaluation_at")
+            .HasColumnType("timestamp with time zone");
+        builder.Property(recommendation => recommendation.ContinuationContextJson)
+            .HasColumnName("continuation_context_json")
+            .HasColumnType("jsonb");
         builder.Property(recommendation => recommendation.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone");

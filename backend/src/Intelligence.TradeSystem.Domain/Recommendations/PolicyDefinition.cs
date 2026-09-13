@@ -20,7 +20,8 @@ public sealed record PolicyDefinition
         decimal takePartialProfitThreshold,
         RecommendationConfidenceProfile confidenceProfiles,
         RecommendationPriorityProfile priorityProfiles,
-        AddAllowedPolicyLimits addAllowedLimits)
+        AddAllowedPolicyLimits addAllowedLimits,
+        RecommendationReevaluationProfile reevaluationProfile)
     {
         if (validityPeriod <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(validityPeriod), validityPeriod, "Validity period must be positive.");
@@ -40,6 +41,8 @@ public sealed record PolicyDefinition
         ArgumentNullException.ThrowIfNull(confidenceProfiles);
         ArgumentNullException.ThrowIfNull(priorityProfiles);
         ArgumentNullException.ThrowIfNull(addAllowedLimits);
+        ArgumentNullException.ThrowIfNull(reevaluationProfile);
+        reevaluationProfile.ValidateAgainst(validityPeriod);
 
         Version = version;
         ValidityPeriod = validityPeriod;
@@ -50,6 +53,7 @@ public sealed record PolicyDefinition
         ConfidenceProfiles = confidenceProfiles;
         PriorityProfiles = priorityProfiles;
         AddAllowedLimits = addAllowedLimits;
+        ReevaluationProfile = reevaluationProfile;
 
         CanonicalRepresentation = BuildCanonicalRepresentation();
         Hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalRepresentation)));
@@ -68,6 +72,7 @@ public sealed record PolicyDefinition
     public RecommendationConfidenceProfile ConfidenceProfiles { get; }
     public RecommendationPriorityProfile PriorityProfiles { get; }
     public AddAllowedPolicyLimits AddAllowedLimits { get; }
+    public RecommendationReevaluationProfile ReevaluationProfile { get; }
 
     public static PolicyDefinition Default => new(
         new RuleVersion("recommendation-v1"),
@@ -78,7 +83,8 @@ public sealed record PolicyDefinition
         takePartialProfitThreshold: 5m,
         RecommendationConfidenceProfile.Default,
         RecommendationPriorityProfile.Default,
-        AddAllowedPolicyLimits.Default);
+        AddAllowedPolicyLimits.Default,
+        RecommendationReevaluationProfile.Default);
 
     private string BuildCanonicalRepresentation() => string.Join(
         "|",
@@ -89,6 +95,14 @@ public sealed record PolicyDefinition
         Format(ReduceLossThreshold),
         Format(ProtectProfitThreshold),
         Format(TakePartialProfitThreshold),
+        ReevaluationProfile.Hold.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.Watch.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.ProtectProfit.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.Reduce.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.Close.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.MoveStop.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.TakePartialProfit.Ticks.ToString(CultureInfo.InvariantCulture),
+        ReevaluationProfile.AddAllowed.Ticks.ToString(CultureInfo.InvariantCulture),
         Format(ConfidenceProfiles.Hold),
         Format(ConfidenceProfiles.Watch),
         Format(ConfidenceProfiles.ProtectProfit),

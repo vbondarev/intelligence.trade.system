@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using System.Data.Common;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -936,6 +937,127 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Structured_continuation_timestamps_are_canonical_and_immutable_after_reload()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var timestamp = T0.AddTicks(7);
+        var assessment = CreateStructuredAssessment(account, position, policy, timestamp);
+        var evaluationAsOf = assessment.CreatedAt.AddMinutes(1);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, evaluationAsOf);
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var loaded = await new RecommendationRepository(readerContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(loaded);
+        var initialPlan = loaded!.Value.ContinuationPlan!;
+        var canonicalCreatedAt = CanonicalTimestamp(recommendation.CreatedAt);
+        var canonicalValidUntil = CanonicalTimestamp(recommendation.ValidUntil);
+        Assert.Equal(canonicalCreatedAt, loaded.Value.CreatedAt);
+        Assert.Equal(canonicalValidUntil, loaded.Value.ValidUntil);
+        Assert.Equal(canonicalCreatedAt, initialPlan.CreatedAt);
+        Assert.Equal(canonicalValidUntil, initialPlan.ValidUntil);
+        Assert.Equal(
+            CanonicalTimestamp(recommendation.NextEvaluationAt!.Value),
+            initialPlan.NextEvaluationAt);
+
+        loaded.Value.Acknowledge(loaded.Value.CreatedAt.AddMinutes(1));
+        await using (var writerContext = await CreateMigratedContext())
+        {
+            await new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, loaded.Value, loaded.Version);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var verified = await new RecommendationRepository(verificationContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(verified);
+        var verifiedPlan = verified!.Value.ContinuationPlan!;
+        Assert.Equal(initialPlan.CreatedAt, verifiedPlan.CreatedAt);
+        Assert.Equal(initialPlan.ValidUntil, verifiedPlan.ValidUntil);
+        Assert.Equal(initialPlan.NextEvaluationAt, verifiedPlan.NextEvaluationAt);
+        Assert.Equal(initialPlan.InvalidationConditions, verifiedPlan.InvalidationConditions);
+        Assert.Equal(initialPlan.ReevaluationConditions, verifiedPlan.ReevaluationConditions);
+        Assert.Equal(RecommendationStatus.Acknowledged, verified.Value.Status);
+    }
+
+    [Fact]
+    public async Task Structured_continuation_policy_identity_mismatch_fails_during_restore()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, assessment.CreatedAt.AddMinutes(1));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+        var replacementHash = new string('A', 64);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using (var mutationContext = await CreateMigratedContext())
+        {
+            var entity = await mutationContext.Recommendations
+                .SingleAsync(row => row.Id == recommendation.Id.Value);
+            var originalJson = entity.ContinuationContextJson!;
+            var document = JsonNode.Parse(originalJson) as JsonObject
+                ?? throw new InvalidOperationException("Continuation JSON must be an object.");
+            var changed = false;
+            foreach (var conditionsName in new[] { "invalidationConditions", "reevaluationConditions" })
+            {
+                if (document[conditionsName] is not JsonArray conditions)
+                    continue;
+
+                foreach (var item in conditions)
+                {
+                    if (item is not JsonObject condition ||
+                        condition["kind"]?.GetValue<string>() != "policyIdentity")
+                        continue;
+
+                    condition["requiredPolicyHash"] = replacementHash;
+                    changed = true;
+                    break;
+                }
+
+                if (changed)
+                    break;
+            }
+
+            Assert.True(changed, "The persisted policy identity condition was not found.");
+            var corruptedJson = document.ToJsonString();
+            Assert.NotEqual(originalJson, corruptedJson);
+            Assert.NotEqual(policy.Identity.Hash, replacementHash);
+            entity.ContinuationContextJson = corruptedJson;
+            await mutationContext.SaveChangesAsync();
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var exception = await Assert.ThrowsAsync<ArgumentException>(
+            () => new RecommendationRepository(readerContext)
+                .GetByIdAsync(account.UserId, recommendation.Id));
+        Assert.Contains("policy identity", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Structured_decision_context_changes_are_rejected_as_immutable()
     {
         var account = CreateAccount();
@@ -1679,15 +1801,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     private static PositionAssessment CreateStructuredAssessment(
         ExchangeAccount account,
         Position position,
-        PolicyDefinition policy)
+        PolicyDefinition policy,
+        DateTimeOffset? timestampBase = null)
     {
+        var capturedAt = timestampBase ?? T0;
         var inputVersions = new PositionAssessmentInputVersions(
             position.Id,
             account.Id,
             position.ExchangePositionKey.InstrumentId,
-            T0,
-            T0.AddMinutes(1),
-            T0.AddMinutes(2),
+            capturedAt,
+            capturedAt.AddMinutes(1),
+            capturedAt.AddMinutes(2),
             policy.Identity,
             policy.Identity);
         var result = new PositionAssessmentResult(
@@ -1731,8 +1855,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 ReasonCode.StopProtective,
                 ReasonCode.LiquidationFar
             ],
-            T0.AddMinutes(3),
-            T0.AddHours(1));
+            capturedAt.AddMinutes(3),
+            capturedAt.AddHours(1));
     }
 
     private static Position CreatePosition(ExchangeAccountId accountId) =>

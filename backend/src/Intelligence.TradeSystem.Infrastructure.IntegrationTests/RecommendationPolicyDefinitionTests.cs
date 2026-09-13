@@ -11,7 +11,7 @@ public sealed class RecommendationPolicyDefinitionTests
         var firstPath = WritePolicy(
             """
             {
-              "version":"recommendation-v1","validityPeriod":"00:05:00","closeLossThreshold":-10,"reduceLossThreshold":-5,"protectProfitThreshold":2,"takePartialProfitThreshold":5,"confidenceProfiles":{"hold":0.70,"watch":0.80,"protectProfit":0.85,"reduce":0.90,"close":0.98,"moveStop":0.88,"takePartialProfit":0.86},"priorityProfiles":{"hold":"normal","watch":"normal","protectProfit":"high","reduce":"high","close":"critical","moveStop":"high","takePartialProfit":"high"},"addAllowedLimits":{"maximumAdditionalPositionPercentOfEquity":10,"maximumAdditionalAvailableCapitalPercent":25,"minimumLiquidationDistancePercent":5}}
+              "version":"recommendation-v1","validityPeriod":"00:05:00","closeLossThreshold":-10,"reduceLossThreshold":-5,"protectProfitThreshold":2,"takePartialProfitThreshold":5,"confidenceProfiles":{"hold":0.70,"watch":0.80,"protectProfit":0.85,"reduce":0.90,"close":0.98,"moveStop":0.88,"takePartialProfit":0.86},"priorityProfiles":{"hold":"normal","watch":"normal","protectProfit":"high","reduce":"high","close":"critical","moveStop":"high","takePartialProfit":"high"},"addAllowedLimits":{"maximumAdditionalPositionPercentOfEquity":10,"maximumAdditionalAvailableCapitalPercent":25,"minimumLiquidationDistancePercent":5},"reevaluationProfile":{"hold":"00:04:00","watch":"00:02:00","protectProfit":"00:02:00","reduce":"00:01:00","close":"00:01:00","moveStop":"00:02:00","takePartialProfit":"00:02:00","addAllowed":"00:02:00"}}
             """);
         var secondPath = WritePolicy(
             """
@@ -20,6 +20,16 @@ public sealed class RecommendationPolicyDefinitionTests
                 "minimumLiquidationDistancePercent": 5,
                 "maximumAdditionalAvailableCapitalPercent": 25,
                 "maximumAdditionalPositionPercentOfEquity": 10
+              },
+              "reevaluationProfile": {
+                "addAllowed": "00:02:00",
+                "takePartialProfit": "00:02:00",
+                "moveStop": "00:02:00",
+                "close": "00:01:00",
+                "reduce": "00:01:00",
+                "protectProfit": "00:02:00",
+                "watch": "00:02:00",
+                "hold": "00:04:00"
               },
               "priorityProfiles": {
                 "takePartialProfit": "high",
@@ -158,6 +168,16 @@ public sealed class RecommendationPolicyDefinitionTests
             "maximumAdditionalPositionPercentOfEquity": 10,
             "maximumAdditionalAvailableCapitalPercent": 25,
             "minimumLiquidationDistancePercent": 5
+          },
+          "reevaluationProfile": {
+            "hold": "00:04:00",
+            "watch": "00:02:00",
+            "protectProfit": "00:02:00",
+            "reduce": "00:01:00",
+            "close": "00:01:00",
+            "moveStop": "00:02:00",
+            "takePartialProfit": "00:02:00",
+            "addAllowed": "00:02:00"
           }
         }
         """;

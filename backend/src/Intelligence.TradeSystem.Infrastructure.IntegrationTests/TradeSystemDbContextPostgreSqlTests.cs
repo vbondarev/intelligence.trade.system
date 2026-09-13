@@ -38,6 +38,50 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         await dbContext.Database.MigrateAsync();
         Assert.NotEmpty(await dbContext.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.Equal(
+            "timestamp with time zone",
+            await dbContext.Database.SqlQueryRaw<string>(
+                """
+                SELECT data_type AS "Value"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'recommendations'
+                  AND column_name = 'next_evaluation_at'
+                """)
+                .SingleAsync());
+        Assert.Equal(
+            "jsonb",
+            await dbContext.Database.SqlQueryRaw<string>(
+                """
+                SELECT data_type AS "Value"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'recommendations'
+                  AND column_name = 'continuation_context_json'
+                """)
+                .SingleAsync());
+        Assert.Equal(
+            "YES",
+            await dbContext.Database.SqlQueryRaw<string>(
+                """
+                SELECT is_nullable AS "Value"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'recommendations'
+                  AND column_name = 'next_evaluation_at'
+                """)
+                .SingleAsync());
+        Assert.Equal(
+            "YES",
+            await dbContext.Database.SqlQueryRaw<string>(
+                """
+                SELECT is_nullable AS "Value"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'recommendations'
+                  AND column_name = 'continuation_context_json'
+                """)
+                .SingleAsync());
 
         await dbContext.Database.MigrateAsync("0");
         Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());

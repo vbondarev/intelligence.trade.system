@@ -29,21 +29,29 @@ public sealed class RecommendationPolicy
             asOf.Add(policyDefinition.ValidityPeriod),
             assessment.ValidUntil);
 
-        if (IsSafetyBlocked(assessment))
+        if (RecommendationActionPredicates.IsSafetyBlocked(assessment))
         {
             var action = CreateActionDecision(
                 PositionAction.Watch,
                 policyDefinition,
                 [ReasonCode.RecommendationLimitedByDataQuality]);
+            var safetyAddDecision = new AddDecisionResult(
+                AddDecision.DoNotAdd,
+                [ReasonCode.RiskIncreaseBlockedByDataQuality],
+                null,
+                null,
+                null);
             return new(
                 policyDefinition.Identity,
                 action,
-                new AddDecisionResult(
-                    AddDecision.DoNotAdd,
-                    [ReasonCode.RiskIncreaseBlockedByDataQuality],
-                    null,
-                    null,
-                    null),
+                safetyAddDecision,
+                RecommendationContinuationPlanFactory.Create(
+                    assessment,
+                    action,
+                    safetyAddDecision,
+                    policyDefinition,
+                    asOf,
+                    validUntil),
                 asOf,
                 validUntil);
         }
@@ -53,8 +61,23 @@ public sealed class RecommendationPolicy
                 "Position assessment and recommendation policy identities do not match.");
 
         var actionDecision = EvaluateAction(assessment, policyDefinition);
-        var addDecision = EvaluateAddDecision(assessment, policyDefinition, actionDecision.Action);
-        return new(policyDefinition.Identity, actionDecision, addDecision, asOf, validUntil);
+        var addDecision = EvaluateAddDecision(
+            assessment,
+            policyDefinition,
+            actionDecision.Action);
+        return new(
+            policyDefinition.Identity,
+            actionDecision,
+            addDecision,
+            RecommendationContinuationPlanFactory.Create(
+                assessment,
+                actionDecision,
+                addDecision,
+                policyDefinition,
+                asOf,
+                validUntil),
+            asOf,
+            validUntil);
     }
 
     private static RecommendedActionDecision EvaluateAction(
@@ -62,11 +85,8 @@ public sealed class RecommendationPolicy
         PolicyDefinition policyDefinition)
     {
         var result = assessment.Result;
-        var pnl = result.Pnl.PnlPercent;
-        var adverse = result.Trend.PositionAlignment == PositionTrendAlignment.Adverse;
 
-        if (result.Liquidation.State == AssessmentLiquidationState.Near ||
-            adverse && pnl <= policyDefinition.CloseLossThreshold)
+        if (RecommendationActionPredicates.IsCloseRequired(assessment, policyDefinition))
         {
             IEnumerable<ReasonCode> reasons = result.Liquidation.State == AssessmentLiquidationState.Near
                 ? [ReasonCode.LiquidationNearby, ReasonCode.CloseConditionMet]
@@ -74,13 +94,13 @@ public sealed class RecommendationPolicy
             return CreateActionDecision(PositionAction.Close, policyDefinition, reasons);
         }
 
-        if (adverse && pnl <= policyDefinition.ReduceLossThreshold)
+        if (RecommendationActionPredicates.IsReduceRequired(assessment, policyDefinition))
             return CreateActionDecision(
                 PositionAction.Reduce,
                 policyDefinition,
                 [ReasonCode.TrendAdverse, ReasonCode.PnlNegative, ReasonCode.LossReductionConditionMet]);
 
-        if (IsPartialProfitConditionMet(result, assessment, policyDefinition))
+        if (RecommendationActionPredicates.IsTakePartialProfitRequired(assessment, policyDefinition))
         {
             var opposingLevel = result.PositionSide == PositionSide.Long
                 ? ReasonCode.ResistanceNearby
@@ -92,13 +112,13 @@ public sealed class RecommendationPolicy
                  ReasonCode.PartialProfitConditionMet]);
         }
 
-        if (IsMoveStopConditionMet(result, policyDefinition))
+        if (RecommendationActionPredicates.IsMoveStopRequired(assessment, policyDefinition))
             return CreateActionDecision(
                 PositionAction.MoveStop,
                 policyDefinition,
                 [ReasonCode.PnlPositive, ReasonCode.StopNotProtectingProfit, ReasonCode.MoveStopConditionMet]);
 
-        if (IsProtectProfitConditionMet(result, policyDefinition))
+        if (RecommendationActionPredicates.IsProtectProfitRequired(assessment, policyDefinition))
         {
             var stopReason = result.Stop.StopPrice.HasValue
                 ? ReasonCode.StopUnknown
@@ -109,7 +129,7 @@ public sealed class RecommendationPolicy
                 [ReasonCode.PnlPositive, stopReason, ReasonCode.ProfitProtectionNeeded]);
         }
 
-        if (!CanSafelyHold(assessment))
+        if (!RecommendationActionPredicates.CanSafelyHold(assessment))
             return CreateActionDecision(
                 PositionAction.Watch,
                 policyDefinition,
@@ -146,20 +166,19 @@ public sealed class RecommendationPolicy
             reasons.Add(ReasonCode.MomentumExhaustion);
         if (assessment.ReasonCodes.Contains(ReasonCode.LowVolume))
             reasons.Add(ReasonCode.AddBlockedByVolume);
-        if (result.Stop.StopPrice is null || result.Stop.State != AssessmentStopState.Protective)
+        if (!result.Stop.StopPrice.HasValue || !ProfitProtectionEvaluator.IsStopProtectingProfit(result))
             reasons.Add(ReasonCode.AddBlockedByStop);
 
-        var maximum = TryCalculateMaximumAdditionalPositionValue(
+        var capacity = AdditionalPositionCapacityCalculator.Calculate(
             result.PortfolioRisk,
             result.CurrentPrice,
-            policyDefinition.AddAllowedLimits,
-            out var maximumQuantity,
-            out var headroomReasons);
-        reasons.AddRange(headroomReasons);
+            policyDefinition.AddAllowedLimits);
+        reasons.AddRange(capacity.LimitingReasons);
 
-        if (reasons.Count > 0 || maximum is not > 0m)
+        if (reasons.Count > 0 || capacity.MaximumPositionValue is not > 0m)
         {
-            if (maximum is not > 0m && !reasons.Contains(ReasonCode.AddMaximumSizeUnavailable))
+            if (capacity.MaximumPositionValue is not > 0m &&
+                !reasons.Contains(ReasonCode.AddMaximumSizeUnavailable))
                 reasons.Add(ReasonCode.AddMaximumSizeUnavailable);
             return new AddDecisionResult(
                 AddDecision.DoNotAdd,
@@ -177,128 +196,11 @@ public sealed class RecommendationPolicy
         return new AddDecisionResult(
             AddDecision.AddAllowed,
             [ReasonCode.AddAllowedWithinLimits],
-            maximum,
-            maximumQuantity,
+            capacity.MaximumPositionValue,
+            capacity.MaximumQuantity,
             conditions);
     }
 
-    private static decimal? TryCalculateMaximumAdditionalPositionValue(
-        PositionAssessmentPortfolioRiskContext portfolioRisk,
-        decimal? currentPrice,
-        AddAllowedPolicyLimits limits,
-        out decimal? maximumQuantity,
-        out IReadOnlyList<ReasonCode> limitingReasons)
-    {
-        maximumQuantity = null;
-        var reasons = new List<ReasonCode>();
-        if (portfolioRisk.TotalEquity is not > 0m ||
-            portfolioRisk.AvailableCapital is not >= 0m ||
-            portfolioRisk.CurrentPositionValue is not >= 0m ||
-            !portfolioRisk.IsComplete ||
-            !portfolioRisk.IsFresh ||
-            portfolioRisk.GrossExposureToEquityPercent is null ||
-            portfolioRisk.MinimumFreeCapitalPercent is null ||
-            portfolioRisk.MaximumGrossExposureToEquityPercent is null ||
-            portfolioRisk.MaximumPositionConcentrationPercent is null)
-        {
-            limitingReasons = [ReasonCode.AddMaximumSizeUnavailable];
-            return null;
-        }
-
-        var equity = portfolioRisk.TotalEquity.Value;
-        var available = portfolioRisk.AvailableCapital.Value;
-        var freeCapitalRoom =
-            available - equity * portfolioRisk.MinimumFreeCapitalPercent.Value / 100m;
-        var grossExposureRoom =
-            equity * portfolioRisk.MaximumGrossExposureToEquityPercent.Value / 100m -
-            equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
-        var maximumConcentration =
-            portfolioRisk.MaximumPositionConcentrationPercent.Value / 100m;
-        var currentGrossExposure =
-            equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
-        var positionConcentrationRoom = maximumConcentration >= 1m
-            ? decimal.MaxValue
-            : (maximumConcentration * currentGrossExposure -
-               portfolioRisk.CurrentPositionValue.Value) / (1m - maximumConcentration);
-        var policyRelativeRoom =
-            equity * limits.MaximumAdditionalPositionPercentOfEquity / 100m;
-        var policyAvailableRoom =
-            available * limits.MaximumAdditionalAvailableCapitalPercent / 100m;
-
-        if (freeCapitalRoom <= 0m ||
-            grossExposureRoom <= 0m ||
-            positionConcentrationRoom <= 0m)
-            reasons.Add(ReasonCode.AddBlockedByPortfolioRisk);
-
-        var maximum = Math.Max(
-            0m,
-            Math.Min(
-                freeCapitalRoom,
-                Math.Min(
-                    grossExposureRoom,
-                    Math.Min(positionConcentrationRoom, Math.Min(policyRelativeRoom, policyAvailableRoom)))));
-        if (maximum > 0m && currentPrice is > 0m)
-            maximumQuantity = maximum / currentPrice.Value;
-
-        limitingReasons = reasons;
-        return maximum;
-    }
-
-    private static bool IsPartialProfitConditionMet(
-        PositionAssessmentResult result,
-        PositionAssessment assessment,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.TakePartialProfitThreshold &&
-        result.Momentum.PotentialExhaustion &&
-        ((result.PositionSide == PositionSide.Long &&
-          assessment.ReasonCodes.Contains(ReasonCode.ResistanceNearby)) ||
-         (result.PositionSide == PositionSide.Short &&
-          assessment.ReasonCodes.Contains(ReasonCode.SupportNearby)));
-
-    private static bool IsMoveStopConditionMet(
-        PositionAssessmentResult result,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
-        result.Stop.StopPrice.HasValue &&
-        result.Stop.PriceRelativeToEntry != AssessmentPricePosition.Unavailable &&
-        !IsStopProtectingProfit(result);
-
-    private static bool IsProtectProfitConditionMet(
-        PositionAssessmentResult result,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
-        (!result.Stop.StopPrice.HasValue ||
-         result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Unavailable);
-
-    private static bool IsStopProtectingProfit(PositionAssessmentResult result)
-    {
-        if (result.Stop.State != AssessmentStopState.Protective)
-            return false;
-
-        return result.PositionSide == PositionSide.Long
-            ? result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Above
-            : result.PositionSide == PositionSide.Short &&
-              result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Below;
-    }
-
-    private static bool IsProfitable(PositionAssessmentResult result) =>
-        result.Pnl.UnrealizedPnl > 0m && result.Pnl.PnlPercent > 0m;
-
-    private static bool CanSafelyHold(PositionAssessment assessment)
-    {
-        var result = assessment.Result;
-        return result.Trend.PositionAlignment == PositionTrendAlignment.Aligned &&
-            result.Liquidation.State == AssessmentLiquidationState.Far &&
-            result.Pnl.PnlPercent.HasValue &&
-            result.Momentum.IsReliable &&
-            result.Momentum.State != AssessmentMomentumState.Unavailable &&
-            !assessment.ReasonCodes.Contains(ReasonCode.LowVolume) &&
-            result.Stop.StopPrice.HasValue &&
-            result.Stop.State == AssessmentStopState.Protective;
-    }
 
     private static ReasonCode[] BuildWatchReasons(PositionAssessment assessment)
     {
@@ -354,11 +256,6 @@ public sealed class RecommendationPolicy
             policyDefinition.ConfidenceProfiles.For(action),
             policyDefinition.PriorityProfiles.For(action),
             reasons);
-
-    private static bool IsSafetyBlocked(PositionAssessment assessment) =>
-        assessment.Result.IsLegacy ||
-        assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
-        assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
 
     private static DateTimeOffset Min(DateTimeOffset first, DateTimeOffset second) =>
         first <= second ? first : second;

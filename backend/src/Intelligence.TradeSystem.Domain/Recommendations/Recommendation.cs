@@ -17,6 +17,7 @@ public sealed class Recommendation
         IReadOnlyList<ReasonCode> reasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil,
+        RecommendationContinuationPlan? continuationPlan = null,
         RecommendationStatus status = RecommendationStatus.Active,
         DateTimeOffset? acknowledgedAt = null,
         DateTimeOffset? dismissedAt = null,
@@ -33,6 +34,7 @@ public sealed class Recommendation
         ReasonCodes = reasonCodes;
         CreatedAt = createdAt;
         ValidUntil = validUntil;
+        ContinuationPlan = continuationPlan;
         Status = status;
         AcknowledgedAt = acknowledgedAt;
         DismissedAt = dismissedAt;
@@ -62,6 +64,9 @@ public sealed class Recommendation
     public IReadOnlyList<ReasonCode> ReasonCodes { get; }
     public DateTimeOffset CreatedAt { get; }
     public DateTimeOffset ValidUntil { get; }
+    public RecommendationContinuationPlan? ContinuationPlan { get; }
+    public DateTimeOffset? NextEvaluationAt => ContinuationPlan?.NextEvaluationAt;
+    public bool HasContinuationPlan => ContinuationPlan is not null;
     public RecommendationStatus Status { get; private set; }
     public DateTimeOffset? AcknowledgedAt { get; private set; }
     public DateTimeOffset? DismissedAt { get; private set; }
@@ -122,6 +127,7 @@ public sealed class Recommendation
             specificReasons,
             createdAt,
             validUntil,
+            continuationPlan: null,
             legacy: true);
     }
 
@@ -139,6 +145,7 @@ public sealed class Recommendation
             evaluation.Action.ReasonCodes.Concat(evaluation.AddDecision.ReasonCodes).ToArray(),
             evaluation.CreatedAt,
             evaluation.ValidUntil,
+            evaluation.ContinuationPlan,
             legacy: false);
     }
 
@@ -150,6 +157,7 @@ public sealed class Recommendation
         IEnumerable<ReasonCode> specificReasonCodes,
         DateTimeOffset createdAt,
         DateTimeOffset validUntil,
+        RecommendationContinuationPlan? continuationPlan,
         bool legacy)
     {
         ArgumentNullException.ThrowIfNull(assessment);
@@ -158,6 +166,17 @@ public sealed class Recommendation
         ArgumentNullException.ThrowIfNull(specificReasonCodes);
         ValidateIdentity(policyIdentity);
         ValidateDecision(assessment, action, addDecision, legacy);
+        if (!legacy && continuationPlan is null)
+            throw new ArgumentNullException(
+                nameof(continuationPlan),
+                "Structured recommendations require continuation metadata.");
+        if (continuationPlan is not null &&
+            (continuationPlan.CreatedAt != createdAt || continuationPlan.ValidUntil != validUntil))
+            throw new ArgumentException(
+                "Continuation plan timestamps must match recommendation timestamps.",
+                nameof(continuationPlan));
+        if (!legacy)
+            ValidateStructuredContinuation(continuationPlan, policyIdentity);
         if (!legacy &&
             !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
@@ -196,7 +215,8 @@ public sealed class Recommendation
             policyIdentity,
             new ReadOnlyCollection<ReasonCode>(reasons.ToArray()),
             createdAt,
-            validUntil);
+            validUntil,
+            continuationPlan);
     }
 
     /// <summary>
@@ -216,7 +236,8 @@ public sealed class Recommendation
         DateTimeOffset? dismissedAt,
         DateTimeOffset? supersededAt,
         DateTimeOffset? expiredAt,
-        RecommendationId? supersededByRecommendationId)
+        RecommendationId? supersededByRecommendationId,
+        RecommendationContinuationPlan? continuationPlan = null)
     {
         ArgumentNullException.ThrowIfNull(reasonCodes);
         return RestoreCore(
@@ -234,6 +255,7 @@ public sealed class Recommendation
             supersededAt,
             expiredAt,
             supersededByRecommendationId,
+            continuationPlan,
             legacy: true);
     }
 
@@ -252,7 +274,8 @@ public sealed class Recommendation
         DateTimeOffset? dismissedAt,
         DateTimeOffset? supersededAt,
         DateTimeOffset? expiredAt,
-        RecommendationId? supersededByRecommendationId)
+        RecommendationId? supersededByRecommendationId,
+        RecommendationContinuationPlan? continuationPlan = null)
     {
         return RestoreCore(
             id,
@@ -269,6 +292,7 @@ public sealed class Recommendation
             supersededAt,
             expiredAt,
             supersededByRecommendationId,
+            continuationPlan,
             legacy: false);
     }
 
@@ -287,6 +311,7 @@ public sealed class Recommendation
         DateTimeOffset? supersededAt,
         DateTimeOffset? expiredAt,
         RecommendationId? supersededByRecommendationId,
+        RecommendationContinuationPlan? continuationPlan,
         bool legacy)
     {
         ArgumentNullException.ThrowIfNull(assessment);
@@ -297,6 +322,13 @@ public sealed class Recommendation
             throw new ArgumentException("RecommendationId must be initialized.", nameof(id));
         ValidateIdentity(policyIdentity);
         ValidateDecision(assessment, action, addDecision, legacy);
+        if (continuationPlan is not null &&
+            (continuationPlan.CreatedAt != createdAt || continuationPlan.ValidUntil != validUntil))
+            throw new ArgumentException(
+                "Continuation plan timestamps must match recommendation timestamps.",
+                nameof(continuationPlan));
+        if (!legacy)
+            ValidateStructuredContinuation(continuationPlan, policyIdentity);
         if (!legacy &&
             !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
@@ -343,12 +375,29 @@ public sealed class Recommendation
             new ReadOnlyCollection<ReasonCode>(reasons),
             createdAt,
             validUntil,
+            continuationPlan,
             status,
             acknowledgedAt,
             dismissedAt,
             supersededAt,
             expiredAt,
             supersededByRecommendationId);
+    }
+
+    private static void ValidateStructuredContinuation(
+        RecommendationContinuationPlan? continuationPlan,
+        PolicyConfigurationIdentity policyIdentity)
+    {
+        if (continuationPlan is null)
+            return;
+
+        var policyCondition = continuationPlan.InvalidationConditions
+            .OfType<PolicyIdentityCondition>()
+            .Single();
+        if (policyCondition.RequiredIdentity != policyIdentity)
+            throw new ArgumentException(
+                "Structured continuation policy identity must match recommendation policy identity.",
+                nameof(continuationPlan));
     }
 
     public void Acknowledge(DateTimeOffset at)
