@@ -86,9 +86,13 @@ public sealed record RecommendationContinuationPlan
                 ProfitProtectionCondition => RecommendationContinuationConditionKind.ProfitProtection,
                 LiquidationStateCondition => RecommendationContinuationConditionKind.LiquidationState,
                 LiquidationDistanceCondition => RecommendationContinuationConditionKind.LiquidationDistance,
+                LiquidationDistanceEligibilityCondition =>
+                    RecommendationContinuationConditionKind.LiquidationDistanceEligibility,
                 PnlThresholdCondition => RecommendationContinuationConditionKind.PnlThreshold,
                 PnlAvailabilityCondition => RecommendationContinuationConditionKind.PnlAvailability,
                 HigherPriorityActionsCondition => RecommendationContinuationConditionKind.HigherPriorityActions,
+                AdditionalCapacityEligibilityCondition =>
+                    RecommendationContinuationConditionKind.AdditionalCapacityEligibility,
                 DataQualityCondition => RecommendationContinuationConditionKind.DataQuality,
                 SafetyStateCondition => RecommendationContinuationConditionKind.SafetyState,
                 PortfolioRiskDecisionCondition => RecommendationContinuationConditionKind.PortfolioRiskDecision,

@@ -82,6 +82,31 @@ public sealed class RecommendationContinuationPersistenceMapperTests
         Assert.Equal(original.RequiredActions, rehydrated.RequiredActions);
     }
 
+    [Theory]
+    [InlineData("action")]
+    [InlineData("addDecision")]
+    public void Recommendation_expiry_rejects_persisted_non_recommendation_scope(
+        string corruptedScope)
+    {
+        var plan = CreatePlan();
+        var document = JsonNode.Parse(
+            RecommendationContinuationPersistenceMapper.Serialize(plan))!.AsObject();
+        var invalidation = document["invalidationConditions"]!.AsArray();
+        var expiry = invalidation
+            .OfType<JsonObject>()
+            .Single(condition => condition["kind"]?.GetValue<string>() == "recommendationExpiry");
+        expiry["scope"] = corruptedScope;
+        var corruptedJson = document.ToJsonString();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            RecommendationContinuationPersistenceMapper.Deserialize(
+                corruptedJson,
+                Guid.NewGuid(),
+                plan.CreatedAt,
+                plan.ValidUntil,
+                plan.NextEvaluationAt));
+    }
+
     private static RecommendationContinuationPlan CreatePlan()
     {
         var validUntil = T0.AddMinutes(30);
@@ -102,7 +127,14 @@ public sealed class RecommendationContinuationPersistenceMapperTests
                     PositionTrendAlignment.Aligned),
                 new HigherPriorityActionsCondition(
                     RecommendationContinuationConditionScope.Action,
-                    [PositionAction.Close, PositionAction.Reduce])
+                    [PositionAction.Close, PositionAction.Reduce]),
+                new LiquidationDistanceEligibilityCondition(
+                    RecommendationContinuationConditionScope.AddDecision,
+                    5m,
+                    false),
+                new AdditionalCapacityEligibilityCondition(
+                    RecommendationContinuationConditionScope.AddDecision,
+                    false)
             ],
             T0,
             validUntil,

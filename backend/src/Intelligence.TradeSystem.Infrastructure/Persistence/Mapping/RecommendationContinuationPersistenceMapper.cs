@@ -171,12 +171,16 @@ internal static class RecommendationContinuationPersistenceMapper
                 ["requiredLiquidationState"],
             RecommendationContinuationConditionKind.LiquidationDistance =>
                 ["minimumDistancePercent"],
+            RecommendationContinuationConditionKind.LiquidationDistanceEligibility =>
+                ["minimumDistancePercent", "requiredEligibility"],
             RecommendationContinuationConditionKind.PnlThreshold =>
                 ["comparison", "threshold"],
             RecommendationContinuationConditionKind.PnlAvailability =>
                 ["requiredAvailability"],
             RecommendationContinuationConditionKind.HigherPriorityActions =>
                 ["requiredActions"],
+            RecommendationContinuationConditionKind.AdditionalCapacityEligibility =>
+                ["requiredEligibility"],
             RecommendationContinuationConditionKind.DataQuality =>
                 ["requiredDataQuality"],
             RecommendationContinuationConditionKind.SafetyState =>
@@ -256,6 +260,7 @@ internal static class RecommendationContinuationPersistenceMapper
         public bool? RequiredProfitProtection { get; init; }
         public AssessmentLiquidationState? RequiredLiquidationState { get; init; }
         public decimal? MinimumDistancePercent { get; init; }
+        public bool? RequiredEligibility { get; init; }
         public RecommendationPnlComparison? Comparison { get; init; }
         public decimal? Threshold { get; init; }
         public IReadOnlyList<PositionAction>? RequiredActions { get; init; }
@@ -340,6 +345,13 @@ internal static class RecommendationContinuationPersistenceMapper
                     Kind = value.Kind,
                     MinimumDistancePercent = value.MinimumDistancePercent
                 },
+                LiquidationDistanceEligibilityCondition value => new()
+                {
+                    Scope = value.Scope,
+                    Kind = value.Kind,
+                    MinimumDistancePercent = value.MinimumDistancePercent,
+                    RequiredEligibility = value.RequiredEligibility
+                },
                 PnlThresholdCondition value => new()
                 {
                     Scope = value.Scope,
@@ -358,6 +370,12 @@ internal static class RecommendationContinuationPersistenceMapper
                     Scope = value.Scope,
                     Kind = value.Kind,
                     RequiredActions = value.RequiredActions
+                },
+                AdditionalCapacityEligibilityCondition value => new()
+                {
+                    Scope = value.Scope,
+                    Kind = value.Kind,
+                    RequiredEligibility = value.RequiredEligibility
                 },
                 DataQualityCondition value => new()
                 {
@@ -504,6 +522,15 @@ internal static class RecommendationContinuationPersistenceMapper
                         new LiquidationDistanceCondition(
                             scope,
                             Required(document.MinimumDistancePercent, nameof(MinimumDistancePercent)))),
+                RecommendationContinuationConditionKind.LiquidationDistanceEligibility =>
+                    Create(
+                        document,
+                        nameof(MinimumDistancePercent),
+                        nameof(RequiredEligibility),
+                        new LiquidationDistanceEligibilityCondition(
+                            scope,
+                            Required(document.MinimumDistancePercent, nameof(MinimumDistancePercent)),
+                            Required(document.RequiredEligibility, nameof(RequiredEligibility)))),
                 RecommendationContinuationConditionKind.PnlThreshold =>
                     Create(
                         document,
@@ -527,6 +554,13 @@ internal static class RecommendationContinuationPersistenceMapper
                         new HigherPriorityActionsCondition(
                             scope,
                             RequireActions(document.RequiredActions))),
+                RecommendationContinuationConditionKind.AdditionalCapacityEligibility =>
+                    Create(
+                        document,
+                        nameof(RequiredEligibility),
+                        new AdditionalCapacityEligibilityCondition(
+                            scope,
+                            Required(document.RequiredEligibility, nameof(RequiredEligibility)))),
                 RecommendationContinuationConditionKind.DataQuality =>
                     Create(
                         document,
@@ -576,15 +610,19 @@ internal static class RecommendationContinuationPersistenceMapper
                             scope,
                             Required(document.RequiredLevel, nameof(RequiredLevel)))),
                 RecommendationContinuationConditionKind.RecommendationExpiry =>
-                    Create(
+                    CreateWithRequiredScope(
                         document,
+                        scope,
+                        RecommendationContinuationConditionScope.Recommendation,
                         nameof(ValidUntil),
                         new RecommendationExpiryCondition(
                             PersistenceDateTime.ToUtc(
                                 Required(document.ValidUntil, nameof(ValidUntil))))),
                 RecommendationContinuationConditionKind.ContinuationContextUnavailable =>
-                    Create(
+                    CreateWithRequiredScope(
                         document,
+                        scope,
+                        RecommendationContinuationConditionScope.Recommendation,
                         new ContinuationContextUnavailableCondition()),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(document),
@@ -605,6 +643,33 @@ internal static class RecommendationContinuationPersistenceMapper
                     "Policy identity conditions must use Recommendation scope.",
                     nameof(document));
             return condition;
+        }
+
+        private static RecommendationContinuationCondition CreateWithRequiredScope(
+            ConditionDocument document,
+            RecommendationContinuationConditionScope persistedScope,
+            RecommendationContinuationConditionScope expectedScope,
+            RecommendationContinuationCondition condition)
+        {
+            if (persistedScope != expectedScope)
+                throw new ArgumentException(
+                    $"Condition scope must be {expectedScope}.",
+                    nameof(document));
+            return Create(document, condition);
+        }
+
+        private static RecommendationContinuationCondition CreateWithRequiredScope(
+            ConditionDocument document,
+            RecommendationContinuationConditionScope persistedScope,
+            RecommendationContinuationConditionScope expectedScope,
+            string requiredProperty,
+            RecommendationContinuationCondition condition)
+        {
+            if (persistedScope != expectedScope)
+                throw new ArgumentException(
+                    $"Condition scope must be {expectedScope}.",
+                    nameof(document));
+            return Create(document, requiredProperty, condition);
         }
 
         private static RecommendationContinuationCondition Create(
@@ -681,6 +746,7 @@ internal static class RecommendationContinuationPersistenceMapper
                 [nameof(RequiredProfitProtection)] = RequiredProfitProtection is not null,
                 [nameof(RequiredLiquidationState)] = RequiredLiquidationState is not null,
                 [nameof(MinimumDistancePercent)] = MinimumDistancePercent is not null,
+                [nameof(RequiredEligibility)] = RequiredEligibility is not null,
                 [nameof(Comparison)] = Comparison is not null,
                 [nameof(Threshold)] = Threshold is not null,
                 [nameof(RequiredActions)] = RequiredActions is not null,

@@ -53,7 +53,7 @@ internal static class RecommendationContinuationPlanFactory
         if (addDecision.Decision == AddDecision.AddAllowed)
             AddAllowedConditions(addDecision, policy, invalidation, reevaluation);
         else
-            AddNonAllowedReevaluationConditions(assessment, action, reevaluation);
+            AddNonAllowedReevaluationConditions(assessment, action, policy, reevaluation);
 
         var nextEvaluationAt = createdAt.Add(
             policy.ReevaluationProfile.EffectiveInterval(
@@ -235,18 +235,32 @@ internal static class RecommendationContinuationPlanFactory
     private static void AddNonAllowedReevaluationConditions(
         PositionAssessment assessment,
         RecommendedActionDecision action,
+        PolicyDefinition policy,
         List<RecommendationContinuationCondition> reevaluation)
     {
         if (action.Action != PositionAction.Hold)
             return;
 
         var result = assessment.Result;
-        reevaluation.Add(new PortfolioRiskDecisionCondition(
-            RecommendationContinuationConditionScope.AddDecision,
-            assessment.PortfolioRiskDecision));
-        reevaluation.Add(new DataQualityCondition(
-            RecommendationContinuationConditionScope.AddDecision,
-            result.DataQuality.Overall));
+        var scope = RecommendationContinuationConditionScope.AddDecision;
+        reevaluation.Add(new PortfolioRiskDecisionCondition(scope, assessment.PortfolioRiskDecision));
+        reevaluation.Add(new DataQualityCondition(scope, result.DataQuality.Overall));
+        reevaluation.Add(new MomentumStateCondition(scope, result.Momentum.State));
+        reevaluation.Add(new MomentumExhaustionCondition(scope, result.Momentum.PotentialExhaustion));
+        reevaluation.Add(new LiquidationDistanceEligibilityCondition(
+            scope,
+            policy.AddAllowedLimits.MinimumLiquidationDistancePercent,
+            result.Liquidation.DistanceFromCurrentPercent is { } distance &&
+            distance >= policy.AddAllowedLimits.MinimumLiquidationDistancePercent));
+        reevaluation.Add(new ProfitProtectionCondition(
+            scope,
+            ProfitProtectionEvaluator.IsStopProtectingProfit(result)));
+        reevaluation.Add(new AdditionalCapacityEligibilityCondition(
+            scope,
+            AdditionalPositionCapacityCalculator.Calculate(
+                result.PortfolioRisk,
+                result.CurrentPrice,
+                policy.AddAllowedLimits).MaximumPositionValue is > 0m));
     }
 
     private static void AddHigherPriorityActionConditions(

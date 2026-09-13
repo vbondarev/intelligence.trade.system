@@ -231,6 +231,122 @@ public sealed class RecommendationContinuationTests
         result.ShouldReevaluate.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("portfolio")]
+    [InlineData("momentum")]
+    [InlineData("exhaustion")]
+    [InlineData("liquidation-distance")]
+    [InlineData("profit-protection")]
+    [InlineData("capacity")]
+    [InlineData("capacity-unavailable")]
+    public void Hold_do_not_add_same_state_does_not_self_trigger(string blocker)
+    {
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateHoldAddBlockedAssessment(policy, PositionId.New(), blocker, recovered: false);
+        var recommendation = CreateRecommendation(assessment, policy, T0.AddMinutes(3));
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.Hold);
+        recommendation.AddDecision.Should().Be(AddDecision.DoNotAdd);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            assessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeFalse();
+        result.ActionInvalidated.Should().BeFalse();
+        result.AddDecisionInvalidated.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("portfolio")]
+    [InlineData("momentum")]
+    [InlineData("exhaustion")]
+    [InlineData("liquidation-distance")]
+    [InlineData("profit-protection")]
+    [InlineData("capacity")]
+    [InlineData("capacity-unavailable")]
+    public void Hold_do_not_add_blocker_recovery_requests_reevaluation(string blocker)
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var blocked = CreateHoldAddBlockedAssessment(policy, positionId, blocker, recovered: false);
+        var recommendation = CreateRecommendation(blocked, policy, T0.AddMinutes(3));
+        var recovered = CreateHoldAddBlockedAssessment(policy, positionId, blocker, recovered: true);
+
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            recovered,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+        result.ActionInvalidated.Should().BeFalse();
+        result.AddDecisionInvalidated.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Hold_low_volume_remains_reevaluation_only()
+    {
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned);
+        var recommendation = CreateRecommendation(assessment, policy, T0.AddMinutes(3));
+        var lowVolume = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            assessment.PositionId,
+            lowVolume: true);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.Hold);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            lowVolume,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+        result.ActionInvalidated.Should().BeFalse();
+        result.AddDecisionInvalidated.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Hold_do_not_add_recovery_only_recalculates_remaining_blockers()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var blocked = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            portfolioDecision: RiskIncreaseDecision.Blocked,
+            stopPosition: AssessmentPricePosition.Below);
+        var recommendation = CreateRecommendation(blocked, policy, T0.AddMinutes(3));
+        var partiallyRecovered = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            portfolioDecision: RiskIncreaseDecision.Allowed,
+            stopPosition: AssessmentPricePosition.Below);
+
+        var continuation = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            partiallyRecovered,
+            policy,
+            T0.AddMinutes(3));
+        var recalculated = new RecommendationPolicy().Evaluate(
+            partiallyRecovered,
+            policy,
+            T0.AddMinutes(3));
+
+        continuation.ShouldReevaluate.Should().BeTrue();
+        continuation.ActionInvalidated.Should().BeFalse();
+        continuation.AddDecisionInvalidated.Should().BeFalse();
+        recalculated.Action.Action.Should().Be(PositionAction.Hold);
+        recalculated.AddDecision.Decision.Should().Be(AddDecision.DoNotAdd);
+    }
+
     [Fact]
     public void Reduced_capacity_invalidates_add_decision_but_not_action()
     {
@@ -906,6 +1022,57 @@ public sealed class RecommendationContinuationTests
         return Recommendation.Create(assessment, evaluation);
     }
 
+    private static PositionAssessment CreateHoldAddBlockedAssessment(
+        PolicyDefinition policy,
+        PositionId positionId,
+        string blocker,
+        bool recovered) =>
+        blocker switch
+        {
+            "portfolio" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                portfolioDecision: recovered
+                    ? RiskIncreaseDecision.Allowed
+                    : RiskIncreaseDecision.Blocked),
+            "momentum" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                momentumState: recovered
+                    ? AssessmentMomentumState.Normal
+                    : AssessmentMomentumState.Overbought),
+            "exhaustion" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                exhaustion: !recovered),
+            "liquidation-distance" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                liquidationDistance: recovered ? 61m : 1m),
+            "profit-protection" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                stopPosition: recovered
+                    ? AssessmentPricePosition.Above
+                    : AssessmentPricePosition.Below),
+            "capacity" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                availableCapital: recovered ? 8_000m : 1_000m),
+            "capacity-unavailable" => CreateAssessment(
+                policy,
+                PositionTrendAlignment.Aligned,
+                positionId,
+                totalEquity: recovered ? 10_000m : null),
+            _ => throw new ArgumentOutOfRangeException(nameof(blocker), blocker)
+        };
+
     private static PositionAssessment CreateAssessment(
         PolicyDefinition policy,
         PositionTrendAlignment alignment,
@@ -915,6 +1082,8 @@ public sealed class RecommendationContinuationTests
         RiskIncreaseDecision portfolioDecision = RiskIncreaseDecision.Allowed,
         decimal? pnlPercent = 1m,
         bool exhaustion = false,
+        AssessmentMomentumState momentumState = AssessmentMomentumState.Normal,
+        bool momentumReliable = true,
         bool resistanceNearby = false,
         bool supportNearby = false,
         bool stopMissing = false,
@@ -925,7 +1094,8 @@ public sealed class RecommendationContinuationTests
         AssessmentLiquidationState liquidationState = AssessmentLiquidationState.Far,
         decimal? liquidationDistance = 61m,
         decimal? availableCapital = 8_000m,
-        decimal? currentPositionValue = 1_000m)
+        decimal? currentPositionValue = 1_000m,
+        decimal? totalEquity = 10_000m)
     {
         var id = positionId ?? PositionId.New();
         var inputVersions = new PositionAssessmentInputVersions(
@@ -943,7 +1113,7 @@ public sealed class RecommendationContinuationTests
                 side,
                 105m,
                 new(AssessmentTrendDirection.Bullish, alignment, 0.8m, "4h"),
-                new(50m, true, AssessmentMomentumState.Normal, exhaustion),
+                new(50m, momentumReliable, momentumState, exhaustion),
                 new(1m, 1m, true, false),
                 new(105m, 99m, 1m, 0.7m, 110m, 1m, 0.7m),
                 new(pnlPercent, pnlPercent, 100m, 105m, AssessmentPricePosition.Above)
@@ -972,7 +1142,7 @@ public sealed class RecommendationContinuationTests
                     2_000m,
                     true,
                     true,
-                    10_000m,
+                    totalEquity,
                     availableCapital,
                     currentPositionValue,
                     10m,

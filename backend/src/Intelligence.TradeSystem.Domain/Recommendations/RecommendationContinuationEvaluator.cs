@@ -279,6 +279,9 @@ public static class RecommendationContinuationEvaluator
             LiquidationDistanceCondition value =>
                 result.Liquidation.DistanceFromCurrentPercent is not { } distance ||
                 distance < value.MinimumDistancePercent,
+            LiquidationDistanceEligibilityCondition value =>
+                (result.Liquidation.DistanceFromCurrentPercent is { } distance &&
+                 distance >= value.MinimumDistancePercent) != value.RequiredEligibility,
             PnlThresholdCondition value => !MeetsPnlThreshold(result.Pnl.PnlPercent, value),
             PnlAvailabilityCondition value =>
                 result.Pnl.PnlPercent.HasValue != value.RequiredAvailability,
@@ -286,6 +289,12 @@ public static class RecommendationContinuationEvaluator
                 !RecommendationActionPredicates.IsSafetyBlocked(assessment) &&
                 value.RequiredActions.Any(action =>
                     RecommendationActionPredicates.IsActionRequired(assessment, policy, action)),
+            AdditionalCapacityEligibilityCondition value =>
+                (AdditionalPositionCapacityCalculator.Calculate(
+                    assessment.Result.PortfolioRisk,
+                    assessment.Result.CurrentPrice,
+                    policy.AddAllowedLimits).MaximumPositionValue is > 0m) !=
+                value.RequiredEligibility,
             DataQualityCondition value => result.DataQuality.Overall != value.RequiredQuality,
             SafetyStateCondition value => result.DataQuality.SafetyState != value.RequiredState,
             PortfolioRiskDecisionCondition value => assessment.PortfolioRiskDecision != value.RequiredDecision,

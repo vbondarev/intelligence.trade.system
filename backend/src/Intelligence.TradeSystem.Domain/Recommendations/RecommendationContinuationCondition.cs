@@ -23,9 +23,11 @@ public enum RecommendationContinuationConditionKind
     ProfitProtection,
     LiquidationState,
     LiquidationDistance,
+    LiquidationDistanceEligibility,
     PnlThreshold,
     PnlAvailability,
     HigherPriorityActions,
+    AdditionalCapacityEligibility,
     DataQuality,
     SafetyState,
     PortfolioRiskDecision,
@@ -241,6 +243,32 @@ public sealed record LiquidationDistanceCondition : RecommendationContinuationCo
     public decimal MinimumDistancePercent { get; }
 }
 
+public sealed record LiquidationDistanceEligibilityCondition : RecommendationContinuationCondition
+{
+    public LiquidationDistanceEligibilityCondition(
+        RecommendationContinuationConditionScope scope,
+        decimal minimumDistancePercent,
+        bool requiredEligibility)
+        : base(scope, RecommendationContinuationConditionKind.LiquidationDistanceEligibility)
+    {
+        if (scope != RecommendationContinuationConditionScope.AddDecision)
+            throw new ArgumentException(
+                "Liquidation distance eligibility must use AddDecision scope.",
+                nameof(scope));
+        if (minimumDistancePercent <= 0m)
+            throw new ArgumentOutOfRangeException(
+                nameof(minimumDistancePercent),
+                minimumDistancePercent,
+                "Minimum liquidation distance must be positive.");
+
+        MinimumDistancePercent = minimumDistancePercent;
+        RequiredEligibility = requiredEligibility;
+    }
+
+    public decimal MinimumDistancePercent { get; }
+    public bool RequiredEligibility { get; }
+}
+
 public sealed record PnlThresholdCondition : RecommendationContinuationCondition
 {
     public PnlThresholdCondition(
@@ -334,6 +362,24 @@ public sealed record HigherPriorityActionsCondition : RecommendationContinuation
             return hash.ToHashCode();
         }
     }
+}
+
+public sealed record AdditionalCapacityEligibilityCondition : RecommendationContinuationCondition
+{
+    public AdditionalCapacityEligibilityCondition(
+        RecommendationContinuationConditionScope scope,
+        bool requiredEligibility)
+        : base(scope, RecommendationContinuationConditionKind.AdditionalCapacityEligibility)
+    {
+        if (scope != RecommendationContinuationConditionScope.AddDecision)
+            throw new ArgumentException(
+                "Additional capacity eligibility must use AddDecision scope.",
+                nameof(scope));
+
+        RequiredEligibility = requiredEligibility;
+    }
+
+    public bool RequiredEligibility { get; }
 }
 
 public sealed record DataQualityCondition : RecommendationContinuationCondition
