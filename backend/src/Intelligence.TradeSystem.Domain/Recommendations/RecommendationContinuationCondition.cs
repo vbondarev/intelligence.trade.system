@@ -304,10 +304,36 @@ public sealed record HigherPriorityActionsCondition : RecommendationContinuation
                 "Higher-priority actions cannot contain duplicates.",
                 nameof(requiredActions));
 
-        RequiredActions = Array.AsReadOnly(actions);
+        this.requiredActions = new PositionActionSequence(actions);
     }
 
-    public IReadOnlyList<PositionAction> RequiredActions { get; }
+    private readonly PositionActionSequence requiredActions;
+
+    public IReadOnlyList<PositionAction> RequiredActions => requiredActions.Values;
+
+    private sealed class PositionActionSequence : IEquatable<PositionActionSequence>
+    {
+        public PositionActionSequence(IEnumerable<PositionAction> actions)
+        {
+            Values = Array.AsReadOnly(actions.ToArray());
+        }
+
+        public IReadOnlyList<PositionAction> Values { get; }
+
+        public bool Equals(PositionActionSequence? other) =>
+            other is not null && Values.SequenceEqual(other.Values);
+
+        public override bool Equals(object? obj) =>
+            obj is PositionActionSequence other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            foreach (var action in Values)
+                hash.Add(action);
+            return hash.ToHashCode();
+        }
+    }
 }
 
 public sealed record DataQualityCondition : RecommendationContinuationCondition

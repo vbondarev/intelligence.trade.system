@@ -784,6 +784,59 @@ public sealed class RecommendationContinuationTests
     }
 
     [Fact]
+    public void Plan_requires_one_policy_identity_condition_in_invalidation_conditions()
+    {
+        var policyIdentity = PolicyDefinition.Default.Identity;
+        var expiry = T0.AddMinutes(30);
+        var policyCondition = new PolicyIdentityCondition(
+            RecommendationContinuationConditionScope.Recommendation,
+            policyIdentity);
+        var actionCondition = new TrendAlignmentCondition(
+            RecommendationContinuationConditionScope.Action,
+            PositionTrendAlignment.Aligned);
+        var reevaluation = new[] { actionCondition };
+
+        var valid = new RecommendationContinuationPlan(
+            [policyCondition, new RecommendationExpiryCondition(expiry), actionCondition],
+            reevaluation,
+            T0,
+            expiry,
+            T0.AddMinutes(2));
+        valid.InvalidationConditions.Should().Contain(policyCondition);
+
+        FluentActions.Invoking(() => new RecommendationContinuationPlan(
+                [new RecommendationExpiryCondition(expiry), actionCondition],
+                reevaluation,
+                T0,
+                expiry,
+                T0.AddMinutes(2)))
+            .Should().Throw<ArgumentException>();
+
+        FluentActions.Invoking(() => new RecommendationContinuationPlan(
+                [
+                    policyCondition,
+                    new RecommendationExpiryCondition(expiry),
+                    new PolicyIdentityCondition(
+                        RecommendationContinuationConditionScope.Recommendation,
+                        policyIdentity),
+                    actionCondition
+                ],
+                reevaluation,
+                T0,
+                expiry,
+                T0.AddMinutes(2)))
+            .Should().Throw<ArgumentException>();
+
+        FluentActions.Invoking(() => new RecommendationContinuationPlan(
+                [new RecommendationExpiryCondition(expiry), actionCondition],
+                [policyCondition, actionCondition],
+                T0,
+                expiry,
+                T0.AddMinutes(2)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void Typed_conditions_reject_invalid_payloads()
     {
         FluentActions.Invoking(() => new LiquidationDistanceCondition(
@@ -805,6 +858,43 @@ public sealed class RecommendationContinuationTests
             .Should().Throw<ArgumentException>();
         FluentActions.Invoking(() => new RecommendationExpiryCondition(default))
             .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Higher_priority_actions_condition_has_sequence_value_equality()
+    {
+        var first = new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.Action,
+            [PositionAction.Close, PositionAction.Reduce]);
+        var equivalent = new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.Action,
+            [PositionAction.Close, PositionAction.Reduce]);
+        var different = new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.Action,
+            [PositionAction.Close]);
+        var reordered = new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.Action,
+            [PositionAction.Reduce, PositionAction.Close]);
+
+        first.Should().Be(equivalent);
+        first.Should().NotBe(different);
+        first.Should().NotBe(reordered);
+    }
+
+    [Fact]
+    public void Higher_priority_actions_condition_snapshots_input_actions()
+    {
+        var actions = new List<PositionAction>
+        {
+            PositionAction.Close,
+            PositionAction.Reduce
+        };
+        var condition = new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.Action,
+            actions);
+        actions.Clear();
+
+        condition.RequiredActions.Should().Equal(PositionAction.Close, PositionAction.Reduce);
     }
 
     private static Recommendation CreateRecommendation(

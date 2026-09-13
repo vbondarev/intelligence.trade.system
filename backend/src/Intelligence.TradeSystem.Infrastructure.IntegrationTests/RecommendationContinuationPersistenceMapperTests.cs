@@ -60,6 +60,28 @@ public sealed class RecommendationContinuationPersistenceMapperTests
                     plan.NextEvaluationAt));
     }
 
+    [Fact]
+    public void Higher_priority_actions_condition_round_trips_with_value_equality()
+    {
+        var plan = CreatePlan();
+        var json = RecommendationContinuationPersistenceMapper.Serialize(plan);
+        var restored = RecommendationContinuationPersistenceMapper.Deserialize(
+            json,
+            Guid.NewGuid(),
+            plan.CreatedAt,
+            plan.ValidUntil,
+            plan.NextEvaluationAt);
+        var original = Assert.IsType<HigherPriorityActionsCondition>(
+            plan.ReevaluationConditions.Single(condition =>
+                condition is HigherPriorityActionsCondition));
+        var rehydrated = Assert.IsType<HigherPriorityActionsCondition>(
+            restored.ReevaluationConditions.Single(condition =>
+                condition is HigherPriorityActionsCondition));
+
+        Assert.Equal(original, rehydrated);
+        Assert.Equal(original.RequiredActions, rehydrated.RequiredActions);
+    }
+
     private static RecommendationContinuationPlan CreatePlan()
     {
         var validUntil = T0.AddMinutes(30);

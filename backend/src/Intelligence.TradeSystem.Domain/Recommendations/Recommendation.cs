@@ -391,12 +391,10 @@ public sealed class Recommendation
         if (continuationPlan is null)
             return;
 
-        var policyConditions = continuationPlan.InvalidationConditions
+        var policyCondition = continuationPlan.InvalidationConditions
             .OfType<PolicyIdentityCondition>()
-            .ToArray();
-        if (policyConditions.Length != 1 ||
-            policyConditions[0].Scope != RecommendationContinuationConditionScope.Recommendation ||
-            policyConditions[0].RequiredIdentity != policyIdentity)
+            .Single();
+        if (policyCondition.RequiredIdentity != policyIdentity)
             throw new ArgumentException(
                 "Structured continuation policy identity must match recommendation policy identity.",
                 nameof(continuationPlan));

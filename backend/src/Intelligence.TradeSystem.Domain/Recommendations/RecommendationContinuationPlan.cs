@@ -37,6 +37,7 @@ public sealed record RecommendationContinuationPlan
             throw new ArgumentException("At least one invalidation condition is required.", nameof(invalidationConditions));
         if (reevaluation.Length == 0)
             throw new ArgumentException("At least one reevaluation condition is required.", nameof(reevaluationConditions));
+        ValidatePolicyIdentityConditions(invalidation, reevaluation);
         var expiryConditions = invalidation.OfType<RecommendationExpiryCondition>().ToArray();
         if (expiryConditions.Length != 1 || expiryConditions[0].ValidUntil != validUntil)
             throw new ArgumentException(
@@ -126,5 +127,22 @@ public sealed record RecommendationContinuationPlan
                     $"Duplicate semantic condition {condition.Scope}/{condition.Kind}.",
                     parameterName);
         }
+    }
+
+    private static void ValidatePolicyIdentityConditions(
+        IReadOnlyList<RecommendationContinuationCondition> invalidation,
+        IReadOnlyList<RecommendationContinuationCondition> reevaluation)
+    {
+        var policyConditions = invalidation
+            .OfType<PolicyIdentityCondition>()
+            .ToArray();
+        if (policyConditions.Length != 1)
+            throw new ArgumentException(
+                "Exactly one policy identity condition is required in invalidation conditions.",
+                nameof(invalidation));
+        if (reevaluation.OfType<PolicyIdentityCondition>().Any())
+            throw new ArgumentException(
+                "Policy identity conditions must not be reevaluation conditions.",
+                nameof(reevaluation));
     }
 }

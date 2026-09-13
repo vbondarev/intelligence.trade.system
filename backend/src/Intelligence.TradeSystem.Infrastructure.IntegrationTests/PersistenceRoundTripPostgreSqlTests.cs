@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using System.Data.Common;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -1017,11 +1018,35 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         {
             var entity = await mutationContext.Recommendations
                 .SingleAsync(row => row.Id == recommendation.Id.Value);
-            entity.ContinuationContextJson = entity.ContinuationContextJson!
-                .Replace(
-                    $"\"requiredPolicyHash\":\"{policy.Identity.Hash}\"",
-                    $"\"requiredPolicyHash\":\"{replacementHash}\"",
-                    StringComparison.Ordinal);
+            var originalJson = entity.ContinuationContextJson!;
+            var document = JsonNode.Parse(originalJson) as JsonObject
+                ?? throw new InvalidOperationException("Continuation JSON must be an object.");
+            var changed = false;
+            foreach (var conditionsName in new[] { "invalidationConditions", "reevaluationConditions" })
+            {
+                if (document[conditionsName] is not JsonArray conditions)
+                    continue;
+
+                foreach (var item in conditions)
+                {
+                    if (item is not JsonObject condition ||
+                        condition["kind"]?.GetValue<string>() != "policyIdentity")
+                        continue;
+
+                    condition["requiredPolicyHash"] = replacementHash;
+                    changed = true;
+                    break;
+                }
+
+                if (changed)
+                    break;
+            }
+
+            Assert.True(changed, "The persisted policy identity condition was not found.");
+            var corruptedJson = document.ToJsonString();
+            Assert.NotEqual(originalJson, corruptedJson);
+            Assert.NotEqual(policy.Identity.Hash, replacementHash);
+            entity.ContinuationContextJson = corruptedJson;
             await mutationContext.SaveChangesAsync();
         }
 
