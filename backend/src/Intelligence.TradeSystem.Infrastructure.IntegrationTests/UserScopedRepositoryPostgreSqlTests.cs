@@ -472,7 +472,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
-        var recommendation = Recommendation.Restore(
+        var recommendation = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Reduce,

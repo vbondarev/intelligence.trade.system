@@ -325,7 +325,7 @@ public sealed class AssessmentsAndRecommendationsTests
                 assessment.ValidUntil))
             .Should().Throw<ArgumentException>();
 
-        var restored = Recommendation.Restore(
+        var restored = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Hold,
@@ -720,7 +720,7 @@ public sealed class AssessmentsAndRecommendationsTests
 
     private static Recommendation CreateRecommendation(
         PositionAssessment assessment, AddDecision addDecision, DateTimeOffset createdAt, DateTimeOffset validUntil) =>
-        Recommendation.Restore(
+        Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Hold,
@@ -740,7 +740,7 @@ public sealed class AssessmentsAndRecommendationsTests
         PositionAssessment assessment,
         IEnumerable<ReasonCode>? reasonCodes = null,
         AddDecision? addDecision = null) =>
-        Recommendation.Restore(
+        Recommendation.RestoreLegacy(
             recommendation.Id,
             assessment,
             recommendation.RecommendedAction,

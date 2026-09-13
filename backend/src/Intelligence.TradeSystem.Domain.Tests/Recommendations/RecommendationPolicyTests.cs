@@ -21,6 +21,16 @@ public sealed class RecommendationPolicyTests
     }
 
     [Fact]
+    public void Recommendation_has_no_public_rehydration_methods()
+    {
+        typeof(Recommendation)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(method => method.Name.StartsWith("Restore", StringComparison.Ordinal))
+            .Should()
+            .BeEmpty();
+    }
+
+    [Fact]
     public void Canonical_policy_hash_is_stable_and_changes_with_behavior()
     {
         var first = PolicyDefinition.Default;
@@ -178,7 +188,7 @@ public sealed class RecommendationPolicyTests
             PositionTrendAlignment.Aligned,
             legacy: true);
 
-        var restored = Recommendation.Restore(
+        var restored = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Close,

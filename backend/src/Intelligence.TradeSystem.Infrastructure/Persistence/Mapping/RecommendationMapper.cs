@@ -96,7 +96,7 @@ internal static class RecommendationMapper
 
         if (!HasCompleteStructuredMetadata(entity))
         {
-            return Recommendation.Restore(
+            return Recommendation.RestoreLegacy(
                 RecommendationId.FromGuid(entity.Id),
                 assessment,
                 entity.RecommendedAction,
@@ -136,7 +136,7 @@ internal static class RecommendationMapper
             document.MaximumAdditionalQuantity,
             document.Conditions);
 
-        return Recommendation.Restore(
+        return Recommendation.RestoreStructured(
             RecommendationId.FromGuid(entity.Id),
             assessment,
             action,

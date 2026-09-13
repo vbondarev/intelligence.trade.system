@@ -789,7 +789,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             [],
             T0.AddMinutes(3),
             T0.AddHours(1));
-        var recommendation = Recommendation.Restore(
+        var recommendation = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
@@ -1083,7 +1083,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Restore(
+        var recommendation = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Reduce,
@@ -1527,7 +1527,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
         var assessment = CreateAssessment(account, position);
-        var recommendation = Recommendation.Restore(
+        var recommendation = Recommendation.RestoreLegacy(
             RecommendationId.New(),
             assessment,
             PositionAction.Reduce,

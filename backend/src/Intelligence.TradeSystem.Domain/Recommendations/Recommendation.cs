@@ -202,7 +202,7 @@ public sealed class Recommendation
     /// <summary>
     /// Восстанавливает старую запись, для которой structured E.2 metadata ещё отсутствует.
     /// </summary>
-    public static Recommendation Restore(
+    internal static Recommendation RestoreLegacy(
         RecommendationId id,
         PositionAssessment assessment,
         PositionAction recommendedAction,
@@ -238,7 +238,7 @@ public sealed class Recommendation
     }
 
     /// <summary>Восстанавливает recommendation с полным E.2 decision context.</summary>
-    public static Recommendation Restore(
+    internal static Recommendation RestoreStructured(
         RecommendationId id,
         PositionAssessment assessment,
         RecommendedActionDecision action,
