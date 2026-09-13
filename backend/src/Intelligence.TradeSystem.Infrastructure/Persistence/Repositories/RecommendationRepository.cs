@@ -221,6 +221,10 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             !RecommendationMapper.DecisionContextsEqual(
                 persisted.DecisionContextJson,
                 current.DecisionContextJson) ||
+            persisted.NextEvaluationAt != current.NextEvaluationAt ||
+            !RecommendationMapper.ContinuationContextsEqual(
+                persisted.ContinuationContextJson,
+                current.ContinuationContextJson) ||
             persisted.CreatedAt != current.CreatedAt ||
             persisted.ValidUntil != current.ValidUntil)
             throw new InvalidOperationException(

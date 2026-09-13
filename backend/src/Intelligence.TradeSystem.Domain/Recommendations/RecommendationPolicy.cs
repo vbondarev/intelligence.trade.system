@@ -35,15 +35,23 @@ public sealed class RecommendationPolicy
                 PositionAction.Watch,
                 policyDefinition,
                 [ReasonCode.RecommendationLimitedByDataQuality]);
+            var safetyAddDecision = new AddDecisionResult(
+                AddDecision.DoNotAdd,
+                [ReasonCode.RiskIncreaseBlockedByDataQuality],
+                null,
+                null,
+                null);
             return new(
                 policyDefinition.Identity,
                 action,
-                new AddDecisionResult(
-                    AddDecision.DoNotAdd,
-                    [ReasonCode.RiskIncreaseBlockedByDataQuality],
-                    null,
-                    null,
-                    null),
+                safetyAddDecision,
+                RecommendationContinuationPlanFactory.Create(
+                    assessment,
+                    action,
+                    safetyAddDecision,
+                    policyDefinition,
+                    asOf,
+                    validUntil),
                 asOf,
                 validUntil);
         }
@@ -53,8 +61,23 @@ public sealed class RecommendationPolicy
                 "Position assessment and recommendation policy identities do not match.");
 
         var actionDecision = EvaluateAction(assessment, policyDefinition);
-        var addDecision = EvaluateAddDecision(assessment, policyDefinition, actionDecision.Action);
-        return new(policyDefinition.Identity, actionDecision, addDecision, asOf, validUntil);
+        var addDecision = EvaluateAddDecision(
+            assessment,
+            policyDefinition,
+            actionDecision.Action);
+        return new(
+            policyDefinition.Identity,
+            actionDecision,
+            addDecision,
+            RecommendationContinuationPlanFactory.Create(
+                assessment,
+                actionDecision,
+                addDecision,
+                policyDefinition,
+                asOf,
+                validUntil),
+            asOf,
+            validUntil);
     }
 
     private static RecommendedActionDecision EvaluateAction(
@@ -149,17 +172,16 @@ public sealed class RecommendationPolicy
         if (result.Stop.StopPrice is null || result.Stop.State != AssessmentStopState.Protective)
             reasons.Add(ReasonCode.AddBlockedByStop);
 
-        var maximum = TryCalculateMaximumAdditionalPositionValue(
+        var capacity = AdditionalPositionCapacityCalculator.Calculate(
             result.PortfolioRisk,
             result.CurrentPrice,
-            policyDefinition.AddAllowedLimits,
-            out var maximumQuantity,
-            out var headroomReasons);
-        reasons.AddRange(headroomReasons);
+            policyDefinition.AddAllowedLimits);
+        reasons.AddRange(capacity.LimitingReasons);
 
-        if (reasons.Count > 0 || maximum is not > 0m)
+        if (reasons.Count > 0 || capacity.MaximumPositionValue is not > 0m)
         {
-            if (maximum is not > 0m && !reasons.Contains(ReasonCode.AddMaximumSizeUnavailable))
+            if (capacity.MaximumPositionValue is not > 0m &&
+                !reasons.Contains(ReasonCode.AddMaximumSizeUnavailable))
                 reasons.Add(ReasonCode.AddMaximumSizeUnavailable);
             return new AddDecisionResult(
                 AddDecision.DoNotAdd,
@@ -177,72 +199,11 @@ public sealed class RecommendationPolicy
         return new AddDecisionResult(
             AddDecision.AddAllowed,
             [ReasonCode.AddAllowedWithinLimits],
-            maximum,
-            maximumQuantity,
+            capacity.MaximumPositionValue,
+            capacity.MaximumQuantity,
             conditions);
     }
 
-    private static decimal? TryCalculateMaximumAdditionalPositionValue(
-        PositionAssessmentPortfolioRiskContext portfolioRisk,
-        decimal? currentPrice,
-        AddAllowedPolicyLimits limits,
-        out decimal? maximumQuantity,
-        out IReadOnlyList<ReasonCode> limitingReasons)
-    {
-        maximumQuantity = null;
-        var reasons = new List<ReasonCode>();
-        if (portfolioRisk.TotalEquity is not > 0m ||
-            portfolioRisk.AvailableCapital is not >= 0m ||
-            portfolioRisk.CurrentPositionValue is not >= 0m ||
-            !portfolioRisk.IsComplete ||
-            !portfolioRisk.IsFresh ||
-            portfolioRisk.GrossExposureToEquityPercent is null ||
-            portfolioRisk.MinimumFreeCapitalPercent is null ||
-            portfolioRisk.MaximumGrossExposureToEquityPercent is null ||
-            portfolioRisk.MaximumPositionConcentrationPercent is null)
-        {
-            limitingReasons = [ReasonCode.AddMaximumSizeUnavailable];
-            return null;
-        }
-
-        var equity = portfolioRisk.TotalEquity.Value;
-        var available = portfolioRisk.AvailableCapital.Value;
-        var freeCapitalRoom =
-            available - equity * portfolioRisk.MinimumFreeCapitalPercent.Value / 100m;
-        var grossExposureRoom =
-            equity * portfolioRisk.MaximumGrossExposureToEquityPercent.Value / 100m -
-            equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
-        var maximumConcentration =
-            portfolioRisk.MaximumPositionConcentrationPercent.Value / 100m;
-        var currentGrossExposure =
-            equity * portfolioRisk.GrossExposureToEquityPercent.Value / 100m;
-        var positionConcentrationRoom = maximumConcentration >= 1m
-            ? decimal.MaxValue
-            : (maximumConcentration * currentGrossExposure -
-               portfolioRisk.CurrentPositionValue.Value) / (1m - maximumConcentration);
-        var policyRelativeRoom =
-            equity * limits.MaximumAdditionalPositionPercentOfEquity / 100m;
-        var policyAvailableRoom =
-            available * limits.MaximumAdditionalAvailableCapitalPercent / 100m;
-
-        if (freeCapitalRoom <= 0m ||
-            grossExposureRoom <= 0m ||
-            positionConcentrationRoom <= 0m)
-            reasons.Add(ReasonCode.AddBlockedByPortfolioRisk);
-
-        var maximum = Math.Max(
-            0m,
-            Math.Min(
-                freeCapitalRoom,
-                Math.Min(
-                    grossExposureRoom,
-                    Math.Min(positionConcentrationRoom, Math.Min(policyRelativeRoom, policyAvailableRoom)))));
-        if (maximum > 0m && currentPrice is > 0m)
-            maximumQuantity = maximum / currentPrice.Value;
-
-        limitingReasons = reasons;
-        return maximum;
-    }
 
     private static bool IsPartialProfitConditionMet(
         PositionAssessmentResult result,

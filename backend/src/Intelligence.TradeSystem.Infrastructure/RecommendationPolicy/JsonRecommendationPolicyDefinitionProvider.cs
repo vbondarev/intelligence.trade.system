@@ -60,6 +60,7 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
         public ConfidenceProfilesDocument? ConfidenceProfiles { get; init; }
         public PriorityProfilesDocument? PriorityProfiles { get; init; }
         public AddAllowedLimitsDocument? AddAllowedLimits { get; init; }
+        public ReevaluationProfileDocument? ReevaluationProfile { get; init; }
 
         public PolicyDefinition ToDomain()
         {
@@ -78,6 +79,8 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 throw new InvalidOperationException("Recommendation policy PriorityProfiles are required.");
             if (AddAllowedLimits is null)
                 throw new InvalidOperationException("Recommendation policy AddAllowedLimits are required.");
+            if (ReevaluationProfile is null)
+                throw new InvalidOperationException("Recommendation policy ReevaluationProfile is required.");
 
             return new(
                 new RuleVersion(Version),
@@ -88,7 +91,8 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 TakePartialProfitThreshold.Value,
                 ConfidenceProfiles.ToDomain(),
                 PriorityProfiles.ToDomain(),
-                AddAllowedLimits.ToDomain());
+                AddAllowedLimits.ToDomain(),
+                ReevaluationProfile.ToDomain(ValidityPeriod.Value));
         }
     }
 
@@ -148,6 +152,30 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 throw Missing(nameof(MaximumAdditionalAvailableCapitalPercent)),
                 MinimumLiquidationDistancePercent ??
                 throw Missing(nameof(MinimumLiquidationDistancePercent)));
+    }
+
+    private sealed class ReevaluationProfileDocument
+    {
+        public TimeSpan? Hold { get; init; }
+        public TimeSpan? Watch { get; init; }
+        public TimeSpan? ProtectProfit { get; init; }
+        public TimeSpan? Reduce { get; init; }
+        public TimeSpan? Close { get; init; }
+        public TimeSpan? MoveStop { get; init; }
+        public TimeSpan? TakePartialProfit { get; init; }
+        public TimeSpan? AddAllowed { get; init; }
+
+        public RecommendationReevaluationProfile ToDomain(TimeSpan validityPeriod) =>
+            new(
+                Hold ?? throw Missing(nameof(Hold)),
+                Watch ?? throw Missing(nameof(Watch)),
+                ProtectProfit ?? throw Missing(nameof(ProtectProfit)),
+                Reduce ?? throw Missing(nameof(Reduce)),
+                Close ?? throw Missing(nameof(Close)),
+                MoveStop ?? throw Missing(nameof(MoveStop)),
+                TakePartialProfit ?? throw Missing(nameof(TakePartialProfit)),
+                AddAllowed ?? throw Missing(nameof(AddAllowed)),
+                validityPeriod);
     }
 
     private static InvalidOperationException Missing(string propertyName) =>

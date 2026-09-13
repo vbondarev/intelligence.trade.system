@@ -43,6 +43,12 @@ internal static class RecommendationMapper
                         recommendation.AddConditions),
                     DecisionJsonOptions)
                 : null,
+            NextEvaluationAt = recommendation.HasContinuationPlan
+                ? PersistenceDateTime.ToUtc(recommendation.NextEvaluationAt)
+                : null,
+            ContinuationContextJson = recommendation.HasContinuationPlan
+                ? RecommendationContinuationPersistenceMapper.Serialize(recommendation.ContinuationPlan!)
+                : null,
             CreatedAt = PersistenceDateTime.ToUtc(recommendation.CreatedAt),
             ValidUntil = PersistenceDateTime.ToUtc(recommendation.ValidUntil),
             Status = recommendation.Status,
@@ -75,6 +81,9 @@ internal static class RecommendationMapper
         return JsonElementsEqual(leftDocument.RootElement, rightDocument.RootElement);
     }
 
+    public static bool ContinuationContextsEqual(string? left, string? right) =>
+        DecisionContextsEqual(left, right);
+
     public static Recommendation ToDomain(
         RecommendationEntity entity,
         IReadOnlyCollection<RecommendationReasonEntity> reasons,
@@ -94,8 +103,12 @@ internal static class RecommendationMapper
             .Select(reason => reason.ReasonCode)
             .ToArray();
 
+        var hasContinuationMetadata = HasAnyContinuationMetadata(entity);
         if (!HasCompleteStructuredMetadata(entity))
         {
+            if (hasContinuationMetadata)
+                throw new InvalidOperationException(
+                    $"Recommendation {entity.Id} contains continuation metadata without structured decision metadata.");
             return Recommendation.RestoreLegacy(
                 RecommendationId.FromGuid(entity.Id),
                 assessment,
@@ -115,6 +128,8 @@ internal static class RecommendationMapper
                     : null);
         }
 
+        var createdAt = PersistenceDateTime.ToUtc(entity.CreatedAt);
+        var validUntil = PersistenceDateTime.ToUtc(entity.ValidUntil);
         var document = JsonSerializer.Deserialize<RecommendationDecisionDocument>(
             entity.DecisionContextJson!,
             DecisionJsonOptions)
@@ -135,6 +150,19 @@ internal static class RecommendationMapper
             document.MaximumAdditionalPositionValue,
             document.MaximumAdditionalQuantity,
             document.Conditions);
+        RecommendationContinuationPlan? continuationPlan = null;
+        if (hasContinuationMetadata)
+        {
+            if (entity.ContinuationContextJson is null || entity.NextEvaluationAt is null)
+                throw new InvalidOperationException(
+                    $"Recommendation {entity.Id} contains incomplete continuation metadata.");
+            continuationPlan = RecommendationContinuationPersistenceMapper.Deserialize(
+                entity.ContinuationContextJson,
+                entity.Id,
+                createdAt,
+                validUntil,
+                PersistenceDateTime.ToUtc(entity.NextEvaluationAt));
+        }
 
         return Recommendation.RestoreStructured(
             RecommendationId.FromGuid(entity.Id),
@@ -143,8 +171,8 @@ internal static class RecommendationMapper
             addDecision,
             PolicyConfigurationIdentity.From(entity.PolicyVersion, entity.PolicyHash!),
             orderedReasons,
-            PersistenceDateTime.ToUtc(entity.CreatedAt),
-            PersistenceDateTime.ToUtc(entity.ValidUntil),
+            createdAt,
+            validUntil,
             entity.Status,
             PersistenceDateTime.ToUtc(entity.AcknowledgedAt),
             PersistenceDateTime.ToUtc(entity.DismissedAt),
@@ -152,7 +180,8 @@ internal static class RecommendationMapper
             PersistenceDateTime.ToUtc(entity.ExpiredAt),
             entity.SupersededByRecommendationId is { } successor
                 ? RecommendationId.FromGuid(successor)
-                : null);
+                : null,
+            continuationPlan);
     }
 
     private static bool HasCompleteStructuredMetadata(RecommendationEntity entity)
@@ -170,6 +199,9 @@ internal static class RecommendationMapper
                 $"Recommendation {entity.Id} contains incomplete structured decision metadata.");
         return complete;
     }
+
+    private static bool HasAnyContinuationMetadata(RecommendationEntity entity) =>
+        entity.NextEvaluationAt is not null || entity.ContinuationContextJson is not null;
 
     private static bool JsonElementsEqual(JsonElement left, JsonElement right)
     {
