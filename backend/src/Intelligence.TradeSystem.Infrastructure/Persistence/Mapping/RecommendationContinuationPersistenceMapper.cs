@@ -175,6 +175,8 @@ internal static class RecommendationContinuationPersistenceMapper
                 ["comparison", "threshold"],
             RecommendationContinuationConditionKind.PnlAvailability =>
                 ["requiredAvailability"],
+            RecommendationContinuationConditionKind.HigherPriorityActions =>
+                ["requiredActions"],
             RecommendationContinuationConditionKind.DataQuality =>
                 ["requiredDataQuality"],
             RecommendationContinuationConditionKind.SafetyState =>
@@ -256,6 +258,7 @@ internal static class RecommendationContinuationPersistenceMapper
         public decimal? MinimumDistancePercent { get; init; }
         public RecommendationPnlComparison? Comparison { get; init; }
         public decimal? Threshold { get; init; }
+        public IReadOnlyList<PositionAction>? RequiredActions { get; init; }
         public AssessmentDataQuality? RequiredDataQuality { get; init; }
         public AssessmentSafetyState? RequiredSafetyState { get; init; }
         public RiskIncreaseDecision? RequiredRiskDecision { get; init; }
@@ -349,6 +352,12 @@ internal static class RecommendationContinuationPersistenceMapper
                     Scope = value.Scope,
                     Kind = value.Kind,
                     RequiredAvailability = value.RequiredAvailability
+                },
+                HigherPriorityActionsCondition value => new()
+                {
+                    Scope = value.Scope,
+                    Kind = value.Kind,
+                    RequiredActions = value.RequiredActions
                 },
                 DataQualityCondition value => new()
                 {
@@ -511,6 +520,13 @@ internal static class RecommendationContinuationPersistenceMapper
                         new PnlAvailabilityCondition(
                             scope,
                             Required(document.RequiredAvailability, nameof(RequiredAvailability)))),
+                RecommendationContinuationConditionKind.HigherPriorityActions =>
+                    Create(
+                        document,
+                        nameof(RequiredActions),
+                        new HigherPriorityActionsCondition(
+                            scope,
+                            RequireActions(document.RequiredActions))),
                 RecommendationContinuationConditionKind.DataQuality =>
                     Create(
                         document,
@@ -667,6 +683,7 @@ internal static class RecommendationContinuationPersistenceMapper
                 [nameof(MinimumDistancePercent)] = MinimumDistancePercent is not null,
                 [nameof(Comparison)] = Comparison is not null,
                 [nameof(Threshold)] = Threshold is not null,
+                [nameof(RequiredActions)] = RequiredActions is not null,
                 [nameof(RequiredDataQuality)] = RequiredDataQuality is not null,
                 [nameof(RequiredSafetyState)] = RequiredSafetyState is not null,
                 [nameof(RequiredRiskDecision)] = RequiredRiskDecision is not null,
@@ -709,5 +726,11 @@ internal static class RecommendationContinuationPersistenceMapper
                 : throw new ArgumentException(
                     $"Continuation condition property '{name}' is required.",
                     name);
+
+        private static IReadOnlyList<PositionAction> RequireActions(
+            IReadOnlyList<PositionAction>? value) =>
+            value ?? throw new ArgumentException(
+                "Continuation condition property 'RequiredActions' is required.",
+                nameof(value));
     }
 }

@@ -943,8 +943,9 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var policy = PolicyDefinition.Default;
         var timestamp = T0.AddTicks(7);
         var assessment = CreateStructuredAssessment(account, position, policy, timestamp);
+        var evaluationAsOf = assessment.CreatedAt.AddMinutes(1);
         var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
-            .Evaluate(assessment, policy, timestamp.AddMinutes(1));
+            .Evaluate(assessment, policy, evaluationAsOf);
         var recommendation = Recommendation.Create(assessment, evaluation);
 
         await using (var setupContext = await CreateMigratedContext())
@@ -971,7 +972,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             CanonicalTimestamp(recommendation.NextEvaluationAt!.Value),
             initialPlan.NextEvaluationAt);
 
-        loaded.Value.Acknowledge(timestamp.AddMinutes(2));
+        loaded.Value.Acknowledge(loaded.Value.CreatedAt.AddMinutes(1));
         await using (var writerContext = await CreateMigratedContext())
         {
             await new RecommendationRepository(writerContext)
@@ -989,6 +990,46 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(initialPlan.InvalidationConditions, verifiedPlan.InvalidationConditions);
         Assert.Equal(initialPlan.ReevaluationConditions, verifiedPlan.ReevaluationConditions);
         Assert.Equal(RecommendationStatus.Acknowledged, verified.Value.Status);
+    }
+
+    [Fact]
+    public async Task Structured_continuation_policy_identity_mismatch_fails_during_restore()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateStructuredAssessment(account, position, policy);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, assessment.CreatedAt.AddMinutes(1));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+        var replacementHash = new string('A', 64);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using (var mutationContext = await CreateMigratedContext())
+        {
+            var entity = await mutationContext.Recommendations
+                .SingleAsync(row => row.Id == recommendation.Id.Value);
+            entity.ContinuationContextJson = entity.ContinuationContextJson!
+                .Replace(
+                    $"\"requiredPolicyHash\":\"{policy.Identity.Hash}\"",
+                    $"\"requiredPolicyHash\":\"{replacementHash}\"",
+                    StringComparison.Ordinal);
+            await mutationContext.SaveChangesAsync();
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var exception = await Assert.ThrowsAsync<ArgumentException>(
+            () => new RecommendationRepository(readerContext)
+                .GetByIdAsync(account.UserId, recommendation.Id));
+        Assert.Contains("policy identity", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

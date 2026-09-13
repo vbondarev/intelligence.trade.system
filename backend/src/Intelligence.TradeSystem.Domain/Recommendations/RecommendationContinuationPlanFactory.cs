@@ -23,7 +23,7 @@ internal static class RecommendationContinuationPlanFactory
         var reevaluation = new List<RecommendationContinuationCondition>();
         var result = assessment.Result;
 
-        if (IsSafetyBlocked(assessment))
+        if (RecommendationActionPredicates.IsSafetyBlocked(assessment))
         {
             // A safety fallback is valid while the same degraded observation remains current.
             reevaluation.Add(new DataQualityCondition(
@@ -49,6 +49,7 @@ internal static class RecommendationContinuationPlanFactory
         invalidation.Add(new RecommendationExpiryCondition(validUntil));
 
         AddActionConditions(assessment, action, policy, invalidation, reevaluation);
+        AddHigherPriorityActionConditions(action.Action, reevaluation);
         if (addDecision.Decision == AddDecision.AddAllowed)
             AddAllowedConditions(addDecision, policy, invalidation, reevaluation);
         else
@@ -226,6 +227,9 @@ internal static class RecommendationContinuationPlanFactory
 
         invalidation.AddRange(conditions);
         reevaluation.AddRange(conditions);
+        invalidation.Add(new HigherPriorityActionsCondition(
+            RecommendationContinuationConditionScope.AddDecision,
+            GetHigherPriorityActions(PositionAction.Hold)));
     }
 
     private static void AddNonAllowedReevaluationConditions(
@@ -245,8 +249,54 @@ internal static class RecommendationContinuationPlanFactory
             result.DataQuality.Overall));
     }
 
-    private static bool IsSafetyBlocked(PositionAssessment assessment) =>
-        assessment.Result.IsLegacy ||
-        assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
-        assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
+    private static void AddHigherPriorityActionConditions(
+        PositionAction action,
+        List<RecommendationContinuationCondition> reevaluation)
+    {
+        var higherPriorityActions = GetHigherPriorityActions(action);
+        if (higherPriorityActions.Length > 0)
+            reevaluation.Add(new HigherPriorityActionsCondition(
+                RecommendationContinuationConditionScope.Action,
+                higherPriorityActions));
+    }
+
+    private static PositionAction[] GetHigherPriorityActions(PositionAction action) =>
+        action switch
+        {
+            PositionAction.Hold or PositionAction.Watch =>
+                new[]
+                {
+                    PositionAction.Close,
+                    PositionAction.Reduce,
+                    PositionAction.TakePartialProfit,
+                    PositionAction.MoveStop,
+                    PositionAction.ProtectProfit
+                },
+            PositionAction.ProtectProfit =>
+                new[]
+                {
+                    PositionAction.Close,
+                    PositionAction.Reduce,
+                    PositionAction.TakePartialProfit,
+                    PositionAction.MoveStop
+                },
+            PositionAction.MoveStop =>
+                new[]
+                {
+                    PositionAction.Close,
+                    PositionAction.Reduce,
+                    PositionAction.TakePartialProfit
+                },
+            PositionAction.TakePartialProfit =>
+                new[]
+                {
+                    PositionAction.Close,
+                    PositionAction.Reduce
+                },
+            PositionAction.Reduce =>
+                new[] { PositionAction.Close },
+            PositionAction.Close => [],
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Action must be defined.")
+        };
+
 }

@@ -327,6 +327,48 @@ public sealed class RecommendationContinuationTests
     }
 
     [Fact]
+    public void Restore_structured_rejects_mismatched_continuation_policy_identity()
+    {
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateAssessment(policy, PositionTrendAlignment.Aligned);
+        var evaluation = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
+        var structured = Recommendation.Create(assessment, evaluation);
+        var wrongIdentity = PolicyConfigurationIdentity.From(
+            policy.Identity.Version,
+            new string('B', policy.Identity.Hash.Length));
+        var corruptedPlan = new RecommendationContinuationPlan(
+            evaluation.ContinuationPlan.InvalidationConditions.Select(condition =>
+                condition is PolicyIdentityCondition
+                    ? new PolicyIdentityCondition(
+                        RecommendationContinuationConditionScope.Recommendation,
+                        wrongIdentity)
+                    : condition),
+            evaluation.ContinuationPlan.ReevaluationConditions,
+            evaluation.ContinuationPlan.CreatedAt,
+            evaluation.ContinuationPlan.ValidUntil,
+            evaluation.ContinuationPlan.NextEvaluationAt);
+
+        FluentActions.Invoking(() => Recommendation.RestoreStructured(
+                RecommendationId.New(),
+                assessment,
+                evaluation.Action,
+                evaluation.AddDecision,
+                policy.Identity,
+                structured.ReasonCodes,
+                evaluation.CreatedAt,
+                evaluation.ValidUntil,
+                RecommendationStatus.Active,
+                null,
+                null,
+                null,
+                null,
+                null,
+                corruptedPlan))
+            .Should().Throw<ArgumentException>()
+            .WithMessage("*policy identity*");
+    }
+
+    [Fact]
     public void Legacy_recommendation_without_plan_is_conservatively_invalidated_when_policy_changes()
     {
         var oldPolicy = PolicyDefinition.Default;
@@ -482,6 +524,228 @@ public sealed class RecommendationContinuationTests
 
         result.IsInvalidated.Should().BeFalse();
         result.ShouldReevaluate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Reduce_requests_immediate_reevaluation_when_close_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var reduceAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Adverse,
+            positionId,
+            pnlPercent: -6m);
+        var recommendation = CreateRecommendation(reduceAssessment, policy, T0.AddMinutes(3));
+        var closeAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Adverse,
+            positionId,
+            pnlPercent: -12m);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.Reduce);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            closeAssessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+        result.ActionInvalidated.Should().BeFalse();
+        result.TriggeredConditions.Should().ContainItemsAssignableTo<HigherPriorityActionsCondition>();
+    }
+
+    [Fact]
+    public void Reduce_requests_immediate_reevaluation_when_liquidation_becomes_near()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var reduceAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Adverse,
+            positionId,
+            pnlPercent: -6m);
+        var recommendation = CreateRecommendation(reduceAssessment, policy, T0.AddMinutes(3));
+        var liquidationNear = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Adverse,
+            positionId,
+            pnlPercent: -6m,
+            liquidationState: AssessmentLiquidationState.Near);
+
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            liquidationNear,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Take_partial_profit_requests_immediate_reevaluation_when_close_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var partialAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 6m,
+            exhaustion: true,
+            resistanceNearby: true);
+        var recommendation = CreateRecommendation(partialAssessment, policy, T0.AddMinutes(3));
+        var liquidationNear = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 6m,
+            exhaustion: true,
+            resistanceNearby: true,
+            liquidationState: AssessmentLiquidationState.Near);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.TakePartialProfit);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            liquidationNear,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Move_stop_requests_immediate_reevaluation_when_reduce_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var moveStopAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 3m);
+        var recommendation = CreateRecommendation(moveStopAssessment, policy, T0.AddMinutes(3));
+        var reduceAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Adverse,
+            positionId,
+            pnlPercent: -6m);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.MoveStop);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            reduceAssessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Protect_profit_requests_immediate_reevaluation_when_move_stop_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var protectProfitAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 3m,
+            stopMissing: true);
+        var recommendation = CreateRecommendation(protectProfitAssessment, policy, T0.AddMinutes(3));
+        var moveStopAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 3m,
+            stopPosition: AssessmentPricePosition.Below);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.ProtectProfit);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            moveStopAssessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Watch_requests_immediate_reevaluation_when_close_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var watchAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            lowVolume: true);
+        var recommendation = CreateRecommendation(watchAssessment, policy, T0.AddMinutes(3));
+        var closeAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            lowVolume: true,
+            liquidationState: AssessmentLiquidationState.Near);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.Watch);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            closeAssessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Hold_requests_immediate_reevaluation_when_move_stop_becomes_required()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var holdAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 1m);
+        var recommendation = CreateRecommendation(holdAssessment, policy, T0.AddMinutes(3));
+        var moveStopAssessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            positionId,
+            pnlPercent: 3m);
+
+        recommendation.RecommendedAction.Should().Be(PositionAction.Hold);
+        var result = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            moveStopAssessment,
+            policy,
+            T0.AddMinutes(3));
+
+        result.ShouldReevaluate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Next_evaluation_boundary_is_inclusive()
+    {
+        var policy = PolicyDefinition.Default;
+        var assessment = CreateAssessment(policy, PositionTrendAlignment.Aligned);
+        var recommendation = CreateRecommendation(assessment, policy, T0.AddMinutes(3));
+        var before = recommendation.NextEvaluationAt!.Value.AddTicks(-1);
+
+        var beforeResult = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            assessment,
+            policy,
+            before);
+        var atResult = RecommendationContinuationEvaluator.Evaluate(
+            recommendation,
+            assessment,
+            policy,
+            recommendation.NextEvaluationAt.Value);
+
+        beforeResult.ShouldReevaluate.Should().BeFalse();
+        atResult.ShouldReevaluate.Should().BeTrue();
     }
 
     [Fact]

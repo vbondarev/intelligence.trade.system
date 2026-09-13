@@ -25,6 +25,7 @@ public enum RecommendationContinuationConditionKind
     LiquidationDistance,
     PnlThreshold,
     PnlAvailability,
+    HigherPriorityActions,
     DataQuality,
     SafetyState,
     PortfolioRiskDecision,
@@ -273,6 +274,42 @@ public sealed record PnlAvailabilityCondition : RecommendationContinuationCondit
     public bool RequiredAvailability { get; }
 }
 
+public sealed record HigherPriorityActionsCondition : RecommendationContinuationCondition
+{
+    public HigherPriorityActionsCondition(
+        RecommendationContinuationConditionScope scope,
+        IEnumerable<PositionAction> requiredActions)
+        : base(scope, RecommendationContinuationConditionKind.HigherPriorityActions)
+    {
+        if (scope is not RecommendationContinuationConditionScope.Action and
+            not RecommendationContinuationConditionScope.AddDecision)
+            throw new ArgumentException(
+                "Higher-priority action conditions must use Action or AddDecision scope.",
+                nameof(scope));
+        ArgumentNullException.ThrowIfNull(requiredActions);
+
+        var actions = requiredActions.ToArray();
+        if (actions.Length == 0)
+            throw new ArgumentException(
+                "At least one higher-priority action is required.",
+                nameof(requiredActions));
+        if (actions.Any(action =>
+                !Enum.IsDefined(action) ||
+                action is PositionAction.Hold or PositionAction.Watch))
+            throw new ArgumentException(
+                "Higher-priority actions must be defined actionable decisions.",
+                nameof(requiredActions));
+        if (actions.Distinct().Count() != actions.Length)
+            throw new ArgumentException(
+                "Higher-priority actions cannot contain duplicates.",
+                nameof(requiredActions));
+
+        RequiredActions = Array.AsReadOnly(actions);
+    }
+
+    public IReadOnlyList<PositionAction> RequiredActions { get; }
+}
+
 public sealed record DataQualityCondition : RecommendationContinuationCondition
 {
     public DataQualityCondition(
@@ -434,4 +471,3 @@ public sealed record ContinuationContextUnavailableCondition : RecommendationCon
     {
     }
 }
-

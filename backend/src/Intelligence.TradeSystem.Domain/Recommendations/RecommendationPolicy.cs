@@ -29,7 +29,7 @@ public sealed class RecommendationPolicy
             asOf.Add(policyDefinition.ValidityPeriod),
             assessment.ValidUntil);
 
-        if (IsSafetyBlocked(assessment))
+        if (RecommendationActionPredicates.IsSafetyBlocked(assessment))
         {
             var action = CreateActionDecision(
                 PositionAction.Watch,
@@ -85,11 +85,8 @@ public sealed class RecommendationPolicy
         PolicyDefinition policyDefinition)
     {
         var result = assessment.Result;
-        var pnl = result.Pnl.PnlPercent;
-        var adverse = result.Trend.PositionAlignment == PositionTrendAlignment.Adverse;
 
-        if (result.Liquidation.State == AssessmentLiquidationState.Near ||
-            adverse && pnl <= policyDefinition.CloseLossThreshold)
+        if (RecommendationActionPredicates.IsCloseRequired(assessment, policyDefinition))
         {
             IEnumerable<ReasonCode> reasons = result.Liquidation.State == AssessmentLiquidationState.Near
                 ? [ReasonCode.LiquidationNearby, ReasonCode.CloseConditionMet]
@@ -97,13 +94,13 @@ public sealed class RecommendationPolicy
             return CreateActionDecision(PositionAction.Close, policyDefinition, reasons);
         }
 
-        if (adverse && pnl <= policyDefinition.ReduceLossThreshold)
+        if (RecommendationActionPredicates.IsReduceRequired(assessment, policyDefinition))
             return CreateActionDecision(
                 PositionAction.Reduce,
                 policyDefinition,
                 [ReasonCode.TrendAdverse, ReasonCode.PnlNegative, ReasonCode.LossReductionConditionMet]);
 
-        if (IsPartialProfitConditionMet(result, assessment, policyDefinition))
+        if (RecommendationActionPredicates.IsTakePartialProfitRequired(assessment, policyDefinition))
         {
             var opposingLevel = result.PositionSide == PositionSide.Long
                 ? ReasonCode.ResistanceNearby
@@ -115,13 +112,13 @@ public sealed class RecommendationPolicy
                  ReasonCode.PartialProfitConditionMet]);
         }
 
-        if (IsMoveStopConditionMet(result, policyDefinition))
+        if (RecommendationActionPredicates.IsMoveStopRequired(assessment, policyDefinition))
             return CreateActionDecision(
                 PositionAction.MoveStop,
                 policyDefinition,
                 [ReasonCode.PnlPositive, ReasonCode.StopNotProtectingProfit, ReasonCode.MoveStopConditionMet]);
 
-        if (IsProtectProfitConditionMet(result, policyDefinition))
+        if (RecommendationActionPredicates.IsProtectProfitRequired(assessment, policyDefinition))
         {
             var stopReason = result.Stop.StopPrice.HasValue
                 ? ReasonCode.StopUnknown
@@ -132,7 +129,7 @@ public sealed class RecommendationPolicy
                 [ReasonCode.PnlPositive, stopReason, ReasonCode.ProfitProtectionNeeded]);
         }
 
-        if (!CanSafelyHold(assessment))
+        if (!RecommendationActionPredicates.CanSafelyHold(assessment))
             return CreateActionDecision(
                 PositionAction.Watch,
                 policyDefinition,
@@ -205,51 +202,6 @@ public sealed class RecommendationPolicy
     }
 
 
-    private static bool IsPartialProfitConditionMet(
-        PositionAssessmentResult result,
-        PositionAssessment assessment,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.TakePartialProfitThreshold &&
-        result.Momentum.PotentialExhaustion &&
-        ((result.PositionSide == PositionSide.Long &&
-          assessment.ReasonCodes.Contains(ReasonCode.ResistanceNearby)) ||
-         (result.PositionSide == PositionSide.Short &&
-          assessment.ReasonCodes.Contains(ReasonCode.SupportNearby)));
-
-    private static bool IsMoveStopConditionMet(
-        PositionAssessmentResult result,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
-        result.Stop.StopPrice.HasValue &&
-        result.Stop.PriceRelativeToEntry != AssessmentPricePosition.Unavailable &&
-        !ProfitProtectionEvaluator.IsStopProtectingProfit(result);
-
-    private static bool IsProtectProfitConditionMet(
-        PositionAssessmentResult result,
-        PolicyDefinition policyDefinition) =>
-        IsProfitable(result) &&
-        result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
-        (!result.Stop.StopPrice.HasValue ||
-         result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Unavailable);
-
-    private static bool IsProfitable(PositionAssessmentResult result) =>
-        result.Pnl.UnrealizedPnl > 0m && result.Pnl.PnlPercent > 0m;
-
-    private static bool CanSafelyHold(PositionAssessment assessment)
-    {
-        var result = assessment.Result;
-        return result.Trend.PositionAlignment == PositionTrendAlignment.Aligned &&
-            result.Liquidation.State == AssessmentLiquidationState.Far &&
-            result.Pnl.PnlPercent.HasValue &&
-            result.Momentum.IsReliable &&
-            result.Momentum.State != AssessmentMomentumState.Unavailable &&
-            !assessment.ReasonCodes.Contains(ReasonCode.LowVolume) &&
-            result.Stop.StopPrice.HasValue &&
-            result.Stop.State == AssessmentStopState.Protective;
-    }
-
     private static ReasonCode[] BuildWatchReasons(PositionAssessment assessment)
     {
         var result = assessment.Result;
@@ -304,11 +256,6 @@ public sealed class RecommendationPolicy
             policyDefinition.ConfidenceProfiles.For(action),
             policyDefinition.PriorityProfiles.For(action),
             reasons);
-
-    private static bool IsSafetyBlocked(PositionAssessment assessment) =>
-        assessment.Result.IsLegacy ||
-        assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
-        assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
 
     private static DateTimeOffset Min(DateTimeOffset first, DateTimeOffset second) =>
         first <= second ? first : second;

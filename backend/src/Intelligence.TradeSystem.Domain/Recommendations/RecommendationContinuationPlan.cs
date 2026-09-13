@@ -87,6 +87,7 @@ public sealed record RecommendationContinuationPlan
                 LiquidationDistanceCondition => RecommendationContinuationConditionKind.LiquidationDistance,
                 PnlThresholdCondition => RecommendationContinuationConditionKind.PnlThreshold,
                 PnlAvailabilityCondition => RecommendationContinuationConditionKind.PnlAvailability,
+                HigherPriorityActionsCondition => RecommendationContinuationConditionKind.HigherPriorityActions,
                 DataQualityCondition => RecommendationContinuationConditionKind.DataQuality,
                 SafetyStateCondition => RecommendationContinuationConditionKind.SafetyState,
                 PortfolioRiskDecisionCondition => RecommendationContinuationConditionKind.PortfolioRiskDecision,

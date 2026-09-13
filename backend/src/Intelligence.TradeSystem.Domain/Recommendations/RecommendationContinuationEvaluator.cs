@@ -282,6 +282,10 @@ public static class RecommendationContinuationEvaluator
             PnlThresholdCondition value => !MeetsPnlThreshold(result.Pnl.PnlPercent, value),
             PnlAvailabilityCondition value =>
                 result.Pnl.PnlPercent.HasValue != value.RequiredAvailability,
+            HigherPriorityActionsCondition value =>
+                !RecommendationActionPredicates.IsSafetyBlocked(assessment) &&
+                value.RequiredActions.Any(action =>
+                    RecommendationActionPredicates.IsActionRequired(assessment, policy, action)),
             DataQualityCondition value => result.DataQuality.Overall != value.RequiredQuality,
             SafetyStateCondition value => result.DataQuality.SafetyState != value.RequiredState,
             PortfolioRiskDecisionCondition value => assessment.PortfolioRiskDecision != value.RequiredDecision,

@@ -175,17 +175,8 @@ public sealed class Recommendation
             throw new ArgumentException(
                 "Continuation plan timestamps must match recommendation timestamps.",
                 nameof(continuationPlan));
-        if (!legacy && continuationPlan is not null)
-        {
-            var policyConditions = continuationPlan.InvalidationConditions
-                .OfType<PolicyIdentityCondition>()
-                .ToArray();
-            if (policyConditions.Length != 1 ||
-                policyConditions[0].RequiredIdentity != policyIdentity)
-                throw new ArgumentException(
-                    "Structured continuation policy identity must match recommendation policy identity.",
-                    nameof(continuationPlan));
-        }
+        if (!legacy)
+            ValidateStructuredContinuation(continuationPlan, policyIdentity);
         if (!legacy &&
             !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
@@ -336,6 +327,8 @@ public sealed class Recommendation
             throw new ArgumentException(
                 "Continuation plan timestamps must match recommendation timestamps.",
                 nameof(continuationPlan));
+        if (!legacy)
+            ValidateStructuredContinuation(continuationPlan, policyIdentity);
         if (!legacy &&
             !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)
@@ -389,6 +382,24 @@ public sealed class Recommendation
             supersededAt,
             expiredAt,
             supersededByRecommendationId);
+    }
+
+    private static void ValidateStructuredContinuation(
+        RecommendationContinuationPlan? continuationPlan,
+        PolicyConfigurationIdentity policyIdentity)
+    {
+        if (continuationPlan is null)
+            return;
+
+        var policyConditions = continuationPlan.InvalidationConditions
+            .OfType<PolicyIdentityCondition>()
+            .ToArray();
+        if (policyConditions.Length != 1 ||
+            policyConditions[0].Scope != RecommendationContinuationConditionScope.Recommendation ||
+            policyConditions[0].RequiredIdentity != policyIdentity)
+            throw new ArgumentException(
+                "Structured continuation policy identity must match recommendation policy identity.",
+                nameof(continuationPlan));
     }
 
     public void Acknowledge(DateTimeOffset at)

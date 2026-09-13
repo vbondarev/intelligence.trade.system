@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Intelligence.TradeSystem.Domain.Assessments;
+using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Xunit;
@@ -76,7 +77,10 @@ public sealed class RecommendationContinuationPersistenceMapperTests
             [
                 new TrendAlignmentCondition(
                     RecommendationContinuationConditionScope.Action,
-                    PositionTrendAlignment.Aligned)
+                    PositionTrendAlignment.Aligned),
+                new HigherPriorityActionsCondition(
+                    RecommendationContinuationConditionScope.Action,
+                    [PositionAction.Close, PositionAction.Reduce])
             ],
             T0,
             validUntil,
