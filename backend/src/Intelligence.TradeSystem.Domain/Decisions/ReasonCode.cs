@@ -43,5 +43,21 @@ public enum ReasonCode
     LiquidationFar,
     LiquidationNearby,
     LiquidationInvalid,
-    LiquidationUnavailable
+    LiquidationUnavailable,
+    RecommendationLimitedByDataQuality,
+    CloseConditionMet,
+    LossReductionConditionMet,
+    PartialProfitConditionMet,
+    ProfitProtectionNeeded,
+    MoveStopConditionMet,
+    StopNotProtectingProfit,
+    AddBlockedByAction,
+    AddBlockedByPortfolioRisk,
+    AddBlockedByLiquidation,
+    AddBlockedByTrend,
+    AddBlockedByMomentum,
+    AddBlockedByVolume,
+    AddBlockedByStop,
+    AddMaximumSizeUnavailable,
+    AddAllowedWithinLimits
 }

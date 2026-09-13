@@ -1,6 +1,8 @@
 ﻿using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,7 +19,7 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
-    public void Program_CompositionRoot_Resolves_Core_Api_Services()
+    public async Task Program_CompositionRoot_Resolves_Core_Api_Services()
     {
         using var scope = _factory.Services.CreateScope();
         var serviceProvider = scope.ServiceProvider;
@@ -31,5 +33,11 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
         serviceProvider.GetRequiredService<IMarketSnapshotService>()
             .Should()
             .BeOfType<CachedMarketSnapshotService>();
+        serviceProvider.GetRequiredService<IRecommendationPolicyDefinitionProvider>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<RecommendationService>().Should().NotBeNull();
+        var definition = await serviceProvider
+            .GetRequiredService<IRecommendationPolicyDefinitionProvider>()
+            .GetAsync();
+        definition.Identity.Should().Be(PolicyDefinition.Default.Identity);
     }
 }

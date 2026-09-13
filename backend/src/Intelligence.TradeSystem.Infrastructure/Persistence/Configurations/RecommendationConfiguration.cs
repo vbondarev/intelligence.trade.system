@@ -36,6 +36,19 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
             .HasColumnName("policy_version")
             .HasMaxLength(128)
             .IsRequired();
+        builder.Property(recommendation => recommendation.PolicyHash)
+            .HasColumnName("policy_hash")
+            .HasMaxLength(256);
+        builder.Property(recommendation => recommendation.Confidence)
+            .HasColumnName("confidence")
+            .HasColumnType("numeric");
+        builder.Property(recommendation => recommendation.Priority)
+            .HasColumnName("priority")
+            .HasConversion<string>()
+            .HasMaxLength(16);
+        builder.Property(recommendation => recommendation.DecisionContextJson)
+            .HasColumnName("decision_context_json")
+            .HasColumnType("jsonb");
         builder.Property(recommendation => recommendation.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone");

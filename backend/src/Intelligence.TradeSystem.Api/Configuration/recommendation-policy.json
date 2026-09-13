@@ -1,0 +1,31 @@
+{
+  "version": "recommendation-v1",
+  "validityPeriod": "00:05:00",
+  "closeLossThreshold": -10,
+  "reduceLossThreshold": -5,
+  "protectProfitThreshold": 2,
+  "takePartialProfitThreshold": 5,
+  "confidenceProfiles": {
+    "hold": 0.70,
+    "watch": 0.80,
+    "protectProfit": 0.85,
+    "reduce": 0.90,
+    "close": 0.98,
+    "moveStop": 0.88,
+    "takePartialProfit": 0.86
+  },
+  "priorityProfiles": {
+    "hold": "normal",
+    "watch": "normal",
+    "protectProfit": "high",
+    "reduce": "high",
+    "close": "critical",
+    "moveStop": "high",
+    "takePartialProfit": "high"
+  },
+  "addAllowedLimits": {
+    "maximumAdditionalPositionPercentOfEquity": 10,
+    "maximumAdditionalAvailableCapitalPercent": 25,
+    "minimumLiquidationDistancePercent": 5
+  }
+}

@@ -75,7 +75,9 @@ public partial class Program
         });
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();
-        builder.Services.AddInfrastructure(builder.Configuration);
+        builder.Services.AddInfrastructure(
+            builder.Configuration,
+            builder.Environment.ContentRootPath);
         builder.Services.AddPublicMarketSnapshotCaching(builder.Configuration);
         if (!builder.Environment.IsEnvironment("Testing"))
         {

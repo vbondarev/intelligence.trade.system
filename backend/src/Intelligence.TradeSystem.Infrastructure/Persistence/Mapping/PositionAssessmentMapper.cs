@@ -117,7 +117,9 @@ internal static class PositionAssessmentMapper
                 PositionAssessmentJson.Options)
                 ?? throw new InvalidOperationException(
                     $"Position assessment {assessmentId} contains an empty result payload.");
-            if (persisted.SchemaVersion != PositionAssessmentResultDocument.CurrentSchemaVersion)
+            if (persisted.SchemaVersion is not
+                (PositionAssessmentResultDocument.LegacySchemaVersion or
+                 PositionAssessmentResultDocument.CurrentSchemaVersion))
                 throw new InvalidOperationException(
                     $"Position assessment {assessmentId} uses unsupported result schema " +
                     $"{persisted.SchemaVersion}.");
@@ -165,5 +167,6 @@ internal sealed record PositionAssessmentResultDocument(
     int SchemaVersion,
     PositionAssessmentResult Result)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int LegacySchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }
