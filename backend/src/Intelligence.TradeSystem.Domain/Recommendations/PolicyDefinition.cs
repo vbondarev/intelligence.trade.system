@@ -21,7 +21,7 @@ public sealed record PolicyDefinition
         RecommendationConfidenceProfile confidenceProfiles,
         RecommendationPriorityProfile priorityProfiles,
         AddAllowedPolicyLimits addAllowedLimits,
-        RecommendationReevaluationProfile? reevaluationProfile = null)
+        RecommendationReevaluationProfile reevaluationProfile)
     {
         if (validityPeriod <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(validityPeriod), validityPeriod, "Validity period must be positive.");
@@ -41,7 +41,7 @@ public sealed record PolicyDefinition
         ArgumentNullException.ThrowIfNull(confidenceProfiles);
         ArgumentNullException.ThrowIfNull(priorityProfiles);
         ArgumentNullException.ThrowIfNull(addAllowedLimits);
-        reevaluationProfile ??= RecommendationReevaluationProfile.CreateDefault(validityPeriod);
+        ArgumentNullException.ThrowIfNull(reevaluationProfile);
         reevaluationProfile.ValidateAgainst(validityPeriod);
 
         Version = version;

@@ -169,7 +169,7 @@ public sealed class RecommendationPolicy
             reasons.Add(ReasonCode.MomentumExhaustion);
         if (assessment.ReasonCodes.Contains(ReasonCode.LowVolume))
             reasons.Add(ReasonCode.AddBlockedByVolume);
-        if (result.Stop.StopPrice is null || result.Stop.State != AssessmentStopState.Protective)
+        if (!result.Stop.StopPrice.HasValue || !ProfitProtectionEvaluator.IsStopProtectingProfit(result))
             reasons.Add(ReasonCode.AddBlockedByStop);
 
         var capacity = AdditionalPositionCapacityCalculator.Calculate(
@@ -224,7 +224,7 @@ public sealed class RecommendationPolicy
         result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
         result.Stop.StopPrice.HasValue &&
         result.Stop.PriceRelativeToEntry != AssessmentPricePosition.Unavailable &&
-        !IsStopProtectingProfit(result);
+        !ProfitProtectionEvaluator.IsStopProtectingProfit(result);
 
     private static bool IsProtectProfitConditionMet(
         PositionAssessmentResult result,
@@ -233,17 +233,6 @@ public sealed class RecommendationPolicy
         result.Pnl.PnlPercent >= policyDefinition.ProtectProfitThreshold &&
         (!result.Stop.StopPrice.HasValue ||
          result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Unavailable);
-
-    private static bool IsStopProtectingProfit(PositionAssessmentResult result)
-    {
-        if (result.Stop.State != AssessmentStopState.Protective)
-            return false;
-
-        return result.PositionSide == PositionSide.Long
-            ? result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Above
-            : result.PositionSide == PositionSide.Short &&
-              result.Stop.PriceRelativeToEntry == AssessmentPricePosition.Below;
-    }
 
     private static bool IsProfitable(PositionAssessmentResult result) =>
         result.Pnl.UnrealizedPnl > 0m && result.Pnl.PnlPercent > 0m;

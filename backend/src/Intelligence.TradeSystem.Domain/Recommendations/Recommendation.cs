@@ -175,6 +175,17 @@ public sealed class Recommendation
             throw new ArgumentException(
                 "Continuation plan timestamps must match recommendation timestamps.",
                 nameof(continuationPlan));
+        if (!legacy && continuationPlan is not null)
+        {
+            var policyConditions = continuationPlan.InvalidationConditions
+                .OfType<PolicyIdentityCondition>()
+                .ToArray();
+            if (policyConditions.Length != 1 ||
+                policyConditions[0].RequiredIdentity != policyIdentity)
+                throw new ArgumentException(
+                    "Structured continuation policy identity must match recommendation policy identity.",
+                    nameof(continuationPlan));
+        }
         if (!legacy &&
             !IsSafetyBlocked(assessment) &&
             policyIdentity != assessment.InputVersions.BasePolicyConfigurationIdentity)

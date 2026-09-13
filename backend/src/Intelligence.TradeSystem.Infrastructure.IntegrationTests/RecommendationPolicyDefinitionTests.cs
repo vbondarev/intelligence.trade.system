@@ -19,6 +19,8 @@ public sealed class RecommendationPolicyDefinitionTests
               "addAllowedLimits": {
                 "minimumLiquidationDistancePercent": 5,
                 "maximumAdditionalAvailableCapitalPercent": 25,
+                "maximumAdditionalPositionPercentOfEquity": 10
+              },
               "reevaluationProfile": {
                 "addAllowed": "00:02:00",
                 "takePartialProfit": "00:02:00",
@@ -28,8 +30,6 @@ public sealed class RecommendationPolicyDefinitionTests
                 "protectProfit": "00:02:00",
                 "watch": "00:02:00",
                 "hold": "00:04:00"
-              },
-                "maximumAdditionalPositionPercentOfEquity": 10
               },
               "priorityProfiles": {
                 "takePartialProfit": "high",

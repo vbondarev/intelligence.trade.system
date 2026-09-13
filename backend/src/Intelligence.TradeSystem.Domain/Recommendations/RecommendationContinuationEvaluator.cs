@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
+using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Domain.Recommendations;
 
@@ -31,24 +32,17 @@ public static class RecommendationContinuationEvaluator
                 "Recommendation and latest assessment must reference the same position.",
                 nameof(latestAssessment));
         if (asOf < recommendation.CreatedAt)
-            throw new ArgumentOutOfRangeException(nameof(asOf), asOf, "Evaluation cannot precede recommendation creation.");
+            throw new ArgumentOutOfRangeException(
+                nameof(asOf),
+                asOf,
+                "Evaluation cannot precede recommendation creation.");
         if (asOf < recommendation.ValidUntil && !latestAssessment.IsValidAt(asOf))
             throw new ArgumentException(
                 "Latest assessment must be valid at continuation evaluation time.",
                 nameof(latestAssessment));
 
         if (!recommendation.HasContinuationPlan)
-        {
-            var unavailable = new ContinuationContextUnavailableCondition();
-            var expired = asOf >= recommendation.ValidUntil;
-            return new(
-                expired || recommendation.AddDecision == AddDecision.AddAllowed,
-                true,
-                expired,
-                recommendation.AddDecision == AddDecision.AddAllowed,
-                expired,
-                [unavailable]);
-        }
+            return EvaluateLegacyRecommendation(recommendation, latestAssessment, currentPolicy, asOf);
 
         var plan = recommendation.ContinuationPlan!;
         var triggered = new List<RecommendationContinuationCondition>();
@@ -56,15 +50,12 @@ public static class RecommendationContinuationEvaluator
         var addDecisionInvalidated = false;
         var isExpired = asOf >= recommendation.ValidUntil;
 
-        EvaluateHardConditions(
+        EvaluateHardSafety(
             recommendation,
             latestAssessment,
-            currentPolicy,
-            asOf,
             triggered,
             ref actionInvalidated,
             ref addDecisionInvalidated);
-
         EvaluateConditionList(
             plan.InvalidationConditions,
             recommendation,
@@ -88,9 +79,11 @@ public static class RecommendationContinuationEvaluator
         {
             var expiry = plan.InvalidationConditions
                 .OfType<RecommendationExpiryCondition>()
-                .FirstOrDefault() ?? new RecommendationExpiryCondition(recommendation.ValidUntil);
+                .Single();
             AddTriggered(triggered, expiry);
             actionInvalidated = true;
+            if (recommendation.AddDecision == AddDecision.AddAllowed)
+                addDecisionInvalidated = true;
         }
 
         var scheduled = asOf >= plan.NextEvaluationAt;
@@ -104,15 +97,80 @@ public static class RecommendationContinuationEvaluator
             triggered.AsReadOnly());
     }
 
-    private static void EvaluateHardConditions(
+    private static RecommendationContinuationEvaluationResult EvaluateLegacyRecommendation(
+        Recommendation recommendation,
+        PositionAssessment assessment,
+        PolicyDefinition currentPolicy,
+        DateTimeOffset asOf)
+    {
+        var triggered = new List<RecommendationContinuationCondition>
+        {
+            new ContinuationContextUnavailableCondition()
+        };
+        var isExpired = asOf >= recommendation.ValidUntil;
+        var policyChanged = recommendation.PolicyIdentity != currentPolicy.Identity;
+        var safetyBlocked =
+            assessment.Result.IsLegacy ||
+            assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+            assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
+        var actionInvalidated = isExpired || policyChanged;
+        var addDecisionInvalidated = recommendation.AddDecision == AddDecision.AddAllowed;
+
+        if (policyChanged)
+            AddTriggered(
+                triggered,
+                new PolicyIdentityCondition(
+                    RecommendationContinuationConditionScope.Recommendation,
+                    recommendation.PolicyIdentity));
+        if (safetyBlocked && recommendation.RecommendedAction != PositionAction.Watch)
+        {
+            AddTriggered(
+                triggered,
+                new DataQualityCondition(
+                    RecommendationContinuationConditionScope.Recommendation,
+                    AssessmentDataQuality.FreshCompleteReliable));
+            actionInvalidated = true;
+        }
+        if (isExpired)
+        {
+            var expiry = new RecommendationExpiryCondition(recommendation.ValidUntil);
+            AddTriggered(triggered, expiry);
+        }
+
+        var isInvalidated = actionInvalidated || addDecisionInvalidated;
+        return new(
+            isInvalidated,
+            true,
+            actionInvalidated,
+            addDecisionInvalidated,
+            isExpired,
+            triggered.AsReadOnly());
+    }
+
+    private static void EvaluateHardSafety(
         Recommendation recommendation,
         PositionAssessment latestAssessment,
-        PolicyDefinition currentPolicy,
-        DateTimeOffset asOf,
         ICollection<RecommendationContinuationCondition> triggered,
         ref bool actionInvalidated,
         ref bool addDecisionInvalidated)
     {
+        var plan = recommendation.ContinuationPlan!;
+        var hasDegradedRecoveryConditions =
+            plan.ReevaluationConditions.OfType<DataQualityCondition>()
+                .Any(condition => condition.RequiredQuality != AssessmentDataQuality.FreshCompleteReliable) ||
+            plan.ReevaluationConditions.OfType<SafetyStateCondition>()
+                .Any(condition => condition.RequiredState != AssessmentSafetyState.Allowed);
+        var isSafetyFallback =
+            recommendation.RecommendedAction == PositionAction.Watch &&
+            recommendation.AddDecision == AddDecision.DoNotAdd &&
+            hasDegradedRecoveryConditions &&
+            !plan.InvalidationConditions.OfType<DataQualityCondition>()
+                .Any(condition => condition.RequiredQuality == AssessmentDataQuality.FreshCompleteReliable) &&
+            !plan.InvalidationConditions.OfType<SafetyStateCondition>()
+                .Any(condition => condition.RequiredState == AssessmentSafetyState.Allowed);
+        if (isSafetyFallback)
+            return;
+
         var result = latestAssessment.Result;
         if (result.IsLegacy ||
             result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable)
@@ -136,17 +194,6 @@ public static class RecommendationContinuationEvaluator
             if (recommendation.AddDecision == AddDecision.AddAllowed)
                 addDecisionInvalidated = true;
         }
-
-        if (recommendation.PolicyIdentity != currentPolicy.Identity)
-        {
-            var condition = new PolicyIdentityCondition(
-                RecommendationContinuationConditionScope.Recommendation,
-                currentPolicy.Identity);
-            AddTriggered(triggered, condition);
-            actionInvalidated = true;
-        }
-
-        _ = asOf;
     }
 
     private static void EvaluateConditionList(
@@ -164,6 +211,22 @@ public static class RecommendationContinuationEvaluator
             if (condition is RecommendationExpiryCondition or ContinuationContextUnavailableCondition)
                 continue;
 
+            if (condition is AddAllowedCapacityCondition capacity)
+            {
+                var current = AdditionalPositionCapacityCalculator.Calculate(
+                    assessment.Result.PortfolioRisk,
+                    assessment.Result.CurrentPrice,
+                    policy.AddAllowedLimits);
+                if (!CapacityChanged(current, capacity))
+                    continue;
+
+                AddTriggered(triggered, condition);
+                if (recommendation.AddDecision == AddDecision.AddAllowed &&
+                    CapacityReduced(current, capacity))
+                    addDecisionInvalidated = true;
+                continue;
+            }
+
             if (!IsTriggered(condition, recommendation, assessment, policy))
                 continue;
 
@@ -178,8 +241,9 @@ public static class RecommendationContinuationEvaluator
                         addDecisionInvalidated = true;
                     break;
                 case RecommendationContinuationConditionScope.Recommendation:
-                    actionInvalidated = true;
-                    if (recommendation.AddDecision == AddDecision.AddAllowed)
+                    actionInvalidated |= isInvalidationList;
+                    if (recommendation.AddDecision == AddDecision.AddAllowed &&
+                        isInvalidationList)
                         addDecisionInvalidated = true;
                     break;
                 default:
@@ -206,40 +270,42 @@ public static class RecommendationContinuationEvaluator
             MomentumAvailabilityCondition value =>
                 (result.Momentum.State != AssessmentMomentumState.Unavailable) != value.RequiredAvailability,
             MomentumExhaustionCondition value => result.Momentum.PotentialExhaustion != value.RequiredExhaustion,
-            StopProtectionCondition value => IsProtectiveStop(result) != value.RequiredProtective,
+            StopStateCondition value => result.Stop.State != value.RequiredState,
             StopAvailabilityCondition value => result.Stop.StopPrice.HasValue != value.RequiredAvailability,
+            StopRelativePositionCondition value => result.Stop.PriceRelativeToEntry != value.RequiredPosition,
+            ProfitProtectionCondition value =>
+                ProfitProtectionEvaluator.IsStopProtectingProfit(result) != value.RequiredProtection,
             LiquidationStateCondition value => result.Liquidation.State != value.RequiredState,
             LiquidationDistanceCondition value =>
                 result.Liquidation.DistanceFromCurrentPercent is not { } distance ||
                 distance < value.MinimumDistancePercent,
             PnlThresholdCondition value => !MeetsPnlThreshold(result.Pnl.PnlPercent, value),
+            PnlAvailabilityCondition value =>
+                result.Pnl.PnlPercent.HasValue != value.RequiredAvailability,
             DataQualityCondition value => result.DataQuality.Overall != value.RequiredQuality,
             SafetyStateCondition value => result.DataQuality.SafetyState != value.RequiredState,
             PortfolioRiskDecisionCondition value => assessment.PortfolioRiskDecision != value.RequiredDecision,
             LowVolumeCondition value => assessment.ReasonCodes.Contains(ReasonCode.LowVolume) != value.RequiredLowVolume,
-            PolicyIdentityCondition => recommendation.PolicyIdentity != policy.Identity,
-            AddAllowedCapacityCondition value => IsCapacityReduced(assessment, policy, value),
+            PolicyIdentityCondition value => policy.Identity != value.RequiredIdentity,
             OpposingLevelCondition value => !HasOpposingLevel(assessment, value.RequiredLevel),
             _ => throw new InvalidOperationException(
                 $"Unsupported continuation condition type '{condition.GetType().Name}'.")
         };
     }
 
-    private static bool IsCapacityReduced(
-        PositionAssessment assessment,
-        PolicyDefinition policy,
-        AddAllowedCapacityCondition persistedCapacity)
-    {
-        var current = AdditionalPositionCapacityCalculator.Calculate(
-            assessment.Result.PortfolioRisk,
-            assessment.Result.CurrentPrice,
-            policy.AddAllowedLimits);
-        if (current.MaximumPositionValue is not > 0m ||
-            current.MaximumPositionValue < persistedCapacity.MaximumPositionValue)
-            return true;
-        return persistedCapacity.MaximumQuantity is { } persistedQuantity &&
-            (current.MaximumQuantity is not { } currentQuantity || currentQuantity < persistedQuantity);
-    }
+    private static bool CapacityChanged(
+        AdditionalPositionCapacityResult current,
+        AddAllowedCapacityCondition persisted) =>
+        current.MaximumPositionValue != persisted.MaximumPositionValue ||
+        current.MaximumQuantity != persisted.MaximumQuantity;
+
+    private static bool CapacityReduced(
+        AdditionalPositionCapacityResult current,
+        AddAllowedCapacityCondition persisted) =>
+        current.MaximumPositionValue is not > 0m ||
+        current.MaximumPositionValue < persisted.MaximumPositionValue ||
+        persisted.MaximumQuantity is { } persistedQuantity &&
+        (current.MaximumQuantity is not { } currentQuantity || currentQuantity < persistedQuantity);
 
     private static bool MeetsPnlThreshold(
         decimal? pnl,
@@ -248,7 +314,10 @@ public static class RecommendationContinuationEvaluator
         {
             RecommendationPnlComparison.AtLeast => value >= condition.Threshold,
             RecommendationPnlComparison.AtMost => value <= condition.Threshold,
-            _ => throw new ArgumentOutOfRangeException(nameof(condition), condition.Comparison, "PnL comparison must be defined.")
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(condition),
+                condition.Comparison,
+                "PnL comparison must be defined.")
         };
 
     private static bool HasOpposingLevel(
@@ -258,9 +327,6 @@ public static class RecommendationContinuationEvaluator
             ? ReasonCode.ResistanceNearby
             : ReasonCode.SupportNearby);
 
-    private static bool IsProtectiveStop(PositionAssessmentResult result) =>
-        result.Stop.State == AssessmentStopState.Protective;
-
     private static void AddTriggered(
         ICollection<RecommendationContinuationCondition> triggered,
         RecommendationContinuationCondition condition)
@@ -269,9 +335,3 @@ public static class RecommendationContinuationEvaluator
             triggered.Add(condition);
     }
 }
-
-
-
-
-
-

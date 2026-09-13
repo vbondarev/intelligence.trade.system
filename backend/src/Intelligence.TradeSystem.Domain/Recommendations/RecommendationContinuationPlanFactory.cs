@@ -19,20 +19,34 @@ internal static class RecommendationContinuationPlanFactory
         ArgumentNullException.ThrowIfNull(addDecision);
         ArgumentNullException.ThrowIfNull(policy);
 
-        var invalidation = new List<RecommendationContinuationCondition>
-        {
-            new DataQualityCondition(
-                RecommendationContinuationConditionScope.Recommendation,
-                AssessmentDataQuality.FreshCompleteReliable),
-            new SafetyStateCondition(
-                RecommendationContinuationConditionScope.Recommendation,
-                AssessmentSafetyState.Allowed),
-            new PolicyIdentityCondition(
-                RecommendationContinuationConditionScope.Recommendation,
-                policy.Identity),
-            new RecommendationExpiryCondition(validUntil)
-        };
+        var invalidation = new List<RecommendationContinuationCondition>();
         var reevaluation = new List<RecommendationContinuationCondition>();
+        var result = assessment.Result;
+
+        if (IsSafetyBlocked(assessment))
+        {
+            // A safety fallback is valid while the same degraded observation remains current.
+            reevaluation.Add(new DataQualityCondition(
+                RecommendationContinuationConditionScope.Recommendation,
+                result.DataQuality.Overall));
+            reevaluation.Add(new SafetyStateCondition(
+                RecommendationContinuationConditionScope.Recommendation,
+                result.DataQuality.SafetyState));
+        }
+        else
+        {
+            invalidation.Add(new DataQualityCondition(
+                RecommendationContinuationConditionScope.Recommendation,
+                AssessmentDataQuality.FreshCompleteReliable));
+            invalidation.Add(new SafetyStateCondition(
+                RecommendationContinuationConditionScope.Recommendation,
+                AssessmentSafetyState.Allowed));
+        }
+
+        invalidation.Add(new PolicyIdentityCondition(
+            RecommendationContinuationConditionScope.Recommendation,
+            policy.Identity));
+        invalidation.Add(new RecommendationExpiryCondition(validUntil));
 
         AddActionConditions(assessment, action, policy, invalidation, reevaluation);
         if (addDecision.Decision == AddDecision.AddAllowed)
@@ -113,14 +127,21 @@ internal static class RecommendationContinuationPlanFactory
                     RecommendationPnlComparison.AtLeast,
                     policy.ProtectProfitThreshold));
                 reevaluation.Add(new StopAvailabilityCondition(scope, true));
-                reevaluation.Add(new StopProtectionCondition(scope, false));
+                reevaluation.Add(new StopRelativePositionCondition(
+                    scope,
+                    result.Stop.PriceRelativeToEntry));
+                reevaluation.Add(new ProfitProtectionCondition(scope, false));
                 break;
             case PositionAction.ProtectProfit:
                 reevaluation.Add(new PnlThresholdCondition(
                     scope,
                     RecommendationPnlComparison.AtLeast,
                     policy.ProtectProfitThreshold));
-                reevaluation.Add(new StopProtectionCondition(scope, false));
+                reevaluation.Add(new StopAvailabilityCondition(scope, result.Stop.StopPrice.HasValue));
+                reevaluation.Add(new StopRelativePositionCondition(
+                    scope,
+                    result.Stop.PriceRelativeToEntry));
+                reevaluation.Add(new ProfitProtectionCondition(scope, false));
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action.Action, "Action must be defined.");
@@ -136,18 +157,23 @@ internal static class RecommendationContinuationPlanFactory
         var scope = RecommendationContinuationConditionScope.Action;
         var lowVolume = assessment.ReasonCodes.Contains(ReasonCode.LowVolume);
         var stopAvailable = result.Stop.StopPrice.HasValue;
+        var stopState = result.Stop.State;
+        var pnlAvailable = result.Pnl.PnlPercent.HasValue;
 
         invalidation.Add(new TrendAlignmentCondition(scope, PositionTrendAlignment.Aligned));
         invalidation.Add(new MomentumReliabilityCondition(scope, true));
         invalidation.Add(new MomentumAvailabilityCondition(scope, true));
         invalidation.Add(new LiquidationStateCondition(scope, AssessmentLiquidationState.Far));
-        invalidation.Add(new StopProtectionCondition(scope, true));
+        invalidation.Add(new StopAvailabilityCondition(scope, stopAvailable));
+        invalidation.Add(new StopStateCondition(scope, stopState));
+        invalidation.Add(new PnlAvailabilityCondition(scope, pnlAvailable));
         reevaluation.Add(new TrendAlignmentCondition(scope, PositionTrendAlignment.Aligned));
         reevaluation.Add(new MomentumReliabilityCondition(scope, true));
         reevaluation.Add(new MomentumAvailabilityCondition(scope, true));
         reevaluation.Add(new LowVolumeCondition(scope, lowVolume));
         reevaluation.Add(new StopAvailabilityCondition(scope, stopAvailable));
-        reevaluation.Add(new StopProtectionCondition(scope, true));
+        reevaluation.Add(new StopStateCondition(scope, stopState));
+        reevaluation.Add(new PnlAvailabilityCondition(scope, pnlAvailable));
         reevaluation.Add(new LiquidationStateCondition(scope, AssessmentLiquidationState.Far));
     }
 
@@ -163,15 +189,13 @@ internal static class RecommendationContinuationPlanFactory
         reevaluation.Add(new MomentumAvailabilityCondition(
             scope,
             result.Momentum.State != AssessmentMomentumState.Unavailable));
+        reevaluation.Add(new PnlAvailabilityCondition(scope, result.Pnl.PnlPercent.HasValue));
         reevaluation.Add(new StopAvailabilityCondition(scope, result.Stop.StopPrice.HasValue));
-        reevaluation.Add(new StopProtectionCondition(
-            scope,
-            result.Stop.State == AssessmentStopState.Protective));
+        reevaluation.Add(new StopStateCondition(scope, result.Stop.State));
         reevaluation.Add(new LiquidationStateCondition(scope, result.Liquidation.State));
         reevaluation.Add(new LowVolumeCondition(
             scope,
             assessment.ReasonCodes.Contains(ReasonCode.LowVolume)));
-        reevaluation.Add(new DataQualityCondition(scope, result.DataQuality.Overall));
     }
 
     private static void AddAllowedConditions(
@@ -181,35 +205,27 @@ internal static class RecommendationContinuationPlanFactory
         List<RecommendationContinuationCondition> reevaluation)
     {
         var scope = RecommendationContinuationConditionScope.AddDecision;
-        invalidation.Add(new PortfolioRiskDecisionCondition(scope, RiskIncreaseDecision.Allowed));
-        invalidation.Add(new TrendAlignmentCondition(scope, PositionTrendAlignment.Aligned));
-        invalidation.Add(new MomentumReliabilityCondition(scope, true));
-        invalidation.Add(new MomentumStateCondition(scope, AssessmentMomentumState.Normal));
-        invalidation.Add(new MomentumExhaustionCondition(scope, false));
-        invalidation.Add(new LowVolumeCondition(scope, false));
-        invalidation.Add(new LiquidationStateCondition(scope, AssessmentLiquidationState.Far));
-        invalidation.Add(new LiquidationDistanceCondition(
-            scope,
-            policy.AddAllowedLimits.MinimumLiquidationDistancePercent));
-        invalidation.Add(new StopProtectionCondition(scope, true));
-        invalidation.Add(new AddAllowedCapacityCondition(
-            addDecision.MaximumAdditionalPositionValue!.Value,
-            addDecision.MaximumAdditionalQuantity));
+        var conditions = new RecommendationContinuationCondition[]
+        {
+            new PortfolioRiskDecisionCondition(scope, RiskIncreaseDecision.Allowed),
+            new TrendAlignmentCondition(scope, PositionTrendAlignment.Aligned),
+            new MomentumReliabilityCondition(scope, true),
+            new MomentumStateCondition(scope, AssessmentMomentumState.Normal),
+            new MomentumExhaustionCondition(scope, false),
+            new LowVolumeCondition(scope, false),
+            new LiquidationStateCondition(scope, AssessmentLiquidationState.Far),
+            new LiquidationDistanceCondition(
+                scope,
+                policy.AddAllowedLimits.MinimumLiquidationDistancePercent),
+            new ProfitProtectionCondition(scope, true),
+            new PnlAvailabilityCondition(scope, true),
+            new AddAllowedCapacityCondition(
+                addDecision.MaximumAdditionalPositionValue!.Value,
+                addDecision.MaximumAdditionalQuantity)
+        };
 
-        reevaluation.Add(new PortfolioRiskDecisionCondition(scope, RiskIncreaseDecision.Allowed));
-        reevaluation.Add(new TrendAlignmentCondition(scope, PositionTrendAlignment.Aligned));
-        reevaluation.Add(new MomentumReliabilityCondition(scope, true));
-        reevaluation.Add(new MomentumStateCondition(scope, AssessmentMomentumState.Normal));
-        reevaluation.Add(new MomentumExhaustionCondition(scope, false));
-        reevaluation.Add(new LowVolumeCondition(scope, false));
-        reevaluation.Add(new LiquidationStateCondition(scope, AssessmentLiquidationState.Far));
-        reevaluation.Add(new LiquidationDistanceCondition(
-            scope,
-            policy.AddAllowedLimits.MinimumLiquidationDistancePercent));
-        reevaluation.Add(new StopProtectionCondition(scope, true));
-        reevaluation.Add(new AddAllowedCapacityCondition(
-            addDecision.MaximumAdditionalPositionValue.Value,
-            addDecision.MaximumAdditionalQuantity));
+        invalidation.AddRange(conditions);
+        reevaluation.AddRange(conditions);
     }
 
     private static void AddNonAllowedReevaluationConditions(
@@ -228,8 +244,9 @@ internal static class RecommendationContinuationPlanFactory
             RecommendationContinuationConditionScope.AddDecision,
             result.DataQuality.Overall));
     }
+
+    private static bool IsSafetyBlocked(PositionAssessment assessment) =>
+        assessment.Result.IsLegacy ||
+        assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
+        assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
 }
-
-
-
-

@@ -17,11 +17,14 @@ public enum RecommendationContinuationConditionKind
     MomentumState,
     MomentumAvailability,
     MomentumExhaustion,
-    StopProtection,
+    StopState,
     StopAvailability,
+    StopRelativePosition,
+    ProfitProtection,
     LiquidationState,
     LiquidationDistance,
     PnlThreshold,
+    PnlAvailability,
     DataQuality,
     SafetyState,
     PortfolioRiskDecision,
@@ -139,15 +142,23 @@ public sealed record MomentumExhaustionCondition : RecommendationContinuationCon
     public bool RequiredExhaustion { get; }
 }
 
-public sealed record StopProtectionCondition : RecommendationContinuationCondition
+public sealed record StopStateCondition : RecommendationContinuationCondition
 {
-    public StopProtectionCondition(
+    public StopStateCondition(
         RecommendationContinuationConditionScope scope,
-        bool requiredProtective)
-        : base(scope, RecommendationContinuationConditionKind.StopProtection) =>
-        RequiredProtective = requiredProtective;
+        AssessmentStopState requiredState)
+        : base(scope, RecommendationContinuationConditionKind.StopState)
+    {
+        if (!Enum.IsDefined(requiredState))
+            throw new ArgumentOutOfRangeException(
+                nameof(requiredState),
+                requiredState,
+                "Stop state must be defined.");
 
-    public bool RequiredProtective { get; }
+        RequiredState = requiredState;
+    }
+
+    public AssessmentStopState RequiredState { get; }
 }
 
 public sealed record StopAvailabilityCondition : RecommendationContinuationCondition
@@ -159,6 +170,36 @@ public sealed record StopAvailabilityCondition : RecommendationContinuationCondi
         RequiredAvailability = requiredAvailability;
 
     public bool RequiredAvailability { get; }
+}
+
+public sealed record StopRelativePositionCondition : RecommendationContinuationCondition
+{
+    public StopRelativePositionCondition(
+        RecommendationContinuationConditionScope scope,
+        AssessmentPricePosition requiredPosition)
+        : base(scope, RecommendationContinuationConditionKind.StopRelativePosition)
+    {
+        if (!Enum.IsDefined(requiredPosition))
+            throw new ArgumentOutOfRangeException(
+                nameof(requiredPosition),
+                requiredPosition,
+                "Stop relative position must be defined.");
+
+        RequiredPosition = requiredPosition;
+    }
+
+    public AssessmentPricePosition RequiredPosition { get; }
+}
+
+public sealed record ProfitProtectionCondition : RecommendationContinuationCondition
+{
+    public ProfitProtectionCondition(
+        RecommendationContinuationConditionScope scope,
+        bool requiredProtection)
+        : base(scope, RecommendationContinuationConditionKind.ProfitProtection) =>
+        RequiredProtection = requiredProtection;
+
+    public bool RequiredProtection { get; }
 }
 
 public sealed record LiquidationStateCondition : RecommendationContinuationCondition
@@ -219,6 +260,17 @@ public sealed record PnlThresholdCondition : RecommendationContinuationCondition
 
     public RecommendationPnlComparison Comparison { get; }
     public decimal Threshold { get; }
+}
+
+public sealed record PnlAvailabilityCondition : RecommendationContinuationCondition
+{
+    public PnlAvailabilityCondition(
+        RecommendationContinuationConditionScope scope,
+        bool requiredAvailability)
+        : base(scope, RecommendationContinuationConditionKind.PnlAvailability) =>
+        RequiredAvailability = requiredAvailability;
+
+    public bool RequiredAvailability { get; }
 }
 
 public sealed record DataQualityCondition : RecommendationContinuationCondition
@@ -296,6 +348,10 @@ public sealed record PolicyIdentityCondition : RecommendationContinuationConditi
         PolicyConfigurationIdentity requiredIdentity)
         : base(scope, RecommendationContinuationConditionKind.PolicyIdentity)
     {
+        if (scope != RecommendationContinuationConditionScope.Recommendation)
+            throw new ArgumentException(
+                "Policy identity conditions must use Recommendation scope.",
+                nameof(scope));
         if (string.IsNullOrWhiteSpace(requiredIdentity.Version) ||
             string.IsNullOrWhiteSpace(requiredIdentity.Hash))
             throw new ArgumentException("Policy identity must contain version and hash.", nameof(requiredIdentity));
@@ -360,6 +416,9 @@ public sealed record RecommendationExpiryCondition : RecommendationContinuationC
             RecommendationContinuationConditionScope.Recommendation,
             RecommendationContinuationConditionKind.RecommendationExpiry)
     {
+        if (validUntil == default)
+            throw new ArgumentException("Expiry timestamp must be initialized.", nameof(validUntil));
+
         ValidUntil = validUntil;
     }
 
@@ -375,6 +434,4 @@ public sealed record ContinuationContextUnavailableCondition : RecommendationCon
     {
     }
 }
-
-
 

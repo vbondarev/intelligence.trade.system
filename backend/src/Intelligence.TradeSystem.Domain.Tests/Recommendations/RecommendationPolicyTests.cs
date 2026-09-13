@@ -43,7 +43,8 @@ public sealed class RecommendationPolicyTests
             5m,
             RecommendationConfidenceProfile.Default,
             RecommendationPriorityProfile.Default,
-            AddAllowedPolicyLimits.Default);
+            AddAllowedPolicyLimits.Default,
+            RecommendationReevaluationProfile.Default);
         var changed = new PolicyDefinition(
             new RuleVersion("recommendation-v1"),
             TimeSpan.FromMinutes(5),
@@ -53,11 +54,43 @@ public sealed class RecommendationPolicyTests
             5m,
             RecommendationConfidenceProfile.Default,
             RecommendationPriorityProfile.Default,
-            AddAllowedPolicyLimits.Default);
+            AddAllowedPolicyLimits.Default,
+            RecommendationReevaluationProfile.Default);
 
         equivalent.Identity.Should().Be(first.Identity);
+        equivalent.CanonicalRepresentation.Should().Be(first.CanonicalRepresentation);
         changed.Hash.Should().NotBe(first.Hash);
         first.Hash.Should().HaveLength(64);
+    }
+
+    [Fact]
+    public void Reevaluation_profile_is_required_and_changes_canonical_identity()
+    {
+        var first = PolicyDefinition.Default;
+        var changedProfile = new RecommendationReevaluationProfile(
+            TimeSpan.FromMinutes(3),
+            first.ReevaluationProfile.Watch,
+            first.ReevaluationProfile.ProtectProfit,
+            first.ReevaluationProfile.Reduce,
+            first.ReevaluationProfile.Close,
+            first.ReevaluationProfile.MoveStop,
+            first.ReevaluationProfile.TakePartialProfit,
+            first.ReevaluationProfile.AddAllowed,
+            first.ValidityPeriod);
+        var changed = new PolicyDefinition(
+            first.Version,
+            first.ValidityPeriod,
+            first.CloseLossThreshold,
+            first.ReduceLossThreshold,
+            first.ProtectProfitThreshold,
+            first.TakePartialProfitThreshold,
+            first.ConfidenceProfiles,
+            first.PriorityProfiles,
+            first.AddAllowedLimits,
+            changedProfile);
+
+        changed.CanonicalRepresentation.Should().NotBe(first.CanonicalRepresentation);
+        changed.Hash.Should().NotBe(first.Hash);
     }
 
     [Fact]
@@ -95,7 +128,8 @@ public sealed class RecommendationPolicyTests
             PolicyDefinition.Default.TakePartialProfitThreshold,
             PolicyDefinition.Default.ConfidenceProfiles,
             PolicyDefinition.Default.PriorityProfiles,
-            PolicyDefinition.Default.AddAllowedLimits);
+            PolicyDefinition.Default.AddAllowedLimits,
+            RecommendationReevaluationProfile.Default);
 
         FluentActions.Invoking(
                 () => new RecommendationPolicy().Evaluate(assessment, otherPolicy, T0.AddMinutes(3)))
@@ -211,7 +245,10 @@ public sealed class RecommendationPolicyTests
     public void Add_allowed_uses_the_smallest_conservative_headroom()
     {
         var policy = PolicyDefinition.Default;
-        var assessment = CreateAssessment(policy, PositionTrendAlignment.Aligned);
+        var assessment = CreateAssessment(
+            policy,
+            PositionTrendAlignment.Aligned,
+            stopPosition: AssessmentPricePosition.Above);
 
         var result = new RecommendationPolicy().Evaluate(assessment, policy, T0.AddMinutes(3));
         var recommendation = Recommendation.Create(assessment, result);

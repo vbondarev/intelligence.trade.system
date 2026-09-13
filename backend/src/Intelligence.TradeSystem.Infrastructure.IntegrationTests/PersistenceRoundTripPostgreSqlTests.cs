@@ -936,6 +936,62 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Structured_continuation_timestamps_are_canonical_and_immutable_after_reload()
+    {
+        var account = CreateAccount();
+        var position = CreatePosition(account.Id);
+        var policy = PolicyDefinition.Default;
+        var timestamp = T0.AddTicks(7);
+        var assessment = CreateStructuredAssessment(account, position, policy, timestamp);
+        var evaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(assessment, policy, timestamp.AddMinutes(1));
+        var recommendation = Recommendation.Create(assessment, evaluation);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
+            await new PositionAssessmentRepository(setupContext).SaveAsync(account.UserId, assessment);
+            await new RecommendationRepository(setupContext)
+                .SaveAsync(account.UserId, recommendation, expectedVersion: null);
+        }
+
+        await using var readerContext = await CreateMigratedContext();
+        var loaded = await new RecommendationRepository(readerContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(loaded);
+        var initialPlan = loaded!.Value.ContinuationPlan!;
+        var canonicalCreatedAt = CanonicalTimestamp(recommendation.CreatedAt);
+        var canonicalValidUntil = CanonicalTimestamp(recommendation.ValidUntil);
+        Assert.Equal(canonicalCreatedAt, loaded.Value.CreatedAt);
+        Assert.Equal(canonicalValidUntil, loaded.Value.ValidUntil);
+        Assert.Equal(canonicalCreatedAt, initialPlan.CreatedAt);
+        Assert.Equal(canonicalValidUntil, initialPlan.ValidUntil);
+        Assert.Equal(
+            CanonicalTimestamp(recommendation.NextEvaluationAt!.Value),
+            initialPlan.NextEvaluationAt);
+
+        loaded.Value.Acknowledge(timestamp.AddMinutes(2));
+        await using (var writerContext = await CreateMigratedContext())
+        {
+            await new RecommendationRepository(writerContext)
+                .SaveAsync(account.UserId, loaded.Value, loaded.Version);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var verified = await new RecommendationRepository(verificationContext)
+            .GetByIdAsync(account.UserId, recommendation.Id);
+        Assert.NotNull(verified);
+        var verifiedPlan = verified!.Value.ContinuationPlan!;
+        Assert.Equal(initialPlan.CreatedAt, verifiedPlan.CreatedAt);
+        Assert.Equal(initialPlan.ValidUntil, verifiedPlan.ValidUntil);
+        Assert.Equal(initialPlan.NextEvaluationAt, verifiedPlan.NextEvaluationAt);
+        Assert.Equal(initialPlan.InvalidationConditions, verifiedPlan.InvalidationConditions);
+        Assert.Equal(initialPlan.ReevaluationConditions, verifiedPlan.ReevaluationConditions);
+        Assert.Equal(RecommendationStatus.Acknowledged, verified.Value.Status);
+    }
+
+    [Fact]
     public async Task Structured_decision_context_changes_are_rejected_as_immutable()
     {
         var account = CreateAccount();
@@ -1679,15 +1735,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     private static PositionAssessment CreateStructuredAssessment(
         ExchangeAccount account,
         Position position,
-        PolicyDefinition policy)
+        PolicyDefinition policy,
+        DateTimeOffset? timestampBase = null)
     {
+        var capturedAt = timestampBase ?? T0;
         var inputVersions = new PositionAssessmentInputVersions(
             position.Id,
             account.Id,
             position.ExchangePositionKey.InstrumentId,
-            T0,
-            T0.AddMinutes(1),
-            T0.AddMinutes(2),
+            capturedAt,
+            capturedAt.AddMinutes(1),
+            capturedAt.AddMinutes(2),
             policy.Identity,
             policy.Identity);
         var result = new PositionAssessmentResult(
@@ -1731,8 +1789,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 ReasonCode.StopProtective,
                 ReasonCode.LiquidationFar
             ],
-            T0.AddMinutes(3),
-            T0.AddHours(1));
+            capturedAt.AddMinutes(3),
+            capturedAt.AddHours(1));
     }
 
     private static Position CreatePosition(ExchangeAccountId accountId) =>
