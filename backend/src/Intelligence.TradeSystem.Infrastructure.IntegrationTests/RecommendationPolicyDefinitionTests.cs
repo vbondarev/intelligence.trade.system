@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Intelligence.TradeSystem.Infrastructure.RecommendationPolicy;
 using Xunit;
 
@@ -11,7 +12,7 @@ public sealed class RecommendationPolicyDefinitionTests
         var firstPath = WritePolicy(
             """
             {
-              "version":"recommendation-v1","validityPeriod":"00:05:00","closeLossThreshold":-10,"reduceLossThreshold":-5,"protectProfitThreshold":2,"takePartialProfitThreshold":5,"confidenceProfiles":{"hold":0.70,"watch":0.80,"protectProfit":0.85,"reduce":0.90,"close":0.98,"moveStop":0.88,"takePartialProfit":0.86},"priorityProfiles":{"hold":"normal","watch":"normal","protectProfit":"high","reduce":"high","close":"critical","moveStop":"high","takePartialProfit":"high"},"addAllowedLimits":{"maximumAdditionalPositionPercentOfEquity":10,"maximumAdditionalAvailableCapitalPercent":25,"minimumLiquidationDistancePercent":5},"reevaluationProfile":{"hold":"00:04:00","watch":"00:02:00","protectProfit":"00:02:00","reduce":"00:01:00","close":"00:01:00","moveStop":"00:02:00","takePartialProfit":"00:02:00","addAllowed":"00:02:00"}}
+              "version":"recommendation-v1","validityPeriod":"00:05:00","closeLossThreshold":-10,"reduceLossThreshold":-5,"protectProfitThreshold":2,"takePartialProfitThreshold":5,"confidenceProfiles":{"hold":0.70,"watch":0.80,"protectProfit":0.85,"reduce":0.90,"close":0.98,"moveStop":0.88,"takePartialProfit":0.86},"priorityProfiles":{"hold":"normal","watch":"normal","protectProfit":"high","reduce":"high","close":"critical","moveStop":"high","takePartialProfit":"high"},"addAllowedLimits":{"maximumAdditionalPositionPercentOfEquity":10,"maximumAdditionalAvailableCapitalPercent":25,"minimumLiquidationDistancePercent":5},"reevaluationProfile":{"hold":"00:04:00","watch":"00:02:00","protectProfit":"00:02:00","reduce":"00:01:00","close":"00:01:00","moveStop":"00:02:00","takePartialProfit":"00:02:00","addAllowed":"00:02:00"},"stabilityProfile":{"minimumReplacementInterval":"00:00:30","improvementConfirmationPeriod":"00:02:00","improvementConfirmationObservations":2,"addAllowedConfirmationPeriod":"00:03:00","addAllowedConfirmationObservations":3}}
             """);
         var secondPath = WritePolicy(
             """
@@ -30,6 +31,13 @@ public sealed class RecommendationPolicyDefinitionTests
                 "protectProfit": "00:02:00",
                 "watch": "00:02:00",
                 "hold": "00:04:00"
+              },
+              "stabilityProfile": {
+                "addAllowedConfirmationObservations": 3,
+                "addAllowedConfirmationPeriod": "00:03:00",
+                "improvementConfirmationObservations": 2,
+                "improvementConfirmationPeriod": "00:02:00",
+                "minimumReplacementInterval": "00:00:30"
               },
               "priorityProfiles": {
                 "takePartialProfit": "high",
@@ -73,34 +81,141 @@ public sealed class RecommendationPolicyDefinitionTests
     }
 
     [Fact]
-    public void Unknown_property_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\n}", ",\n  \"unknown\": true\n}"));
+    public void Unknown_property_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["unknown"] = JsonValue.Create(true);
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Invalid_ttl_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\"validityPeriod\": \"00:05:00\"", "\"validityPeriod\": \"00:00:00\""));
+    public void Invalid_ttl_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["validityPeriod"] = JsonValue.Create("00:00:00");
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Invalid_threshold_order_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\"closeLossThreshold\": -10", "\"closeLossThreshold\": -1"));
+    public void Missing_stability_profile_fails_fast()
+    {
+        var document = DefaultDocument();
+        document.Remove("stabilityProfile");
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Invalid_confidence_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\"hold\": 0.7", "\"hold\": 1.1"));
+    public void Missing_stability_profile_property_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document).Remove("minimumReplacementInterval");
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Invalid_add_limit_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace(
-            "\"maximumAdditionalPositionPercentOfEquity\": 10",
-            "\"maximumAdditionalPositionPercentOfEquity\": 0"));
+    public void Missing_improvement_confirmation_period_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document).Remove("improvementConfirmationPeriod");
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Unknown_priority_enum_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\"close\": \"critical\"", "\"close\": \"urgent\""));
+    public void Missing_improvement_confirmation_observations_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document).Remove("improvementConfirmationObservations");
+        AssertInvalid(document.ToJsonString());
+    }
 
     [Fact]
-    public void Integer_priority_enum_fails_fast() =>
-        AssertInvalid(DefaultJson.Replace("\"close\": \"critical\"", "\"close\": 1"));
+    public void Missing_add_allowed_confirmation_period_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document).Remove("addAllowedConfirmationPeriod");
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Missing_add_allowed_confirmation_observations_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document).Remove("addAllowedConfirmationObservations");
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Unknown_stability_profile_property_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document)["unknown"] = JsonValue.Create(true);
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Invalid_stability_duration_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document)["improvementConfirmationPeriod"] = JsonValue.Create("00:00:00");
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Negative_stability_duration_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document)["minimumReplacementInterval"] = JsonValue.Create("-00:00:30");
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Invalid_stability_observation_count_fails_fast()
+    {
+        var document = DefaultDocument();
+        StabilityProfile(document)["addAllowedConfirmationObservations"] = JsonValue.Create(0);
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Invalid_threshold_order_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["closeLossThreshold"] = JsonValue.Create(-1);
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Invalid_confidence_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["confidenceProfiles"]!.AsObject()["hold"] = JsonValue.Create(1.1);
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Invalid_add_limit_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["addAllowedLimits"]!.AsObject()["maximumAdditionalPositionPercentOfEquity"] =
+            JsonValue.Create(0);
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Unknown_priority_enum_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["priorityProfiles"]!.AsObject()["close"] = JsonValue.Create("urgent");
+        AssertInvalid(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Integer_priority_enum_fails_fast()
+    {
+        var document = DefaultDocument();
+        document["priorityProfiles"]!.AsObject()["close"] = JsonValue.Create(1);
+        AssertInvalid(document.ToJsonString());
+    }
 
     private static void AssertInvalid(string json)
     {
@@ -119,15 +234,9 @@ public sealed class RecommendationPolicyDefinitionTests
     [Fact]
     public void Missing_version_fails_fast()
     {
-        var path = WritePolicy(DefaultJson.Replace("\"version\": \"recommendation-v1\",", string.Empty));
-        try
-        {
-            Assert.ThrowsAny<Exception>(() => new JsonRecommendationPolicyDefinitionProvider(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        var document = DefaultDocument();
+        document.Remove("version");
+        AssertInvalid(document.ToJsonString());
     }
 
     private static string WritePolicy(string json)
@@ -136,6 +245,12 @@ public sealed class RecommendationPolicyDefinitionTests
         File.WriteAllText(path, json);
         return path;
     }
+
+    private static JsonObject DefaultDocument() =>
+        JsonNode.Parse(DefaultJson)!.AsObject();
+
+    private static JsonObject StabilityProfile(JsonObject document) =>
+        document["stabilityProfile"]!.AsObject();
 
     private const string DefaultJson =
         """
@@ -178,6 +293,13 @@ public sealed class RecommendationPolicyDefinitionTests
             "moveStop": "00:02:00",
             "takePartialProfit": "00:02:00",
             "addAllowed": "00:02:00"
+          },
+          "stabilityProfile": {
+            "minimumReplacementInterval": "00:00:30",
+            "improvementConfirmationPeriod": "00:02:00",
+            "improvementConfirmationObservations": 2,
+            "addAllowedConfirmationPeriod": "00:03:00",
+            "addAllowedConfirmationObservations": 3
           }
         }
         """;

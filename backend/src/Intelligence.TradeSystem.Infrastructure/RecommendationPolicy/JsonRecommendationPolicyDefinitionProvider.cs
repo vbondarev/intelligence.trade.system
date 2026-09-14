@@ -61,6 +61,7 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
         public PriorityProfilesDocument? PriorityProfiles { get; init; }
         public AddAllowedLimitsDocument? AddAllowedLimits { get; init; }
         public ReevaluationProfileDocument? ReevaluationProfile { get; init; }
+        public StabilityProfileDocument? StabilityProfile { get; init; }
 
         public PolicyDefinition ToDomain()
         {
@@ -81,6 +82,8 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 throw new InvalidOperationException("Recommendation policy AddAllowedLimits are required.");
             if (ReevaluationProfile is null)
                 throw new InvalidOperationException("Recommendation policy ReevaluationProfile is required.");
+            if (StabilityProfile is null)
+                throw new InvalidOperationException("Recommendation policy StabilityProfile is required.");
 
             return new(
                 new RuleVersion(Version),
@@ -92,7 +95,8 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 ConfidenceProfiles.ToDomain(),
                 PriorityProfiles.ToDomain(),
                 AddAllowedLimits.ToDomain(),
-                ReevaluationProfile.ToDomain(ValidityPeriod.Value));
+                ReevaluationProfile.ToDomain(ValidityPeriod.Value),
+                StabilityProfile.ToDomain());
         }
     }
 
@@ -176,6 +180,23 @@ public sealed class JsonRecommendationPolicyDefinitionProvider
                 TakePartialProfit ?? throw Missing(nameof(TakePartialProfit)),
                 AddAllowed ?? throw Missing(nameof(AddAllowed)),
                 validityPeriod);
+    }
+
+    private sealed class StabilityProfileDocument
+    {
+        public TimeSpan? MinimumReplacementInterval { get; init; }
+        public TimeSpan? ImprovementConfirmationPeriod { get; init; }
+        public int? ImprovementConfirmationObservations { get; init; }
+        public TimeSpan? AddAllowedConfirmationPeriod { get; init; }
+        public int? AddAllowedConfirmationObservations { get; init; }
+
+        public RecommendationStabilityProfile ToDomain() =>
+            new(
+                MinimumReplacementInterval ?? throw Missing(nameof(MinimumReplacementInterval)),
+                ImprovementConfirmationPeriod ?? throw Missing(nameof(ImprovementConfirmationPeriod)),
+                ImprovementConfirmationObservations ?? throw Missing(nameof(ImprovementConfirmationObservations)),
+                AddAllowedConfirmationPeriod ?? throw Missing(nameof(AddAllowedConfirmationPeriod)),
+                AddAllowedConfirmationObservations ?? throw Missing(nameof(AddAllowedConfirmationObservations)));
     }
 
     private static InvalidOperationException Missing(string propertyName) =>

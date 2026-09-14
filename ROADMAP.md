@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.12
-Дата актуализации: 13 сентября 2026 года
-Проверенная база: PR #96 merged в `develop`; текущая реализация проверяется в ветке `task/97-recommendation-invalidation-and-reevaluation` PR #98, который ещё не merged
-Последняя учтённая задача: PR #98 к [Issue #97](https://github.com/vbondarev/intelligence.trade.system/issues/97) «Исправлены замечания ревью условий отмены и повторной оценки рекомендаций»
-Текущий следующий этап: **E-08 — защита от дребезга рекомендаций**
+Версия документа: 3.14
+Дата актуализации: 14 сентября 2026 года
+Проверенная база: PR #98 merged в `develop`; PR #100 к Issue #99 открыт и содержит исправления review E-08.1
+Последняя учтённая задача: Issue #99 / PR #100 «Исправления замечаний ревью доменной политики стабилизации рекомендаций»
+Текущий следующий этап: **E-08.2 — применение и хранение стабилизации рекомендаций**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -200,7 +200,7 @@
 
 ### Этап E. Реализовать детерминированное сопровождение позиции
 
-Статус этапа: 🟡 Частично реализован (E-01 — E-07 и E-09 реализованы; E-07 — в текущем PR #98, E-10 остаётся сценарно частичным).
+Статус этапа: 🟡 Частично реализован (E-01 — E-07 и E-09 реализованы; E-08.1 добавляет доменную anti-chatter/stability policy, persistence и orchestration замещения остаются E-08.2; E-10 остаётся сценарно частичным).
 
 Рекомендация должна состоять из двух независимых решений:
 
@@ -219,8 +219,8 @@
 | E-04 | Реализовать версионируемую `RecommendationPolicy` с внешним `PolicyDefinition` | ✅ | Параметры политики загружаются из строгой JSON-конфигурации; identity вычисляется как canonical SHA-256; одинаковый assessment, policy и `asOf` дают одинаковый результат |
 | E-05 | Добавить `RecommendedAction` | ✅ | Поддержаны Hold, Watch, ProtectProfit, Reduce, Close, MoveStop и TakePartialProfit; каждое действие имеет typed reasons, confidence, priority и ограниченный assessment validity срок |
 | E-06 | Добавить `AddDecision` | ✅ | `DoNotAdd` объясняет запрет; `AddAllowed` проходит hard guards, фиксирует conditions и рассчитывает консервативный maximum additional position value/quantity |
-| E-07 | Добавить условия отмены и следующей проверки | ✅ | Реализовано в PR #98: рекомендация содержит typed invalidation/reevaluation conditions, valid-until, policy identity и PostgreSQL continuation metadata; PR ещё не merged |
-| E-08 | Защититься от дребезга рекомендаций | ⬜ | Работают дедупликация, гистерезис, пауза и замещение предыдущей версии |
+| E-07 | Добавить условия отмены и следующей проверки | ✅ | Реализовано в merged PR #98: рекомендация содержит typed invalidation/reevaluation conditions, valid-until, policy identity и PostgreSQL continuation metadata |
+| E-08 | Защититься от дребезга рекомендаций | 🟡 | E-08.1: реализована доменная anti-chatter/stability policy; persistence и orchestration замещения остаются E-08.2 |
 | E-09 | Запретить повышение риска при устаревших, неполных или неопределённых данных | ✅ | Hard guard выполняется до configurable rules: legacy/degraded data всегда дают Watch + DoNotAdd; внешняя policy не может его отключить |
 | E-10 | Добавить сценарные тесты long/short и пограничных рисков | 🟡 | Покрыты trend, flat, RSI, low volume/quality, liquidation, stop/breakeven, concentration и long/short; correlation scenario остаётся до появления соответствующей portfolio-модели |
 
@@ -392,7 +392,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Защититься от дребезга рекомендаций | E-08 |
+| 1 | Применить и хранить стабилизацию рекомендаций | E-08.2 |
 | 2 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
 | 3 | Создать адаптивную React-панель | G-01 — G-08 |
 | 4 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
@@ -460,6 +460,8 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-14 | 3.14 | В PR #100 к Issue #99 исправляются review findings E-08.1: candidate/pending temporal validation и replay idempotency, risk-safe policy/priority ordering, mixed capacity semantics, inherited portfolio reasons и strict JSON regression coverage. PR ещё не merged; следующим остаётся E-08.2. |
+| 2026-09-14 | 3.13 | PR #98 merged в `develop`; E-07 отмечен завершённым. В E-08.1 добавлена чистая доменная anti-chatter/stability policy с semantic comparison, typed decisions/reasons, cooldown, hysteresis, safety bypass и strict stability profile в policy hash. Persistence и orchestration замещения остаются E-08.2. |
 | 2026-09-13 | 3.12 | PR #96 merged в `develop`; E-07 реализован в текущем PR #98 к Issue #97: добавлены typed continuation conditions/evaluator, safety-safe Watch fallback, policy identity/expiry invalidation, strict persistence JSON, PostgreSQL migration и precision-safe lifecycle round-trip. Следующим остаётся E-08; PR #98 ещё не merged. |
 | 2026-09-13 | 3.11 | Закрыты финальные safety замечания PR #96: trusted evaluation и persistence rehydration больше не являются публичными creation paths, degraded compatibility creation ограничен `Watch + DoNotAdd`, отсутствие policy path стало fail-fast; E-07/E-08 не начаты. |
 | 2026-09-12 | 3.10 | В PR #96 исправлены review issues E.2: NonProtective stop, legacy creation bypass, preservation of compatibility reasons, truthful Watch/liquidation reasons, portfolio-safe headroom reasons, gross-exposure concentration sizing, semantic jsonb immutability comparison и runtime/API/Docker policy wiring; E-07/E-08 не начаты. |

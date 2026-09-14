@@ -120,6 +120,12 @@ internal static class RecommendationActionPredicates
         assessment.Result.DataQuality.Overall != AssessmentDataQuality.FreshCompleteReliable ||
         assessment.Result.DataQuality.SafetyState != AssessmentSafetyState.Allowed;
 
+    public static bool IsSafetyBlocked(RecommendationPolicyEvaluation evaluation) =>
+        evaluation.Action.Action == PositionAction.Watch &&
+        evaluation.AddDecision.Decision == AddDecision.DoNotAdd &&
+        evaluation.Action.ReasonCodes.Contains(ReasonCode.RecommendationLimitedByDataQuality) &&
+        evaluation.AddDecision.ReasonCodes.Contains(ReasonCode.RiskIncreaseBlockedByDataQuality);
+
     private static bool IsProfitable(PositionAssessmentResult result) =>
         result.Pnl.UnrealizedPnl > 0m && result.Pnl.PnlPercent > 0m;
 }

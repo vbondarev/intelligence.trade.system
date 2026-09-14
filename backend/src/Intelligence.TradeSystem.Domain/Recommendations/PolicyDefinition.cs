@@ -22,6 +22,33 @@ public sealed record PolicyDefinition
         RecommendationPriorityProfile priorityProfiles,
         AddAllowedPolicyLimits addAllowedLimits,
         RecommendationReevaluationProfile reevaluationProfile)
+        : this(
+            version,
+            validityPeriod,
+            closeLossThreshold,
+            reduceLossThreshold,
+            protectProfitThreshold,
+            takePartialProfitThreshold,
+            confidenceProfiles,
+            priorityProfiles,
+            addAllowedLimits,
+            reevaluationProfile,
+            RecommendationStabilityProfile.Default)
+    {
+    }
+
+    public PolicyDefinition(
+        RuleVersion version,
+        TimeSpan validityPeriod,
+        decimal closeLossThreshold,
+        decimal reduceLossThreshold,
+        decimal protectProfitThreshold,
+        decimal takePartialProfitThreshold,
+        RecommendationConfidenceProfile confidenceProfiles,
+        RecommendationPriorityProfile priorityProfiles,
+        AddAllowedPolicyLimits addAllowedLimits,
+        RecommendationReevaluationProfile reevaluationProfile,
+        RecommendationStabilityProfile stabilityProfile)
     {
         if (validityPeriod <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(validityPeriod), validityPeriod, "Validity period must be positive.");
@@ -42,6 +69,7 @@ public sealed record PolicyDefinition
         ArgumentNullException.ThrowIfNull(priorityProfiles);
         ArgumentNullException.ThrowIfNull(addAllowedLimits);
         ArgumentNullException.ThrowIfNull(reevaluationProfile);
+        ArgumentNullException.ThrowIfNull(stabilityProfile);
         reevaluationProfile.ValidateAgainst(validityPeriod);
 
         Version = version;
@@ -54,6 +82,7 @@ public sealed record PolicyDefinition
         PriorityProfiles = priorityProfiles;
         AddAllowedLimits = addAllowedLimits;
         ReevaluationProfile = reevaluationProfile;
+        StabilityProfile = stabilityProfile;
 
         CanonicalRepresentation = BuildCanonicalRepresentation();
         Hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalRepresentation)));
@@ -73,6 +102,7 @@ public sealed record PolicyDefinition
     public RecommendationPriorityProfile PriorityProfiles { get; }
     public AddAllowedPolicyLimits AddAllowedLimits { get; }
     public RecommendationReevaluationProfile ReevaluationProfile { get; }
+    public RecommendationStabilityProfile StabilityProfile { get; }
 
     public static PolicyDefinition Default => new(
         new RuleVersion("recommendation-v1"),
@@ -84,7 +114,8 @@ public sealed record PolicyDefinition
         RecommendationConfidenceProfile.Default,
         RecommendationPriorityProfile.Default,
         AddAllowedPolicyLimits.Default,
-        RecommendationReevaluationProfile.Default);
+        RecommendationReevaluationProfile.Default,
+        RecommendationStabilityProfile.Default);
 
     private string BuildCanonicalRepresentation() => string.Join(
         "|",
@@ -103,6 +134,11 @@ public sealed record PolicyDefinition
         ReevaluationProfile.MoveStop.Ticks.ToString(CultureInfo.InvariantCulture),
         ReevaluationProfile.TakePartialProfit.Ticks.ToString(CultureInfo.InvariantCulture),
         ReevaluationProfile.AddAllowed.Ticks.ToString(CultureInfo.InvariantCulture),
+        StabilityProfile.MinimumReplacementInterval.Ticks.ToString(CultureInfo.InvariantCulture),
+        StabilityProfile.ImprovementConfirmationPeriod.Ticks.ToString(CultureInfo.InvariantCulture),
+        StabilityProfile.ImprovementConfirmationObservations.ToString(CultureInfo.InvariantCulture),
+        StabilityProfile.AddAllowedConfirmationPeriod.Ticks.ToString(CultureInfo.InvariantCulture),
+        StabilityProfile.AddAllowedConfirmationObservations.ToString(CultureInfo.InvariantCulture),
         Format(ConfidenceProfiles.Hold),
         Format(ConfidenceProfiles.Watch),
         Format(ConfidenceProfiles.ProtectProfit),
