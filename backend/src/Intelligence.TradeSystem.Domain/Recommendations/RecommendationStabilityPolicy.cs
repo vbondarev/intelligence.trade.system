@@ -57,6 +57,12 @@ public sealed class RecommendationStabilityPolicy
                 "Stability evaluation cannot precede current recommendation creation.");
 
         var currentSemantic = RecommendationSemanticState.From(current);
+        if (current.Status is RecommendationStatus.Dismissed or RecommendationStatus.Superseded)
+            return Publish(RecommendationStabilityReason.CurrentInactive);
+        if (current.Status == RecommendationStatus.Expired || asOf >= current.ValidUntil)
+            return Publish(RecommendationStabilityReason.CurrentExpired);
+        if (currentSemantic.Equals(candidateSemantic))
+            return KeepExisting(RecommendationStabilityReason.Duplicate);
         if (current.Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged)
         {
             if (candidate.CreatedAt <= current.CreatedAt)
@@ -70,13 +76,6 @@ public sealed class RecommendationStabilityPolicy
                     "A replacement candidate cannot precede recommendation acknowledgement.",
                     nameof(candidate));
         }
-
-        if (current.Status is RecommendationStatus.Dismissed or RecommendationStatus.Superseded)
-            return Publish(RecommendationStabilityReason.CurrentInactive);
-        if (current.Status == RecommendationStatus.Expired || asOf >= current.ValidUntil)
-            return Publish(RecommendationStabilityReason.CurrentExpired);
-        if (currentSemantic.Equals(candidateSemantic))
-            return KeepExisting(RecommendationStabilityReason.Duplicate);
 
         if (current.AddDecision == AddDecision.AddAllowed &&
             candidate.AddDecision.Decision == AddDecision.DoNotAdd)

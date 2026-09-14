@@ -43,6 +43,85 @@ public sealed class RecommendationStabilityTests
         result.NextState.Should().BeNull();
     }
 
+    [Fact]
+    public void Same_semantic_candidate_with_same_created_at_is_duplicate()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(policy, positionId);
+        var current = CreateRecommendation(assessment, policy, T0.AddMinutes(3));
+        var candidate = policy.Evaluate(assessment, policy, current.CreatedAt);
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.KeepExisting);
+        result.Reason.Should().Be(RecommendationStabilityReason.Duplicate);
+        result.NextState.Should().BeNull();
+    }
+
+    [Fact]
+    public void Older_semantically_equal_candidate_is_duplicate_when_still_valid()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessment(policy, positionId),
+            policy,
+            T0.AddMinutes(3));
+        var candidate = policy.Evaluate(
+            CreateAssessment(policy, positionId),
+            policy,
+            T0.AddMinutes(2).AddSeconds(30));
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.KeepExisting);
+        result.Reason.Should().Be(RecommendationStabilityReason.Duplicate);
+        result.NextState.Should().BeNull();
+    }
+
+    [Fact]
+    public void Hold_to_watch_is_published_immediately_even_during_cooldown()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(3));
+        var candidate = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(4));
+        var profile = new RecommendationStabilityProfile(
+            TimeSpan.FromHours(1),
+            TimeSpan.FromHours(1),
+            10,
+            TimeSpan.FromHours(1),
+            10);
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            profile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PublishCandidate);
+        result.Reason.Should().Be(RecommendationStabilityReason.RiskReduction);
+        result.NextState.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(PositionAction.Hold, PositionAction.Reduce)]
     [InlineData(PositionAction.Hold, PositionAction.Close)]
@@ -246,7 +325,7 @@ public sealed class RecommendationStabilityTests
         var policy = PolicyDefinition.Default;
         var positionId = PositionId.New();
         var current = CreateRecommendation(
-            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            CreateAssessmentForAction(policy, positionId, PositionAction.Close, RiskIncreaseDecision.Blocked),
             policy,
             T0.AddMinutes(3));
         var profile = new RecommendationStabilityProfile(
@@ -256,32 +335,38 @@ public sealed class RecommendationStabilityTests
             TimeSpan.FromMinutes(3),
             3);
         var stability = new RecommendationStabilityPolicy();
-        var watch = policy.Evaluate(
-            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
-            policy,
-            T0.AddMinutes(4));
         var hold = policy.Evaluate(
             CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
             policy,
+            T0.AddMinutes(4));
+        var watch = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
             T0.AddMinutes(5));
+        var holdAgain = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(6));
 
-        var firstWatch = stability.Evaluate(current, watch, null, profile, T0.AddMinutes(4));
-        var backToHold = stability.Evaluate(current, hold, firstWatch.NextState, profile, T0.AddMinutes(5));
-        var secondWatch = stability.Evaluate(
+        var firstHold = stability.Evaluate(current, hold, null, profile, T0.AddMinutes(4));
+        var changedWatch = stability.Evaluate(
             current,
-            policy.Evaluate(
-                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
-                policy,
-                T0.AddMinutes(6)),
-            backToHold.NextState,
+            watch,
+            firstHold.NextState,
+            profile,
+            T0.AddMinutes(5));
+        var changedHold = stability.Evaluate(
+            current,
+            holdAgain,
+            changedWatch.NextState,
             profile,
             T0.AddMinutes(6));
 
-        firstWatch.NextState!.ConsecutiveObservations.Should().Be(1);
-        backToHold.Kind.Should().Be(RecommendationStabilityDecisionKind.KeepExisting);
-        backToHold.NextState.Should().BeNull();
-        secondWatch.NextState!.ConsecutiveObservations.Should().Be(1);
-        secondWatch.NextState.FirstObservedAt.Should().Be(T0.AddMinutes(6));
+        firstHold.NextState!.ConsecutiveObservations.Should().Be(1);
+        changedWatch.NextState!.ConsecutiveObservations.Should().Be(1);
+        changedWatch.NextState.FirstObservedAt.Should().Be(T0.AddMinutes(5));
+        changedHold.NextState!.ConsecutiveObservations.Should().Be(1);
+        changedHold.NextState.FirstObservedAt.Should().Be(T0.AddMinutes(6));
     }
 
     [Fact]
@@ -329,7 +414,7 @@ public sealed class RecommendationStabilityTests
         var policy = PolicyDefinition.Default;
         var positionId = PositionId.New();
         var current = CreateRecommendation(
-            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
             policy,
             T0.AddMinutes(3));
         var profile = new RecommendationStabilityProfile(
@@ -343,7 +428,7 @@ public sealed class RecommendationStabilityTests
         var first = stability.Evaluate(
             current,
             policy.Evaluate(
-                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+                CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
                 policy,
                 T0.AddMinutes(4)),
             null,
@@ -352,7 +437,7 @@ public sealed class RecommendationStabilityTests
         var duringCooldown = stability.Evaluate(
             current,
             policy.Evaluate(
-                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+                CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
                 policy,
                 T0.AddMinutes(5)),
             first.NextState,
@@ -361,7 +446,7 @@ public sealed class RecommendationStabilityTests
         var afterCooldown = stability.Evaluate(
             current,
             policy.Evaluate(
-                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+                CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
                 policy,
                 T0.AddMinutes(14)),
             duringCooldown.NextState,
@@ -538,11 +623,20 @@ public sealed class RecommendationStabilityTests
             .Reason.Should().Be(RecommendationStabilityReason.CurrentInactive);
 
         var acknowledged = CreateRecommendation(
-            CreateAssessment(policy, positionId),
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
             policy,
             T0.AddMinutes(3));
         acknowledged.Acknowledge(T0.AddMinutes(4));
-        stability.Evaluate(acknowledged, candidate, null, policy.StabilityProfile, T0.AddMinutes(5))
+        var acknowledgedCandidate = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(4));
+        stability.Evaluate(
+                acknowledged,
+                acknowledgedCandidate,
+                null,
+                policy.StabilityProfile,
+                T0.AddMinutes(5))
             .Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
 
         var superseded = CreateRecommendation(
@@ -680,20 +774,20 @@ public sealed class RecommendationStabilityTests
         var policy = PolicyDefinition.Default;
         var positionId = PositionId.New();
         var current = CreateRecommendation(
-            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            CreateAssessmentForAction(policy, positionId, PositionAction.Close, RiskIncreaseDecision.Blocked),
             policy,
             T0.AddMinutes(3));
         var stability = new RecommendationStabilityPolicy();
         var profile = ConfirmationProfile();
-        var watchAtFour = policy.Evaluate(
-            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+        var holdAtFour = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
             policy,
             T0.AddMinutes(4));
-        var first = stability.Evaluate(current, watchAtFour, null, profile, T0.AddMinutes(4));
+        var first = stability.Evaluate(current, holdAtFour, null, profile, T0.AddMinutes(4));
 
         FluentActions.Invoking(() => stability.Evaluate(
                 current,
-                watchAtFour,
+                holdAtFour,
                 first.NextState,
                 profile,
                 T0.AddMinutes(3).AddSeconds(30)))
@@ -709,14 +803,14 @@ public sealed class RecommendationStabilityTests
                 T0.AddMinutes(4)))
             .Should().Throw<ArgumentException>();
 
-        var replay = stability.Evaluate(current, watchAtFour, first.NextState, profile, T0.AddMinutes(4));
+        var replay = stability.Evaluate(current, holdAtFour, first.NextState, profile, T0.AddMinutes(4));
         replay.NextState.Should().BeSameAs(first.NextState);
         replay.NextState!.ConsecutiveObservations.Should().Be(1);
 
         var nextObservation = stability.Evaluate(
             current,
             policy.Evaluate(
-                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+                CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
                 policy,
                 T0.AddMinutes(5)),
             replay.NextState,

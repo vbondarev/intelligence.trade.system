@@ -8,7 +8,8 @@ internal static class RecommendationStabilityTransitionClassifier
         PositionAction current,
         PositionAction candidate) =>
         current != candidate &&
-        RecommendationActionPrecedence.IsHigherPriority(current, candidate);
+        (current == PositionAction.Hold && candidate == PositionAction.Watch ||
+         RecommendationActionPrecedence.IsHigherPriority(current, candidate));
 
     public static bool IsLessProtectiveTransition(
         PositionAction current,
