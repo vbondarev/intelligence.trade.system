@@ -225,8 +225,6 @@ public sealed class RecommendationStabilityPolicy
         var quantityChange = CompareLimit(
             current.MaximumAdditionalQuantity,
             candidate.MaximumAdditionalQuantity);
-        if (valueChange == 0)
-            return CapacityChange.Equal;
         if ((valueChange < 0 && quantityChange > 0) ||
             (valueChange > 0 && quantityChange < 0))
             return CapacityChange.Mixed;
@@ -241,8 +239,10 @@ public sealed class RecommendationStabilityPolicy
     {
         if (current == candidate)
             return 0;
-        if (current is null || candidate is null)
+        if (current is null)
             return 0;
+        if (candidate is null)
+            return -1;
         return candidate.Value.CompareTo(current.Value);
     }
 

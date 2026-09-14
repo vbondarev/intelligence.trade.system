@@ -855,17 +855,95 @@ public sealed class RecommendationStabilityTests
             null,
             policy.StabilityProfile,
             T0.AddMinutes(4));
-        var quantityOnly = stability.Evaluate(
+        valueIncreaseQuantityDecrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        valueDecreaseQuantityIncrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+    }
+
+    [Fact]
+    public void Quantity_only_capacity_decrease_is_published_immediately()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(policy, positionId, stopPosition: AssessmentPricePosition.Above);
+        var current = CreateCapacityRecommendation(assessment, policy, T0.AddMinutes(3), 1000m, 10m);
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
             current,
             CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1000m, 8m),
             null,
             policy.StabilityProfile,
             T0.AddMinutes(4));
 
-        valueIncreaseQuantityDecrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
-        valueDecreaseQuantityIncrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
-        quantityOnly.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
-        quantityOnly.Reason.Should().NotBe(RecommendationStabilityReason.RiskReduction);
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PublishCandidate);
+        result.Reason.Should().Be(RecommendationStabilityReason.RiskReduction);
+    }
+
+    [Fact]
+    public void Quantity_only_capacity_increase_requires_add_allowed_confirmation()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(policy, positionId, stopPosition: AssessmentPricePosition.Above);
+        var current = CreateCapacityRecommendation(assessment, policy, T0.AddMinutes(3), 1000m, 8m);
+        var stability = new RecommendationStabilityPolicy();
+
+        var first = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1000m, 10m),
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+        var second = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(6), 1000m, 10m),
+            first.NextState,
+            policy.StabilityProfile,
+            T0.AddMinutes(6));
+        var third = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(7), 1000m, 10m),
+            second.NextState,
+            policy.StabilityProfile,
+            T0.AddMinutes(7));
+
+        first.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        first.Reason.Should().Be(RecommendationStabilityReason.AddPermissionGranted);
+        second.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        second.NextState!.ConsecutiveObservations.Should().Be(2);
+        third.Kind.Should().Be(RecommendationStabilityDecisionKind.PublishCandidate);
+        third.Reason.Should().Be(RecommendationStabilityReason.AddPermissionGranted);
+    }
+
+    [Fact]
+    public void Nullable_quantity_capacity_follows_continuation_reduction_semantics()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(policy, positionId, stopPosition: AssessmentPricePosition.Above);
+        var stability = new RecommendationStabilityPolicy();
+        var knownQuantity = CreateCapacityRecommendation(assessment, policy, T0.AddMinutes(3), 1000m, 10m);
+        var unknownQuantity = CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1000m, null);
+
+        var reduction = stability.Evaluate(
+            knownQuantity,
+            unknownQuantity,
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        var noDirectionalIncrease = stability.Evaluate(
+            Recommendation.Create(
+                assessment,
+                CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(3), 1000m, null)),
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1000m, 10m),
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        reduction.Kind.Should().Be(RecommendationStabilityDecisionKind.PublishCandidate);
+        reduction.Reason.Should().Be(RecommendationStabilityReason.RiskReduction);
+        noDirectionalIncrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        noDirectionalIncrease.Reason.Should().Be(RecommendationStabilityReason.AwaitingConfirmation);
     }
 
     [Fact]
@@ -1217,7 +1295,7 @@ public sealed class RecommendationStabilityTests
         PolicyDefinition policy,
         DateTimeOffset createdAt,
         decimal value,
-        decimal quantity) =>
+        decimal? quantity) =>
         Recommendation.Create(assessment, CreateCapacityEvaluation(assessment, policy, createdAt, value, quantity));
 
     private static RecommendationPolicyEvaluation CreateCapacityEvaluation(
@@ -1225,7 +1303,7 @@ public sealed class RecommendationStabilityTests
         PolicyDefinition policy,
         DateTimeOffset createdAt,
         decimal value,
-        decimal quantity)
+        decimal? quantity)
     {
         var evaluation = policy.Evaluate(assessment, policy, createdAt);
         var addDecision = new AddDecisionResult(
