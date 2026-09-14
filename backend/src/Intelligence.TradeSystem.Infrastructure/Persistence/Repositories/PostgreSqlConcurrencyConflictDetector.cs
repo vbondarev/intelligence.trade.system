@@ -10,6 +10,9 @@ internal static class PostgreSqlConcurrencyConflictDetector
         string primaryKeyConstraintName)
         => IsUniqueConstraint(exception, primaryKeyConstraintName);
 
+    public static bool IsCurrentRecommendationConflict(DbUpdateException exception) =>
+        IsUniqueConstraint(exception, "ux_recommendations_current_position");
+
     public static bool IsUniqueConstraint(
         DbUpdateException exception,
         string constraintName)

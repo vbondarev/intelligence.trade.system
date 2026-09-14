@@ -10,6 +10,11 @@ public interface IRecommendationRepository
         UserId userId,
         RecommendationId id, CancellationToken cancellationToken = default);
 
+    Task<Versioned<Recommendation>?> GetCurrentForPositionAsync(
+        UserId userId,
+        PositionId positionId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Сохраняет рекомендацию в указанном user scope с CAS-проверкой оптимистической
     /// конкурентности.

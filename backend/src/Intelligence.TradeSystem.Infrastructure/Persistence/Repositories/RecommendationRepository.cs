@@ -30,6 +30,44 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
 
         if (entity is null) return null;
 
+        return await LoadVersionedAsync(userId, entity, cancellationToken);
+    }
+
+    public async Task<Versioned<Recommendation>?> GetCurrentForPositionAsync(
+        UserId userId,
+        PositionId positionId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsurePositionId(positionId);
+
+        var entities = await dbContext.Recommendations
+            .AsNoTracking()
+            .Where(
+                recommendation =>
+                    recommendation.PositionId == positionId.Value &&
+                (recommendation.Status == RecommendationStatus.Active ||
+                 recommendation.Status == RecommendationStatus.Acknowledged) &&
+                    dbContext.Positions.Any(position =>
+                        position.Id == recommendation.PositionId &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value)))
+            .ToArrayAsync(cancellationToken);
+        if (entities.Length > 1)
+            throw new InvalidOperationException(
+                $"Position {positionId} has multiple current recommendations.");
+        if (entities.Length == 0)
+            return null;
+
+        return await LoadVersionedAsync(userId, entities[0], cancellationToken);
+    }
+
+    private async Task<Versioned<Recommendation>> LoadVersionedAsync(
+        UserId userId,
+        RecommendationEntity entity,
+        CancellationToken cancellationToken)
+    {
         var assessmentEntity = await dbContext.PositionAssessments
             .AsNoTracking()
             .SingleOrDefaultAsync(
@@ -45,7 +83,7 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
                 cancellationToken);
         if (assessmentEntity is null)
             throw new InvalidOperationException(
-                $"Recommendation {id} references missing assessment {entity.AssessmentId}.");
+                $"Recommendation {entity.Id} references missing assessment {entity.AssessmentId}.");
 
         var assessmentReasons = await dbContext.PositionAssessmentReasons
             .AsNoTracking()
@@ -55,7 +93,7 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         var assessment = PositionAssessmentMapper.ToDomain(assessmentEntity, assessmentReasons);
         var reasons = await dbContext.RecommendationReasons
             .AsNoTracking()
-            .Where(reason => reason.RecommendationId == id.Value)
+            .Where(reason => reason.RecommendationId == entity.Id)
             .OrderBy(reason => reason.Sequence)
             .ToArrayAsync(cancellationToken);
 
@@ -144,7 +182,8 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             catch (DbUpdateException exception)
                 when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
                     exception,
-                    "PK_recommendations"))
+                    "PK_recommendations") ||
+                    PostgreSqlConcurrencyConflictDetector.IsCurrentRecommendationConflict(exception))
             {
                 throw UnavailableRecommendationConflict(recommendation.Id, exception);
             }
@@ -195,6 +234,12 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
     {
         if (userId == default)
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
+    }
+
+    private static void EnsurePositionId(PositionId positionId)
+    {
+        if (positionId == default)
+            throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
     }
 
     private static void EnsureReasonsMatch(

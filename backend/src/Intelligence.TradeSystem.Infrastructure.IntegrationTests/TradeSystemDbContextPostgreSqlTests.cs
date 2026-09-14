@@ -82,6 +82,39 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
                   AND column_name = 'continuation_context_json'
                 """)
                 .SingleAsync());
+        Assert.True(
+            await dbContext.Database
+                .SqlQueryRaw<bool>(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = 'recommendation_stability_states')
+                    AS "Value"
+                    """)
+                .SingleAsync());
+        Assert.True(
+            await dbContext.Database
+                .SqlQueryRaw<bool>(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND indexname = 'ux_recommendations_current_position')
+                    AS "Value"
+                    """)
+                .SingleAsync());
+        Assert.True(
+            await dbContext.Database
+                .SqlQueryRaw<bool>(
+                    """
+                    SELECT condeferrable AS "Value"
+                    FROM pg_constraint
+                    WHERE conname = 'fk_recommendations_successor'
+                    """)
+                .SingleAsync());
 
         await dbContext.Database.MigrateAsync("0");
         Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());

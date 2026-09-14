@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.14
-Дата актуализации: 14 сентября 2026 года
-Проверенная база: PR #98 merged в `develop`; PR #100 к Issue #99 открыт и содержит исправления review E-08.1
-Последняя учтённая задача: Issue #99 / PR #100 «Исправления замечаний ревью доменной политики стабилизации рекомендаций»
-Текущий следующий этап: **E-08.2 — применение и хранение стабилизации рекомендаций**
+Версия документа: 3.15
+Дата актуализации: 15 сентября 2026 года
+Проверенная база: PR #100 к Issue #99 merged в `develop`; E-08.2 реализован в текущем PR
+Последняя учтённая задача: E-08.2 «Применение и хранение стабилизации рекомендаций»
+Текущий следующий этап после merge: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -200,7 +200,7 @@
 
 ### Этап E. Реализовать детерминированное сопровождение позиции
 
-Статус этапа: 🟡 Частично реализован (E-01 — E-07 и E-09 реализованы; E-08.1 добавляет доменную anti-chatter/stability policy, persistence и orchestration замещения остаются E-08.2; E-10 остаётся сценарно частичным).
+Статус этапа: 🟡 Частично реализован до merge текущего PR (E-01 — E-07 и E-09 реализованы; E-08.1 ✅ merged PR #100, E-08.2 реализован в текущем PR; E-10 остаётся сценарно частичным).
 
 Рекомендация должна состоять из двух независимых решений:
 
@@ -220,7 +220,7 @@
 | E-05 | Добавить `RecommendedAction` | ✅ | Поддержаны Hold, Watch, ProtectProfit, Reduce, Close, MoveStop и TakePartialProfit; каждое действие имеет typed reasons, confidence, priority и ограниченный assessment validity срок |
 | E-06 | Добавить `AddDecision` | ✅ | `DoNotAdd` объясняет запрет; `AddAllowed` проходит hard guards, фиксирует conditions и рассчитывает консервативный maximum additional position value/quantity |
 | E-07 | Добавить условия отмены и следующей проверки | ✅ | Реализовано в merged PR #98: рекомендация содержит typed invalidation/reevaluation conditions, valid-until, policy identity и PostgreSQL continuation metadata |
-| E-08 | Защититься от дребезга рекомендаций | 🟡 | E-08.1: реализована доменная anti-chatter/stability policy; persistence и orchestration замещения остаются E-08.2 |
+| E-08 | Защититься от дребезга рекомендаций | 🟡 | E-08.1 ✅ merged PR #100: чистая доменная anti-chatter/stability policy; E-08.2 реализован в текущем PR: application orchestration, PostgreSQL state, CAS и атомарная публикация |
 | E-09 | Запретить повышение риска при устаревших, неполных или неопределённых данных | ✅ | Hard guard выполняется до configurable rules: legacy/degraded data всегда дают Watch + DoNotAdd; внешняя policy не может его отключить |
 | E-10 | Добавить сценарные тесты long/short и пограничных рисков | 🟡 | Покрыты trend, flat, RSI, low volume/quality, liquidation, stop/breakeven, concentration и long/short; correlation scenario остаётся до появления соответствующей portfolio-модели |
 
@@ -460,6 +460,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-15 | 3.15 | PR #100 merged в `develop`; E-08.2 реализует применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS, user isolation, partial unique current index и транзакционную публикацию successor. До merge текущего PR E-08 остаётся 🟡; следующим этапом становится F. |
 | 2026-09-14 | 3.14 | В PR #100 к Issue #99 исправляются review findings E-08.1: candidate/pending temporal validation и replay idempotency, risk-safe policy/priority ordering, mixed capacity semantics, inherited portfolio reasons и strict JSON regression coverage. PR ещё не merged; следующим остаётся E-08.2. |
 | 2026-09-14 | 3.13 | PR #98 merged в `develop`; E-07 отмечен завершённым. В E-08.1 добавлена чистая доменная anti-chatter/stability policy с semantic comparison, typed decisions/reasons, cooldown, hysteresis, safety bypass и strict stability profile в policy hash. Persistence и orchestration замещения остаются E-08.2. |
 | 2026-09-13 | 3.12 | PR #96 merged в `develop`; E-07 реализован в текущем PR #98 к Issue #97: добавлены typed continuation conditions/evaluator, safety-safe Watch fallback, policy identity/expiry invalidation, strict persistence JSON, PostgreSQL migration и precision-safe lifecycle round-trip. Следующим остаётся E-08; PR #98 ещё не merged. |
