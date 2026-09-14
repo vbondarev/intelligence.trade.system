@@ -63,6 +63,47 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         return await LoadVersionedAsync(userId, entities[0], cancellationToken);
     }
 
+    public async Task EnsureCurrentAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectation,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsurePositionId(positionId);
+        ArgumentNullException.ThrowIfNull(expectation);
+
+        var currentQuery = dbContext.Recommendations
+            .AsNoTracking()
+            .Where(
+                recommendation =>
+                    recommendation.PositionId == positionId.Value &&
+                    (recommendation.Status == RecommendationStatus.Active ||
+                     recommendation.Status == RecommendationStatus.Acknowledged) &&
+                    dbContext.Positions.Any(position =>
+                        position.Id == recommendation.PositionId &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value)));
+
+        if (expectation is RecommendationCurrentExpectation.Absent)
+        {
+            if (await currentQuery.AnyAsync(cancellationToken))
+                throw new ConcurrencyConflictException(
+                    $"Position {positionId} has a current recommendation unexpectedly.");
+            return;
+        }
+
+        var present = (RecommendationCurrentExpectation.Present)expectation;
+        var current = await currentQuery
+            .SingleOrDefaultAsync(
+                recommendation => recommendation.Id == present.RecommendationId.Value,
+                cancellationToken);
+        if (current is null || current.Version != present.Version.Value)
+            throw new ConcurrencyConflictException(
+                $"Current recommendation for position {positionId} changed concurrently.");
+    }
+
     private async Task<Versioned<Recommendation>> LoadVersionedAsync(
         UserId userId,
         RecommendationEntity entity,

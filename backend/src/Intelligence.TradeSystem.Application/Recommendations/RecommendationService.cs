@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Recommendations;
@@ -12,7 +13,8 @@ public sealed class RecommendationService(
     RecommendationStabilityPolicy stabilityPolicy,
     IRecommendationRepository? recommendationRepository = null,
     IRecommendationStabilityStateRepository? stabilityStateRepository = null,
-    IRecommendationPublicationTransaction? publicationTransaction = null)
+    IRecommendationPublicationTransaction? publicationTransaction = null,
+    IPositionAssessmentRepository? positionAssessmentRepository = null)
 {
     private const int MaximumAttempts = 3;
     private IRecommendationRepository RecommendationRepository =>
@@ -24,6 +26,9 @@ public sealed class RecommendationService(
     private IRecommendationPublicationTransaction PublicationTransaction =>
         publicationTransaction ?? throw new InvalidOperationException(
             "Recommendation publication persistence is not configured.");
+    private IPositionAssessmentRepository PositionAssessmentRepository =>
+        positionAssessmentRepository ?? throw new InvalidOperationException(
+            "Position assessment persistence is not configured.");
 
     public async ValueTask<RecommendationApplicationResult> CreateAsync(
         UserId userId,
@@ -34,6 +39,13 @@ public sealed class RecommendationService(
         ArgumentNullException.ThrowIfNull(assessment);
         if (userId == default)
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
+
+        var persistedAssessment = await PositionAssessmentRepository.GetByIdAsync(
+            userId,
+            assessment.Id,
+            cancellationToken) ?? throw new InvalidOperationException(
+                "Position assessment is unavailable in the requested user scope.");
+        assessment = persistedAssessment;
 
         var definition = await policyDefinitionProvider.GetAsync(cancellationToken);
         var evaluation = policy.Evaluate(assessment, definition, asOf);
@@ -49,6 +61,17 @@ public sealed class RecommendationService(
                 userId,
                 assessment.PositionId,
                 cancellationToken);
+            RecommendationCurrentExpectation currentExpectation = current is null
+                ? new RecommendationCurrentExpectation.Absent()
+                : new RecommendationCurrentExpectation.Present(
+                    current.Value.Id,
+                    current.Version);
+            RecommendationStabilityStateExpectation pendingExpectation = pending is null
+                ? new RecommendationStabilityStateExpectation.Absent()
+                : new RecommendationStabilityStateExpectation.Present(
+                    pending.Value.StateId,
+                    pending.Value.BaselineRecommendationId,
+                    pending.Version);
             var effectivePending = current is not null &&
                 pending is not null &&
                 pending.Value.BaselineRecommendationId == current.Value.Id
@@ -76,14 +99,12 @@ public sealed class RecommendationService(
                 switch (stability.Kind)
                 {
                     case RecommendationStabilityDecisionKind.KeepExisting:
-                        if (pending is not null)
-                        {
-                            await StabilityStateRepository.DeleteAsync(
-                                userId,
-                                assessment.PositionId,
-                                pending.Version,
-                                cancellationToken);
-                        }
+                        await PublicationTransaction.ConfirmKeepExistingAsync(
+                            userId,
+                            assessment.PositionId,
+                            currentExpectation,
+                            pendingExpectation,
+                            cancellationToken);
 
                         return new(
                             RecommendationApplicationResultKind.KeptExisting,
@@ -96,19 +117,19 @@ public sealed class RecommendationService(
                                 "Pending confirmation requires a current recommendation.");
 
                         var nextState = new RecommendationStabilityStateSnapshot(
+                            pending is not null &&
+                            pending.Value.BaselineRecommendationId == current.Value.Id
+                                ? pending.Value.StateId
+                                : Guid.NewGuid(),
                             current.Value.Id,
                             stability.NextState);
-                        if (pending is null ||
-                            pending.Value.BaselineRecommendationId != nextState.BaselineRecommendationId ||
-                            !pending.Value.State.Equals(nextState.State))
-                        {
-                            await StabilityStateRepository.SaveAsync(
-                                userId,
-                                assessment.PositionId,
-                                nextState,
-                                pending?.Version,
-                                cancellationToken);
-                        }
+                        await PublicationTransaction.SavePendingAsync(
+                            userId,
+                            assessment.PositionId,
+                            currentExpectation,
+                            nextState,
+                            pendingExpectation,
+                            cancellationToken);
 
                         return new(
                             RecommendationApplicationResultKind.PendingConfirmation,
@@ -129,9 +150,9 @@ public sealed class RecommendationService(
                             await PublicationTransaction.ReplaceAsync(
                                 userId,
                                 current.Value,
-                                current.Version,
                                 successor,
-                                pending?.Version,
+                                currentExpectation,
+                                pendingExpectation,
                                 cancellationToken);
                         }
                         else
@@ -139,7 +160,8 @@ public sealed class RecommendationService(
                             await PublicationTransaction.PublishInitialAsync(
                                 userId,
                                 successor,
-                                pending?.Version,
+                                currentExpectation,
+                                pendingExpectation,
                                 cancellationToken);
                         }
 

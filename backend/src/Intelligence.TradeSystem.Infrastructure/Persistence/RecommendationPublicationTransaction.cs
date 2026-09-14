@@ -16,59 +16,121 @@ public sealed class RecommendationPublicationTransaction(
     public Task PublishInitialAsync(
         UserId userId,
         Recommendation successor,
-        ConcurrencyVersion? expectedPendingVersion,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
         CancellationToken cancellationToken = default) =>
         ExecuteAsync(
             userId,
             successor.PositionId,
             async () =>
             {
+                await recommendationRepository.EnsureCurrentAsync(
+                    userId,
+                    successor.PositionId,
+                    expectedCurrent,
+                    cancellationToken);
+                EnsureExpectedCurrentIsAbsent(expectedCurrent);
+
                 await recommendationRepository.SaveAsync(
                     userId,
                     successor,
                     expectedVersion: null,
                     cancellationToken);
-                if (expectedPendingVersion is not null)
-                {
-                    await stabilityStateRepository.DeleteAsync(
-                        userId,
-                        successor.PositionId,
-                        expectedPendingVersion.Value,
-                        cancellationToken);
-                }
+                await stabilityStateRepository.DeleteExpectedAsync(
+                    userId,
+                    successor.PositionId,
+                    expectedPending,
+                    cancellationToken);
             },
             cancellationToken);
 
     public Task ReplaceAsync(
         UserId userId,
         Recommendation current,
-        ConcurrencyVersion expectedCurrentVersion,
         Recommendation successor,
-        ConcurrencyVersion? expectedPendingVersion,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
         CancellationToken cancellationToken = default) =>
         ExecuteAsync(
             userId,
             successor.PositionId,
             async () =>
             {
+                await recommendationRepository.EnsureCurrentAsync(
+                    userId,
+                    successor.PositionId,
+                    expectedCurrent,
+                    cancellationToken);
+                var expectedVersion = GetExpectedCurrentVersion(
+                    expectedCurrent,
+                    current,
+                    successor.PositionId);
+
                 await recommendationRepository.SaveAsync(
                     userId,
                     current,
-                    expectedCurrentVersion,
+                    expectedVersion,
                     cancellationToken);
                 await recommendationRepository.SaveAsync(
                     userId,
                     successor,
                     expectedVersion: null,
                     cancellationToken);
-                if (expectedPendingVersion is not null)
-                {
-                    await stabilityStateRepository.DeleteAsync(
-                        userId,
-                        successor.PositionId,
-                        expectedPendingVersion.Value,
-                        cancellationToken);
-                }
+                await stabilityStateRepository.DeleteExpectedAsync(
+                    userId,
+                    successor.PositionId,
+                    expectedPending,
+                    cancellationToken);
+            },
+            cancellationToken);
+
+    public Task SavePendingAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateSnapshot state,
+        RecommendationStabilityStateExpectation expectedPending,
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(
+            userId,
+            positionId,
+            async () =>
+            {
+                await recommendationRepository.EnsureCurrentAsync(
+                    userId,
+                    positionId,
+                    expectedCurrent,
+                    cancellationToken);
+                await stabilityStateRepository.SaveAsync(
+                    userId,
+                    positionId,
+                    state,
+                    expectedPending,
+                    cancellationToken);
+            },
+            cancellationToken);
+
+    public Task ConfirmKeepExistingAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(
+            userId,
+            positionId,
+            async () =>
+            {
+                await recommendationRepository.EnsureCurrentAsync(
+                    userId,
+                    positionId,
+                    expectedCurrent,
+                    cancellationToken);
+                await stabilityStateRepository.DeleteExpectedAsync(
+                    userId,
+                    positionId,
+                    expectedPending,
+                    cancellationToken);
             },
             cancellationToken);
 
@@ -131,5 +193,28 @@ public sealed class RecommendationPublicationTransaction(
 
             throw;
         }
+    }
+
+    private static ConcurrencyVersion GetExpectedCurrentVersion(
+        RecommendationCurrentExpectation expectedCurrent,
+        Recommendation current,
+        PositionId positionId)
+    {
+        if (expectedCurrent is not RecommendationCurrentExpectation.Present present ||
+            present.RecommendationId != current.Id)
+        {
+            throw new ConcurrencyConflictException(
+                $"Current recommendation for position {positionId} changed concurrently.");
+        }
+
+        return present.Version;
+    }
+
+    private static void EnsureExpectedCurrentIsAbsent(
+        RecommendationCurrentExpectation expectedCurrent)
+    {
+        if (expectedCurrent is not RecommendationCurrentExpectation.Absent)
+            throw new ConcurrencyConflictException(
+                "Initial recommendation publication requires an absent current expectation.");
     }
 }

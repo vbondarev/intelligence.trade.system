@@ -9,14 +9,30 @@ public interface IRecommendationPublicationTransaction
     Task PublishInitialAsync(
         UserId userId,
         Recommendation successor,
-        ConcurrencyVersion? expectedPendingVersion,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
         CancellationToken cancellationToken = default);
 
     Task ReplaceAsync(
         UserId userId,
         Recommendation current,
-        ConcurrencyVersion expectedCurrentVersion,
         Recommendation successor,
-        ConcurrencyVersion? expectedPendingVersion,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
+        CancellationToken cancellationToken = default);
+
+    Task SavePendingAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateSnapshot state,
+        RecommendationStabilityStateExpectation expectedPending,
+        CancellationToken cancellationToken = default);
+
+    Task ConfirmKeepExistingAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectedCurrent,
+        RecommendationStabilityStateExpectation expectedPending,
         CancellationToken cancellationToken = default);
 }

@@ -14,12 +14,12 @@ public interface IRecommendationStabilityStateRepository
         UserId userId,
         PositionId positionId,
         RecommendationStabilityStateSnapshot state,
-        ConcurrencyVersion? expectedVersion,
+        RecommendationStabilityStateExpectation expectedState,
         CancellationToken cancellationToken = default);
 
-    Task DeleteAsync(
+    Task DeleteExpectedAsync(
         UserId userId,
         PositionId positionId,
-        ConcurrencyVersion expectedVersion,
+        RecommendationStabilityStateExpectation expectedState,
         CancellationToken cancellationToken = default);
 }

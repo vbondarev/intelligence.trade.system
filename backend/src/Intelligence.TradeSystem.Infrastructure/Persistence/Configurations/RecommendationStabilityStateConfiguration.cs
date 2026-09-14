@@ -27,6 +27,11 @@ public sealed class RecommendationStabilityStateConfiguration
             .HasColumnName("position_id")
             .HasColumnType("uuid")
             .ValueGeneratedNever();
+        builder.Property(state => state.StateId)
+            .HasColumnName("state_id")
+            .HasColumnType("uuid")
+            .ValueGeneratedNever()
+            .IsRequired();
         builder.Property(state => state.BaselineRecommendationId)
             .HasColumnName("baseline_recommendation_id")
             .HasColumnType("uuid")
@@ -78,5 +83,8 @@ public sealed class RecommendationStabilityStateConfiguration
             state.BaselineRecommendationId,
             state.PositionId
         }).HasDatabaseName("ix_recommendation_stability_states_baseline");
+        builder.HasIndex(state => state.StateId)
+            .IsUnique()
+            .HasDatabaseName("ux_recommendation_stability_states_state_id");
     }
 }

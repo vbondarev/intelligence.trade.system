@@ -26,6 +26,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 columns: table => new
                 {
                     position_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    state_id = table.Column<Guid>(type: "uuid", nullable: false),
                     baseline_recommendation_id = table.Column<Guid>(type: "uuid", nullable: false),
                     semantic_state_json = table.Column<string>(type: "jsonb", nullable: false),
                     first_observed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -54,16 +55,40 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "ix_recommendation_stability_states_baseline",
+                table: "recommendation_stability_states",
+                columns: new[] { "baseline_recommendation_id", "position_id" });
+
+            migrationBuilder.CreateIndex(
+                name: "ux_recommendation_stability_states_state_id",
+                table: "recommendation_stability_states",
+                column: "state_id",
+                unique: true);
+
+            migrationBuilder.Sql(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT position_id
+                        FROM recommendations
+                        WHERE status IN ('Active', 'Acknowledged')
+                        GROUP BY position_id
+                        HAVING COUNT(*) > 1
+                    ) THEN
+                        RAISE EXCEPTION
+                            'Cannot enforce current recommendation uniqueness: duplicate Active/Acknowledged recommendations exist.';
+                    END IF;
+                END
+                $$;
+                """);
+
+            migrationBuilder.CreateIndex(
                 name: "ux_recommendations_current_position",
                 table: "recommendations",
                 column: "position_id",
                 unique: true,
                 filter: "\"status\" IN ('Active', 'Acknowledged')");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_recommendation_stability_states_baseline",
-                table: "recommendation_stability_states",
-                columns: new[] { "baseline_recommendation_id", "position_id" });
 
             migrationBuilder.Sql(
                 """
@@ -77,6 +102,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 DEFERRABLE INITIALLY DEFERRED;
                 """);
         }
+        #pragma warning restore CA1861
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
@@ -110,5 +136,4 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 column: "position_id");
         }
     }
-    #pragma warning restore CA1861
 }

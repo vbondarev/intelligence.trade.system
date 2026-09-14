@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TradeSystemDbContext))]
-    [Migration("20260914211253_PersistRecommendationStabilityState")]
+    [Migration("20260914220611_PersistRecommendationStabilityState")]
     partial class PersistRecommendationStabilityState
     {
         /// <inheritdoc />
@@ -950,6 +950,10 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("semantic_state_json");
 
+                    b.Property<Guid>("StateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("state_id");
+
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
@@ -958,6 +962,10 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasColumnName("version");
 
                     b.HasKey("PositionId");
+
+                    b.HasIndex("StateId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_recommendation_stability_states_state_id");
 
                     b.HasIndex("BaselineRecommendationId", "PositionId")
                         .HasDatabaseName("ix_recommendation_stability_states_baseline");

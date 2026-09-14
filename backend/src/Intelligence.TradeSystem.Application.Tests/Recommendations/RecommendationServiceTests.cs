@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
@@ -23,7 +24,7 @@ public sealed class RecommendationServiceTests
         var repository = new FakeRecommendationRepository();
         var states = new FakeStabilityStateRepository();
         var publication = new FakePublicationTransaction();
-        var service = CreateService(repository, states, publication);
+        var service = CreateService(assessment, repository, states, publication);
 
         var result = await service.CreateAsync(userId, assessment, T0.AddMinutes(4));
 
@@ -60,6 +61,7 @@ public sealed class RecommendationServiceTests
         };
         var publication = new FakePublicationTransaction();
         var service = CreateService(
+            assessment,
             new FakeRecommendationRepository
             {
                 Current = new Versioned<Recommendation>(current, ConcurrencyVersion.Initial)
@@ -73,7 +75,7 @@ public sealed class RecommendationServiceTests
         Assert.Equal(current.Id, result.Recommendation!.Id);
         Assert.Equal(0, publication.PublishInitialCalls);
         Assert.Equal(0, states.SaveCalls);
-        Assert.Equal(1, states.DeleteCalls);
+        Assert.Equal(1, publication.ConfirmKeepCalls);
     }
 
     [Fact]
@@ -81,14 +83,16 @@ public sealed class RecommendationServiceTests
     {
         var repository = new FakeRecommendationRepository();
         var publication = new FakePublicationTransaction { ConflictsBeforeSuccess = 1 };
+        var assessment = CreateAssessment();
         var service = CreateService(
+            assessment,
             repository,
             new FakeStabilityStateRepository(),
             publication);
 
         var result = await service.CreateAsync(
             UserId.New(),
-            CreateAssessment(),
+            assessment,
             T0.AddMinutes(4));
 
         Assert.Equal(RecommendationApplicationResultKind.Published, result.Kind);
@@ -110,6 +114,7 @@ public sealed class RecommendationServiceTests
             T0.AddMinutes(4));
         var publication = new FakePublicationTransaction();
         var service = CreateService(
+            assessment,
             new FakeRecommendationRepository
             {
                 Current = new Versioned<Recommendation>(current, ConcurrencyVersion.Initial)
@@ -125,6 +130,7 @@ public sealed class RecommendationServiceTests
     }
 
     private static RecommendationService CreateService(
+        PositionAssessment assessment,
         FakeRecommendationRepository repository,
         FakeStabilityStateRepository states,
         FakePublicationTransaction publication) =>
@@ -134,7 +140,8 @@ public sealed class RecommendationServiceTests
             new RecommendationStabilityPolicy(),
             repository,
             states,
-            publication);
+            publication,
+            new FakePositionAssessmentRepository(assessment));
 
     private static PositionAssessment CreateAssessment()
     {
@@ -164,6 +171,23 @@ public sealed class RecommendationServiceTests
         }
     }
 
+    private sealed class FakePositionAssessmentRepository(PositionAssessment assessment)
+        : IPositionAssessmentRepository
+    {
+        public Task<PositionAssessment?> GetByIdAsync(
+            UserId userId,
+            PositionAssessmentId id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<PositionAssessment?>(
+                id == assessment.Id ? assessment : null);
+
+        public Task SaveAsync(
+            UserId userId,
+            PositionAssessment value,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
     private sealed class FakeRecommendationRepository : IRecommendationRepository
     {
         public Versioned<Recommendation>? Current { get; init; }
@@ -183,6 +207,13 @@ public sealed class RecommendationServiceTests
             CurrentReads++;
             return Task.FromResult(Current);
         }
+
+        public Task EnsureCurrentAsync(
+            UserId userId,
+            PositionId positionId,
+            RecommendationCurrentExpectation expectation,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
 
         public Task<ConcurrencyVersion> SaveAsync(
             UserId userId,
@@ -208,17 +239,17 @@ public sealed class RecommendationServiceTests
             UserId userId,
             PositionId positionId,
             RecommendationStabilityStateSnapshot state,
-            ConcurrencyVersion? expectedVersion,
+            RecommendationStabilityStateExpectation expectedState,
             CancellationToken cancellationToken = default)
         {
             SaveCalls++;
             return Task.FromResult(ConcurrencyVersion.Initial);
         }
 
-        public Task DeleteAsync(
+        public Task DeleteExpectedAsync(
             UserId userId,
             PositionId positionId,
-            ConcurrencyVersion expectedVersion,
+            RecommendationStabilityStateExpectation expectedState,
             CancellationToken cancellationToken = default)
         {
             DeleteCalls++;
@@ -231,11 +262,13 @@ public sealed class RecommendationServiceTests
         public int ConflictsBeforeSuccess { get; init; }
         public int PublishInitialCalls { get; private set; }
         public int ReplaceCalls { get; private set; }
+        public int ConfirmKeepCalls { get; private set; }
 
         public Task PublishInitialAsync(
             UserId userId,
             Recommendation successor,
-            ConcurrencyVersion? expectedPendingVersion,
+            RecommendationCurrentExpectation expectedCurrent,
+            RecommendationStabilityStateExpectation expectedPending,
             CancellationToken cancellationToken = default)
         {
             PublishInitialCalls++;
@@ -247,11 +280,34 @@ public sealed class RecommendationServiceTests
         public Task ReplaceAsync(
             UserId userId,
             Recommendation current,
-            ConcurrencyVersion expectedCurrentVersion,
             Recommendation successor,
-            ConcurrencyVersion? expectedPendingVersion,
+            RecommendationCurrentExpectation expectedCurrent,
+            RecommendationStabilityStateExpectation expectedPending,
             CancellationToken cancellationToken = default) =>
             ReplaceCoreAsync();
+
+        public Task SavePendingAsync(
+            UserId userId,
+            PositionId positionId,
+            RecommendationCurrentExpectation expectedCurrent,
+            RecommendationStabilityStateSnapshot state,
+            RecommendationStabilityStateExpectation expectedPending,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task ConfirmKeepExistingAsync(
+            UserId userId,
+            PositionId positionId,
+            RecommendationCurrentExpectation expectedCurrent,
+            RecommendationStabilityStateExpectation expectedPending,
+            CancellationToken cancellationToken = default) =>
+            ConfirmKeepCoreAsync();
+
+        private Task ConfirmKeepCoreAsync()
+        {
+            ConfirmKeepCalls++;
+            return Task.CompletedTask;
+        }
 
         private Task ReplaceCoreAsync()
         {

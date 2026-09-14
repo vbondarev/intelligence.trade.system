@@ -42,24 +42,25 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
         UserId userId,
         PositionId positionId,
         RecommendationStabilityStateSnapshot state,
-        ConcurrencyVersion? expectedVersion,
+        RecommendationStabilityStateExpectation expectedState,
         CancellationToken cancellationToken = default) =>
         ExecuteWriteAsync(
             userId,
             positionId,
-            token => SaveCoreAsync(userId, positionId, state, expectedVersion, token),
+            token => SaveCoreAsync(userId, positionId, state, expectedState, token),
             cancellationToken);
 
     private async Task<ConcurrencyVersion> SaveCoreAsync(
         UserId userId,
         PositionId positionId,
         RecommendationStabilityStateSnapshot state,
-        ConcurrencyVersion? expectedVersion,
+        RecommendationStabilityStateExpectation expectedState,
         CancellationToken cancellationToken)
     {
         EnsureUserId(userId);
         EnsurePositionId(positionId);
         ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(expectedState);
 
         var ownsPosition = await dbContext.Positions.AnyAsync(
             position =>
@@ -81,8 +82,7 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                         account.UserId == userId.Value)),
             cancellationToken);
         if (!ownsBaseline)
-            throw new ConcurrencyConflictException(
-                $"Recommendation stability state for position {positionId} is unavailable in the requested user scope.");
+            throw StateConflict(positionId, "is unavailable in the requested user scope.");
 
         var mapped = RecommendationStabilityStateMapper.ToEntity(positionId, state);
         var existing = await dbContext.RecommendationStabilityStates
@@ -97,15 +97,11 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                             account.UserId == userId.Value)),
                 cancellationToken);
 
-        if (expectedVersion is null && existing is not null)
-            throw new ConcurrencyConflictException(
-                $"Recommendation stability state for position {positionId} already exists.");
-        if (expectedVersion is not null && existing is null)
-            throw new ConcurrencyConflictException(
-                $"Recommendation stability state for position {positionId} was deleted concurrently.");
-
         if (existing is null)
         {
+            if (expectedState is not RecommendationStabilityStateExpectation.Absent)
+                throw StateConflict(positionId, "expected pending state is no longer present.");
+
             var version = ConcurrencyVersion.Initial;
             mapped.Version = version.Value;
             dbContext.RecommendationStabilityStates.Add(mapped);
@@ -116,22 +112,43 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
             catch (DbUpdateException exception)
                 when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
                     exception,
-                    "PK_recommendation_stability_states"))
+                    "PK_recommendation_stability_states") ||
+                    PostgreSqlConcurrencyConflictDetector.IsUniqueConstraint(
+                        exception,
+                        "ux_recommendation_stability_states_state_id"))
             {
-                throw new ConcurrencyConflictException(
-                    $"Recommendation stability state for position {positionId} was inserted concurrently.",
-                    exception);
+                throw StateConflict(positionId, "was inserted concurrently.", exception);
             }
 
             return version;
         }
 
-        var newVersion = expectedVersion!.Value.Next();
+        if (expectedState is not RecommendationStabilityStateExpectation.Present present ||
+            existing.StateId != present.StateId ||
+            existing.BaselineRecommendationId != present.BaselineRecommendationId.Value ||
+            existing.Version != present.Version.Value)
+        {
+            throw StateConflict(positionId, "generation or version changed.");
+        }
+
+        if (existing.StateId == mapped.StateId &&
+            existing.BaselineRecommendationId == mapped.BaselineRecommendationId &&
+            existing.SemanticStateJson == mapped.SemanticStateJson &&
+            existing.FirstObservedAt == mapped.FirstObservedAt &&
+            existing.LastObservedAt == mapped.LastObservedAt &&
+            existing.ConsecutiveObservations == mapped.ConsecutiveObservations)
+        {
+            return new ConcurrencyVersion(existing.Version);
+        }
+
+        var newVersion = present.Version.Next();
         var affected = await dbContext.RecommendationStabilityStates
             .Where(
                 current =>
                     current.PositionId == positionId.Value &&
-                    current.Version == expectedVersion.Value.Value &&
+                    current.StateId == present.StateId &&
+                    current.BaselineRecommendationId == present.BaselineRecommendationId.Value &&
+                    current.Version == present.Version.Value &&
                     dbContext.Positions.Any(position =>
                         position.Id == current.PositionId &&
                         dbContext.ExchangeAccounts.Any(account =>
@@ -139,6 +156,7 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                             account.UserId == userId.Value)))
             .ExecuteUpdateAsync(
                 setters => setters
+                    .SetProperty(current => current.StateId, mapped.StateId)
                     .SetProperty(current => current.BaselineRecommendationId, mapped.BaselineRecommendationId)
                     .SetProperty(current => current.SemanticStateJson, mapped.SemanticStateJson)
                     .SetProperty(current => current.FirstObservedAt, mapped.FirstObservedAt)
@@ -147,30 +165,51 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                     .SetProperty(current => current.Version, newVersion.Value),
                 cancellationToken);
         if (affected != 1)
-            throw new ConcurrencyConflictException(
-                $"Recommendation stability state for position {positionId} was changed concurrently.");
+            throw StateConflict(positionId, "generation or version changed.");
 
         return newVersion;
     }
 
-    public Task DeleteAsync(
+    public Task DeleteExpectedAsync(
         UserId userId,
         PositionId positionId,
-        ConcurrencyVersion expectedVersion,
+        RecommendationStabilityStateExpectation expectedState,
         CancellationToken cancellationToken = default) =>
-        ExecuteWriteAsync(
+        ExecuteWriteAsync<object?>(
             userId,
             positionId,
             async token =>
             {
                 EnsureUserId(userId);
                 EnsurePositionId(positionId);
+                ArgumentNullException.ThrowIfNull(expectedState);
 
+                var existing = await dbContext.RecommendationStabilityStates
+                    .AsNoTracking()
+                    .SingleOrDefaultAsync(
+                        state =>
+                            state.PositionId == positionId.Value &&
+                            dbContext.Positions.Any(position =>
+                                position.Id == state.PositionId &&
+                                dbContext.ExchangeAccounts.Any(account =>
+                                    account.Id == position.ExchangeAccountId &&
+                                    account.UserId == userId.Value)),
+                        token);
+                if (expectedState is RecommendationStabilityStateExpectation.Absent)
+                {
+                    if (existing is not null)
+                        throw StateConflict(positionId, "appeared unexpectedly.");
+                    return null;
+                }
+
+                var present = (RecommendationStabilityStateExpectation.Present)expectedState;
                 var affected = await dbContext.RecommendationStabilityStates
                     .Where(
                         state =>
                             state.PositionId == positionId.Value &&
-                            state.Version == expectedVersion.Value &&
+                            state.StateId == present.StateId &&
+                            state.BaselineRecommendationId == present.BaselineRecommendationId.Value &&
+                            state.Version == present.Version.Value &&
                             dbContext.Positions.Any(position =>
                                 position.Id == state.PositionId &&
                                 dbContext.ExchangeAccounts.Any(account =>
@@ -178,9 +217,9 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                                     account.UserId == userId.Value)))
                     .ExecuteDeleteAsync(token);
                 if (affected != 1)
-                    throw new ConcurrencyConflictException(
-                        $"Recommendation stability state for position {positionId} is unavailable or changed.");
-                return true;
+                    throw StateConflict(positionId, "generation or version changed.");
+                dbContext.ChangeTracker.Clear();
+                return null;
             },
             cancellationToken);
 
@@ -243,4 +282,12 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
         if (positionId == default)
             throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
     }
+
+    private static ConcurrencyConflictException StateConflict(
+        PositionId positionId,
+        string reason,
+        Exception? innerException = null) =>
+        innerException is null
+            ? new($"Recommendation stability state for position {positionId} {reason}")
+            : new($"Recommendation stability state for position {positionId} {reason}", innerException);
 }

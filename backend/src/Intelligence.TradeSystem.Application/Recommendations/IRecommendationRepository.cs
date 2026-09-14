@@ -15,6 +15,12 @@ public interface IRecommendationRepository
         PositionId positionId,
         CancellationToken cancellationToken = default);
 
+    Task EnsureCurrentAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectation,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Сохраняет рекомендацию в указанном user scope с CAS-проверкой оптимистической
     /// конкурентности.

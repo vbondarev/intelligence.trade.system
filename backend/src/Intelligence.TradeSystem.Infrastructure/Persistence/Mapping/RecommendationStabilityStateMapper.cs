@@ -31,6 +31,7 @@ internal static class RecommendationStabilityStateMapper
         return new()
         {
             PositionId = positionId.Value,
+            StateId = snapshot.StateId,
             BaselineRecommendationId = snapshot.BaselineRecommendationId.Value,
             SemanticStateJson = JsonSerializer.Serialize(
                 RecommendationStabilitySemanticStateDocument.FromDomain(state.SemanticState),
@@ -46,6 +47,9 @@ internal static class RecommendationStabilityStateMapper
     {
         if (entity.PositionId == Guid.Empty)
             throw new InvalidOperationException("Recommendation stability state position id is empty.");
+        if (entity.StateId == Guid.Empty)
+            throw new InvalidOperationException(
+                $"Recommendation stability state {entity.PositionId} has an empty state id.");
         if (entity.BaselineRecommendationId == Guid.Empty)
             throw new InvalidOperationException(
                 "Recommendation stability state baseline recommendation id is empty.");
@@ -84,6 +88,7 @@ internal static class RecommendationStabilityStateMapper
             lastObservedAt,
             entity.ConsecutiveObservations);
         return new(
+            entity.StateId,
             RecommendationId.FromGuid(entity.BaselineRecommendationId),
             state);
     }
