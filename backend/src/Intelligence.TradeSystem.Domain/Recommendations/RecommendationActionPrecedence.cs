@@ -7,10 +7,6 @@ internal static class RecommendationActionPrecedence
     public static bool IsHigherPriority(PositionAction current, PositionAction candidate) =>
         GetHigherPriorityActions(current).Contains(candidate);
 
-    public static bool IsImmediateRiskReduction(PositionAction current, PositionAction candidate) =>
-        candidate is PositionAction.Close or PositionAction.Reduce &&
-        IsHigherPriority(current, candidate);
-
     public static PositionAction[] GetHigherPriorityActions(PositionAction action) =>
         action switch
         {

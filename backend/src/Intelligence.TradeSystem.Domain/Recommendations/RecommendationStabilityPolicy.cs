@@ -83,10 +83,6 @@ public sealed class RecommendationStabilityPolicy
             return Publish(RecommendationStabilityReason.AddPermissionRevoked);
         if (RecommendationActionPredicates.IsSafetyBlocked(candidate))
             return Publish(RecommendationStabilityReason.SafetyEscalation);
-        if (RecommendationActionPrecedence.IsImmediateRiskReduction(
-                current.RecommendedAction,
-                candidate.Action.Action))
-            return Publish(RecommendationStabilityReason.RiskReduction);
 
         var capacityChange = current.AddDecision == AddDecision.AddAllowed &&
             candidate.AddDecision.Decision == AddDecision.AddAllowed
@@ -100,10 +96,16 @@ public sealed class RecommendationStabilityPolicy
             candidate.AddDecision.Decision == AddDecision.AddAllowed;
         if (capacityChange is CapacityChange.Increase or CapacityChange.Mixed)
             isRiskIncreasingTransition = true;
-        if (RecommendationActionPrecedence.IsHigherPriority(
-                candidate.Action.Action,
-                current.RecommendedAction))
+        if (RecommendationStabilityTransitionClassifier.IsLessProtectiveTransition(
+                current.RecommendedAction,
+                candidate.Action.Action))
             isRiskIncreasingTransition = true;
+
+        if (!isRiskIncreasingTransition &&
+            RecommendationStabilityTransitionClassifier.IsImmediateRiskReduction(
+                current.RecommendedAction,
+                candidate.Action.Action))
+            return Publish(RecommendationStabilityReason.RiskReduction);
 
         var policyChanged = current.PolicyIdentity != candidate.PolicyIdentity;
         if (policyChanged && !isRiskIncreasingTransition)
