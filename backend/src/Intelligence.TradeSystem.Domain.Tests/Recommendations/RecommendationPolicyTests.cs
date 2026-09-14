@@ -94,6 +94,68 @@ public sealed class RecommendationPolicyTests
     }
 
     [Fact]
+    public void Stability_profile_is_part_of_canonical_identity()
+    {
+        var first = PolicyDefinition.Default;
+        var profile = first.StabilityProfile;
+        var variations = new[]
+        {
+            new RecommendationStabilityProfile(
+                profile.MinimumReplacementInterval + TimeSpan.FromSeconds(1),
+                profile.ImprovementConfirmationPeriod,
+                profile.ImprovementConfirmationObservations,
+                profile.AddAllowedConfirmationPeriod,
+                profile.AddAllowedConfirmationObservations),
+            new RecommendationStabilityProfile(
+                profile.MinimumReplacementInterval,
+                profile.ImprovementConfirmationPeriod + TimeSpan.FromSeconds(1),
+                profile.ImprovementConfirmationObservations,
+                profile.AddAllowedConfirmationPeriod,
+                profile.AddAllowedConfirmationObservations),
+            new RecommendationStabilityProfile(
+                profile.MinimumReplacementInterval,
+                profile.ImprovementConfirmationPeriod,
+                profile.ImprovementConfirmationObservations + 1,
+                profile.AddAllowedConfirmationPeriod,
+                profile.AddAllowedConfirmationObservations),
+            new RecommendationStabilityProfile(
+                profile.MinimumReplacementInterval,
+                profile.ImprovementConfirmationPeriod,
+                profile.ImprovementConfirmationObservations,
+                profile.AddAllowedConfirmationPeriod + TimeSpan.FromSeconds(1),
+                profile.AddAllowedConfirmationObservations),
+            new RecommendationStabilityProfile(
+                profile.MinimumReplacementInterval,
+                profile.ImprovementConfirmationPeriod,
+                profile.ImprovementConfirmationObservations,
+                profile.AddAllowedConfirmationPeriod,
+                profile.AddAllowedConfirmationObservations + 1)
+        };
+
+        foreach (var variation in variations)
+        {
+            var changed = new PolicyDefinition(
+                first.Version,
+                first.ValidityPeriod,
+                first.CloseLossThreshold,
+                first.ReduceLossThreshold,
+                first.ProtectProfitThreshold,
+                first.TakePartialProfitThreshold,
+                first.ConfidenceProfiles,
+                first.PriorityProfiles,
+                first.AddAllowedLimits,
+                first.ReevaluationProfile,
+                variation);
+
+            changed.CanonicalRepresentation.Should().NotBe(first.CanonicalRepresentation);
+            changed.Hash.Should().NotBe(first.Hash);
+        }
+
+        first.CanonicalRepresentation.Should().Contain(
+            profile.ImprovementConfirmationObservations.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public void Deterministic_evaluation_repeats_all_semantic_fields()
     {
         var policy = PolicyDefinition.Default;

@@ -24,6 +24,7 @@ public static class StartupExtensions
         services.AddScoped<IAiContextFormatter, SnapshotTextFormatter>();
         services.AddScoped<PositionAssessmentService>();
         services.AddSingleton<RecommendationPolicy>();
+        services.AddSingleton<RecommendationStabilityPolicy>();
         services.AddScoped<IExchangeAccountService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountService>(serviceProvider));
         services.AddScoped<IExchangeAccountSyncService>(

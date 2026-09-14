@@ -229,7 +229,7 @@ internal static class RecommendationContinuationPlanFactory
         reevaluation.AddRange(conditions);
         invalidation.Add(new HigherPriorityActionsCondition(
             RecommendationContinuationConditionScope.AddDecision,
-            GetHigherPriorityActions(PositionAction.Hold)));
+            RecommendationActionPrecedence.GetHigherPriorityActions(PositionAction.Hold)));
     }
 
     private static void AddNonAllowedReevaluationConditions(
@@ -267,50 +267,11 @@ internal static class RecommendationContinuationPlanFactory
         PositionAction action,
         List<RecommendationContinuationCondition> reevaluation)
     {
-        var higherPriorityActions = GetHigherPriorityActions(action);
+        var higherPriorityActions = RecommendationActionPrecedence.GetHigherPriorityActions(action);
         if (higherPriorityActions.Length > 0)
             reevaluation.Add(new HigherPriorityActionsCondition(
                 RecommendationContinuationConditionScope.Action,
                 higherPriorityActions));
     }
-
-    private static PositionAction[] GetHigherPriorityActions(PositionAction action) =>
-        action switch
-        {
-            PositionAction.Hold or PositionAction.Watch =>
-                new[]
-                {
-                    PositionAction.Close,
-                    PositionAction.Reduce,
-                    PositionAction.TakePartialProfit,
-                    PositionAction.MoveStop,
-                    PositionAction.ProtectProfit
-                },
-            PositionAction.ProtectProfit =>
-                new[]
-                {
-                    PositionAction.Close,
-                    PositionAction.Reduce,
-                    PositionAction.TakePartialProfit,
-                    PositionAction.MoveStop
-                },
-            PositionAction.MoveStop =>
-                new[]
-                {
-                    PositionAction.Close,
-                    PositionAction.Reduce,
-                    PositionAction.TakePartialProfit
-                },
-            PositionAction.TakePartialProfit =>
-                new[]
-                {
-                    PositionAction.Close,
-                    PositionAction.Reduce
-                },
-            PositionAction.Reduce =>
-                new[] { PositionAction.Close },
-            PositionAction.Close => [],
-            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Action must be defined.")
-        };
 
 }

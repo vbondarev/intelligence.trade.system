@@ -37,5 +37,12 @@
     "moveStop": "00:02:00",
     "takePartialProfit": "00:02:00",
     "addAllowed": "00:02:00"
+  },
+  "stabilityProfile": {
+    "minimumReplacementInterval": "00:00:30",
+    "improvementConfirmationPeriod": "00:02:00",
+    "improvementConfirmationObservations": 2,
+    "addAllowedConfirmationPeriod": "00:03:00",
+    "addAllowedConfirmationObservations": 3
   }
 }
