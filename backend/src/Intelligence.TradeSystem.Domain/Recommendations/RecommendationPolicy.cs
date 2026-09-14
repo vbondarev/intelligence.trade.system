@@ -53,7 +53,8 @@ public sealed class RecommendationPolicy
                     asOf,
                     validUntil),
                 asOf,
-                validUntil);
+                validUntil,
+                GetInheritedReasonCodes(assessment));
         }
 
         if (assessment.InputVersions.BasePolicyConfigurationIdentity != policyDefinition.Identity)
@@ -77,7 +78,8 @@ public sealed class RecommendationPolicy
                 asOf,
                 validUntil),
             asOf,
-            validUntil);
+            validUntil,
+            GetInheritedReasonCodes(assessment));
     }
 
     private static RecommendedActionDecision EvaluateAction(
@@ -246,6 +248,12 @@ public sealed class RecommendationPolicy
             .Distinct()
             .ToArray();
     }
+
+    private static ReasonCode[] GetInheritedReasonCodes(PositionAssessment assessment) =>
+        assessment.ReasonCodes
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .OrderBy(reason => (int)reason)
+            .ToArray();
 
     private static RecommendedActionDecision CreateActionDecision(
         PositionAction action,

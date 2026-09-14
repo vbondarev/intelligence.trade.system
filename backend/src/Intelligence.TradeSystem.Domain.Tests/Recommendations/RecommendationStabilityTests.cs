@@ -28,7 +28,8 @@ public sealed class RecommendationStabilityTests
             baseCandidate.AddDecision,
             baseCandidate.ContinuationPlan,
             baseCandidate.CreatedAt,
-            baseCandidate.ValidUntil);
+            baseCandidate.ValidUntil,
+            baseCandidate.InheritedReasonCodes);
 
         var result = new RecommendationStabilityPolicy().Evaluate(
             current,
@@ -136,7 +137,8 @@ public sealed class RecommendationStabilityTests
             baseCandidate.AddDecision,
             baseCandidate.ContinuationPlan,
             baseCandidate.CreatedAt,
-            baseCandidate.ValidUntil);
+            baseCandidate.ValidUntil,
+            baseCandidate.InheritedReasonCodes);
 
         var result = new RecommendationStabilityPolicy().Evaluate(
             current,
@@ -484,7 +486,8 @@ public sealed class RecommendationStabilityTests
             baseCandidate.AddDecision,
             baseCandidate.ContinuationPlan,
             baseCandidate.CreatedAt,
-            baseCandidate.ValidUntil);
+            baseCandidate.ValidUntil,
+            baseCandidate.InheritedReasonCodes);
         var pending = new RecommendationStabilityState(
             RecommendationSemanticState.From(baseCandidate),
             T0.AddMinutes(3),
@@ -565,14 +568,16 @@ public sealed class RecommendationStabilityTests
             RecommendationPriority.Normal,
             [ReasonCode.PnlPositive, ReasonCode.TrendAligned],
             [ReasonCode.AddBlockedByAction, ReasonCode.AddBlockedByMomentum],
-            identity);
+            identity,
+            inheritedReasonCodes: [ReasonCode.PortfolioDataStale, ReasonCode.InsufficientFreeCapital]);
         var second = new RecommendationSemanticState(
             PositionAction.Hold,
             AddDecision.DoNotAdd,
             RecommendationPriority.Normal,
             [ReasonCode.TrendAligned, ReasonCode.PnlPositive],
             [ReasonCode.AddBlockedByMomentum, ReasonCode.AddBlockedByAction],
-            identity);
+            identity,
+            inheritedReasonCodes: [ReasonCode.InsufficientFreeCapital, ReasonCode.PortfolioDataStale]);
 
         var oldState = new RecommendationStabilityState(first, T0.AddMinutes(4), T0.AddMinutes(4), 1);
         var nextState = new RecommendationStabilityState(
@@ -586,6 +591,354 @@ public sealed class RecommendationStabilityTests
         oldState.LastObservedAt.Should().Be(T0.AddMinutes(4));
         nextState.Should().NotBeSameAs(oldState);
     }
+
+    [Fact]
+    public void Candidate_must_be_valid_at_as_of()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var candidate = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(4));
+        var stability = new RecommendationStabilityPolicy();
+
+        FluentActions.Invoking(() => stability.Evaluate(
+                null,
+                candidate,
+                null,
+                policy.StabilityProfile,
+                candidate.ValidUntil))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => stability.Evaluate(
+                null,
+                candidate,
+                null,
+                policy.StabilityProfile,
+                candidate.ValidUntil.AddTicks(1)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => stability.Evaluate(
+                null,
+                candidate,
+                null,
+                policy.StabilityProfile,
+                candidate.CreatedAt.AddTicks(-1)))
+            .Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Candidate_must_be_newer_than_active_current_and_not_precede_acknowledgement()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessment(policy, positionId),
+            policy,
+            T0.AddMinutes(3));
+        var stability = new RecommendationStabilityPolicy();
+        var equal = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(3));
+        var older = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(2).AddSeconds(30));
+
+        FluentActions.Invoking(() => stability.Evaluate(
+                current,
+                equal,
+                null,
+                policy.StabilityProfile,
+                T0.AddMinutes(4)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => stability.Evaluate(
+                current,
+                older,
+                null,
+                policy.StabilityProfile,
+                T0.AddMinutes(4)))
+            .Should().Throw<ArgumentException>();
+
+        current.Acknowledge(T0.AddMinutes(4));
+        var beforeAcknowledgement = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(3).AddSeconds(30));
+        FluentActions.Invoking(() => stability.Evaluate(
+                current,
+                beforeAcknowledgement,
+                null,
+                policy.StabilityProfile,
+                T0.AddMinutes(5)))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Pending_observations_are_chronological_and_same_timestamp_replay_is_idempotent()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(3));
+        var stability = new RecommendationStabilityPolicy();
+        var profile = ConfirmationProfile();
+        var watchAtFour = policy.Evaluate(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(4));
+        var first = stability.Evaluate(current, watchAtFour, null, profile, T0.AddMinutes(4));
+
+        FluentActions.Invoking(() => stability.Evaluate(
+                current,
+                watchAtFour,
+                first.NextState,
+                profile,
+                T0.AddMinutes(3).AddSeconds(30)))
+            .Should().Throw<ArgumentOutOfRangeException>();
+        FluentActions.Invoking(() => stability.Evaluate(
+                current,
+                policy.Evaluate(
+                    CreateAssessmentForAction(policy, positionId, PositionAction.ProtectProfit, RiskIncreaseDecision.Blocked),
+                    policy,
+                    T0.AddMinutes(4)),
+                first.NextState,
+                profile,
+                T0.AddMinutes(4)))
+            .Should().Throw<ArgumentException>();
+
+        var replay = stability.Evaluate(current, watchAtFour, first.NextState, profile, T0.AddMinutes(4));
+        replay.NextState.Should().BeSameAs(first.NextState);
+        replay.NextState!.ConsecutiveObservations.Should().Be(1);
+
+        var nextObservation = stability.Evaluate(
+            current,
+            policy.Evaluate(
+                CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+                policy,
+                T0.AddMinutes(5)),
+            replay.NextState,
+            profile,
+            T0.AddMinutes(5));
+        nextObservation.NextState!.ConsecutiveObservations.Should().Be(2);
+    }
+
+    [Fact]
+    public void Critical_priority_cannot_bypass_add_permission_confirmation()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessmentForAction(policy, positionId, PositionAction.Watch, RiskIncreaseDecision.Blocked),
+            policy,
+            T0.AddMinutes(3));
+        var baseCandidate = policy.Evaluate(
+            CreateAssessment(policy, positionId, stopPosition: AssessmentPricePosition.Above),
+            policy,
+            T0.AddMinutes(4));
+        var candidate = WithActionPriority(baseCandidate, RecommendationPriority.Critical);
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        result.Reason.Should().Be(RecommendationStabilityReason.AddPermissionGranted);
+        result.NextState!.ConsecutiveObservations.Should().Be(1);
+    }
+
+    [Fact]
+    public void Policy_change_does_not_bypass_add_permission_confirmation()
+    {
+        var oldPolicy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var current = CreateRecommendation(
+            CreateAssessmentForAction(oldPolicy, positionId, PositionAction.Hold, RiskIncreaseDecision.Blocked),
+            oldPolicy,
+            T0.AddMinutes(3));
+        var baseCandidate = oldPolicy.Evaluate(
+            CreateAssessment(oldPolicy, positionId, stopPosition: AssessmentPricePosition.Above),
+            oldPolicy,
+            T0.AddMinutes(4));
+        var candidate = WithIdentity(baseCandidate, "recommendation-v2");
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            oldPolicy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        result.Reason.Should().Be(RecommendationStabilityReason.AddPermissionGranted);
+        result.NextState!.ConsecutiveObservations.Should().Be(1);
+        result.NextState.FirstObservedAt.Should().Be(T0.AddMinutes(4));
+    }
+
+    [Fact]
+    public void Policy_change_does_not_bypass_add_allowed_capacity_increase()
+    {
+        var oldPolicy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(oldPolicy, positionId, stopPosition: AssessmentPricePosition.Above);
+        var current = CreateCapacityRecommendation(assessment, oldPolicy, T0.AddMinutes(3), 800m, 8m);
+        var candidate = WithIdentity(
+            CreateCapacityEvaluation(assessment, oldPolicy, T0.AddMinutes(4), 1200m, 12m),
+            "recommendation-v2");
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            oldPolicy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        result.Reason.Should().Be(RecommendationStabilityReason.AddPermissionGranted);
+    }
+
+    [Fact]
+    public void Policy_change_with_equal_risk_decision_is_published_without_old_pending_state()
+    {
+        var oldPolicy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessmentForAction(
+            oldPolicy,
+            positionId,
+            PositionAction.Hold,
+            RiskIncreaseDecision.Blocked);
+        var current = CreateRecommendation(assessment, oldPolicy, T0.AddMinutes(3));
+        var candidate = WithIdentity(
+            oldPolicy.Evaluate(assessment, oldPolicy, T0.AddMinutes(4)),
+            "recommendation-v2");
+        var pending = new RecommendationStabilityState(
+            RecommendationSemanticState.From(oldPolicy.Evaluate(assessment, oldPolicy, T0.AddMinutes(3))),
+            T0.AddMinutes(3),
+            T0.AddMinutes(3),
+            5);
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            pending,
+            oldPolicy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PublishCandidate);
+        result.Reason.Should().Be(RecommendationStabilityReason.PolicyChanged);
+        result.NextState.Should().BeNull();
+    }
+
+    [Fact]
+    public void Mixed_capacity_changes_are_confirmed_instead_of_immediate_risk_reduction()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(policy, positionId, stopPosition: AssessmentPricePosition.Above);
+        var current = CreateCapacityRecommendation(assessment, policy, T0.AddMinutes(3), 1000m, 10m);
+        var stability = new RecommendationStabilityPolicy();
+
+        var valueIncreaseQuantityDecrease = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1200m, 8m),
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+        var valueDecreaseQuantityIncrease = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 800m, 12m),
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+        var quantityOnly = stability.Evaluate(
+            current,
+            CreateCapacityEvaluation(assessment, policy, T0.AddMinutes(4), 1000m, 8m),
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        valueIncreaseQuantityDecrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        valueDecreaseQuantityIncrease.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        quantityOnly.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        quantityOnly.Reason.Should().NotBe(RecommendationStabilityReason.RiskReduction);
+    }
+
+    [Fact]
+    public void Inherited_portfolio_reasons_are_part_of_candidate_semantics()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var currentAssessment = CreateAssessment(
+            policy,
+            positionId,
+            portfolioDecision: RiskIncreaseDecision.Blocked,
+            portfolioRiskReasons: [ReasonCode.PortfolioDataStale]);
+        var candidateAssessment = CreateAssessment(
+            policy,
+            positionId,
+            portfolioDecision: RiskIncreaseDecision.Blocked,
+            portfolioRiskReasons: [ReasonCode.InsufficientFreeCapital]);
+        var current = CreateRecommendation(currentAssessment, policy, T0.AddMinutes(3));
+        var candidate = policy.Evaluate(candidateAssessment, policy, T0.AddMinutes(4));
+
+        var result = new RecommendationStabilityPolicy().Evaluate(
+            current,
+            candidate,
+            null,
+            policy.StabilityProfile,
+            T0.AddMinutes(4));
+
+        result.Kind.Should().Be(RecommendationStabilityDecisionKind.PendingConfirmation);
+        result.Reason.Should().Be(RecommendationStabilityReason.AwaitingConfirmation);
+        result.Reason.Should().NotBe(RecommendationStabilityReason.Duplicate);
+        RecommendationSemanticState.From(candidate)
+            .Should()
+            .Be(RecommendationSemanticState.From(Recommendation.Create(candidateAssessment, candidate)));
+    }
+
+    [Fact]
+    public void Evaluation_rejects_non_portfolio_inherited_reasons()
+    {
+        var policy = PolicyDefinition.Default;
+        var positionId = PositionId.New();
+        var assessment = CreateAssessment(
+            policy,
+            positionId,
+            portfolioDecision: RiskIncreaseDecision.Blocked);
+        var evaluation = policy.Evaluate(assessment, policy, T0.AddMinutes(4));
+
+        FluentActions.Invoking(() => new RecommendationPolicyEvaluation(
+                evaluation.PolicyIdentity,
+                evaluation.Action,
+                evaluation.AddDecision,
+                evaluation.ContinuationPlan,
+                evaluation.CreatedAt,
+                evaluation.ValidUntil,
+                [ReasonCode.TrendAligned]))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => new RecommendationPolicyEvaluation(
+                evaluation.PolicyIdentity,
+                evaluation.Action,
+                evaluation.AddDecision,
+                evaluation.ContinuationPlan,
+                evaluation.CreatedAt,
+                evaluation.ValidUntil,
+                [ReasonCode.PortfolioDataStale, ReasonCode.PortfolioDataStale]))
+            .Should().Throw<ArgumentException>();
+    }
+
+    private static RecommendationStabilityProfile ConfirmationProfile() =>
+        new(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMinutes(1),
+            3,
+            TimeSpan.FromMinutes(2),
+            2);
 
     private static Recommendation CreateRecommendation(
         PositionAssessment assessment,
@@ -624,8 +977,37 @@ public sealed class RecommendationStabilityTests
             addDecision,
             evaluation.ContinuationPlan,
             evaluation.CreatedAt,
-            evaluation.ValidUntil);
+            evaluation.ValidUntil,
+            evaluation.InheritedReasonCodes);
     }
+
+    private static RecommendationPolicyEvaluation WithActionPriority(
+        RecommendationPolicyEvaluation evaluation,
+        RecommendationPriority priority) =>
+        new(
+            evaluation.PolicyIdentity,
+            new RecommendedActionDecision(
+                evaluation.Action.Action,
+                evaluation.Action.Confidence,
+                priority,
+                evaluation.Action.ReasonCodes),
+            evaluation.AddDecision,
+            evaluation.ContinuationPlan,
+            evaluation.CreatedAt,
+            evaluation.ValidUntil,
+            evaluation.InheritedReasonCodes);
+
+    private static RecommendationPolicyEvaluation WithIdentity(
+        RecommendationPolicyEvaluation evaluation,
+        string version) =>
+        new(
+            PolicyConfigurationIdentity.From(version, new string('A', 64)),
+            evaluation.Action,
+            evaluation.AddDecision,
+            evaluation.ContinuationPlan,
+            evaluation.CreatedAt,
+            evaluation.ValidUntil,
+            evaluation.InheritedReasonCodes);
 
     private static PositionAssessment CreateAssessmentForAction(
         PolicyDefinition policy,
@@ -689,7 +1071,8 @@ public sealed class RecommendationStabilityTests
         AssessmentLiquidationState liquidationState = AssessmentLiquidationState.Far,
         decimal? liquidationDistance = 61m,
         bool exhaustion = false,
-        bool resistanceNearby = false)
+        bool resistanceNearby = false,
+        IEnumerable<ReasonCode>? portfolioRiskReasons = null)
     {
         var inputVersions = new PositionAssessmentInputVersions(
             positionId,
@@ -766,7 +1149,8 @@ public sealed class RecommendationStabilityTests
             new RuleVersion("assessment-v1"),
             portfolioDecision == RiskIncreaseDecision.Allowed
                 ? RiskIncreasePolicyResult.Allowed()
-                : RiskIncreasePolicyResult.Blocked([ReasonCode.PortfolioDataStale]),
+                : RiskIncreasePolicyResult.Blocked(
+                    portfolioRiskReasons ?? [ReasonCode.PortfolioDataStale]),
             result,
             reasons,
             T0.AddMinutes(2),

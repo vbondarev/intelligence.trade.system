@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.13
+Версия документа: 3.14
 Дата актуализации: 14 сентября 2026 года
-Проверенная база: PR #98 merged в `develop`; реализуется первая часть E-08.1 — доменная политика стабилизации рекомендаций
-Последняя учтённая задача: PR #98 к [Issue #97](https://github.com/vbondarev/intelligence.trade.system/issues/97) «Исправлены замечания ревью условий отмены и повторной оценки рекомендаций»
+Проверенная база: PR #98 merged в `develop`; PR #100 к Issue #99 открыт и содержит исправления review E-08.1
+Последняя учтённая задача: Issue #99 / PR #100 «Исправления замечаний ревью доменной политики стабилизации рекомендаций»
 Текущий следующий этап: **E-08.2 — применение и хранение стабилизации рекомендаций**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -460,6 +460,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-14 | 3.14 | В PR #100 к Issue #99 исправляются review findings E-08.1: candidate/pending temporal validation и replay idempotency, risk-safe policy/priority ordering, mixed capacity semantics, inherited portfolio reasons и strict JSON regression coverage. PR ещё не merged; следующим остаётся E-08.2. |
 | 2026-09-14 | 3.13 | PR #98 merged в `develop`; E-07 отмечен завершённым. В E-08.1 добавлена чистая доменная anti-chatter/stability policy с semantic comparison, typed decisions/reasons, cooldown, hysteresis, safety bypass и strict stability profile в policy hash. Persistence и orchestration замещения остаются E-08.2. |
 | 2026-09-13 | 3.12 | PR #96 merged в `develop`; E-07 реализован в текущем PR #98 к Issue #97: добавлены typed continuation conditions/evaluator, safety-safe Watch fallback, policy identity/expiry invalidation, strict persistence JSON, PostgreSQL migration и precision-safe lifecycle round-trip. Следующим остаётся E-08; PR #98 ещё не merged. |
 | 2026-09-13 | 3.11 | Закрыты финальные safety замечания PR #96: trusted evaluation и persistence rehydration больше не являются публичными creation paths, degraded compatibility creation ограничен `Watch + DoNotAdd`, отсутствие policy path стало fail-fast; E-07/E-08 не начаты. |

@@ -136,7 +136,17 @@ public sealed class Recommendation
         PositionAssessment assessment,
         RecommendationPolicyEvaluation evaluation)
     {
+        ArgumentNullException.ThrowIfNull(assessment);
         ArgumentNullException.ThrowIfNull(evaluation);
+        var expectedInheritedReasons = assessment.ReasonCodes
+            .Where(ReasonCodeClassification.IsPortfolioRiskReason)
+            .OrderBy(reason => (int)reason)
+            .ToArray();
+        if (!evaluation.InheritedReasonCodes.SequenceEqual(expectedInheritedReasons))
+            throw new ArgumentException(
+                "Recommendation evaluation inherited reasons must match its assessment.",
+                nameof(evaluation));
+
         return CreateCore(
             assessment,
             evaluation.Action,

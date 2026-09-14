@@ -17,7 +17,8 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
         IEnumerable<ReasonCode> addReasonCodes,
         PolicyConfigurationIdentity policyIdentity,
         decimal? maximumAdditionalPositionValue = null,
-        decimal? maximumAdditionalQuantity = null)
+        decimal? maximumAdditionalQuantity = null,
+        IEnumerable<ReasonCode>? inheritedReasonCodes = null)
     {
         if (!Enum.IsDefined(positionAction))
             throw new ArgumentOutOfRangeException(nameof(positionAction), positionAction, "Action must be defined.");
@@ -27,16 +28,28 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
             throw new ArgumentOutOfRangeException(nameof(priority), priority, "Priority must be defined.");
         ArgumentNullException.ThrowIfNull(actionReasonCodes);
         ArgumentNullException.ThrowIfNull(addReasonCodes);
+        inheritedReasonCodes ??= [];
         if (string.IsNullOrWhiteSpace(policyIdentity.Version) ||
             string.IsNullOrWhiteSpace(policyIdentity.Hash))
             throw new ArgumentException("Policy identity must contain version and hash.", nameof(policyIdentity));
 
         var actionReasons = actionReasonCodes.ToArray();
         var addReasons = addReasonCodes.ToArray();
+        var inheritedReasons = inheritedReasonCodes.ToArray();
         if (actionReasons.Any(reason => !Enum.IsDefined(reason)))
             throw new ArgumentOutOfRangeException(nameof(actionReasonCodes), "Reason code must be defined.");
         if (addReasons.Any(reason => !Enum.IsDefined(reason)))
             throw new ArgumentOutOfRangeException(nameof(addReasonCodes), "Reason code must be defined.");
+        if (inheritedReasons.Any(reason => !Enum.IsDefined(reason)))
+            throw new ArgumentOutOfRangeException(nameof(inheritedReasonCodes), "Reason code must be defined.");
+        if (inheritedReasons.Any(reason => !ReasonCodeClassification.IsPortfolioRiskReason(reason)))
+            throw new ArgumentException(
+                "Inherited reasons must be portfolio-risk reason codes.",
+                nameof(inheritedReasonCodes));
+        if (inheritedReasons.Distinct().Count() != inheritedReasons.Length)
+            throw new ArgumentException(
+                "Inherited reason codes cannot contain duplicates.",
+                nameof(inheritedReasonCodes));
 
         switch (addDecision)
         {
@@ -64,6 +77,7 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
         Priority = priority;
         ActionReasonCodes = Normalize(actionReasons);
         AddReasonCodes = Normalize(addReasons);
+        InheritedReasonCodes = Normalize(inheritedReasons);
         PolicyIdentity = policyIdentity;
         MaximumAdditionalPositionValue = maximumAdditionalPositionValue;
         MaximumAdditionalQuantity = maximumAdditionalQuantity;
@@ -75,6 +89,7 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
     public RecommendationPriority Priority { get; }
     public IReadOnlyList<ReasonCode> ActionReasonCodes { get; }
     public IReadOnlyList<ReasonCode> AddReasonCodes { get; }
+    public IReadOnlyList<ReasonCode> InheritedReasonCodes { get; }
     public PolicyConfigurationIdentity PolicyIdentity { get; }
     public PolicyConfigurationIdentity PolicyConfigurationIdentity => PolicyIdentity;
     public decimal? MaximumAdditionalPositionValue { get; }
@@ -91,7 +106,8 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
             recommendation.AddReasonCodes,
             recommendation.PolicyIdentity,
             recommendation.MaximumAdditionalPositionValue,
-            recommendation.MaximumAdditionalQuantity);
+            recommendation.MaximumAdditionalQuantity,
+            recommendation.ReasonCodes.Where(ReasonCodeClassification.IsPortfolioRiskReason));
     }
 
     public static RecommendationSemanticState From(RecommendationPolicyEvaluation evaluation)
@@ -105,7 +121,8 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
             evaluation.AddDecision.ReasonCodes,
             evaluation.PolicyIdentity,
             evaluation.AddDecision.MaximumAdditionalPositionValue,
-            evaluation.AddDecision.MaximumAdditionalQuantity);
+            evaluation.AddDecision.MaximumAdditionalQuantity,
+            evaluation.InheritedReasonCodes);
     }
 
     public bool Equals(RecommendationSemanticState? other)
@@ -120,7 +137,8 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
             MaximumAdditionalPositionValue == other.MaximumAdditionalPositionValue &&
             MaximumAdditionalQuantity == other.MaximumAdditionalQuantity &&
             ActionReasonCodes.SequenceEqual(other.ActionReasonCodes) &&
-            AddReasonCodes.SequenceEqual(other.AddReasonCodes);
+            AddReasonCodes.SequenceEqual(other.AddReasonCodes) &&
+            InheritedReasonCodes.SequenceEqual(other.InheritedReasonCodes);
     }
 
     public override bool Equals(object? obj) =>
@@ -138,6 +156,8 @@ public sealed class RecommendationSemanticState : IEquatable<RecommendationSeman
         foreach (var reason in ActionReasonCodes)
             hash.Add(reason);
         foreach (var reason in AddReasonCodes)
+            hash.Add(reason);
+        foreach (var reason in InheritedReasonCodes)
             hash.Add(reason);
         return hash.ToHashCode();
     }

@@ -28,6 +28,24 @@ public sealed class RecommendationStabilityPolicy
                 nameof(asOf),
                 asOf,
                 "Stability evaluation cannot precede candidate creation.");
+        if (asOf >= candidate.ValidUntil)
+            throw new ArgumentException(
+                "Candidate must be valid at stability evaluation time.",
+                nameof(candidate));
+        if (pendingState is not null &&
+            asOf < pendingState.LastObservedAt)
+            throw new ArgumentOutOfRangeException(
+                nameof(asOf),
+                asOf,
+                "Stability observations must be chronological.");
+
+        var candidateSemantic = RecommendationSemanticState.From(candidate);
+        if (pendingState is not null &&
+            asOf == pendingState.LastObservedAt &&
+            !pendingState.SemanticState.Equals(candidateSemantic))
+            throw new ArgumentException(
+                "Different stability candidates cannot share the same observation timestamp.",
+                nameof(candidate));
 
         if (current is null)
             return Publish(RecommendationStabilityReason.NoCurrentRecommendation);
@@ -39,14 +57,24 @@ public sealed class RecommendationStabilityPolicy
                 "Stability evaluation cannot precede current recommendation creation.");
 
         var currentSemantic = RecommendationSemanticState.From(current);
-        var candidateSemantic = RecommendationSemanticState.From(candidate);
+        if (current.Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged)
+        {
+            if (candidate.CreatedAt <= current.CreatedAt)
+                throw new ArgumentException(
+                    "A replacement candidate must be newer than the current recommendation.",
+                    nameof(candidate));
+            if (current.Status == RecommendationStatus.Acknowledged &&
+                current.AcknowledgedAt is { } acknowledgedAt &&
+                candidate.CreatedAt < acknowledgedAt)
+                throw new ArgumentException(
+                    "A replacement candidate cannot precede recommendation acknowledgement.",
+                    nameof(candidate));
+        }
 
         if (current.Status is RecommendationStatus.Dismissed or RecommendationStatus.Superseded)
             return Publish(RecommendationStabilityReason.CurrentInactive);
         if (current.Status == RecommendationStatus.Expired || asOf >= current.ValidUntil)
             return Publish(RecommendationStabilityReason.CurrentExpired);
-        if (current.PolicyIdentity != candidate.PolicyIdentity)
-            return Publish(RecommendationStabilityReason.PolicyChanged);
         if (currentSemantic.Equals(candidateSemantic))
             return KeepExisting(RecommendationStabilityReason.Duplicate);
 
@@ -59,14 +87,36 @@ public sealed class RecommendationStabilityPolicy
                 current.RecommendedAction,
                 candidate.Action.Action))
             return Publish(RecommendationStabilityReason.RiskReduction);
-        if (candidate.Action.Priority == RecommendationPriority.Critical &&
+
+        var capacityChange = current.AddDecision == AddDecision.AddAllowed &&
+            candidate.AddDecision.Decision == AddDecision.AddAllowed
+            ? ClassifyCapacityChange(currentSemantic, candidateSemantic)
+            : CapacityChange.Equal;
+        if (capacityChange == CapacityChange.Decrease)
+            return Publish(RecommendationStabilityReason.RiskReduction);
+
+        var isRiskIncreasingTransition =
+            current.AddDecision != AddDecision.AddAllowed &&
+            candidate.AddDecision.Decision == AddDecision.AddAllowed;
+        if (capacityChange is CapacityChange.Increase or CapacityChange.Mixed)
+            isRiskIncreasingTransition = true;
+        if (RecommendationActionPrecedence.IsHigherPriority(
+                candidate.Action.Action,
+                current.RecommendedAction))
+            isRiskIncreasingTransition = true;
+
+        var policyChanged = current.PolicyIdentity != candidate.PolicyIdentity;
+        if (policyChanged && !isRiskIncreasingTransition)
+            return Publish(RecommendationStabilityReason.PolicyChanged);
+        if (!isRiskIncreasingTransition &&
+            candidate.Action.Priority == RecommendationPriority.Critical &&
             current.ActionDecision.Priority != RecommendationPriority.Critical)
             return Publish(RecommendationStabilityReason.PriorityEscalation);
 
         var confirmationPeriod = profile.ImprovementConfirmationPeriod;
         var confirmationObservations = profile.ImprovementConfirmationObservations;
         var transitionReason = RecommendationStabilityReason.MaterialChange;
-        if (current.AddDecision == AddDecision.DoNotAdd &&
+        if (current.AddDecision != AddDecision.AddAllowed &&
             candidate.AddDecision.Decision == AddDecision.AddAllowed)
         {
             confirmationPeriod = profile.AddAllowedConfirmationPeriod;
@@ -76,10 +126,7 @@ public sealed class RecommendationStabilityPolicy
         else if (current.AddDecision == AddDecision.AddAllowed &&
             candidate.AddDecision.Decision == AddDecision.AddAllowed)
         {
-            var capacityChange = ClassifyCapacityChange(currentSemantic, candidateSemantic);
-            if (capacityChange == CapacityChange.Decrease)
-                return Publish(RecommendationStabilityReason.RiskReduction);
-            if (capacityChange == CapacityChange.Increase)
+            if (capacityChange is CapacityChange.Increase or CapacityChange.Mixed)
             {
                 confirmationPeriod = profile.AddAllowedConfirmationPeriod;
                 confirmationObservations = profile.AddAllowedConfirmationObservations;
@@ -139,20 +186,16 @@ public sealed class RecommendationStabilityPolicy
     {
         if (pendingState is not null && pendingState.SemanticState.Equals(candidate))
         {
-            if (asOf < pendingState.LastObservedAt)
-                throw new ArgumentOutOfRangeException(
-                    nameof(asOf),
-                    asOf,
-                    "Stability observations must be chronological.");
-
             pendingCandidateChanged = false;
+            if (asOf == pendingState.LastObservedAt)
+                return pendingState;
+
             return new(
                 pendingState.SemanticState,
                 pendingState.FirstObservedAt,
                 asOf,
                 checked(pendingState.ConsecutiveObservations + 1));
         }
-
         pendingCandidateChanged = pendingState is not null;
         return new(candidate, asOf, asOf, 1);
     }
@@ -180,6 +223,11 @@ public sealed class RecommendationStabilityPolicy
         var quantityChange = CompareLimit(
             current.MaximumAdditionalQuantity,
             candidate.MaximumAdditionalQuantity);
+        if (valueChange == 0)
+            return CapacityChange.Equal;
+        if ((valueChange < 0 && quantityChange > 0) ||
+            (valueChange > 0 && quantityChange < 0))
+            return CapacityChange.Mixed;
         if (valueChange < 0 || quantityChange < 0)
             return CapacityChange.Decrease;
         if (valueChange > 0 || quantityChange > 0)
@@ -191,10 +239,8 @@ public sealed class RecommendationStabilityPolicy
     {
         if (current == candidate)
             return 0;
-        if (current is null)
-            return -1;
-        if (candidate is null)
-            return 1;
+        if (current is null || candidate is null)
+            return 0;
         return candidate.Value.CompareTo(current.Value);
     }
 
@@ -202,6 +248,7 @@ public sealed class RecommendationStabilityPolicy
     {
         Equal,
         Decrease,
-        Increase
+        Increase,
+        Mixed
     }
 }
