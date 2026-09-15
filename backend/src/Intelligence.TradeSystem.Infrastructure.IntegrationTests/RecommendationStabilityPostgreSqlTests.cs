@@ -470,6 +470,295 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
     }
 
     [Fact]
+    public async Task Service_confirmation_progress_survives_new_contexts_and_publishes_after_threshold()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidate = CreateStructuredCandidateAssessment(aggregate);
+        await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
+
+        var observations = new[]
+        {
+            T0.AddMinutes(5),
+            T0.AddMinutes(6),
+            T0.AddMinutes(8)
+        };
+        RecommendationApplicationResult? published = null;
+        foreach (var asOf in observations)
+        {
+            await using var context = await CreateMigratedContext();
+            var result = await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidate, asOf);
+
+            if (asOf == observations[^1])
+            {
+                published = result;
+                Assert.Equal(RecommendationApplicationResultKind.Published, result.Kind);
+            }
+            else
+            {
+                Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+                await using var stateContext = await CreateMigratedContext();
+                var state = await new RecommendationStabilityStateRepository(stateContext)
+                    .GetAsync(aggregate.Account.UserId, aggregate.Position.Id);
+                Assert.NotNull(state);
+                Assert.Equal(asOf == observations[0] ? 1 : 2, state.Value.State.ConsecutiveObservations);
+            }
+        }
+
+        Assert.NotNull(published);
+        await using var verification = await CreateMigratedContext();
+        var recommendations = new RecommendationRepository(verification);
+        var current = await recommendations.GetCurrentForPositionAsync(
+            aggregate.Account.UserId,
+            aggregate.Position.Id);
+        var old = await recommendations.GetByIdAsync(
+            aggregate.Account.UserId,
+            aggregate.Recommendation.Id);
+        var pending = await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id);
+
+        Assert.NotNull(current);
+        Assert.Equal(published.Recommendation!.Id, current.Value.Id);
+        Assert.NotNull(old);
+        Assert.Equal(RecommendationStatus.Superseded, old.Value.Status);
+        Assert.Null(pending);
+    }
+
+    [Fact]
+    public async Task Service_replay_after_new_context_is_idempotent_for_persisted_pending_state()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidate = CreateStructuredCandidateAssessment(aggregate);
+        await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
+        var asOf = T0.AddMinutes(5);
+
+        await using (var firstContext = await CreateMigratedContext())
+        {
+            var result = await CreateRecommendationService(firstContext)
+                .CreateAsync(aggregate.Account.UserId, candidate, asOf);
+            Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+        }
+
+        Versioned<RecommendationStabilityStateSnapshot> first;
+        await using (var readContext = await CreateMigratedContext())
+        {
+            first = (await new RecommendationStabilityStateRepository(readContext)
+                .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        }
+
+        await using (var replayContext = await CreateMigratedContext())
+        {
+            var result = await CreateRecommendationService(replayContext)
+                .CreateAsync(aggregate.Account.UserId, candidate, asOf);
+            Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+        }
+
+        await using var verification = await CreateMigratedContext();
+        var second = (await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        Assert.Equal(first.Value.StateId, second.Value.StateId);
+        Assert.Equal(first.Value.State.FirstObservedAt, second.Value.State.FirstObservedAt);
+        Assert.Equal(first.Value.State.LastObservedAt, second.Value.State.LastObservedAt);
+        Assert.Equal(first.Value.State.ConsecutiveObservations, second.Value.State.ConsecutiveObservations);
+        Assert.Equal(first.Version, second.Version);
+    }
+
+    [Fact]
+    public async Task Service_candidate_change_resets_observations_without_inheriting_old_semantic_state()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidateB = CreateStructuredCandidateAssessment(aggregate);
+        var candidateC = CreateStructuredCandidateAssessment(aggregate, totalEquity: 20_000m);
+        await PersistAssessmentAsync(candidateB, aggregate.Account.UserId);
+        await PersistAssessmentAsync(candidateC, aggregate.Account.UserId);
+
+        await using (var context = await CreateMigratedContext())
+            await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidateB, T0.AddMinutes(5));
+        await using (var context = await CreateMigratedContext())
+            await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidateB, T0.AddMinutes(6));
+
+        Versioned<RecommendationStabilityStateSnapshot> beforeChange;
+        await using (var context = await CreateMigratedContext())
+        {
+            beforeChange = (await new RecommendationStabilityStateRepository(context)
+                .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        }
+        var candidateCEvaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(candidateC, PolicyDefinition.Default, T0.AddMinutes(7));
+        Assert.NotEqual(
+            beforeChange.Value.State.SemanticState,
+            RecommendationSemanticState.From(candidateCEvaluation));
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var result = await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidateC, T0.AddMinutes(7));
+            Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+        }
+
+        await using var verification = await CreateMigratedContext();
+        var afterChange = (await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        Assert.Equal(beforeChange.Value.StateId, afterChange.Value.StateId);
+        Assert.Equal(1, afterChange.Value.State.ConsecutiveObservations);
+        Assert.Equal(T0.AddMinutes(7), afterChange.Value.State.FirstObservedAt);
+        Assert.NotEqual(
+            beforeChange.Value.State.SemanticState,
+            afterChange.Value.State.SemanticState);
+    }
+
+    [Fact]
+    public async Task Service_baseline_replacement_starts_new_pending_generation()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidateB = CreateStructuredCandidateAssessment(aggregate);
+        var candidateC = CreateStructuredCandidateAssessment(aggregate, totalEquity: 20_000m);
+        await PersistAssessmentAsync(candidateB, aggregate.Account.UserId);
+        await PersistAssessmentAsync(candidateC, aggregate.Account.UserId);
+
+        foreach (var asOf in new[] { T0.AddMinutes(5), T0.AddMinutes(6), T0.AddMinutes(8) })
+        {
+            await using var context = await CreateMigratedContext();
+            await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidateB, asOf);
+        }
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var currentAfterPublication = await new RecommendationRepository(context)
+                .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
+            Assert.NotNull(currentAfterPublication);
+            var candidateCEvaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+                .Evaluate(candidateC, PolicyDefinition.Default, T0.AddMinutes(9));
+            Assert.NotEqual(
+                RecommendationSemanticState.From(currentAfterPublication.Value),
+                RecommendationSemanticState.From(candidateCEvaluation));
+            Assert.Null(await new RecommendationStabilityStateRepository(context)
+                .GetAsync(aggregate.Account.UserId, aggregate.Position.Id));
+        }
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var result = await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidateC, T0.AddMinutes(9));
+            Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+        }
+
+        await using var verification = await CreateMigratedContext();
+        var current = (await new RecommendationRepository(verification)
+            .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        var pending = (await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        Assert.Equal(current.Value.Id, pending.Value.BaselineRecommendationId);
+        Assert.NotEqual(aggregate.Recommendation.Id, pending.Value.BaselineRecommendationId);
+        Assert.Equal(1, pending.Value.State.ConsecutiveObservations);
+        Assert.NotEqual(Guid.Empty, pending.Value.StateId);
+    }
+
+    [Fact]
+    public async Task Service_uses_persisted_assessment_instead_of_tampered_caller_object()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var persisted = CreateStructuredCandidateAssessment(aggregate);
+        await PersistAssessmentAsync(persisted, aggregate.Account.UserId);
+        var tamperedInput = new PositionAssessmentInputVersions(
+            persisted.PositionId,
+            persisted.InputVersions.ExchangeAccountId,
+            persisted.InputVersions.InstrumentId,
+            persisted.InputVersions.PositionObservedAt,
+            persisted.InputVersions.PortfolioCalculatedAt,
+            persisted.InputVersions.MarketCapturedAt,
+            new PolicyConfigurationIdentity("tampered-policy", "tampered-hash"),
+            new PolicyConfigurationIdentity("tampered-policy", "tampered-hash"));
+        var tampered = PositionAssessment.Restore(
+            persisted.Id,
+            tamperedInput,
+            persisted.RuleVersion,
+            persisted.CreatedAt,
+            persisted.ValidUntil,
+            persisted.PortfolioRiskDecision,
+            persisted.Result,
+            persisted.ReasonCodes);
+
+        await using var context = await CreateMigratedContext();
+        var result = await CreateRecommendationService(context)
+            .CreateAsync(aggregate.Account.UserId, tampered, T0.AddMinutes(5));
+
+        Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
+        var state = (await new RecommendationStabilityStateRepository(context)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
+        var expectedEvaluation = new Intelligence.TradeSystem.Domain.Recommendations.RecommendationPolicy()
+            .Evaluate(persisted, PolicyDefinition.Default, T0.AddMinutes(5));
+        Assert.Equal(
+            RecommendationSemanticState.From(expectedEvaluation),
+            state.Value.State.SemanticState);
+    }
+
+    [Fact]
+    public async Task Concurrent_services_do_not_publish_duplicate_or_stale_successors()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidate = CreateStructuredCandidateAssessment(aggregate);
+        await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
+
+        foreach (var asOf in new[] { T0.AddMinutes(5), T0.AddMinutes(6) })
+        {
+            await using var context = await CreateMigratedContext();
+            await CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidate, asOf);
+        }
+
+        await using var firstContext = await CreateMigratedContext();
+        await using var secondContext = await CreateMigratedContext();
+        var first = RunServiceAsync(firstContext, aggregate.Account.UserId, candidate);
+        var second = RunServiceAsync(secondContext, aggregate.Account.UserId, candidate);
+        var outcomes = await Task.WhenAll(first, second);
+
+        Assert.Single(outcomes, outcome => outcome.Result?.Kind == RecommendationApplicationResultKind.Published);
+        Assert.All(
+            outcomes,
+            outcome => Assert.True(
+                outcome.Error is null ||
+                outcome.Error is ConcurrencyConflictException,
+                outcome.Error?.ToString()));
+
+        await using var verification = await CreateMigratedContext();
+        var recommendations = verification.Recommendations
+            .Where(row => row.PositionId == aggregate.Position.Id.Value)
+            .ToArray();
+        Assert.Single(recommendations, row =>
+            row.Status is RecommendationStatus.Active or RecommendationStatus.Acknowledged);
+        Assert.Null(await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id));
+
+        static async Task<(RecommendationApplicationResult? Result, Exception? Error)> RunServiceAsync(
+            TradeSystemDbContext context,
+            UserId userId,
+            PositionAssessment assessment)
+        {
+            try
+            {
+                return (
+                    await CreateRecommendationService(context)
+                        .CreateAsync(userId, assessment, T0.AddMinutes(8)),
+                    null);
+            }
+            catch (Exception exception)
+            {
+                return (null, exception);
+            }
+        }
+    }
+
+    [Fact]
     public async Task Replacement_failure_rolls_back_old_lifecycle_update()
     {
         var aggregate = CreateAggregate(UserId.New());
@@ -638,6 +927,14 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             .SaveAsync(aggregate.Account.UserId, aggregate.Position, expectedVersion: null);
     }
 
+    private async Task PersistAssessmentAsync(
+        PositionAssessment assessment,
+        UserId userId)
+    {
+        await using var context = await CreateMigratedContext();
+        await new PositionAssessmentRepository(context).SaveAsync(userId, assessment);
+    }
+
     private async Task PersistWithoutRecommendationAsync(Aggregate aggregate)
     {
         await using var context = await CreateMigratedContext();
@@ -729,6 +1026,66 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 observedAt,
                 observedAt,
                 observations));
+
+    private static PositionAssessment CreateStructuredCandidateAssessment(
+        Aggregate aggregate,
+        decimal totalEquity = 10_000m,
+        decimal currentPrice = 105m)
+    {
+        var policy = PolicyDefinition.Default;
+        var inputVersions = new PositionAssessmentInputVersions(
+            aggregate.Position.Id,
+            aggregate.Account.Id,
+            aggregate.Position.ExchangePositionKey.InstrumentId,
+            T0,
+            T0.AddMinutes(1),
+            T0.AddMinutes(2),
+            policy.Identity,
+            policy.Identity);
+        var result = new PositionAssessmentResult(
+            PositionSide.Long,
+            currentPrice,
+            new(AssessmentTrendDirection.Bullish, PositionTrendAlignment.Aligned, 0.8m, "4h"),
+            new(50m, true, AssessmentMomentumState.Normal, false),
+            new(1m, 1m, true, false),
+            new(105m, 99m, 1m, 0.7m, 110m, 1m, 0.7m),
+            new(1m, 1m, 100m, 105m, AssessmentPricePosition.Above) { IsFavorable = true },
+            new(102m, 2.86m, 2m, AssessmentStopState.Protective, AssessmentPricePosition.Above, null, false),
+            new(100m, 4.7m, 0m, AssessmentPricePosition.Above) { IsProfitable = true },
+            new(40m, 61m, AssessmentLiquidationState.Far),
+            new(
+                RiskIncreaseDecision.Allowed,
+                80m,
+                50m,
+                10m,
+                1m,
+                2_000m,
+                true,
+                true,
+                totalEquity,
+                8_000m,
+                1_000m,
+                10m,
+                10m,
+                100m,
+                25m),
+            new(AssessmentDataQuality.FreshCompleteReliable, AssessmentDataQuality.FreshCompleteReliable));
+
+        return PositionAssessment.Create(
+            inputVersions,
+            new RuleVersion("candidate-v2"),
+            RiskIncreasePolicyResult.Allowed(),
+            result,
+            [
+                ReasonCode.TrendAligned,
+                ReasonCode.MomentumNormal,
+                ReasonCode.PnlPositive,
+                ReasonCode.StopProtective,
+                ReasonCode.LiquidationFar
+            ],
+            T0.AddMinutes(3),
+            T0.AddHours(1));
+    }
 
     private async Task<TradeSystemDbContext> CreateMigratedContext()
     {

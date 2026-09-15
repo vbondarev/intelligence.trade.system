@@ -131,12 +131,13 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
             throw StateConflict(positionId, "generation or version changed.");
         }
 
-        if (existing.StateId == mapped.StateId &&
-            existing.BaselineRecommendationId == mapped.BaselineRecommendationId &&
-            existing.SemanticStateJson == mapped.SemanticStateJson &&
-            existing.FirstObservedAt == mapped.FirstObservedAt &&
-            existing.LastObservedAt == mapped.LastObservedAt &&
-            existing.ConsecutiveObservations == mapped.ConsecutiveObservations)
+        var existingSnapshot = RecommendationStabilityStateMapper.ToDomain(existing);
+        if (existingSnapshot.StateId == state.StateId &&
+            existingSnapshot.BaselineRecommendationId == state.BaselineRecommendationId &&
+            existingSnapshot.State.Equals(state.State) &&
+            existingSnapshot.State.FirstObservedAt == state.State.FirstObservedAt &&
+            existingSnapshot.State.LastObservedAt == state.State.LastObservedAt &&
+            existingSnapshot.State.ConsecutiveObservations == state.State.ConsecutiveObservations)
         {
             return new ConcurrencyVersion(existing.Version);
         }
