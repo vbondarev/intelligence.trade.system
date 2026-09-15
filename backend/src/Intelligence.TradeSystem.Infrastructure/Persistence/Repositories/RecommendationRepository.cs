@@ -95,6 +95,12 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         }
 
         var present = (RecommendationCurrentExpectation.Present)expectation;
+        await RecommendationRecommendationLock.LockAsync(
+            dbContext,
+            userId,
+            positionId,
+            present.RecommendationId,
+            cancellationToken);
         var current = await currentQuery
             .SingleOrDefaultAsync(
                 recommendation => recommendation.Id == present.RecommendationId.Value,
@@ -142,11 +148,22 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             RecommendationMapper.ToDomain(entity, reasons, assessment), new ConcurrencyVersion(entity.Version));
     }
 
-    public async Task<ConcurrencyVersion> SaveAsync(
+    public Task<ConcurrencyVersion> SaveAsync(
         UserId userId,
         Recommendation recommendation,
         ConcurrencyVersion? expectedVersion,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(
+            userId,
+            recommendation,
+            token => SaveCoreAsync(userId, recommendation, expectedVersion, token),
+            cancellationToken);
+
+    private async Task<ConcurrencyVersion> SaveCoreAsync(
+        UserId userId,
+        Recommendation recommendation,
+        ConcurrencyVersion? expectedVersion,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(recommendation);
         EnsureUserId(userId);
@@ -262,6 +279,71 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         if (affected != 1) throw UnavailableRecommendationConflict(recommendation.Id);
 
         return newVersion;
+    }
+
+    private async Task<T> ExecuteWriteAsync<T>(
+        UserId userId,
+        Recommendation recommendation,
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(recommendation);
+        EnsureUserId(userId);
+        EnsurePositionId(recommendation.PositionId);
+
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            await LockForWriteAsync(userId, recommendation, cancellationToken);
+            return await operation(cancellationToken);
+        }
+
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await LockForWriteAsync(userId, recommendation, cancellationToken);
+            var result = await operation(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            finally
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
+            throw;
+        }
+    }
+
+    private Task LockForWriteAsync(
+        UserId userId,
+        Recommendation recommendation,
+        CancellationToken cancellationToken) =>
+        LockForWriteCoreAsync(userId, recommendation, cancellationToken);
+
+    private async Task LockForWriteCoreAsync(
+        UserId userId,
+        Recommendation recommendation,
+        CancellationToken cancellationToken)
+    {
+        await RecommendationPositionLock.LockAsync(
+            dbContext,
+            userId,
+            recommendation.PositionId,
+            cancellationToken);
+        await RecommendationRecommendationLock.LockAsync(
+            dbContext,
+            userId,
+            recommendation.PositionId,
+            recommendation.Id,
+            cancellationToken);
     }
 
     private static ConcurrencyConflictException UnavailableRecommendationConflict(

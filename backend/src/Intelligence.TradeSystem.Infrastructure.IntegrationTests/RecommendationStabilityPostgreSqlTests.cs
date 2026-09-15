@@ -1,5 +1,7 @@
+using System.Text.Json.Nodes;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
@@ -8,6 +10,8 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -532,7 +536,15 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAsync(aggregate);
         var candidate = CreateStructuredCandidateAssessment(aggregate);
         await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
-        var asOf = T0.AddMinutes(5);
+        var asOf = new DateTimeOffset(
+            2026,
+            9,
+            15,
+            13,
+            5,
+            0,
+            TimeSpan.FromHours(3)).AddTicks(7);
+        var canonicalAsOf = TimestampCanonicalizer.ToUtcMicroseconds(asOf);
 
         await using (var firstContext = await CreateMigratedContext())
         {
@@ -559,10 +571,246 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var second = (await new RecommendationStabilityStateRepository(verification)
             .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
         Assert.Equal(first.Value.StateId, second.Value.StateId);
+        Assert.Equal(canonicalAsOf, first.Value.State.FirstObservedAt);
         Assert.Equal(first.Value.State.FirstObservedAt, second.Value.State.FirstObservedAt);
         Assert.Equal(first.Value.State.LastObservedAt, second.Value.State.LastObservedAt);
         Assert.Equal(first.Value.State.ConsecutiveObservations, second.Value.State.ConsecutiveObservations);
         Assert.Equal(first.Version, second.Version);
+    }
+
+    [Fact]
+    public async Task Service_rejects_replacement_that_collapses_to_current_timestamp_precision()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var candidate = CreateStructuredCandidateAssessment(aggregate);
+        await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
+        var asOf = aggregate.Recommendation.CreatedAt.AddTicks(7);
+
+        await using var context = await CreateMigratedContext();
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateRecommendationService(context)
+                .CreateAsync(aggregate.Account.UserId, candidate, asOf)
+                .AsTask());
+
+        var current = await new RecommendationRepository(context)
+            .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
+        Assert.NotNull(current);
+        Assert.Equal(RecommendationStatus.Active, current.Value.Status);
+        Assert.Null(await new RecommendationStabilityStateRepository(context)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id));
+    }
+
+    [Fact]
+    public void Stability_mapper_wraps_invalid_add_allowed_payload_as_persistence_corruption()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        var entity = RecommendationStabilityStateMapper.ToEntity(
+            aggregate.Position.Id,
+            CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1));
+        entity.Version = 1;
+        var document = JsonNode.Parse(entity.SemanticStateJson)!.AsObject();
+        document["addDecision"] = "addAllowed";
+        document["maximumAdditionalPositionValue"] = null;
+        entity.SemanticStateJson = document.ToJsonString();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => RecommendationStabilityStateMapper.ToDomain(entity));
+
+        Assert.True(
+            exception.Message.Contains("persisted typed state", StringComparison.Ordinal),
+            exception.Message);
+        Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void Stability_mapper_wraps_invalid_inherited_reason_as_persistence_corruption()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        var entity = RecommendationStabilityStateMapper.ToEntity(
+            aggregate.Position.Id,
+            CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1));
+        entity.Version = 1;
+        var document = JsonNode.Parse(entity.SemanticStateJson)!.AsObject();
+        document["inheritedReasonCodes"] = new JsonArray("trendAligned");
+        entity.SemanticStateJson = document.ToJsonString();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => RecommendationStabilityStateMapper.ToDomain(entity));
+
+        Assert.True(
+            exception.Message.Contains("persisted typed state", StringComparison.Ordinal),
+            exception.Message);
+        Assert.IsType<ArgumentException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void Stability_mapper_wraps_invalid_observation_invariant_as_persistence_corruption()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        var entity = RecommendationStabilityStateMapper.ToEntity(
+            aggregate.Position.Id,
+            CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1));
+        entity.Version = 1;
+        entity.ConsecutiveObservations = 0;
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => RecommendationStabilityStateMapper.ToDomain(entity));
+
+        Assert.True(
+            exception.Message.Contains("persisted typed state", StringComparison.Ordinal),
+            exception.Message);
+        Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task Lifecycle_dismissal_committed_before_stability_save_prevents_pending_for_terminal_baseline()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var pending = CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1);
+
+        await using var lifecycleContext = await CreateMigratedContext();
+        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleTransaction =
+            await lifecycleContext.Database.BeginTransactionAsync();
+        await RecommendationPositionLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            default);
+        await RecommendationRecommendationLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            aggregate.Recommendation.Id,
+            default);
+        var current = (await new RecommendationRepository(lifecycleContext)
+            .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id))!;
+        current.Value.Dismiss(T0.AddMinutes(5));
+        await new RecommendationRepository(lifecycleContext)
+            .SaveAsync(aggregate.Account.UserId, current.Value, current.Version);
+
+        var stabilityTask = new RecommendationPublicationTransaction(
+            stabilityContext,
+            new RecommendationRepository(stabilityContext),
+            new RecommendationStabilityStateRepository(stabilityContext))
+            .SavePendingAsync(
+                aggregate.Account.UserId,
+                aggregate.Position.Id,
+                new RecommendationCurrentExpectation.Present(
+                    aggregate.Recommendation.Id,
+                    ConcurrencyVersion.Initial),
+                pending,
+                new RecommendationStabilityStateExpectation.Absent());
+        await lifecycleTransaction.CommitAsync();
+
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => stabilityTask);
+        await using var verification = await CreateMigratedContext();
+        var persisted = await new RecommendationRepository(verification)
+            .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(RecommendationStatus.Dismissed, persisted.Value.Status);
+        Assert.Null(await new RecommendationStabilityStateRepository(verification)
+            .GetAsync(aggregate.Account.UserId, aggregate.Position.Id));
+    }
+
+    [Fact]
+    public async Task Lifecycle_dismissal_committed_before_keep_existing_prevents_stale_current_result()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+
+        await using var lifecycleContext = await CreateMigratedContext();
+        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleTransaction =
+            await lifecycleContext.Database.BeginTransactionAsync();
+        await RecommendationPositionLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            default);
+        await RecommendationRecommendationLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            aggregate.Recommendation.Id,
+            default);
+        var current = (await new RecommendationRepository(lifecycleContext)
+            .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id))!;
+        current.Value.Dismiss(T0.AddMinutes(5));
+        await new RecommendationRepository(lifecycleContext)
+            .SaveAsync(aggregate.Account.UserId, current.Value, current.Version);
+
+        var stabilityTask = new RecommendationPublicationTransaction(
+            stabilityContext,
+            new RecommendationRepository(stabilityContext),
+            new RecommendationStabilityStateRepository(stabilityContext))
+            .ConfirmKeepExistingAsync(
+                aggregate.Account.UserId,
+                aggregate.Position.Id,
+                new RecommendationCurrentExpectation.Present(
+                    aggregate.Recommendation.Id,
+                    ConcurrencyVersion.Initial),
+                new RecommendationStabilityStateExpectation.Absent());
+        await lifecycleTransaction.CommitAsync();
+
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => stabilityTask);
+    }
+
+    [Fact]
+    public async Task Lifecycle_dismissal_committed_before_publication_prevents_stale_replacement()
+    {
+        var aggregate = CreateAggregate(UserId.New());
+        await PersistAsync(aggregate);
+        var successor = CreateSuccessor(aggregate);
+
+        await using var lifecycleContext = await CreateMigratedContext();
+        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleTransaction =
+            await lifecycleContext.Database.BeginTransactionAsync();
+        await RecommendationPositionLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            default);
+        await RecommendationRecommendationLock.LockAsync(
+            lifecycleContext,
+            aggregate.Account.UserId,
+            aggregate.Position.Id,
+            aggregate.Recommendation.Id,
+            default);
+        var current = (await new RecommendationRepository(lifecycleContext)
+            .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id))!;
+        current.Value.Dismiss(T0.AddMinutes(5));
+        await new RecommendationRepository(lifecycleContext)
+            .SaveAsync(aggregate.Account.UserId, current.Value, current.Version);
+
+        var stabilityTask = new RecommendationPublicationTransaction(
+            stabilityContext,
+            new RecommendationRepository(stabilityContext),
+            new RecommendationStabilityStateRepository(stabilityContext))
+            .ReplaceAsync(
+                aggregate.Account.UserId,
+                aggregate.Recommendation,
+                successor,
+                new RecommendationCurrentExpectation.Present(
+                    aggregate.Recommendation.Id,
+                    ConcurrencyVersion.Initial),
+                new RecommendationStabilityStateExpectation.Absent());
+        await lifecycleTransaction.CommitAsync();
+
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => stabilityTask);
+        await using var verification = await CreateMigratedContext();
+        Assert.Equal(
+            1,
+            await verification.Recommendations.CountAsync(
+                recommendation => recommendation.PositionId == aggregate.Position.Id.Value));
+        Assert.Null(await new RecommendationRepository(verification)
+            .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id));
     }
 
     [Fact]

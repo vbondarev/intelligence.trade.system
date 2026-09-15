@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
+using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
@@ -62,6 +63,12 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(expectedState);
 
+        await RecommendationRecommendationLock.LockAsync(
+            dbContext,
+            userId,
+            positionId,
+            state.BaselineRecommendationId,
+            cancellationToken);
         var ownsPosition = await dbContext.Positions.AnyAsync(
             position =>
                 position.Id == positionId.Value &&
@@ -204,6 +211,12 @@ public sealed class RecommendationStabilityStateRepository(TradeSystemDbContext 
                 }
 
                 var present = (RecommendationStabilityStateExpectation.Present)expectedState;
+                await RecommendationRecommendationLock.LockAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    present.BaselineRecommendationId,
+                    token);
                 var affected = await dbContext.RecommendationStabilityStates
                     .Where(
                         state =>

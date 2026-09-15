@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Recommendations;
@@ -40,6 +41,7 @@ public sealed class RecommendationService(
         if (userId == default)
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
 
+        asOf = TimestampCanonicalizer.ToUtcMicroseconds(asOf);
         var persistedAssessment = await PositionAssessmentRepository.GetByIdAsync(
             userId,
             assessment.Id,

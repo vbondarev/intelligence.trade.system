@@ -75,22 +75,33 @@ internal static class RecommendationStabilityStateMapper
                 exception);
         }
 
-        var semanticState = document.ToDomain(entity.PositionId);
-        var firstObservedAt = PersistenceDateTime.ToUtc(entity.FirstObservedAt);
-        var lastObservedAt = PersistenceDateTime.ToUtc(entity.LastObservedAt);
-        if (firstObservedAt == default || lastObservedAt == default)
-            throw new InvalidOperationException(
-                $"Recommendation stability state {entity.PositionId} contains an uninitialized observation timestamp.");
+        try
+        {
+            var semanticState = document.ToDomain(entity.PositionId);
+            var firstObservedAt = PersistenceDateTime.ToUtc(entity.FirstObservedAt);
+            var lastObservedAt = PersistenceDateTime.ToUtc(entity.LastObservedAt);
+            if (firstObservedAt == default || lastObservedAt == default)
+                throw new ArgumentException(
+                    "Observation timestamps must be initialized.",
+                    nameof(entity));
 
-        var state = new RecommendationStabilityState(
-            semanticState,
-            firstObservedAt,
-            lastObservedAt,
-            entity.ConsecutiveObservations);
-        return new(
-            entity.StateId,
-            RecommendationId.FromGuid(entity.BaselineRecommendationId),
-            state);
+            var state = new RecommendationStabilityState(
+                semanticState,
+                firstObservedAt,
+                lastObservedAt,
+                entity.ConsecutiveObservations);
+            return new(
+                entity.StateId,
+                RecommendationId.FromGuid(entity.BaselineRecommendationId),
+                state);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException)
+        {
+            throw new InvalidOperationException(
+                $"Recommendation stability state {entity.PositionId} contains invalid persisted typed state.",
+                exception);
+        }
     }
 
     private sealed record RecommendationStabilitySemanticStateDocument
