@@ -11,6 +11,11 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
         builder.ToTable("recommendations", table => table.HasCheckConstraint(
             "ck_recommendations_version_positive", "version > 0"));
         builder.HasKey(recommendation => recommendation.Id);
+        builder.HasAlternateKey(recommendation => new
+        {
+            recommendation.Id,
+            recommendation.PositionId
+        }).HasName("ak_recommendations_id_position");
 
         builder.Property(recommendation => recommendation.Id)
             .HasColumnName("recommendation_id")
@@ -104,5 +109,10 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
             .HasForeignKey(recommendation => recommendation.SupersededByRecommendationId)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_recommendations_successor");
+
+        builder.HasIndex(recommendation => recommendation.PositionId)
+            .HasFilter("\"status\" IN ('Active', 'Acknowledged')")
+            .IsUnique()
+            .HasDatabaseName("ux_recommendations_current_position");
     }
 }

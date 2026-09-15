@@ -49,6 +49,7 @@ public static class StartupExtensions
         string? contentRootPath = null)
     {
         RegisterRecommendationPolicy(services, configuration, contentRootPath);
+        services.AddScoped<RecommendationService>();
 
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -83,7 +84,13 @@ public static class StartupExtensions
             serviceProvider => serviceProvider.GetRequiredService<ApplicationEventOutbox>());
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
         services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();
-        services.AddScoped<IRecommendationRepository, RecommendationRepository>();
+        services.AddScoped<RecommendationRepository>();
+        services.AddScoped<IRecommendationRepository>(
+            serviceProvider => serviceProvider.GetRequiredService<RecommendationRepository>());
+        services.AddScoped<RecommendationStabilityStateRepository>();
+        services.AddScoped<IRecommendationStabilityStateRepository>(
+            serviceProvider => serviceProvider.GetRequiredService<RecommendationStabilityStateRepository>());
+        services.AddScoped<IRecommendationPublicationTransaction, RecommendationPublicationTransaction>();
 
         return services;
     }
@@ -101,7 +108,6 @@ public static class StartupExtensions
 
         services.AddSingleton<IRecommendationPolicyDefinitionProvider>(
             new JsonRecommendationPolicyDefinitionProvider(path, contentRootPath));
-        services.AddScoped<RecommendationService>();
     }
 
     public static IServiceCollection AddExchangeAccountBackgroundSynchronization(

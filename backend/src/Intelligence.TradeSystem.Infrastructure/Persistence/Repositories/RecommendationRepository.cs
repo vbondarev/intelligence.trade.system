@@ -30,6 +30,91 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
 
         if (entity is null) return null;
 
+        return await LoadVersionedAsync(userId, entity, cancellationToken);
+    }
+
+    public async Task<Versioned<Recommendation>?> GetCurrentForPositionAsync(
+        UserId userId,
+        PositionId positionId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsurePositionId(positionId);
+
+        var entities = await dbContext.Recommendations
+            .AsNoTracking()
+            .Where(
+                recommendation =>
+                    recommendation.PositionId == positionId.Value &&
+                (recommendation.Status == RecommendationStatus.Active ||
+                 recommendation.Status == RecommendationStatus.Acknowledged) &&
+                    dbContext.Positions.Any(position =>
+                        position.Id == recommendation.PositionId &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value)))
+            .ToArrayAsync(cancellationToken);
+        if (entities.Length > 1)
+            throw new InvalidOperationException(
+                $"Position {positionId} has multiple current recommendations.");
+        if (entities.Length == 0)
+            return null;
+
+        return await LoadVersionedAsync(userId, entities[0], cancellationToken);
+    }
+
+    public async Task EnsureCurrentAsync(
+        UserId userId,
+        PositionId positionId,
+        RecommendationCurrentExpectation expectation,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsurePositionId(positionId);
+        ArgumentNullException.ThrowIfNull(expectation);
+
+        var currentQuery = dbContext.Recommendations
+            .AsNoTracking()
+            .Where(
+                recommendation =>
+                    recommendation.PositionId == positionId.Value &&
+                    (recommendation.Status == RecommendationStatus.Active ||
+                     recommendation.Status == RecommendationStatus.Acknowledged) &&
+                    dbContext.Positions.Any(position =>
+                        position.Id == recommendation.PositionId &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value)));
+
+        if (expectation is RecommendationCurrentExpectation.Absent)
+        {
+            if (await currentQuery.AnyAsync(cancellationToken))
+                throw new ConcurrencyConflictException(
+                    $"Position {positionId} has a current recommendation unexpectedly.");
+            return;
+        }
+
+        var present = (RecommendationCurrentExpectation.Present)expectation;
+        await RecommendationRecommendationLock.LockAsync(
+            dbContext,
+            userId,
+            positionId,
+            present.RecommendationId,
+            cancellationToken);
+        var current = await currentQuery
+            .SingleOrDefaultAsync(
+                recommendation => recommendation.Id == present.RecommendationId.Value,
+                cancellationToken);
+        if (current is null || current.Version != present.Version.Value)
+            throw new ConcurrencyConflictException(
+                $"Current recommendation for position {positionId} changed concurrently.");
+    }
+
+    private async Task<Versioned<Recommendation>> LoadVersionedAsync(
+        UserId userId,
+        RecommendationEntity entity,
+        CancellationToken cancellationToken)
+    {
         var assessmentEntity = await dbContext.PositionAssessments
             .AsNoTracking()
             .SingleOrDefaultAsync(
@@ -45,7 +130,7 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
                 cancellationToken);
         if (assessmentEntity is null)
             throw new InvalidOperationException(
-                $"Recommendation {id} references missing assessment {entity.AssessmentId}.");
+                $"Recommendation {entity.Id} references missing assessment {entity.AssessmentId}.");
 
         var assessmentReasons = await dbContext.PositionAssessmentReasons
             .AsNoTracking()
@@ -55,7 +140,7 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         var assessment = PositionAssessmentMapper.ToDomain(assessmentEntity, assessmentReasons);
         var reasons = await dbContext.RecommendationReasons
             .AsNoTracking()
-            .Where(reason => reason.RecommendationId == id.Value)
+            .Where(reason => reason.RecommendationId == entity.Id)
             .OrderBy(reason => reason.Sequence)
             .ToArrayAsync(cancellationToken);
 
@@ -63,11 +148,22 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             RecommendationMapper.ToDomain(entity, reasons, assessment), new ConcurrencyVersion(entity.Version));
     }
 
-    public async Task<ConcurrencyVersion> SaveAsync(
+    public Task<ConcurrencyVersion> SaveAsync(
         UserId userId,
         Recommendation recommendation,
         ConcurrencyVersion? expectedVersion,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(
+            userId,
+            recommendation,
+            token => SaveCoreAsync(userId, recommendation, expectedVersion, token),
+            cancellationToken);
+
+    private async Task<ConcurrencyVersion> SaveCoreAsync(
+        UserId userId,
+        Recommendation recommendation,
+        ConcurrencyVersion? expectedVersion,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(recommendation);
         EnsureUserId(userId);
@@ -144,7 +240,8 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
             catch (DbUpdateException exception)
                 when (PostgreSqlConcurrencyConflictDetector.IsDuplicatePrimaryKey(
                     exception,
-                    "PK_recommendations"))
+                    "PK_recommendations") ||
+                    PostgreSqlConcurrencyConflictDetector.IsCurrentRecommendationConflict(exception))
             {
                 throw UnavailableRecommendationConflict(recommendation.Id, exception);
             }
@@ -184,6 +281,71 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
         return newVersion;
     }
 
+    private async Task<T> ExecuteWriteAsync<T>(
+        UserId userId,
+        Recommendation recommendation,
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(recommendation);
+        EnsureUserId(userId);
+        EnsurePositionId(recommendation.PositionId);
+
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            await LockForWriteAsync(userId, recommendation, cancellationToken);
+            return await operation(cancellationToken);
+        }
+
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await LockForWriteAsync(userId, recommendation, cancellationToken);
+            var result = await operation(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            finally
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+
+            throw;
+        }
+    }
+
+    private Task LockForWriteAsync(
+        UserId userId,
+        Recommendation recommendation,
+        CancellationToken cancellationToken) =>
+        LockForWriteCoreAsync(userId, recommendation, cancellationToken);
+
+    private async Task LockForWriteCoreAsync(
+        UserId userId,
+        Recommendation recommendation,
+        CancellationToken cancellationToken)
+    {
+        await RecommendationPositionLock.LockAsync(
+            dbContext,
+            userId,
+            recommendation.PositionId,
+            cancellationToken);
+        await RecommendationRecommendationLock.LockAsync(
+            dbContext,
+            userId,
+            recommendation.PositionId,
+            recommendation.Id,
+            cancellationToken);
+    }
+
     private static ConcurrencyConflictException UnavailableRecommendationConflict(
         RecommendationId id,
         Exception? innerException = null) =>
@@ -195,6 +357,12 @@ public sealed class RecommendationRepository(TradeSystemDbContext dbContext) : I
     {
         if (userId == default)
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
+    }
+
+    private static void EnsurePositionId(PositionId positionId)
+    {
+        if (positionId == default)
+            throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
     }
 
     private static void EnsureReasonsMatch(
