@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.15
-Дата актуализации: 15 сентября 2026 года
-Проверенная база: PR #100 к Issue #99 merged в `develop`; E-08.2 реализован в текущем PR
-Последняя учтённая задача: E-08.2 «Применение и хранение стабилизации рекомендаций»
-Текущий следующий этап после merge: **F — пользовательский REST API и SignalR**
+Версия документа: 3.16
+Дата актуализации: 16 сентября 2026 года
+Проверенная база: PR #102 (E-08.2) и PR #105 (техническая стабилизация перед F) merged в `develop`
+Последняя учтённая задача: Issue #104 / PR #105 «Техническая стабилизация перед переходом к этапу F»
+Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -36,7 +36,7 @@
 11. Для защищённого API приняты OAuth 2.0 / OpenID Connect, Bearer access tokens и signed JWT как целевой формат access token первого MVP; browser cookie допускается только на BFF boundary.
 12. Authorization Server реализован как отдельный ASP.NET Core Identity + OpenIddict host; `Api` использует JwtBearer discovery/JWKS. User isolation C-06 реализована на Application/Infrastructure boundary.
 13. User-delegated `sub` сопоставляется со стабильным Domain `UserId`; machine principal не является Domain user.
-14. Политика рекомендаций развивается в сторону внешних версионируемых конфигураций: пороги, лимиты, коэффициенты, временные параметры и другие настраиваемые значения загружаются через типизированный и валидируемый `PolicyDefinition`. Критические safety-инварианты остаются в C# и не могут быть отключены конфигурацией. Архитектура должна допускать последующий переход к декларативным правилам и Rule Engine без переработки доменной оценки позиции.
+14. Политика рекомендаций использует внешнюю версионируемую конфигурацию: пороги, лимиты, коэффициенты, временные параметры и другие настраиваемые значения загружаются через типизированный и валидируемый `PolicyDefinition`. Критические safety-инварианты остаются в C# и не могут быть отключены конфигурацией. Архитектура допускает последующий переход к более декларативным правилам и Rule Engine без переработки доменной оценки позиции.
 
 ## 3. Обозначения статуса
 
@@ -54,14 +54,14 @@
 | B | Бизнес-домен аккаунта, позиции, оценки и рекомендации | ✅ Завершён |
 | C | Хранение, безопасность и пользователи | ✅ Завершён |
 | D | Подключение Bybit и синхронизация | ✅ Завершён |
-| E | Оценка позиции и рекомендации | 🟡 Частично реализован |
-| F | Пользовательский API и SignalR | ⬜ Не начат |
+| E | Оценка позиции и рекомендации | ✅ Завершён |
+| F | Пользовательский API и SignalR | 🚧 Текущий этап |
 | G | React-клиент | ⬜ Не начат |
 | H | Непрерывное наблюдение | ⬜ Не начат |
 | I | Telegram-уведомления и объяснения | 🟡 Есть отдельный BTC Daily Check |
 | J | Проверка качества рекомендаций | ⬜ Не начат |
 | K | Переосмысление OpenClaw и расширенный ИИ-анализ | 🔵 Вне первого MVP |
-| L | Эксплуатационная готовность | 🟡 Есть базовые OpenTelemetry и адреса проверки состояния |
+| L | Эксплуатационная готовность | 🟡 Есть базовые OpenTelemetry, CI quality gates и адреса проверки состояния |
 | M | Расширение продукта | 🔵 Вне первого MVP |
 | N | Контролируемое исполнение | 🔵 Вне первого MVP |
 
@@ -77,6 +77,13 @@
 - **Tech-E02** ✅ (PR #91): внешний набор Agent Skills сокращён до конкретных project-scoped skills, перенесён в общий для Codex и Copilot каталог `.agents/skills` и снабжён фиксированным происхождением upstream-копий.
 - **Tech-E03** ✅ (PR #91): project-owned XML-документация C# переведена на русский язык без изменения поведения кода и машинных контрактов.
 - **Tech-E04** ✅ (PR #91): ROADMAP и связанная проектная документация сверены с фактическим состоянием после Stage D; устранены устаревшие формулировки перед E-01.
+
+### Техническая подготовка перед этапом F
+
+- **Tech-F01** ✅ (Issue #104 / PR #105): `RecommendationService` больше не допускает fail-late конфигурацию persistence; обязательные repository/transaction dependencies задаются через конструктор, а сервис регистрируется только вместе с persistence.
+- **Tech-F02** ✅ (PR #105): .NET SDK зафиксирован через `global.json`, Docker SDK/runtime images приведены к фиксированным версиям.
+- **Tech-F03** ✅ (PR #105): CI запускается на pull request и push в `develop`/`main`, добавлены aggregate line coverage gate с порогом 92% и проверка direct/transitive NuGet vulnerabilities.
+- **Tech-F04** ✅ (PR #105): coverage aggregator различает production assembly/source file/line, дедуплицирует одну production source line между несколькими test projects и защищён regression tests.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -100,10 +107,17 @@
 - ✅ Существенные изменения позиции фиксируются неизменяемыми записями `PositionChange`.
 - ✅ Реализованы `PortfolioState`, агрегирование портфеля и базовая политика увеличения риска.
 - ✅ Реализованы неизменяемый `PositionAssessment`, жизненный цикл `Recommendation` и раздельные словари `PositionAction`, `AddDecision`, `RiskIncreaseDecision` и `ReasonCode`.
-- ✅ Добавлены архитектурные, доменные, прикладные, API- и модульные тесты.
-- ✅ CI для PR #38, #40, #42, #44 и #46 успешно выполнил сборку и тесты.
+- ✅ Реализованы единый воспроизводимый вход оценки позиции и `PositionAssessmentService`; направление позиции, market/portfolio context, fresh/partial/uncertain data и configuration identity учитываются явно.
+- ✅ Реализована внешняя строгая JSON-конфигурация `PolicyDefinition` с canonical SHA-256 identity и валидацией.
+- ✅ Реализована чистая детерминированная `RecommendationPolicy` со всеми семью `PositionAction`, независимым `AddDecision`, typed reasons, confidence/priority и консервативным maximum additional size.
+- ✅ Реализованы typed invalidation/reevaluation conditions, `ValidUntil`, policy identity и persistence continuation metadata.
+- ✅ Реализована `RecommendationStabilityPolicy`: semantic comparison, cooldown, hysteresis, pending confirmation и safety bypass.
+- ✅ В PR #102 реализованы применение stability policy в `RecommendationService`, persisted baseline-bound pending state, PostgreSQL state repository, CAS/retry, user isolation и атомарная публикация/замена current recommendation.
+- ✅ Safety guards запрещают повышение риска при stale, partial, uncertain и degraded данных независимо от внешней конфигурации.
+- ✅ Сценарные тесты Stage E покрывают long/short, trend/flat, RSI, low volume/quality, liquidation, stop/breakeven и concentration в рамках текущей portfolio risk model.
+- ✅ Добавлены архитектурные, доменные, прикладные, API-, модульные и интеграционные тесты.
 - ✅ Базовая обвязка OpenTelemetry и проверки состояния сервиса присутствует в `ServiceDefaults`.
-- ✅ Создан `Infrastructure` с EF Core `DbContext`, PostgreSQL provider, migrations, repository implementations и Testcontainers integration tests; Application repository ports подключены к сценариям подключения и синхронизации Bybit.
+- ✅ Создан `Infrastructure` с EF Core `DbContext`, PostgreSQL provider, migrations, repository implementations и Testcontainers integration tests; Application repository ports подключены к сценариям подключения, синхронизации и recommendation workflow.
 - ✅ Публичные и приватные возможности Bybit разделены; public client не использует пользовательские credentials, а private provider создаётся для конкретных credentials.
 - ✅ Реализована основа OAuth/OIDC-аутентификации: отдельный Identity host, Identity/OpenIddict persistence, Authorization Code + PKCE (S256), signed non-encrypted JWT, discovery/JWKS и JwtBearer resource server.
 - ✅ Реализована изоляция C-06: user-delegated principal явно маркируется, `sub` преобразуется в Domain `UserId`, user-owned repository operations требуют явный scope, а cross-user reads/writes проверены на PostgreSQL и через реальный Bearer E2E.
@@ -113,19 +127,21 @@
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
 - ✅ Реализован общий process-local кэш публичного `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный `Symbol` и `MarketCategory`, без пользовательских и приватных измерений.
+- ✅ В PR #105 устранена частично сконфигурированная DI-модель `RecommendationService`, зафиксирован SDK и усилен CI quality gate перед этапом F.
 
 ### Есть только как заготовка
 
 - 🟡 Legacy-типы `OpenPosition`, `OpenPositionSnapshot`, `PortfolioSnapshot` и их сборщик сохраняются для совместимости текущих путей, но не заменяют новый домен `Position` и `PortfolioState`.
-- 🟡 Наблюдаемость имеет общий технический фундамент и телеметрию синхронизации, но полный путь сопровождения позиции ещё не реализован.
+- 🟡 Наблюдаемость имеет общий технический фундамент и телеметрию синхронизации, но непрерывное наблюдение за позициями и пользовательские уведомления относятся к этапам H–I.
 
 ### Пока отсутствует
 
-- ✅ Детерминированные `PositionAssessmentService` и `RecommendationPolicy`: policy definition загружается из строгого JSON, получает canonical SHA-256 identity, а решение сохраняется с action/add context.
-- ⬜ API версии 1 для аккаунтов, позиций, портфеля и рекомендаций.
-- ⬜ SignalR-обновления.
-- ⬜ React-клиент.
+- ⬜ Полный API версии 1 для аккаунтов, позиций, портфеля, оценок и рекомендаций.
+- ⬜ SignalR-обновления пользовательского состояния.
+- ⬜ React-клиент и BFF.
+- ⬜ Непрерывный цикл повторной оценки активных позиций.
 - ⬜ Уведомления о риске конкретной позиции.
+- ⬜ Расширенная portfolio analytics и correlation model; это развитие перенесено в этап M и не является критерием завершения Stage E.
 
 ## 5. Дорожная карта
 
@@ -146,7 +162,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Бизнес-домен сопровождения позиций завершён в PR #38, #40, #42, #44 и #46. Этапы C и D завершены; текущий следующий этап — E: детерминированное сопровождение позиции.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–E также завершены; текущий этап — F: пользовательский REST API и SignalR.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -175,7 +191,7 @@
 | C-01 | Создать проект `Infrastructure` | ✅ | Зависимости соответствуют архитектурным правилам |
 | C-02 | Подключить PostgreSQL и миграции | ✅ | Чистая PostgreSQL база разворачивается первой содержательной migration; design-time factory поддерживает list/update |
 | C-03 | Сохранять аккаунты, позиции, версии, портфели, оценки и рекомендации | ✅ | Состояние и история восстанавливаются после перезапуска через Application repository ports |
-| C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry; покрыто PostgreSQL-тестами |
+| C-04 | Добавить оптимистическую конкурентность | ✅ | Compare-and-swap через версии для ExchangeAccount/Position/Recommendation, без retry на обычном repository save; покрыто PostgreSQL-тестами |
 | C-05 | Принять ADR по универсальной стратегии аутентификации | ✅ | Принят client-agnostic contract: OAuth 2.0/OpenID Connect, Bearer access tokens и signed JWT для защищённого API; browser cookie допускается только на BFF boundary |
 | C-05A | Реализовать основу OAuth/OIDC-аутентификации универсального API | ✅ | Реализованы explicit migration lifecycle, отдельные Identity/OpenIddict persistence и deployable host, Authorization Code + PKCE (S256), signed short-lived non-encrypted JWT, public issuer/internal backchannel для discovery/JWKS, discovery scopes, lockout, overlapping signing keys, JwtBearer validation, Compose-level protected Bearer smoke и PostgreSQL integration tests; stable user-delegated `sub` → Domain `UserId`, public endpoints anonymous. См. ADR-0003 |
 | C-06 | Реализовать разграничение данных по `UserId` | ✅ | User-delegated `sub` сопоставляется с Domain `UserId`; user-owned операции изолированы по владельцу и подтверждены PostgreSQL и Bearer E2E-тестами |
@@ -200,16 +216,16 @@
 
 ### Этап E. Реализовать детерминированное сопровождение позиции
 
-Статус этапа: 🟡 Частично реализован до merge текущего PR (E-01 — E-07 и E-09 реализованы; E-08.1 ✅ merged PR #100, E-08.2 реализован в текущем PR; E-10 остаётся сценарно частичным).
+Статус этапа: ✅ Завершён.
 
-Рекомендация должна состоять из двух независимых решений:
+Рекомендация состоит из двух независимых решений:
 
 1. `RecommendedAction` — что делать с уже открытой позицией: `Hold`, `Watch`, `ProtectProfit`, `Reduce`, `Close`, `MoveStop` или `TakePartialProfit`.
 2. `AddDecision` — допустимо ли увеличивать риск: `NotEvaluated`, `DoNotAdd` или `AddAllowed`.
 
-Такое разделение не допускает двусмысленности вроде «удерживать позицию» и одновременно неявно разрешать её усреднение. `DoNotAdd` можно использовать в первом MVP. `AddAllowed` включается последним и только после отдельной проверки портфельного риска, расстояния до ликвидации, слома исходного сценария и максимального дополнительного размера.
+Такое разделение не допускает двусмысленности вроде «удерживать позицию» и одновременно неявно разрешать её усреднение. `AddAllowed` проходит отдельные hard guards портфельного риска, расстояния до ликвидации, слома исходного сценария и ограничивается рассчитанным maximum additional size.
 
-Политика рекомендаций должна быть отделена от вычисления оценки позиции. В первой версии внешняя конфигурация хранит пороги, лимиты, коэффициенты, временные интервалы и другие параметры политики в JSON или YAML и загружается в типизированный `PolicyDefinition` с обязательной валидацией. Критические safety-инварианты, включая запрет повышения риска при stale/partial/uncertain данных, остаются в C# и не могут быть отключены внешней конфигурацией. Каждая использованная политика должна иметь стабильную версию и hash, чтобы рекомендацию можно было воспроизвести по тем же входным данным. После стабилизации Stage E архитектура должна позволять постепенно выносить подходящие правила в декларативный формат и перейти к Rule Engine без переработки `PositionAssessment`; полноценный собственный DSL не является обязательным результатом этого этапа.
+Политика рекомендаций отделена от вычисления оценки позиции. Внешняя конфигурация хранит пороги, лимиты, коэффициенты и временные параметры в строгом JSON и загружается в типизированный `PolicyDefinition` с обязательной валидацией. Критические safety-инварианты, включая запрет повышения риска при stale/partial/uncertain данных, остаются в C# и не могут быть отключены внешней конфигурацией. Каждая использованная политика имеет стабильную version/hash identity, поэтому рекомендация воспроизводима по тем же входным данным. Полноценный собственный DSL не является обязательным результатом первого MVP.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -219,16 +235,16 @@
 | E-04 | Реализовать версионируемую `RecommendationPolicy` с внешним `PolicyDefinition` | ✅ | Параметры политики загружаются из строгой JSON-конфигурации; identity вычисляется как canonical SHA-256; одинаковый assessment, policy и `asOf` дают одинаковый результат |
 | E-05 | Добавить `RecommendedAction` | ✅ | Поддержаны Hold, Watch, ProtectProfit, Reduce, Close, MoveStop и TakePartialProfit; каждое действие имеет typed reasons, confidence, priority и ограниченный assessment validity срок |
 | E-06 | Добавить `AddDecision` | ✅ | `DoNotAdd` объясняет запрет; `AddAllowed` проходит hard guards, фиксирует conditions и рассчитывает консервативный maximum additional position value/quantity |
-| E-07 | Добавить условия отмены и следующей проверки | ✅ | Реализовано в merged PR #98: рекомендация содержит typed invalidation/reevaluation conditions, valid-until, policy identity и PostgreSQL continuation metadata |
-| E-08 | Защититься от дребезга рекомендаций | 🟡 | E-08.1 ✅ merged PR #100: чистая доменная anti-chatter/stability policy; E-08.2 реализован в текущем PR: application orchestration, PostgreSQL state, CAS и атомарная публикация |
+| E-07 | Добавить условия отмены и следующей проверки | ✅ | PR #98: рекомендация содержит typed invalidation/reevaluation conditions, valid-until, policy identity и PostgreSQL continuation metadata |
+| E-08 | Защититься от дребезга рекомендаций | ✅ | E-08.1 PR #100: чистая доменная anti-chatter/stability policy; E-08.2 PR #102: application orchestration, PostgreSQL pending state, CAS/retry, user isolation и атомарная публикация/замена recommendation |
 | E-09 | Запретить повышение риска при устаревших, неполных или неопределённых данных | ✅ | Hard guard выполняется до configurable rules: legacy/degraded data всегда дают Watch + DoNotAdd; внешняя policy не может его отключить |
-| E-10 | Добавить сценарные тесты long/short и пограничных рисков | 🟡 | Покрыты trend, flat, RSI, low volume/quality, liquidation, stop/breakeven, concentration и long/short; correlation scenario остаётся до появления соответствующей portfolio-модели |
+| E-10 | Добавить сценарные тесты long/short и пограничных рисков | ✅ | Покрыты trend, flat, RSI, low volume/quality, liquidation, stop/breakeven, concentration и long/short в рамках текущей portfolio risk model; correlation model перенесена в этап M как расширение portfolio analytics |
 
-Результат этапа: система сопровождает позиции без зависимости от ИИ и без исполнения сделок; одинаковые входные данные и зафиксированная версия внешней политики воспроизводят одно и то же решение, а критические ограничения безопасности остаются частью детерминированного кода.
+Результат этапа: система детерминированно оценивает позицию и формирует устойчивую рекомендацию без зависимости от ИИ и без исполнения сделок; одинаковые входные данные и зафиксированная версия внешней политики воспроизводят одно и то же решение, а критические ограничения безопасности остаются частью кода. Persisted anti-chatter state предотвращает ненужную смену рекомендаций, а publication/replacement current recommendation выполняются атомарно и user-scoped.
 
 ### Этап F. Создать пользовательский API и обновления в реальном времени
 
-Статус этапа: ⬜ Не начат.
+Статус этапа: 🚧 Текущий этап.
 
 Минимальный API:
 
@@ -345,7 +361,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 ### Этап L. Подготовить систему к эксплуатации
 
-Статус этапа: 🟡 Есть общий фундамент OpenTelemetry и адреса проверки состояния. Минимальная безопасность аккаунтов реализуется раньше на этапе C; здесь завершается эксплуатационная готовность всей цепочки. Задачи L-01 — L-05 выполняются параллельно продуктовым этапам и обязательны до пилотного запуска с реальными пользователями.
+Статус этапа: 🟡 Есть общий фундамент OpenTelemetry, адреса проверки состояния и базовые CI quality gates. Минимальная безопасность аккаунтов реализована раньше на этапе C; здесь завершается эксплуатационная готовность всей цепочки. Задачи L-01 — L-05 выполняются параллельно продуктовым этапам и обязательны до пилотного запуска с реальными пользователями.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -367,6 +383,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 - Binance, OKX и другие биржи;
 - spot и другие типы инструментов;
 - расширенная портфельная аналитика и корреляции;
+- correlation model для cross-position/asset risk;
 - поиск новых торговых возможностей;
 - торговый журнал;
 - пользовательские стратегии и профили риска;
@@ -392,16 +409,15 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Применить и хранить стабилизацию рекомендаций | E-08.2 |
-| 2 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
-| 3 | Создать адаптивную React-панель | G-01 — G-08 |
-| 4 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 5 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
-| 6 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 7 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 8 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Добавить пользовательский REST API и SignalR | F-01 — F-06 |
+| 2 | Создать адаптивную React-панель | G-01 — G-08 |
+| 3 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-07 |
+| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы B, C и D завершены и больше не входят в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–E завершены и больше не входят в очередь ближайших PR. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -425,6 +441,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 - безусловная рекомендация увеличивать убыточную позицию;
 - зависимость торгового решения от доступности ИИ;
 - расширенный анализ новостей, макроэкономики, социальных сетей и on-chain данных;
+- расширенная correlation model и количественная оптимизация portfolio risk;
 - количественная оптимизация правил на накопленной статистике;
 - мобильные нативные и VR-клиенты;
 - поддержка нескольких бирж.
@@ -439,7 +456,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 4. Не нарушены направления зависимостей.
 5. Изменения публичных контрактов совместимы либо версионированы.
 6. Секреты и приватные данные не попадают в журналы и ответы.
-7. README и AGENTS.md обновлены при изменении архитектуры.
+7. README и ROADMAP обновлены при изменении фактического состояния этапов или архитектуры.
 8. Если изменение затрагивает `llm-payload` 1.0, совместимость с BTC Daily Check проверена либо принято и зафиксировано отдельное решение о миграции.
 9. Если изменение затрагивает формирование рекомендаций, версия и hash применяемого `PolicyDefinition` сохраняются для воспроизводимости, а критические safety-инварианты не могут быть отключены внешней конфигурацией.
 
@@ -460,6 +477,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-16 | 3.16 | PR #102 merged в `develop` и завершил E-08.2: применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS/retry, user isolation и атомарную публикацию/замену recommendation. Stage E отмечен завершённым; correlation model перенесена в Stage M и больше не блокирует E-10. PR #105 завершил техническую стабилизацию перед F: обязательные DI dependencies, conditional persistence registration, `global.json`, CI push checks, aggregate coverage gate и NuGet vulnerability check. Текущий этап — F. |
 | 2026-09-15 | 3.15 | PR #100 merged в `develop`; E-08.2 реализует применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS, user isolation, partial unique current index и транзакционную публикацию successor. До merge текущего PR E-08 остаётся 🟡; следующим этапом становится F. |
 | 2026-09-14 | 3.14 | В PR #100 к Issue #99 исправляются review findings E-08.1: candidate/pending temporal validation и replay idempotency, risk-safe policy/priority ordering, mixed capacity semantics, inherited portfolio reasons и strict JSON regression coverage. PR ещё не merged; следующим остаётся E-08.2. |
 | 2026-09-14 | 3.13 | PR #98 merged в `develop`; E-07 отмечен завершённым. В E-08.1 добавлена чистая доменная anti-chatter/stability policy с semantic comparison, typed decisions/reasons, cooldown, hysteresis, safety bypass и strict stability profile в policy hash. Persistence и orchestration замещения остаются E-08.2. |

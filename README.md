@@ -74,7 +74,9 @@
 
 ## Текущее состояние
 
-Этапы A, B, C и D завершены. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring. Следующий этап — E-01: единый вход оценки позиции.
+Этапы **A, B, C, D и E завершены**. Backend уже умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+
+Следующий этап — **F: пользовательский REST API и SignalR**. На этом этапе существующее доменное и прикладное состояние будет опубликовано через стабильный user-facing API; React-клиент относится к следующему этапу G.
 
 ### Уже реализовано
 
@@ -106,28 +108,40 @@
 - `PortfolioState`, агрегирование портфеля и базовая политика увеличения риска;
 - неизменяемый `PositionAssessment` и жизненный цикл `Recommendation`;
 - отдельные словари `PositionAction`, `AddDecision`, `RiskIncreaseDecision` и `ReasonCode`;
+- единый воспроизводимый вход оценки позиции и `PositionAssessmentService`, учитывающий позицию, рынок, портфель, свежесть данных и policy identity;
+- версионируемый строгий JSON `PolicyDefinition` с canonical SHA-256 identity и валидацией;
+- детерминированная `RecommendationPolicy`, отделённая от расчёта `PositionAssessment`;
+- действия `Hold`, `Watch`, `ProtectProfit`, `Reduce`, `Close`, `MoveStop`, `TakePartialProfit` и независимое решение `AddDecision`;
+- неотключаемые safety guards, запрещающие повышение риска при stale, partial или uncertain данных;
+- typed invalidation/reevaluation conditions, `ValidUntil`, policy identity и persistence continuation metadata;
+- `RecommendationStabilityPolicy` с anti-chatter, cooldown/hysteresis и safety bypass;
+- применение stability policy в `RecommendationService`, persisted pending stability state в PostgreSQL, CAS/retry и атомарная публикация/замена current recommendation;
+- user-scoped persistence оценки, recommendation и stability state с PostgreSQL integration tests на concurrency и isolation;
 - relational PostgreSQL schema, EF Core migrations, persistence repositories и Testcontainers integration tests для доменного состояния;
 - PostgreSQL transactional outbox для versioned application events; события durable сохраняются до появления downstream consumer. Доставка имеет at-least-once semantics, `EventId` используется для idempotency, а `PositionId + PositionChangeSequence` — для causal ordering. Dispatcher по умолчанию отключён и включается только после регистрации реальных `IApplicationEventHandler<TEvent>`; operational-параметры задаются в `ApplicationEventOutboxDispatcher` (polling, batch, concurrency, lease и retry delay);
 - общий process-local кэш финальных публичных `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный через `Trim()` `Symbol` и `MarketCategory`, без `UserId` и приватного состояния;
-- оптимистическая конкурентность (compare-and-swap по версии, без retry) для ExchangeAccount, Position и Recommendation;
+- оптимистическая конкурентность (compare-and-swap по версии) для ExchangeAccount, Position и Recommendation; recommendation publication использует bounded retry после свежего persistence read;
+- воспроизводимая среда сборки через `global.json` и фиксированные .NET SDK/runtime версии в Docker;
+- CI на pull request и push в `develop`/`main`, aggregate line coverage gate, NuGet vulnerability check, Docker/Identity/PostgreSQL/OAuth smoke проверки;
 - изолированный публичный BTC Daily Check через OpenClaw и Telegram;
-- архитектурные, доменные, модульные, прикладные и API-тесты;
+- архитектурные, доменные, модульные, прикладные, API- и интеграционные тесты;
 - базовые OpenTelemetry и проверки состояния сервиса.
 
 ### Есть только как архитектурная заготовка
 
 - legacy-типы `OpenPosition`, `OpenPositionSnapshot`, `PortfolioSnapshot` и их сборщик, сохраняемые для совместимости текущих путей;
-- инфраструктура структурированного логирования, OpenTelemetry и устойчивости внешних вызовов, включая telemetry фоновой синхронизации.
+- инфраструктура структурированного логирования, OpenTelemetry и устойчивости внешних вызовов; полный operational-контур наблюдения и пользовательских уведомлений относится к последующим этапам.
 
 Фоновая синхронизация выбирает только активные Bybit-аккаунты (`Connected` и `Unavailable`) и использует существующий application sync workflow.
 
 ### Ещё не реализовано
 
-- детерминированный сервис оценки позиции и политика формирования рекомендаций;
-- API v1 для аккаунтов, позиций, портфеля и рекомендаций;
-- SignalR-обновления;
-- React-клиент;
-- уведомления о рисках конкретных пользовательских позиций.
+- полный API v1 для аккаунтов, позиций, портфеля, оценок и рекомендаций;
+- SignalR-обновления пользовательского состояния;
+- React-клиент и BFF пользовательского интерфейса;
+- непрерывный цикл повторной оценки активных позиций;
+- уведомления о рисках конкретных пользовательских позиций;
+- расширенная портфельная аналитика, включая correlation model.
 
 ---
 
@@ -194,7 +208,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF и Bybit onboarding ещё не реализованы. User isolation выполняется на Application/Infrastructure boundary, но полный user-facing CRUD ещё относится к этапу F.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF и Bybit onboarding через пользовательский API ещё не реализованы. User isolation выполняется на Application/Infrastructure boundary, но полный user-facing CRUD относится к этапу F.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 
@@ -229,13 +243,13 @@ Secure HttpOnly cookie может использоваться только ме
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
 
-Тестовые проекты отдельно проверяют архитектурные зависимости, чистый домен, API-контракты, прикладную логику, биржевые адаптеры и Market Intelligence.
+Тестовые проекты отдельно проверяют архитектурные зависимости, чистый домен, API-контракты, прикладную логику, persistence/concurrency, биржевые адаптеры и Market Intelligence.
 
 ---
 
 ## Market Intelligence — уже работающая часть системы
 
-Текущая наиболее зрелая часть проекта — подсистема публичного рыночного анализа. Она получает данные Bybit и формирует структурированный `MarketSnapshot`, который используется как подготовленный рыночный контекст.
+Подсистема публичного рыночного анализа получает данные Bybit и формирует структурированный `MarketSnapshot`, который используется как подготовленный рыночный контекст для оценки позиции и других сценариев.
 
 Готовый публичный `MarketSnapshot` переиспользуется между request scopes через короткоживущий process-local cache. Для одинаковых `ExchangeId + Symbol + MarketCategory` сборка выполняется один раз на cache miss (single-flight) в независимо управляемом DI scope; `AnalysisMode`, пользовательские данные, приватные account state, credentials, Redis, PostgreSQL cache persistence и background refresh в этот кэш не входят.
 
@@ -256,7 +270,7 @@ Secure HttpOnly cookie может использоваться только ме
 
 ### `entryQuality`
 
-`entryQuality` отвечает на вопрос, насколько текущая рыночная ситуация подходит для рассмотрения входа. Это **не рекомендация по пользовательской позиции** и не будущий `PositionAssessment`.
+`entryQuality` отвечает на вопрос, насколько текущая рыночная ситуация подходит для рассмотрения входа. Это **не рекомендация по пользовательской позиции** и не `PositionAssessment`.
 
 Оценка учитывает тренд, EMA, RSI, объём, уровни, рыночный режим, качество данных и конфликтующие сигналы.
 
@@ -330,7 +344,7 @@ GET /api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode
 |---|---|
 | `Intraday` | Внутридневной рыночный контекст |
 | `Swing` | Более широкий контекст для удержания сценария дольше одного дня |
-| `Portfolio` | Рыночный контекст с набором старших основных таймфреймов; полноценный пользовательский портфельный сценарий ещё не реализован |
+| `Portfolio` | Рыночный контекст с набором старших основных таймфреймов; полноценный пользовательский портфельный API относится к этапу F |
 
 ### Legacy market snapshot
 
@@ -356,13 +370,13 @@ Endpoint сохраняется ради совместимости и отла�
 
 ### Требования
 
-- .NET 10 SDK;
+- .NET 10 SDK; конкретная версия зафиксирована в корневом `global.json`;
 - доступ к интернету для получения публичных данных Bybit;
 - Docker — для контейнерного запуска и integration tests на Testcontainers;
 - внешний или локальный PostgreSQL — только если backend запускается без Docker Compose, Aspire или Testcontainers;
 - Docker Compose создаёт named network `trade-agent-network` автоматически.
 
-Публичный рыночный анализ не должен требовать пользовательских API-ключей Bybit. Приватные credentials понадобятся только для будущих сценариев чтения конкретного аккаунта.
+Публичный рыночный анализ не требует пользовательских API-ключей Bybit. Приватные credentials используются только для подключённого пользователем read-only аккаунта и его ручной/фоновой синхронизации.
 
 ### Защита credentials Bybit
 
@@ -505,7 +519,7 @@ Identity migrations:
 
 ```bash
 cd backend/src
-export ConnectionStrings__TradeSystemIdentity='Host=localhost;Port=5432;Database=tradesystem_identity;Username=tradesystem;******'
+export ConnectionStrings__TradeSystemIdentity='Host=localhost;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=<password>'
 dotnet ef migrations list --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
 dotnet ef database update --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
 dotnet run --project Intelligence.TradeSystem.Identity.Migrations
@@ -521,6 +535,8 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 
 - архитектурных зависимостей;
 - доменных инвариантов аккаунта, позиции, портфеля, оценки и рекомендации;
+- `PositionAssessmentService`, recommendation policy и anti-chatter/stability policy;
+- persistence recommendation lifecycle, stability state, concurrency и user isolation;
 - API-контрактов, включая `llm-payload` 1.0;
 - прикладных сервисов;
 - PostgreSQL migrations и persistence через Testcontainers;
@@ -529,9 +545,9 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
-CI выполняет сборку, тесты, сборку Docker-образов API, Identity и migration runner, затем запускает Compose auth stack и проверяет Identity discovery/JWKS и API liveness.
+CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. После тестов workflow собирает Docker-образы API, Identity и migration runner, запускает Compose auth stack и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness и настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke.
 
-Release-сборка настроена с `TreatWarningsAsErrors=true`.
+Release-сборка настроена с `TreatWarningsAsErrors=true` для проектных предупреждений; известные SDK/tooling warnings оцениваются отдельно и не скрываются отключением анализаторов.
 
 ---
 
@@ -539,16 +555,17 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы B, C и D завершены. Текущий следующий этап — **E-01: единый вход оценки позиции**.
+Этапы **A–E завершены**. Текущий следующий этап — **F: пользовательский REST API и SignalR**.
 
 Основная ближайшая последовательность:
 
-1. детерминированная оценка позиции и политика рекомендаций;
-2. пользовательский REST API и SignalR;
-3. React-панель;
-4. непрерывное наблюдение и Telegram-уведомления;
-5. измерение качества рекомендаций;
-6. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
+1. пользовательский REST API и SignalR;
+2. React-панель и BFF;
+3. непрерывное наблюдение за активными позициями;
+4. Telegram-уведомления и детерминированные объяснения;
+5. подготовка пилотной эксплуатации;
+6. измерение качества рекомендаций;
+7. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
 
 ---
 
@@ -573,10 +590,11 @@ Release-сборка настроена с `TreatWarningsAsErrors=true`.
 
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
-- persistence доменного состояния реализована и подключена к ручному и фоновому workflow синхронизации; пользовательский API для этого состояния ещё не завершён;
-- PostgreSQL schema, migrations и repository implementations поддерживают автоматическую синхронизацию; внешний transport остаётся read-only;
-- детерминированный сервис, который формирует оценки и рекомендации из рыночного и портфельного контекста, ещё не реализован;
+- persistence доменного состояния, оценок, рекомендаций и stability state реализована, но полный пользовательский API для этого состояния ещё не завершён;
+- PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; внешний transport остаётся read-only;
+- повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
 - React-клиент ещё не создан;
+- correlation model и расширенная portfolio analytics перенесены в последующее расширение продукта и не блокируют завершение этапа E;
 - BTC Daily Check остаётся отдельным экспериментальным публичным сценарием;
 - качество рыночного анализа зависит от свежести и полноты данных.
 
