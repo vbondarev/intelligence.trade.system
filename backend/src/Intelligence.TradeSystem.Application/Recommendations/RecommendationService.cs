@@ -12,24 +12,12 @@ public sealed class RecommendationService(
     IRecommendationPolicyDefinitionProvider policyDefinitionProvider,
     RecommendationPolicy policy,
     RecommendationStabilityPolicy stabilityPolicy,
-    IRecommendationRepository? recommendationRepository = null,
-    IRecommendationStabilityStateRepository? stabilityStateRepository = null,
-    IRecommendationPublicationTransaction? publicationTransaction = null,
-    IPositionAssessmentRepository? positionAssessmentRepository = null)
+    IRecommendationRepository recommendationRepository,
+    IRecommendationStabilityStateRepository stabilityStateRepository,
+    IRecommendationPublicationTransaction publicationTransaction,
+    IPositionAssessmentRepository positionAssessmentRepository)
 {
     private const int MaximumAttempts = 3;
-    private IRecommendationRepository RecommendationRepository =>
-        recommendationRepository ?? throw new InvalidOperationException(
-            "Recommendation persistence is not configured.");
-    private IRecommendationStabilityStateRepository StabilityStateRepository =>
-        stabilityStateRepository ?? throw new InvalidOperationException(
-            "Recommendation stability state persistence is not configured.");
-    private IRecommendationPublicationTransaction PublicationTransaction =>
-        publicationTransaction ?? throw new InvalidOperationException(
-            "Recommendation publication persistence is not configured.");
-    private IPositionAssessmentRepository PositionAssessmentRepository =>
-        positionAssessmentRepository ?? throw new InvalidOperationException(
-            "Position assessment persistence is not configured.");
 
     public async ValueTask<RecommendationApplicationResult> CreateAsync(
         UserId userId,
@@ -42,7 +30,7 @@ public sealed class RecommendationService(
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
 
         asOf = TimestampCanonicalizer.ToUtcMicroseconds(asOf);
-        var persistedAssessment = await PositionAssessmentRepository.GetByIdAsync(
+        var persistedAssessment = await positionAssessmentRepository.GetByIdAsync(
             userId,
             assessment.Id,
             cancellationToken) ?? throw new InvalidOperationException(
@@ -55,11 +43,11 @@ public sealed class RecommendationService(
         for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var current = await RecommendationRepository.GetCurrentForPositionAsync(
+            var current = await recommendationRepository.GetCurrentForPositionAsync(
                 userId,
                 assessment.PositionId,
                 cancellationToken);
-            var pending = await StabilityStateRepository.GetAsync(
+            var pending = await stabilityStateRepository.GetAsync(
                 userId,
                 assessment.PositionId,
                 cancellationToken);
@@ -101,7 +89,7 @@ public sealed class RecommendationService(
                 switch (stability.Kind)
                 {
                     case RecommendationStabilityDecisionKind.KeepExisting:
-                        await PublicationTransaction.ConfirmKeepExistingAsync(
+                        await publicationTransaction.ConfirmKeepExistingAsync(
                             userId,
                             assessment.PositionId,
                             currentExpectation,
@@ -125,7 +113,7 @@ public sealed class RecommendationService(
                                 : Guid.NewGuid(),
                             current.Value.Id,
                             stability.NextState);
-                        await PublicationTransaction.SavePendingAsync(
+                        await publicationTransaction.SavePendingAsync(
                             userId,
                             assessment.PositionId,
                             currentExpectation,
@@ -149,7 +137,7 @@ public sealed class RecommendationService(
                             else
                                 current.Value.SupersedeBy(successor);
 
-                            await PublicationTransaction.ReplaceAsync(
+                            await publicationTransaction.ReplaceAsync(
                                 userId,
                                 current.Value,
                                 successor,
@@ -159,7 +147,7 @@ public sealed class RecommendationService(
                         }
                         else
                         {
-                            await PublicationTransaction.PublishInitialAsync(
+                            await publicationTransaction.PublishInitialAsync(
                                 userId,
                                 successor,
                                 currentExpectation,

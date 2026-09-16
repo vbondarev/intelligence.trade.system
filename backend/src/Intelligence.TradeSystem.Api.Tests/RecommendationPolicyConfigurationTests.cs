@@ -2,6 +2,10 @@ using FluentAssertions;
 using Intelligence.TradeSystem.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Domain.Recommendations;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
@@ -37,5 +41,74 @@ public sealed class RecommendationPolicyConfigurationTests
         Action act = () => services.AddInfrastructure(configuration);
 
         act.Should().Throw<FileNotFoundException>().Which.FileName.Should().Be(missingPath);
+    }
+
+    [Fact]
+    public void Missing_connection_string_does_not_register_recommendation_service()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(CreateConfiguration());
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true,
+        });
+
+        provider.GetService<RecommendationService>().Should().BeNull();
+    }
+
+    [Fact]
+    public void Configured_persistence_registers_recommendation_service_with_all_dependencies()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<RecommendationPolicy>();
+        services.AddSingleton<RecommendationStabilityPolicy>();
+
+        services.AddInfrastructure(
+            CreateConfiguration(includePersistence: true));
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true,
+        });
+        using var scope = provider.CreateScope();
+
+        var serviceProvider = scope.ServiceProvider;
+        serviceProvider.GetRequiredService<RecommendationService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IRecommendationRepository>()
+            .Should().BeOfType<RecommendationRepository>();
+        serviceProvider.GetRequiredService<IRecommendationStabilityStateRepository>()
+            .Should().BeOfType<RecommendationStabilityStateRepository>();
+        serviceProvider.GetRequiredService<IRecommendationPublicationTransaction>()
+            .Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionAssessmentRepository>()
+            .Should().NotBeNull();
+    }
+
+    private static IConfiguration CreateConfiguration(bool includePersistence = false)
+    {
+        var values = new List<KeyValuePair<string, string?>>
+        {
+            new("RecommendationPolicy:Path", Path.Combine(
+                AppContext.BaseDirectory,
+                "Configuration",
+                "recommendation-policy.json")),
+        };
+
+        if (includePersistence)
+        {
+            values.Add(new("ConnectionStrings:TradeSystem", "Host=localhost;Database=tradesystem"));
+            values.Add(new("CredentialProtection:ActiveKeyId", "test"));
+            values.Add(new(
+                "CredentialProtection:Keys:test",
+                Convert.ToBase64String(new byte[32])));
+        }
+
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
     }
 }
