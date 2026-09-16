@@ -3,6 +3,7 @@
 Статус: Accepted
 Заменяет: [ADR-0001: Способ аутентификации пользователей](0001-authentication-strategy.md)
 Дата: 5 сентября 2026 года
+Актуализация примеров маршрутов: 16 сентября 2026 года; authentication decision не изменено.
 
 ## Контекст
 
@@ -135,7 +136,7 @@ subject/client identity
 service principal / machine identity
 ```
 
-Machine identity не равна user identity и не должна автоматически преобразовываться в Domain `UserId`. Такой token не получает автоматически доступ к user-owned resources. В частности, `/api/v1/accounts`, `/api/v1/positions`, `/api/v1/portfolio` и `/api/v1/recommendations` не должны считать service principal пользователем только потому, что token валиден.
+Machine identity не равна user identity и не должна автоматически преобразовываться в Domain `UserId`. Такой token не получает автоматически доступ к user-owned resources. В частности, `/api/v1/exchange-accounts`, `/api/v1/positions`, `/api/v1/exchange-accounts/{id}/portfolio` и `/api/v1/positions/{id}/evaluation` не должны считать service principal пользователем только потому, что token валиден.
 
 Будущий service-to-service access требует отдельной authorization model/policy. C-06 должен различать user principal и machine principal; полноценная service-account модель в этом PR не проектируется.
 
@@ -191,14 +192,16 @@ SignalR не реализуется этим PR.
 
 ### Публичные и защищённые endpoints
 
-Текущие публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous. OAuth/Bearer contract относится к будущим защищённым пользовательским endpoints под `/api/v1/*`, например:
+Текущие публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous. OAuth/Bearer contract относится к защищённым пользовательским endpoints под `/api/v1/*`, например:
 
 ```text
-/api/v1/accounts
+/api/v1/exchange-accounts
+/api/v1/exchange-accounts/{id}/portfolio
 /api/v1/positions
-/api/v1/portfolio
-/api/v1/recommendations
+/api/v1/positions/{id}/evaluation
 ```
+
+Существующий незаверсионированный `api/exchange-accounts` является pre-v1 маршрутом. Его стратегия миграции к `/api/v1/exchange-accounts` определяется и проверяется в F-01; эта актуализация примеров не меняет принятое в ADR authentication decision.
 
 Аутентификация подтверждает личность, но не предоставляет доступ к данным другого пользователя. Ownership, UserId isolation и authorization реализуются отдельно в C-06.
 
@@ -274,8 +277,8 @@ C-05A не должен добавлять самодельный token protocol
 - **C-05A** — выбор Authorization Server и реализация OAuth/OIDC + JWT Bearer resource-server foundation.
 - **C-06** — authorization, ownership и изоляция данных по `UserId`.
 - **C-07** — защита credentials Bybit.
-- **F-03** — пользовательский REST API поверх готовой authentication foundation.
-- **F-04** — SignalR с той же Bearer identity model.
+- **F-01** — фиксация структуры `/api/v1`, миграции pre-v1 маршрутов и стабильных пользовательских контрактов.
+- **F-07** — SignalR с той же Bearer identity model и user-scoped realtime boundary.
 - **G-01** — React shell, BFF/session integration и OAuth/OIDC login flow.
 
 ## Источники
