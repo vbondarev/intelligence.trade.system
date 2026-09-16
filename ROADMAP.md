@@ -40,7 +40,7 @@
 
 ## 3. Обозначения статуса
 
-- ✅ Завершено — реализация присутствует в `develop`, защищена тестами и включена в рабочую цепочку.
+- ✅ Завершено — критерии этапа реализованы в `develop` и защищены соответствующими тестами; это не означает автоматическую реализацию пользовательского интерфейса или runtime-trigger, если они явно отнесены к последующим этапам.
 - 🚧 Текущий этап — следующий этап, на котором сосредоточена разработка.
 - 🟡 Частично — есть архитектурная заготовка или часть сценария, но пользовательская возможность ещё не завершена.
 - ⬜ Не начато — значимой реализации в проверенной ветке нет.
@@ -217,6 +217,8 @@
 ### Этап E. Реализовать детерминированное сопровождение позиции
 
 Статус этапа: ✅ Завершён.
+
+Граница этапа: этап E завершается на детерминированной оценке позиции, формировании рекомендации, её стабилизации и application/persistence workflow публикации. Пользовательский REST/SignalR-доступ к этим возможностям относится к этапу F, а непрерывный автоматический запуск и повторная оценка активных позиций — к этапу H.
 
 Рекомендация состоит из двух независимых решений:
 
@@ -456,7 +458,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 4. Не нарушены направления зависимостей.
 5. Изменения публичных контрактов совместимы либо версионированы.
 6. Секреты и приватные данные не попадают в журналы и ответы.
-7. README и ROADMAP обновлены при изменении фактического состояния этапов или архитектуры.
+7. `README.md` и `ROADMAP.md` обновлены при изменении фактического состояния этапов или архитектуры; применимые `AGENTS.md` также обновлены, если изменение делает их долговечные инструкции неверными или неполными.
 8. Если изменение затрагивает `llm-payload` 1.0, совместимость с BTC Daily Check проверена либо принято и зафиксировано отдельное решение о миграции.
 9. Если изменение затрагивает формирование рекомендаций, версия и hash применяемого `PolicyDefinition` сохраняются для воспроизводимости, а критические safety-инварианты не могут быть отключены внешней конфигурацией.
 
@@ -477,7 +479,7 @@ POST   /api/v1/recommendations/{id}/dismiss
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-16 | 3.16 | PR #102 merged в `develop` и завершил E-08.2: применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS/retry, user isolation и атомарную публикацию/замену recommendation. Stage E отмечен завершённым; correlation model перенесена в Stage M и больше не блокирует E-10. PR #105 завершил техническую стабилизацию перед F: обязательные DI dependencies, conditional persistence registration, `global.json`, CI push checks, aggregate coverage gate и NuGet vulnerability check. Текущий этап — F. |
+| 2026-09-16 | 3.16 | PR #102 merged в `develop` и завершил E-08.2: применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS/retry, user isolation и атомарную публикацию/замену recommendation. Stage E отмечен завершённым; correlation model перенесена в Stage M и больше не блокирует E-10. PR #105 завершил техническую стабилизацию перед F: обязательные DI dependencies, conditional persistence registration, `global.json`, CI push checks, aggregate coverage gate и NuGet vulnerability check. Уточнены семантика статуса «Завершено», граница E/F/H и правило синхронизации применимых `AGENTS.md` с изменениями архитектуры/tooling. Текущий этап — F. |
 | 2026-09-15 | 3.15 | PR #100 merged в `develop`; E-08.2 реализует применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS, user isolation, partial unique current index и транзакционную публикацию successor. До merge текущего PR E-08 остаётся 🟡; следующим этапом становится F. |
 | 2026-09-14 | 3.14 | В PR #100 к Issue #99 исправляются review findings E-08.1: candidate/pending temporal validation и replay idempotency, risk-safe policy/priority ordering, mixed capacity semantics, inherited portfolio reasons и strict JSON regression coverage. PR ещё не merged; следующим остаётся E-08.2. |
 | 2026-09-14 | 3.13 | PR #98 merged в `develop`; E-07 отмечен завершённым. В E-08.1 добавлена чистая доменная anti-chatter/stability policy с semantic comparison, typed decisions/reasons, cooldown, hysteresis, safety bypass и strict stability profile в policy hash. Persistence и orchestration замещения остаются E-08.2. |
