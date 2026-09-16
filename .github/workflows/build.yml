@@ -55,6 +55,9 @@ jobs:
       - name: Restore
         run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
 
+      - name: Test coverage aggregator
+        run: python3 .github/scripts/test-check-coverage.py
+
       - name: Test
         run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
 

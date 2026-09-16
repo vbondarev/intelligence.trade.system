@@ -4,9 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import posixpath
 from pathlib import Path
+import re
 import sys
 import xml.etree.ElementTree as ET
+
+
+WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:/")
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,29 +23,71 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_source_filename(source: str, filename: str) -> str:
+    source = posixpath.normpath(source.replace("\\", "/"))
+    filename = posixpath.normpath(filename.replace("\\", "/"))
+    if not filename.startswith("/") and not WINDOWS_ABSOLUTE_PATH.match(filename):
+        filename = posixpath.normpath(posixpath.join(source, filename))
+
+    lower_filename = filename.casefold()
+    for marker in ("/backend/src/", "/src/", "backend/src/", "src/"):
+        marker_index = lower_filename.find(marker)
+        if marker_index >= 0:
+            return filename[marker_index + len(marker) :].casefold()
+
+    return filename.casefold()
+
+
 def collect_lines(results_directory: Path) -> tuple[int, int, int]:
     reports = sorted(results_directory.rglob("coverage.cobertura.xml"))
     if not reports:
         raise SystemExit(f"No Cobertura reports found under {results_directory}.")
 
-    lines: dict[tuple[str, str], int] = {}
+    lines: dict[tuple[str, str, str], int] = {}
     for report in reports:
         root = ET.parse(report).getroot()
-        for class_element in root.findall(".//class"):
-            class_name = class_element.attrib.get("name", "")
-            if not class_name:
-                raise SystemExit(f"Invalid class entry in {report}.")
+        packages_element = root.find("./packages")
+        if packages_element is None:
+            raise SystemExit(f"Missing packages element in {report}.")
 
-            # Coverlet can emit project-relative and assembly-prefixed filenames
-            # for the same instrumented class across test projects.
-            for line_element in class_element.findall("./lines/line"):
-                line_number = line_element.attrib.get("number")
-                hits = line_element.attrib.get("hits")
-                if line_number is None or hits is None:
-                    raise SystemExit(f"Invalid line entry in {report}.")
+        sources_element = root.find("./sources")
+        sources = [
+            source.text or ""
+            for source in sources_element.findall("./source")
+        ] if sources_element is not None else [""]
+        source = sources[0]
 
-                key = (class_name, line_number)
-                lines[key] = max(lines.get(key, 0), int(hits))
+        for package_element in packages_element.findall("./package"):
+            package_name = package_element.attrib.get("name", "")
+            if not package_name:
+                raise SystemExit(f"Invalid package entry in {report}.")
+
+            classes_element = package_element.find("./classes")
+            if classes_element is None:
+                raise SystemExit(f"Missing classes element in {report}.")
+
+            for class_element in classes_element.findall("./class"):
+                class_name = class_element.attrib.get("name", "")
+                filename = class_element.attrib.get("filename", "")
+                if not class_name or not filename:
+                    raise SystemExit(f"Invalid class entry in {report}.")
+
+                normalized_filename = normalize_source_filename(source, filename)
+                for line_element in class_element.findall("./lines/line"):
+                    line_number = line_element.attrib.get("number")
+                    hits = line_element.attrib.get("hits")
+                    if line_number is None or hits is None:
+                        raise SystemExit(f"Invalid line entry in {report}.")
+
+                    try:
+                        hit_count = int(hits)
+                    except ValueError as exception:
+                        raise SystemExit(
+                            f"Invalid hit count in {report}."
+                        ) from exception
+
+                    key = (package_name, normalized_filename, line_number)
+                    lines[key] = max(lines.get(key, 0), hit_count)
 
     covered = sum(hits > 0 for hits in lines.values())
     return covered, len(lines), len(reports)
