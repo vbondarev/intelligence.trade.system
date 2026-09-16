@@ -70,6 +70,7 @@
 7. **История должна быть проверяемой.** Существенные изменения позиции, оценки, рекомендации и версии правил должны сохраняться так, чтобы решение можно было восстановить и проанализировать.
 8. **Backend API является универсальным и не зависит от типа клиента.** Для защищённого API приняты OAuth 2.0 / OpenID Connect, Bearer access token и подписанный JWT как целевой формат первого MVP; browser cookie допускается только на BFF boundary.
 9. **User-facing API описывает пользовательские сценарии, а не внутреннюю схему домена.** Текущая оценка и рекомендация публикуются как единый `evaluation`, состояние портфеля первого MVP привязано к конкретному биржевому аккаунту, а SignalR только сообщает об изменении — актуальное состояние всегда перечитывается через REST.
+10. **BFF остаётся browser security boundary.** Access token не должен попадать в JavaScript React-клиента; browser REST/SignalR integration строится через BFF поверх той же OAuth/OIDC identity, тогда как native/token clients могут предъявлять Bearer непосредственно API.
 
 ---
 
@@ -77,7 +78,7 @@
 
 Этапы **A, B, C, D и E завершены**. Backend уже умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-Следующий этап — **F: пользовательский REST API и SignalR**. На нём backend получает стабильный `/api/v1/*` контракт для реальных пользовательских сценариев: управление read-only биржевыми подключениями, account-scoped portfolio, состояние позиции, position-scoped market/candles, согласованный `evaluation` (assessment + current recommendation), timeline и user-scoped realtime-инвалидацию. React-клиент относится к следующему этапу G.
+Следующий этап — **F: пользовательский REST API и SignalR**. На нём backend получает стабильный `/api/v1/*` контракт для реальных пользовательских сценариев: управление read-only биржевыми подключениями, account-scoped portfolio, состояние позиции, position-scoped market/candles, согласованный `evaluation` (assessment + current recommendation), timeline и user-scoped realtime-инвалидацию. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
 ### Уже реализовано
 
@@ -204,11 +205,21 @@ position
 
 `sync` и `evaluation` принципиально разделены. Sync получает приватное фактическое состояние аккаунта с биржи. Evaluation использует сохранённое состояние позиции/портфеля и актуальные публичные рыночные данные; он не скрывает stale или partial private data автоматической синхронизацией и сохраняет safety semantics детерминированного ядра.
 
+`Evaluation` должен не только содержать assessment/recommendation, но и явно показывать свою временную и входную идентичность (`evaluatedAt`, `validUntil` и version/identity входов либо эквивалентные стабильные поля). Это позволяет UI отличать более старый evaluation от свежего `/market`; текущая recommendation может отсутствовать и поэтому является nullable частью read model.
+
 `PortfolioState` первого MVP относится к одному exchange account, поэтому API портфеля также account-scoped. Общий cross-account portfolio появится только вместе с отдельной межаккаунтной аналитической моделью.
 
-SignalR сообщает, что пользовательское состояние изменилось, но не заменяет REST. После realtime-события или восстановления соединения клиент перечитывает актуальный resource через REST.
+`GET /api/v1/positions` является постраничным user-scoped списком и в первом MVP должен поддерживать фильтры как минимум по `exchangeAccountId`, `trackingState`, `symbol` и `side`. Основной список по умолчанию предназначен для сопровождаемых состояний `Active`, `Unknown` и `Stale`; закрытые позиции запрашиваются явно и не смешиваются с рабочим списком.
 
-Публичные `/api/market-analysis/*` и `llm-payload` 1.0 остаются отдельным legacy/BTC Daily Check сценарием и не являются основным контрактом будущего React-клиента.
+Timeline на этапах F–G включает доступную историю позиции, assessments/evaluations и recommendations. Существенные market-monitoring events появятся только после H-04 и не блокируют завершение F/G; после появления они могут быть добавлены в тот же timeline аддитивно.
+
+SignalR сообщает, что пользовательское состояние изменилось, но не заменяет REST. Native/token clients предъявляют Bearer непосредственно hub. Browser-клиент использует BFF-compatible integration поверх той же identity и не получает access token в JavaScript; после realtime-события или восстановления соединения клиент перечитывает актуальный resource через REST.
+
+Существующий незаверсионированный `api/exchange-accounts` является pre-v1 контрактом. До появления `/api/v1/exchange-accounts` F-01 обязан явно выбрать и протестировать стратегию его миграции: временную совместимость/alias либо удаление как внутреннего pre-v1 API.
+
+Публичный market-analysis API, включая `GET /api/market-analysis/{symbol}/llm-payload` 1.0, остаётся отдельным поддерживаемым публичным сценарием и основой BTC Daily Check. Legacy является `POST /api/market-analysis/snapshot`; будущий React-клиент не использует market-analysis API как основной пользовательский контракт.
+
+OpenAPI и API contract tests обновляются инкрементально вместе с каждым PR этапа F, который меняет публичный контракт. Финальная задача F-08 проверяет полноту и стабильность всей v1-границы и пригодность для генерации клиентских типов, а не впервые документирует уже реализованные endpoints.
 
 ### Универсальная аутентификация клиентов
 
@@ -250,7 +261,7 @@ React рассматривается как browser-клиент через BFF:
 React → BFF → Bearer JWT → Intelligence.TradeSystem.Api
 ```
 
-Secure HttpOnly cookie может использоваться только между React и BFF для browser session и не является authentication contract основного API. Если BFF использует автоматически отправляемую cookie, ему нужна явная CSRF-защита: одного `HttpOnly` недостаточно. Mobile, desktop и CLI используют OAuth/OIDC и Bearer для того же API; предпочтительный сценарий для public clients — Authorization Code + PKCE, а для CLI также возможен Device Authorization Flow.
+Secure HttpOnly cookie может использоваться только между React и BFF для browser session и не является authentication contract основного API. Если BFF использует автоматически отправляемую cookie, ему нужна явная CSRF-защита: одного `HttpOnly` недостаточно. Access token при BFF-подходе не выдаётся browser JavaScript; это правило действует и для browser SignalR. Mobile, desktop и CLI используют OAuth/OIDC и Bearer для того же API; предпочтительный сценарий для public clients — Authorization Code + PKCE, а для CLI также возможен Device Authorization Flow.
 
 Выбор зафиксирован в [ADR-0003](docs/adr/0003-authorization-server-selection.md), который дополняет [ADR-0002](docs/adr/0002-universal-api-authentication-strategy.md). Публичные market endpoints, включая `GET /api/market-analysis/{symbol}/llm-payload`, остаются anonymous.
 
@@ -583,7 +594,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Этапы **A–E завершены**. Текущий следующий этап — **F: пользовательский REST API и SignalR**.
 
-Этап F намеренно разбит на последовательные небольшие изменения: сначала стабильные v1-контракты, затем lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и фиксация OpenAPI/contract tests. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: сначала стабильные v1-контракты и стратегия миграции pre-v1 `api/exchange-accounts`, затем lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
@@ -604,11 +615,12 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 - войти в систему;
 - подключить и проверить Bybit-аккаунт только для чтения, при необходимости безопасно заменить credentials без потери идентичности подключения;
 - увидеть актуальные открытые позиции и account-scoped состояние портфеля;
+- фильтровать позиции по подключению и состоянию, не смешивая закрытую историю с активным рабочим списком;
 - открыть позицию и увидеть её состояние, рыночный контекст и график;
-- получить согласованный `evaluation`, включающий детерминированную оценку и текущую рекомендацию;
-- получать realtime-уведомления об изменении состояния с восстановлением актуальных данных через REST;
+- получить согласованный `evaluation`, включающий детерминированную оценку, временную/input identity расчёта и текущую рекомендацию, если она опубликована;
+- получать realtime-уведомления об изменении состояния с восстановлением актуальных данных через REST без выдачи browser access token JavaScript-клиенту;
 - получать важные уведомления;
-- просматривать единый timeline существенных изменений позиции, оценок и рекомендаций.
+- просматривать единый timeline существенных изменений позиции, оценок и рекомендаций; market-monitoring events добавляются после появления непрерывного наблюдения.
 
 Автоматическое исполнение торговых операций остаётся за пределами первого MVP и может рассматриваться только после накопления статистики качества рекомендаций и отдельной проверки рисков. Общий cross-account portfolio также не входит в первый MVP: текущий `PortfolioState` относится к одному биржевому аккаунту.
 
@@ -619,8 +631,10 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
 - persistence доменного состояния, оценок, рекомендаций и stability state реализована, но полный user-facing API v1 для exchange accounts, account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершён;
-- PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; внешний transport остаётся read-only;
+- PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
+- существующий `api/exchange-accounts` является pre-v1 маршрутом; стратегия его миграции должна быть зафиксирована в F-01 до публикации окончательного `/api/v1/exchange-accounts`;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
+- browser-specific BFF/SignalR integration ещё не реализована и относится к этапу G;
 - React-клиент ещё не создан;
 - общий cross-account portfolio, correlation model и расширенная portfolio analytics перенесены в последующее расширение продукта;
 - BTC Daily Check остаётся отдельным экспериментальным публичным сценарием;
