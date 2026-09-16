@@ -78,11 +78,12 @@
 - `Intelligence.TradeSystem.slnx` — solution entrypoint;
 - `Directory.Build.props` — общие build/language settings;
 - `Directory.Build.targets` — общие build validations;
-- `Directory.Packages.props` — единственный источник версий NuGet-пакетов.
+- `Directory.Packages.props` — единственный источник версий NuGet-пакетов;
+- `../../global.json` — зафиксированная версия .NET SDK для локальной сборки и CI.
 
 Текущая базовая платформа: `.NET 10`, C# 14, nullable enabled, central package management.
 
-Не предполагай автоматически наличие или необходимость `global.json`, `.config/dotnet-tools.json` или Microsoft.Testing.Platform. Добавляй подобную инфраструктуру только в рамках отдельной задачи.
+Корневой `global.json` является частью воспроизводимой build-конфигурации проекта: не удаляй и не обходи его без отдельного решения. Наличие `.config/dotnet-tools.json` или переход на Microsoft.Testing.Platform не предполагай автоматически — подобную инфраструктуру добавляй только в рамках отдельной задачи.
 
 `Console.Write*` запрещён общими build rules; используй `ILogger` там, где logging допустим архитектурой слоя.
 
