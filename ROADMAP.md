@@ -1,6 +1,6 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.18
+Версия документа: 3.19
 Дата актуализации: 16 сентября 2026 года
 Проверенная база: PR #102 (E-08.2) и PR #105 (техническая стабилизация перед F) merged в `develop`
 Последняя учтённая задача: Issue #109 «Пересмотреть пользовательский API этапа F и актуализировать дорожную карту»
@@ -304,7 +304,7 @@ GET    /api/v1/auth/me
 7. `PUT /exchange-accounts/{id}/credentials` проверяет новую read-only пару credentials и ротирует её без смены стабильного `ExchangeAccountId`.
 8. SignalR отправляет только user-scoped сообщения об изменении/инвалидации состояния (`exchangeAccount.updated`, `portfolio.updated`, `position.updated`, `evaluation.updated` или эквивалентные версионированные контракты). Полное актуальное состояние клиент получает через REST. Native/token clients подключаются к hub с Bearer access token; browser использует browser-specific BFF integration, определяемую в G-01/G-06, и не получает access token в JavaScript.
 9. Публичные операции `acknowledge` и `dismiss` не входят в F до определения их пользовательской семантики. В частности, `dismiss` нельзя публиковать как API-команду до решения, должно ли отклонение скрывать рекомендацию, приостанавливать её или действовать до существенного изменения состояния.
-10. OpenAPI и контрактные тесты сопровождают API инкрементально: каждый PR F-02 — F-07, который добавляет или меняет публичный v1/realtime contract, обязан обновить соответствующие OpenAPI/API tests. F-08 является финальной фиксацией полноты, стабильности и пригодности контракта для последующей генерации React client/types, а не первым моментом документирования API.
+10. OpenAPI и контрактные тесты сопровождают API инкрементально: каждый PR F-02 — F-07, который добавляет или меняет публичный v1/realtime contract, обязан обновить соответствующие OpenAPI/API tests. SignalR wire contract проверяется отдельно от OpenAPI: имена client-facing событий и сериализованные payload schemas должны быть зафиксированы serialization/approval tests. F-08 является финальной фиксацией полноты, стабильности и пригодности контракта для последующей генерации React client/types, а не первым моментом документирования API.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -314,8 +314,8 @@ GET    /api/v1/auth/me
 | F-04 | Реализовать position-scoped market context и свечи | ⬜ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
 | F-05 | Реализовать единый evaluation workflow и read model | ⬜ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
 | F-06 | Реализовать timeline позиции, cursor pagination и фильтры | ⬜ | История позиции, assessments/evaluations и recommendation changes доступны единым пользовательским timeline без загрузки всей истории; market monitoring events не требуются до H-04; OpenAPI/API tests обновлены |
-| F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ⬜ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; realtime contract покрыт тестами |
-| F-08 | Финализировать OpenAPI и контрактные проверки пользовательского API | ⬜ | OpenAPI полностью описывает auth, ProblemDetails, pagination, filters, enums и v1 endpoints; проверена согласованность контрактов F-02 — F-07 и пригодность для последующей генерации типов/клиента React |
+| F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ⬜ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; имена client-facing событий и сериализованные payload contracts покрыты serialization/approval tests, а несовместимое изменение wire contract требует новой версии |
+| F-08 | Финализировать OpenAPI и контрактные проверки пользовательского API | ⬜ | OpenAPI полностью описывает auth, ProblemDetails, pagination, filters, enums и v1 endpoints; проверена согласованность REST и realtime контрактов F-02 — F-07 и пригодность для последующей генерации типов/клиента React |
 
 Результат этапа: backend предоставляет стабильный пользовательский API для управления read-only биржевыми подключениями, чтения позиции и account-scoped портфеля, получения рынка/свечей, явного evaluation и timeline; SignalR безопасно сообщает об изменениях, а REST остаётся источником актуального состояния. Контракты сопровождаются OpenAPI/tests по мере появления, а browser authentication boundary не нарушает BFF-модель.
 
@@ -424,7 +424,7 @@ GET    /api/v1/auth/me
 
 - Binance, OKX и другие биржи;
 - spot и другие типы инструментов;
-- общий cross-account portfolio read model и расширенная портфельная аналитика;
+- общий cross-account portfolio read model;
 - расширенная портфельная аналитика и корреляции;
 - correlation model для cross-position/asset risk;
 - поиск новых торговых возможностей;
@@ -467,7 +467,7 @@ GET    /api/v1/auth/me
 | 13 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 14 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–E завершены и больше не входят в очередь ближайших PR. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–E завершены и больше не входят в очередь ближайших PR. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -510,7 +510,7 @@ GET    /api/v1/auth/me
 7. `README.md` и `ROADMAP.md` обновлены при изменении фактического состояния этапов или архитектуры; применимые `AGENTS.md` также обновлены, если изменение делает их долговечные инструкции неверными или неполными.
 8. Если изменение затрагивает `llm-payload` 1.0, совместимость с BTC Daily Check проверена либо принято и зафиксировано отдельное решение о миграции.
 9. Если изменение затрагивает формирование рекомендаций, версия и hash применяемого `PolicyDefinition` сохраняются для воспроизводимости, а критические safety-инварианты не могут быть отключены внешней конфигурацией.
-10. Если изменение затрагивает user-facing API или SignalR contract этапа F, соответствующие OpenAPI/API/realtime contract tests обновлены в том же PR; финальная задача F-08 не заменяет эту обязанность.
+10. Если изменение затрагивает user-facing API или SignalR contract этапа F, соответствующие OpenAPI/API/realtime contract tests обновлены в том же PR; для SignalR отдельно зафиксированы client-facing event names и serialized payload schemas через serialization/approval tests; финальная задача F-08 не заменяет эту обязанность.
 
 ## 9. Правила ведения дорожной карты
 
@@ -529,6 +529,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-16 | 3.19 | По review PR #110 устранены замечания Codex/Copilot: SignalR wire contract уточнён как отдельный от OpenAPI и требует serialization/approval tests для client-facing event names и payload schemas; в Stage M разделены cross-account read model и расширенная portfolio analytics без дублирования; ADR-0002 синхронизируется с актуальными примерами `/api/v1` и этапами F. |
 | 2026-09-16 | 3.18 | По review Issue #109 уточнены границы Stage F/G/H: SignalR browser integration закреплена за BFF без выдачи access token в JavaScript; F-01 теперь обязан решить миграцию существующего pre-v1 `api/exchange-accounts`; для списка позиций зафиксированы pagination/default active states и фильтры; `evaluation` получил обязательные temporal/input identity metadata и nullable recommendation; G-05 больше не зависит от market-monitoring events до H-04; публичный market-analysis API отделён от legacy `snapshot`; OpenAPI/API contract tests должны сопровождать каждый PR F-02 — F-07, а F-08 выполняет финальную проверку полноты. |
 | 2026-09-16 | 3.17 | Issue #109: перед реализацией этапа F пересмотрен пользовательский API. API больше не копирует доменные агрегаты один в один: введён единый position `evaluation` для assessment + current recommendation, account-scoped portfolio, position-scoped market/candles и единый timeline. `sync` отделён от evaluation; добавлены verify и безопасная ротация credentials; удалены из плана неоднозначный `refresh`, отдельный `/portfolio/risk`, общий `/portfolio` без доменной модели и преждевременные acknowledge/dismiss commands. SignalR зафиксирован как user-scoped invalidation channel с восстановлением через REST. Этап F разбит на F-01 — F-08 и отдельные ближайшие PR; acknowledge/dismiss перенесены в I, cross-account portfolio — в M. |
 | 2026-09-16 | 3.16 | PR #102 merged в `develop` и завершил E-08.2: применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS/retry, user isolation и атомарную публикацию/замену recommendation. Stage E отмечен завершённым; correlation model перенесена в Stage M и больше не блокирует E-10. PR #105 завершил техническую стабилизацию перед F: обязательные DI dependencies, conditional persistence registration, `global.json`, CI push checks, aggregate coverage gate и NuGet vulnerability check. Уточнены семантика статуса «Завершено», граница E/F/H и правило синхронизации применимых `AGENTS.md` с изменениями архитектуры/tooling. Текущий этап — F. |
