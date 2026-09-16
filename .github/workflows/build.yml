@@ -1,6 +1,8 @@
 name: Build and Test
 
 on:
+  push:
+    branches: [ develop, main ]
   pull_request:
     types: [ opened, reopened, synchronize ]
   workflow_dispatch:
@@ -16,10 +18,23 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          global-json-file: global.json
 
       - name: Restore
         run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
+
+      - name: Check NuGet vulnerabilities
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/nuget-vulnerabilities.json"
+          dotnet list backend/src/Intelligence.TradeSystem.slnx package \
+            --vulnerable \
+            --include-transitive \
+            --format json \
+            --output-version 1 \
+            --no-restore \
+            --verbosity quiet > "$report"
+          python3 .github/scripts/check-nuget-vulnerabilities.py "$report"
 
       - name: Build
         run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
@@ -35,7 +50,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          global-json-file: global.json
 
       - name: Restore
         run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
@@ -46,8 +61,9 @@ jobs:
       - name: Verify coverage
         shell: bash
         run: |
-          coverage_count="$(find backend/TestResults -type f -name coverage.cobertura.xml | wc -l)"
-          test "$coverage_count" -gt 0
+          python3 .github/scripts/check-coverage.py \
+            backend/TestResults \
+            --minimum-line-coverage 92.00
 
       - name: Upload test results
         if: always()

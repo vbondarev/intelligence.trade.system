@@ -35,7 +35,7 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
             .BeOfType<CachedMarketSnapshotService>();
         serviceProvider.GetRequiredService<IRecommendationPolicyDefinitionProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<RecommendationStabilityPolicy>().Should().NotBeNull();
-        serviceProvider.GetRequiredService<RecommendationService>().Should().NotBeNull();
+        serviceProvider.GetService<RecommendationService>().Should().BeNull();
         var definition = await serviceProvider
             .GetRequiredService<IRecommendationPolicyDefinitionProvider>()
             .GetAsync();

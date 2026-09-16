@@ -49,7 +49,6 @@ public static class StartupExtensions
         string? contentRootPath = null)
     {
         RegisterRecommendationPolicy(services, configuration, contentRootPath);
-        services.AddScoped<RecommendationService>();
 
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -91,6 +90,7 @@ public static class StartupExtensions
         services.AddScoped<IRecommendationStabilityStateRepository>(
             serviceProvider => serviceProvider.GetRequiredService<RecommendationStabilityStateRepository>());
         services.AddScoped<IRecommendationPublicationTransaction, RecommendationPublicationTransaction>();
+        services.AddScoped<RecommendationService>();
 
         return services;
     }
