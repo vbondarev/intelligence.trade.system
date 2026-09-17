@@ -10,6 +10,8 @@ internal sealed class ProblemDetailsDto
 
     public string? Detail { get; init; }
 
+    public string? Instance { get; init; }
+
     public string? Code { get; init; }
 
     public string? TraceId { get; init; }

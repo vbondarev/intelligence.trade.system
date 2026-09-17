@@ -76,9 +76,9 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D и E завершены**. Backend уже умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D и E завершены**. Этап **F начат**, а F-01 завершён: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-Следующий этап — **F: пользовательский REST API и SignalR**. На нём backend получает стабильный `/api/v1/*` контракт для реальных пользовательских сценариев: управление read-only биржевыми подключениями, account-scoped portfolio, состояние позиции, position-scoped market/candles, согласованный `evaluation` (assessment + current recommendation), timeline и user-scoped realtime-инвалидацию. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
+Следующий шаг этапа F — **F-02: lifecycle подключений к биржевым аккаунтам**. Последующие F-03 — F-07 добавят account-scoped portfolio, позиции, position-scoped market/candles, согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
 ### Уже реализовано
 
@@ -128,6 +128,7 @@
 - изолированный публичный BTC Daily Check через OpenClaw и Telegram;
 - архитектурные, доменные, модульные, прикладные, API- и интеграционные тесты;
 - базовые OpenTelemetry и проверки состояния сервиса.
+- стабильная contract foundation пользовательского `/api/v1`: typed DTO/read models, JSON conventions, ProblemDetails contract, cursor pagination foundation и API/HTTP contract tests;
 
 ### Есть только как архитектурная заготовка
 
@@ -215,7 +216,7 @@ Timeline на этапах F–G включает доступную истор�
 
 SignalR сообщает, что пользовательское состояние изменилось, но не заменяет REST. Native/token clients предъявляют Bearer непосредственно hub. Browser-клиент использует BFF-compatible integration поверх той же identity и не получает access token в JavaScript; после realtime-события или восстановления соединения клиент перечитывает актуальный resource через REST.
 
-Существующий незаверсионированный `api/exchange-accounts` является pre-v1 контрактом. До появления `/api/v1/exchange-accounts` F-01 обязан явно выбрать и протестировать стратегию его миграции: временную совместимость/alias либо удаление как внутреннего pre-v1 API.
+Существующий незаверсионированный `api/exchange-accounts` является временным pre-v1 контрактом: F-01 сохранил его без v1 alias и покрыл это решение тестами. F-02 создаст каноническую `/api/v1/exchange-accounts`, после чего pre-v1 route будет удалён, если не обнаружится подтверждённый runtime consumer для ограниченной по времени compatibility migration.
 
 Публичный market-analysis API, включая `GET /api/market-analysis/{symbol}/llm-payload` 1.0, остаётся отдельным поддерживаемым публичным сценарием и основой BTC Daily Check. Legacy является `POST /api/market-analysis/snapshot`; будущий React-клиент не использует market-analysis API как основной пользовательский контракт.
 
@@ -592,13 +593,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–E завершены**. Текущий следующий этап — **F: пользовательский REST API и SignalR**.
+Этапы **A–E завершены**. Этап **F начат**, F-01 завершён. Текущий следующий шаг — **F-02: lifecycle подключений к биржевым аккаунтам**.
 
-Этап F намеренно разбит на последовательные небольшие изменения: сначала стабильные v1-контракты и стратегия миграции pre-v1 `api/exchange-accounts`, затем lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: F-01 уже зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; далее идут lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
-1. пользовательский REST API и SignalR;
+1. F-02: lifecycle подключений к биржевым аккаунтам;
 2. React-панель и BFF;
 3. непрерывное наблюдение за активными позициями;
 4. Telegram-уведомления и детерминированные объяснения;
@@ -630,9 +631,9 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
-- persistence доменного состояния, оценок, рекомендаций и stability state реализована, но полный user-facing API v1 для exchange accounts, account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершён;
+- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, но полный API для exchange accounts, account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершён;
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
-- существующий `api/exchange-accounts` является pre-v1 маршрутом; стратегия его миграции должна быть зафиксирована в F-01 до публикации окончательного `/api/v1/exchange-accounts`;
+- существующий `api/exchange-accounts` остаётся временным pre-v1 маршрутом до появления канонического `/api/v1/exchange-accounts` в F-02; v1 alias в F-01 не добавлялся;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
 - browser-specific BFF/SignalR integration ещё не реализована и относится к этапу G;
 - React-клиент ещё не создан;

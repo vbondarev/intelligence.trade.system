@@ -20,6 +20,7 @@ internal static class ProblemDetailsAssertions
         problem.Type.Should().StartWith("urn:intelligence-trade:error:");
         problem.Status.Should().Be((int)expectedStatusCode);
         problem.Title.Should().Be(expectedTitle);
+        problem.Instance.Should().NotBeNullOrWhiteSpace();
         problem.Code.Should().NotBeNullOrWhiteSpace();
         problem.TraceId.Should().NotBeNullOrWhiteSpace();
 

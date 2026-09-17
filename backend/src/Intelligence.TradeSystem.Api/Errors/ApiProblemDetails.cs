@@ -17,6 +17,7 @@ internal static class ApiProblemDetails
             Title = descriptor.Title,
             Status = descriptor.StatusCode,
             Detail = detail,
+            Instance = httpContext.Request.Path.Value ?? "/",
             Extensions = { ["code"] = descriptor.Code }
         };
 
@@ -27,6 +28,7 @@ internal static class ApiProblemDetails
     public static void Customize(ProblemDetailsContext context)
     {
         AddTraceId(context.ProblemDetails, context.HttpContext);
+        context.ProblemDetails.Instance ??= context.HttpContext.Request.Path.Value ?? "/";
 
         if (context.ProblemDetails.Status == StatusCodes.Status400BadRequest)
         {

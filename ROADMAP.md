@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.19
-Дата актуализации: 16 сентября 2026 года
-Проверенная база: PR #102 (E-08.2) и PR #105 (техническая стабилизация перед F) merged в `develop`
-Последняя учтённая задача: Issue #109 «Пересмотреть пользовательский API этапа F и актуализировать дорожную карту»
+Версия документа: 3.20
+Дата актуализации: 18 сентября 2026 года
+Проверенная база: PR #112 (F-01: стабильные контракты пользовательского API v1)
+Последняя учтённая задача: Issue #111 «Зафиксировать структуру и стабильные контракты пользовательского API v1»
 Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -262,7 +262,7 @@
 - F не вводит Telegram UX для acknowledge/dismiss — это этап I;
 - F не создаёт cross-account portfolio analytics — это последующее расширение этапа M;
 - публичный market-analysis API сохраняется независимо и не становится контрактом React-клиента; `POST /api/market-analysis/snapshot` остаётся legacy endpoint;
-- существующий незаверсионированный `api/exchange-accounts` считается pre-v1 контрактом. В F-01 до реализации новых маршрутов должно быть явно принято и покрыто тестами решение о его миграции: временный alias/совместимость либо удаление как внутреннего pre-v1 API; это решение нельзя оставлять на усмотрение отдельного coding agent;
+- существующий незаверсионированный `api/exchange-accounts` остаётся временным pre-v1 контрактом: F-01 принял и покрыл тестами решение сохранить маршрут без v1 alias, а F-02 создаёт каноническую `/api/v1/exchange-accounts` и затем удаляет pre-v1 route, если не будет подтверждён runtime consumer для ограниченной по времени compatibility migration;
 - F реализует SignalR boundary самого resource server, но browser transport остаётся частью BFF-интеграции этапа G: access token не передаётся в browser JavaScript.
 
 Минимальный API:
@@ -308,7 +308,7 @@ GET    /api/v1/auth/me
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
-| F-01 | Зафиксировать структуру `/api/v1`, миграцию pre-v1 routes и стабильные пользовательские контракты | ⬜ | API организован по функциональным областям; DTO/read models не экспортируют доменные агрегаты напрямую; контроллеры не содержат торговых расчётов; несовместимые изменения получают новую версию; явно определена и протестирована судьба существующего `api/exchange-accounts` |
+| F-01 | Зафиксировать структуру `/api/v1`, миграцию pre-v1 routes и стабильные пользовательские контракты | ✅ | Зафиксированы v1 DTO/read models, JSON/ProblemDetails/cursor conventions, route-scoped serialization и OpenAPI enum contract; pre-v1 `api/exchange-accounts` временно сохранён без v1 alias; public market-analysis boundary не изменена; решения покрыты API/HTTP contract tests |
 | F-02 | Реализовать API жизненного цикла биржевого аккаунта | ⬜ | Пользователь может получить список подключений, подключить read-only аккаунт, повторно проверить credentials/permissions, безопасно ротировать credentials без смены `ExchangeAccountId`, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
 | F-03 | Реализовать read API позиций и account-scoped портфеля | ⬜ | Доступны постраничный список с фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, карточка позиции и `PortfolioState` конкретного exchange account; по умолчанию закрытые позиции не смешиваются с активным рабочим списком; cross-user доступ скрыт; общий cross-account `/portfolio` не имитируется без соответствующей доменной модели; OpenAPI/API tests обновлены |
 | F-04 | Реализовать position-scoped market context и свечи | ⬜ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
@@ -452,14 +452,13 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Зафиксировать структуру API v1, миграцию pre-v1 routes и пользовательские контракты | F-01 |
-| 2 | Добавить API жизненного цикла биржевого аккаунта | F-02 |
-| 3 | Добавить read API позиций и account-scoped портфеля | F-03 |
-| 4 | Добавить position-scoped market context и свечи | F-04 |
-| 5 | Добавить evaluation workflow и согласованный read model | F-05 |
-| 6 | Добавить timeline, cursor pagination и фильтры | F-06 |
-| 7 | Добавить user-scoped SignalR с REST recovery | F-07 |
-| 8 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
+| 1 | Добавить API жизненного цикла биржевого аккаунта | F-02 |
+| 2 | Добавить read API позиций и account-scoped портфеля | F-03 |
+| 3 | Добавить position-scoped market context и свечи | F-04 |
+| 4 | Добавить evaluation workflow и согласованный read model | F-05 |
+| 5 | Добавить timeline, cursor pagination и фильтры | F-06 |
+| 6 | Добавить user-scoped SignalR с REST recovery | F-07 |
+| 7 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
 | 9 | Создать адаптивную React-панель | G-01 — G-08 |
 | 10 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
 | 11 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
@@ -529,8 +528,9 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-18 | 3.20 | PR #112 завершил F-01: зафиксированы canonical `/api/v1` contracts, typed DTO/read models, route-scoped JSON conventions с единым поведением для JSON media types, стабильный ProblemDetails и cursor pagination foundation; добавлены HTTP/API contract tests и v1-scoped OpenAPI enum synchronization. Pre-v1 `api/exchange-accounts` сохранён без v1 alias, public market-analysis boundary не изменена. Следующим шагом остаётся F-02 — lifecycle подключений к биржевым аккаунтам. |
 | 2026-09-16 | 3.19 | По review PR #110 устранены замечания Codex/Copilot: SignalR wire contract уточнён как отдельный от OpenAPI и требует serialization/approval tests для client-facing event names и payload schemas; в Stage M разделены cross-account read model и расширенная portfolio analytics без дублирования; ADR-0002 синхронизируется с актуальными примерами `/api/v1` и этапами F. |
-| 2026-09-16 | 3.18 | По review Issue #109 уточнены границы Stage F/G/H: SignalR browser integration закреплена за BFF без выдачи access token в JavaScript; F-01 теперь обязан решить миграцию существующего pre-v1 `api/exchange-accounts`; для списка позиций зафиксированы pagination/default active states и фильтры; `evaluation` получил обязательные temporal/input identity metadata и nullable recommendation; G-05 больше не зависит от market-monitoring events до H-04; публичный market-analysis API отделён от legacy `snapshot`; OpenAPI/API contract tests должны сопровождать каждый PR F-02 — F-07, а F-08 выполняет финальную проверку полноты. |
+| 2026-09-16 | 3.18 | По review Issue #109 уточнены границы Stage F/G/H: SignalR browser integration закреплена за BFF без выдачи access token в JavaScript; в состав F-01 включено решение по миграции существующего pre-v1 `api/exchange-accounts`; для списка позиций зафиксированы pagination/default active states и фильтры; `evaluation` получил обязательные temporal/input identity metadata и nullable recommendation; G-05 больше не зависит от market-monitoring events до H-04; публичный market-analysis API отделён от legacy `snapshot`; OpenAPI/API contract tests должны сопровождать каждый PR F-02 — F-07, а F-08 выполняет финальную проверку полноты. |
 | 2026-09-16 | 3.17 | Issue #109: перед реализацией этапа F пересмотрен пользовательский API. API больше не копирует доменные агрегаты один в один: введён единый position `evaluation` для assessment + current recommendation, account-scoped portfolio, position-scoped market/candles и единый timeline. `sync` отделён от evaluation; добавлены verify и безопасная ротация credentials; удалены из плана неоднозначный `refresh`, отдельный `/portfolio/risk`, общий `/portfolio` без доменной модели и преждевременные acknowledge/dismiss commands. SignalR зафиксирован как user-scoped invalidation channel с восстановлением через REST. Этап F разбит на F-01 — F-08 и отдельные ближайшие PR; acknowledge/dismiss перенесены в I, cross-account portfolio — в M. |
 | 2026-09-16 | 3.16 | PR #102 merged в `develop` и завершил E-08.2: применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS/retry, user isolation и атомарную публикацию/замену recommendation. Stage E отмечен завершённым; correlation model перенесена в Stage M и больше не блокирует E-10. PR #105 завершил техническую стабилизацию перед F: обязательные DI dependencies, conditional persistence registration, `global.json`, CI push checks, aggregate coverage gate и NuGet vulnerability check. Уточнены семантика статуса «Завершено», граница E/F/H и правило синхронизации применимых `AGENTS.md` с изменениями архитектуры/tooling. Текущий этап — F. |
 | 2026-09-15 | 3.15 | PR #100 merged в `develop`; E-08.2 реализует применение `RecommendationStabilityPolicy`, persisted baseline-bound pending state, CAS, user isolation, partial unique current index и транзакционную публикацию successor. До merge PR #102 E-08 оставался 🟡; следующим этапом становился F. |

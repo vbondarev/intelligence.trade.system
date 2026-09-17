@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Api.Contracts.V1.Auth;
 using Intelligence.TradeSystem.Application.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,11 +11,10 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 public sealed class AuthController(ICurrentUserContext currentUserContext) : ControllerBase
 {
     [HttpGet("me")]
-    public IActionResult GetCurrentPrincipal() =>
-        Ok(new
-        {
-            UserId = currentUserContext.UserId.Value,
-            Subject = currentUserContext.UserId.Value.ToString(),
-            Authenticated = true,
-        });
+    [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
+    public ActionResult<CurrentUserResponse> GetCurrentPrincipal() =>
+        Ok(new CurrentUserResponse(
+            currentUserContext.UserId.Value,
+            currentUserContext.UserId.Value.ToString("D"),
+            Authenticated: true));
 }
