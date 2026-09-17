@@ -31,7 +31,6 @@ public partial class Program
             .AddControllers(options =>
             {
                 options.OutputFormatters.Insert(0, new V1JsonOutputFormatter());
-                options.ReturnHttpNotAcceptable = true;
             })
             .AddJsonOptions(options =>
             {
