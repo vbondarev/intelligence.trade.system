@@ -10,12 +10,30 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
     public V1JsonOutputFormatter()
     {
         SupportedMediaTypes.Add(MediaTypeHeaderValue.Parse("application/json"));
+        SupportedMediaTypes.Add(MediaTypeHeaderValue.Parse("text/json"));
+        SupportedMediaTypes.Add(MediaTypeHeaderValue.Parse("application/*+json"));
         SupportedMediaTypes.Add(MediaTypeHeaderValue.Parse("application/problem+json"));
         SupportedEncodings.Add(Encoding.UTF8);
     }
 
-    public override bool CanWriteResult(OutputFormatterCanWriteContext context) =>
-        IsV1Request(context.HttpContext) && base.CanWriteResult(context);
+    public override bool CanWriteResult(OutputFormatterCanWriteContext context)
+    {
+        if (!IsV1Request(context.HttpContext))
+        {
+            return false;
+        }
+
+        var contentType = context.ContentType.ToString();
+        var mediaType = string.IsNullOrWhiteSpace(contentType)
+            ? null
+            : contentType.Split(';', 2)[0].Trim();
+        if (mediaType is not null && IsJsonMediaType(mediaType))
+        {
+            return true;
+        }
+
+        return base.CanWriteResult(context);
+    }
 
     public override Task WriteResponseBodyAsync(
         OutputFormatterWriteContext context,
@@ -40,4 +58,11 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
         return string.Equals(path, "/api/v1", StringComparison.OrdinalIgnoreCase)
             || path?.StartsWith("/api/v1/", StringComparison.OrdinalIgnoreCase) == true;
     }
+
+    private static bool IsJsonMediaType(string mediaType) =>
+        string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(mediaType, "text/json", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(mediaType, "application/problem+json", StringComparison.OrdinalIgnoreCase)
+        || (mediaType.StartsWith("application/", StringComparison.OrdinalIgnoreCase)
+            && mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
 }

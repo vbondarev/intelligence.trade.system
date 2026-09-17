@@ -31,6 +31,7 @@ public partial class Program
             .AddControllers(options =>
             {
                 options.OutputFormatters.Insert(0, new V1JsonOutputFormatter());
+                options.ReturnHttpNotAcceptable = true;
             })
             .AddJsonOptions(options =>
             {
@@ -76,6 +77,8 @@ public partial class Program
             {
                 options.IncludeXmlComments(xmlFilePath, includeControllerXmlComments: true);
             }
+
+            options.SchemaFilter<V1EnumSchemaFilter>();
         });
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();

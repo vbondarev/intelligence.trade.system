@@ -3,11 +3,13 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Common;
+using Intelligence.TradeSystem.Api.Contracts.V1.Testing;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Serialization;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -73,6 +75,47 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         root.GetProperty("hasMore").GetBoolean().Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("text/json")]
+    [InlineData("application/vnd.intelligence-trade+json")]
+    public async Task V1_mvc_boundary_keeps_the_same_contract_for_json_media_types(
+        string mediaType)
+    {
+        using var client = CreateSerializationClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/test-only/serialization");
+        request.Headers.Accept.ParseAdd(mediaType);
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var item = await ReadSerializationItemAsync(response);
+        item.GetProperty("id").GetString()
+            .Should()
+            .Be("2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6");
+        item.GetProperty("state").GetString().Should().Be("waitingForReview");
+        item.GetProperty("optionalValue").ValueKind.Should().Be(JsonValueKind.Null);
+        item.GetProperty("capturedAt").GetString()
+            .Should()
+            .Be("2026-09-16T17:13:04+03:00");
+    }
+
+    [Fact]
+    public async Task V1_mvc_boundary_rejects_unsupported_non_json_media_types()
+    {
+        using var client = CreateSerializationClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/test-only/serialization");
+        request.Headers.Accept.ParseAdd("text/plain");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotAcceptable);
+    }
+
     [Fact]
     public async Task Legacy_mvc_boundary_keeps_existing_enum_wire_values()
     {
@@ -85,6 +128,38 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         var item = json.RootElement.GetProperty("items").EnumerateArray().Single();
 
         item.GetProperty("state").GetString().Should().Be("WaitingForReview");
+    }
+
+    [Fact]
+    public async Task V1_openapi_enum_matches_the_runtime_wire_value()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.ConfigureTestServices(services =>
+                    services
+                        .AddControllers()
+                        .AddApplicationPart(typeof(V1SerializationTestController).Assembly));
+            })
+            .CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var stateSchema = json.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("ContractState");
+        var enumValues = stateSchema
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToArray();
+
+        enumValues.Should().ContainSingle("waitingForReview");
+        enumValues.Should().NotContain("WaitingForReview");
     }
 
     [Fact]
@@ -125,10 +200,18 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
                 apiKey = "api-key",
                 apiSecret = "api-secret",
             });
-        using var v1Response = await _client.GetAsync("/api/v1/exchange-accounts");
+        using var v1ListResponse = await _client.GetAsync("/api/v1/exchange-accounts");
+        using var v1ConnectResponse = await _client.PostAsJsonAsync(
+            "/api/v1/exchange-accounts/bybit",
+            new
+            {
+                apiKey = "api-key",
+                apiSecret = "api-secret",
+            });
 
         legacyResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        v1Response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        v1ListResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -243,6 +326,13 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
                         .AddApplicationPart(typeof(V1SerializationTestController).Assembly)))
             .CreateClient();
 
+    private static async Task<JsonElement> ReadSerializationItemAsync(
+        HttpResponseMessage response)
+    {
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("items").EnumerateArray().Single().Clone();
+    }
+
     private enum ContractState
     {
         WaitingForReview,
@@ -272,14 +362,3 @@ public sealed class V1SerializationTestController : ControllerBase
     public IActionResult GetProblem() =>
         BadRequest(ApiProblemDetails.CreateValidation(HttpContext, "Test validation problem."));
 }
-
-public enum ContractState
-{
-    WaitingForReview,
-}
-
-public sealed record V1SerializationItem(
-    Guid Id,
-    ContractState State,
-    string? OptionalValue,
-    DateTimeOffset CapturedAt);
