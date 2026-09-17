@@ -16,16 +16,9 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
         SupportedEncodings.Add(Encoding.UTF8);
     }
 
-    public override bool CanWriteResult(OutputFormatterCanWriteContext context)
-    {
-        if (!IsV1Request(context.HttpContext))
-        {
-            return false;
-        }
-
-        // Keep v1 responses on this formatter when MVC falls back for an unmatched Accept.
-        return true;
-    }
+    public override bool CanWriteResult(OutputFormatterCanWriteContext context) =>
+        IsV1Request(context.HttpContext)
+        && (base.CanWriteResult(context) || IsSupportedJsonMediaType(context.ContentType.ToString()));
 
     public override Task WriteResponseBodyAsync(
         OutputFormatterWriteContext context,
@@ -51,4 +44,14 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
             || path?.StartsWith("/api/v1/", StringComparison.OrdinalIgnoreCase) == true;
     }
 
+    private static bool IsSupportedJsonMediaType(string contentType)
+    {
+        var mediaType = contentType.Split(';', 2)[0].Trim();
+
+        return string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mediaType, "text/json", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mediaType, "application/problem+json", StringComparison.OrdinalIgnoreCase)
+            || (mediaType.StartsWith("application/", StringComparison.OrdinalIgnoreCase)
+                && mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
+    }
 }

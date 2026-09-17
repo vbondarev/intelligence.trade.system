@@ -91,6 +91,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be(mediaType);
         var item = await ReadSerializationItemAsync(response);
         item.GetProperty("id").GetString()
             .Should()
@@ -114,6 +115,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
         var item = await ReadSerializationItemAsync(response);
         item.EnumerateObject()
             .Select(property => property.Name)
@@ -149,6 +151,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var item = json.RootElement.GetProperty("items").EnumerateArray().Single();
 
