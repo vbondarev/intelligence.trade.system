@@ -1,6 +1,6 @@
 ---
 name: Задача разработки
-about: Спецификация задачи: Issue → Plan → Implementation → Self-review → PR → Review → Human merge
+about: "Спецификация задачи: Issue → Plan → Implementation → Self-review → PR → Review → Human merge"
 title: ""
 labels: ""
 assignees: ""
