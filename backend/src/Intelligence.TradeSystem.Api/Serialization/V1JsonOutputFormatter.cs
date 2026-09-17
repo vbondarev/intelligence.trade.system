@@ -23,16 +23,8 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
             return false;
         }
 
-        var contentType = context.ContentType.ToString();
-        var mediaType = string.IsNullOrWhiteSpace(contentType)
-            ? null
-            : contentType.Split(';', 2)[0].Trim();
-        if (mediaType is not null && IsJsonMediaType(mediaType))
-        {
-            return true;
-        }
-
-        return base.CanWriteResult(context);
+        // Keep v1 responses on this formatter when MVC falls back for an unmatched Accept.
+        return true;
     }
 
     public override Task WriteResponseBodyAsync(
@@ -59,10 +51,4 @@ internal sealed class V1JsonOutputFormatter : TextOutputFormatter
             || path?.StartsWith("/api/v1/", StringComparison.OrdinalIgnoreCase) == true;
     }
 
-    private static bool IsJsonMediaType(string mediaType) =>
-        string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(mediaType, "text/json", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(mediaType, "application/problem+json", StringComparison.OrdinalIgnoreCase)
-        || (mediaType.StartsWith("application/", StringComparison.OrdinalIgnoreCase)
-            && mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
 }

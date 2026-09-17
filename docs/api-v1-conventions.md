@@ -18,8 +18,9 @@ camelCase, GUID в стандартном строковом представл�
 Для всех поддерживаемых JSON media types, включая `application/json`,
 `text/json`, `application/problem+json` и `application/*+json` vendor types,
 применяются одни и те же v1-правила. Выбор JSON-compatible `Accept` не меняет
-wire contract; неподдерживаемый non-JSON media type обрабатывается стандартной
-MVC content negotiation semantics.
+wire contract. Для других `Accept` используется стандартная MVC
+content-negotiation semantics, при этом v1 response не должен сериализоваться
+legacy-правилами.
 
 Доменные агрегаты не являются wire-контрактами. Каждый endpoint v1 возвращает
 DTO или read model, преобразованную на границе API.

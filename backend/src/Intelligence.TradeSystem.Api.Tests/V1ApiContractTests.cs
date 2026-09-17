@@ -103,7 +103,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
-    public async Task V1_mvc_boundary_rejects_unsupported_non_json_media_types()
+    public async Task V1_mvc_boundary_keeps_v1_contract_when_accept_is_unsupported()
     {
         using var client = CreateSerializationClient();
         using var request = new HttpRequestMessage(
@@ -113,7 +113,14 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
 
         using var response = await client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotAcceptable);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var item = await ReadSerializationItemAsync(response);
+        item.EnumerateObject()
+            .Select(property => property.Name)
+            .Should()
+            .Equal("id", "state", "optionalValue", "capturedAt");
+        item.GetProperty("state").GetString().Should().Be("waitingForReview");
+        item.GetProperty("optionalValue").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
@@ -124,6 +131,24 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var item = json.RootElement.GetProperty("items").EnumerateArray().Single();
+
+        item.GetProperty("state").GetString().Should().Be("WaitingForReview");
+    }
+
+    [Fact]
+    public async Task Legacy_mvc_boundary_keeps_existing_behavior_when_accept_is_unsupported()
+    {
+        using var client = CreateSerializationClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/test-only/legacy-serialization");
+        request.Headers.Accept.ParseAdd("text/plain");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var item = json.RootElement.GetProperty("items").EnumerateArray().Single();
 
