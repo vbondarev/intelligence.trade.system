@@ -3,18 +3,24 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Common;
+using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
 public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
 
     public V1ApiContractTests(WebApplicationFactory<Program> factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -24,6 +30,89 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         using var response = await _client.GetAsync("/api/v1/auth/me");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Test_only_serialization_route_is_not_in_the_production_surface()
+    {
+        using var response = await _client.GetAsync("/api/v1/test-only/serialization");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task V1_mvc_boundary_applies_the_v1_json_contract()
+    {
+        using var client = CreateSerializationClient();
+        using var response = await client.GetAsync("/api/v1/test-only/serialization");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var item = root.GetProperty("items").EnumerateArray().Single();
+
+        root.EnumerateObject()
+            .Select(property => property.Name)
+            .Should()
+            .Equal("items", "nextCursor", "hasMore");
+        item.EnumerateObject()
+            .Select(property => property.Name)
+            .Should()
+            .Equal("id", "state", "optionalValue", "capturedAt");
+        item.GetProperty("id").GetString()
+            .Should()
+            .Be("2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6");
+        item.GetProperty("state").GetString().Should().Be("waitingForReview");
+        item.GetProperty("optionalValue").ValueKind.Should().Be(JsonValueKind.Null);
+        item.GetProperty("capturedAt").GetString()
+            .Should()
+            .Be("2026-09-16T17:13:04+03:00");
+        root.GetProperty("nextCursor").ValueKind.Should().Be(JsonValueKind.Null);
+        root.GetProperty("hasMore").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Legacy_mvc_boundary_keeps_existing_enum_wire_values()
+    {
+        using var client = CreateSerializationClient();
+        using var response = await client.GetAsync("/test-only/legacy-serialization");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var item = json.RootElement.GetProperty("items").EnumerateArray().Single();
+
+        item.GetProperty("state").GetString().Should().Be("WaitingForReview");
+    }
+
+    [Fact]
+    public async Task V1_mvc_boundary_preserves_the_existing_problem_details_contract()
+    {
+        using var client = CreateSerializationClient();
+        using var response = await client.GetAsync(
+            "/api/v1/test-only/serialization/problem");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType
+            .Should()
+            .Be("application/problem+json");
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        root.GetProperty("type").GetString()
+            .Should()
+            .Be("urn:intelligence-trade:error:validation-failed");
+        root.GetProperty("title").GetString().Should().Be("Request validation failed.");
+        root.GetProperty("status").GetInt32().Should().Be(StatusCodes.Status400BadRequest);
+        root.GetProperty("detail").GetString().Should().Be("Test validation problem.");
+        root.GetProperty("instance").GetString()
+            .Should()
+            .Be("/api/v1/test-only/serialization/problem");
+        root.GetProperty("code").GetString().Should().Be("validation_failed");
+        root.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -145,6 +234,15 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         CursorPagination.IsValidPageSize(pageSize).Should().Be(expected);
     }
 
+    private HttpClient CreateSerializationClient() =>
+        _factory
+            .WithWebHostBuilder(builder =>
+                builder.ConfigureTestServices(services =>
+                    services
+                        .AddControllers()
+                        .AddApplicationPart(typeof(V1SerializationTestController).Assembly)))
+            .CreateClient();
+
     private enum ContractState
     {
         WaitingForReview,
@@ -152,3 +250,36 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
 
     private sealed record V1SerializationProbe(Guid UserId, DateTimeOffset CapturedAt);
 }
+
+[ApiController]
+[Route("api/v1/test-only/serialization")]
+[Route("test-only/legacy-serialization")]
+public sealed class V1SerializationTestController : ControllerBase
+{
+    private static readonly Guid ItemId =
+        Guid.Parse("2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6");
+    private static readonly DateTimeOffset CapturedAt =
+        new(2026, 9, 16, 17, 13, 4, TimeSpan.FromHours(3));
+
+    [HttpGet]
+    public ActionResult<CursorPage<V1SerializationItem>> Get() =>
+        Ok(new CursorPage<V1SerializationItem>(
+            [new V1SerializationItem(ItemId, ContractState.WaitingForReview, null, CapturedAt)],
+            NextCursor: null,
+            HasMore: false));
+
+    [HttpGet("problem")]
+    public IActionResult GetProblem() =>
+        BadRequest(ApiProblemDetails.CreateValidation(HttpContext, "Test validation problem."));
+}
+
+public enum ContractState
+{
+    WaitingForReview,
+}
+
+public sealed record V1SerializationItem(
+    Guid Id,
+    ContractState State,
+    string? OptionalValue,
+    DateTimeOffset CapturedAt);

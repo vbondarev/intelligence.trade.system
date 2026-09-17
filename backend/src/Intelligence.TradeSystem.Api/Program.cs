@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Services;
+using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Application.Users;
@@ -27,7 +28,10 @@ public partial class Program
 
         builder.AddServiceDefaults();
         builder.Services
-            .AddControllers()
+            .AddControllers(options =>
+            {
+                options.OutputFormatters.Insert(0, new V1JsonOutputFormatter());
+            })
             .AddJsonOptions(options =>
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));

@@ -1,5 +1,4 @@
 using Intelligence.TradeSystem.Api.Contracts.V1.Auth;
-using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Application.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,10 +13,8 @@ public sealed class AuthController(ICurrentUserContext currentUserContext) : Con
     [HttpGet("me")]
     [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
     public ActionResult<CurrentUserResponse> GetCurrentPrincipal() =>
-        new JsonResult(
-            new CurrentUserResponse(
-                currentUserContext.UserId.Value,
-                currentUserContext.UserId.Value.ToString("D"),
-                Authenticated: true),
-            V1JsonSerializerOptions.Default);
+        Ok(new CurrentUserResponse(
+            currentUserContext.UserId.Value,
+            currentUserContext.UserId.Value.ToString("D"),
+            Authenticated: true));
 }
