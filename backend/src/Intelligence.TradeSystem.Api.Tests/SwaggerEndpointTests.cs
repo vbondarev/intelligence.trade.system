@@ -228,6 +228,28 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         capabilitySchema.GetProperty("enum").EnumerateArray().Select(x => x.GetString())
             .Should().Equal("readBalance", "readPositions");
 
+        paths.EnumerateObject().Select(x => x.Name)
+            .Should().NotContain(path => path.StartsWith("/api/exchange-accounts", StringComparison.Ordinal));
+
+        var createRequestSchema = schemas.GetProperty("CreateExchangeAccountRequest");
+        createRequestSchema.GetProperty("properties").EnumerateObject().Select(x => x.Name)
+            .Should().Equal("exchange", "apiKey", "apiSecret");
+        createRequestSchema.GetProperty("required").EnumerateArray().Select(x => x.GetString())
+            .Should().BeEquivalentTo("exchange", "apiKey", "apiSecret");
+        createRequestSchema.GetProperty("properties").GetProperty("exchange")
+            .GetProperty("$ref").GetString().Should().Be("#/components/schemas/ExchangeProvider");
+        createRequestSchema.GetProperty("properties").EnumerateObject()
+            .Should().OnlyContain(property =>
+                property.Name == "exchange" || property.Name == "apiKey" || property.Name == "apiSecret");
+
+        var rotateRequestSchema = schemas.GetProperty("RotateExchangeAccountCredentialsRequest");
+        rotateRequestSchema.GetProperty("properties").EnumerateObject().Select(x => x.Name)
+            .Should().Equal("apiKey", "apiSecret");
+        rotateRequestSchema.GetProperty("required").EnumerateArray().Select(x => x.GetString())
+            .Should().BeEquivalentTo("apiKey", "apiSecret");
+        rotateRequestSchema.GetProperty("properties").EnumerateObject()
+            .Should().OnlyContain(property => property.Name == "apiKey" || property.Name == "apiSecret");
+
         // F-02 is limited to lifecycle; F-03+ (positions/portfolio) v1 paths must not exist yet.
         paths.EnumerateObject().Select(x => x.Name)
             .Should().NotContain(name => name.Contains("/api/v1/positions") || name.Contains("/api/v1/portfolio"));
