@@ -2,7 +2,6 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
-using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Moq;
@@ -21,8 +20,6 @@ public sealed class ExchangeAccountVerificationTests
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         var store = new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict);
         var verifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
-        var context = new Mock<ICurrentUserContext>(MockBehavior.Strict);
-        context.SetupGet(value => value.UserId).Returns(userId);
         var version = ConcurrencyVersion.Initial;
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, version));
@@ -38,7 +35,7 @@ public sealed class ExchangeAccountVerificationTests
                 version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
         var transaction = new InlineLifecycleTransaction();
-        var service = new ExchangeAccountService(context.Object, verifier.Object, repository.Object, store.Object, transaction);
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, transaction);
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -61,8 +58,6 @@ public sealed class ExchangeAccountVerificationTests
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         var store = new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict);
         var verifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
-        var context = new Mock<ICurrentUserContext>(MockBehavior.Strict);
-        context.SetupGet(value => value.UserId).Returns(userId);
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, accountVersion));
         var credential = new ExchangeAccountCredential(
@@ -78,7 +73,11 @@ public sealed class ExchangeAccountVerificationTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var service = new ExchangeAccountService(context.Object, verifier.Object, repository.Object, store.Object);
+        var service = new ExchangeAccountService(
+            verifier.Object,
+            repository.Object,
+            store.Object,
+            new InlineLifecycleTransaction());
 
         var result = await service.VerifyAsync(userId, account.Id);
 

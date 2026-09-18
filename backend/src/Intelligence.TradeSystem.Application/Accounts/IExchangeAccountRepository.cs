@@ -8,8 +8,7 @@ public interface IExchangeAccountRepository
 {
     Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
         UserId userId,
-        CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("Listing exchange accounts is not implemented.");
+        CancellationToken cancellationToken = default);
 
     Task<Versioned<ExchangeAccount>?> GetByIdAsync(
         UserId userId,

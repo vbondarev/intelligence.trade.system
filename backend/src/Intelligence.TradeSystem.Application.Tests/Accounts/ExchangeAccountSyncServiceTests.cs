@@ -701,6 +701,42 @@ public sealed class ExchangeAccountSyncServiceTests
     }
 
     [Fact]
+    public async Task SynchronizeAsync_Returns_CredentialsUnavailable_WhenCredentialsAreUnreadable()
+    {
+        var fixture = CreateFixture();
+        fixture.CredentialStore
+            .Setup(store => store.GetAsync(fixture.UserId, fixture.Account.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ExchangeAccountCredentialsUnavailableException());
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.CredentialsUnavailable);
+        fixture.Factory.Verify(
+            factory => factory.Create(It.IsAny<ExchangeId>(), It.IsAny<ExchangeAccountCredential>()),
+            Times.Never);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_DoesNotMaskUnexpectedCredentialStoreExceptions()
+    {
+        var fixture = CreateFixture();
+        fixture.CredentialStore
+            .Setup(store => store.GetAsync(fixture.UserId, fixture.Account.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database failure"));
+
+        var act = () => fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
     public async Task SynchronizeAsync_Persists_Last_Known_Capital_And_Closes_From_Complete_Positions_When_Balance_Fails()
     {
         var fixture = CreateFixture();

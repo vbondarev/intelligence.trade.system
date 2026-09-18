@@ -6,11 +6,6 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 
 public interface IExchangeAccountService
 {
-    Task<ExchangeAccountConnectionResult> ConnectAsync(
-        ExchangeId exchange,
-        ExchangeAccountCredentialSecret credentials,
-        CancellationToken cancellationToken = default);
-
     Task<IReadOnlyList<ExchangeAccount>> ListActiveAsync(
         UserId userId,
         CancellationToken cancellationToken = default);
@@ -19,10 +14,6 @@ public interface IExchangeAccountService
         UserId userId,
         ExchangeId exchange,
         ExchangeAccountCredentialSecret credentials,
-        CancellationToken cancellationToken = default);
-
-    Task<ExchangeAccount?> DisconnectAsync(
-        ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default);
 
     Task<ExchangeAccount?> DisconnectAsync(

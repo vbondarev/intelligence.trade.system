@@ -160,14 +160,21 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = json.RootElement;
         var paths = root.GetProperty("paths");
-        paths.GetProperty("/api/v1/exchange-accounts").TryGetProperty("get", out _).Should().BeTrue();
-        paths.GetProperty("/api/v1/exchange-accounts").TryGetProperty("post", out var connect).Should().BeTrue();
-        paths.GetProperty("/api/v1/exchange-accounts/{id}/verify").TryGetProperty("post", out _).Should().BeTrue();
-        paths.GetProperty("/api/v1/exchange-accounts/{id}/credentials").TryGetProperty("put", out _).Should().BeTrue();
-        paths.GetProperty("/api/v1/exchange-accounts/{id}/sync").TryGetProperty("post", out _).Should().BeTrue();
-        paths.GetProperty("/api/v1/exchange-accounts/{id}").TryGetProperty("delete", out _).Should().BeTrue();
+        var f02Operations = new[]
+        {
+            paths.GetProperty("/api/v1/exchange-accounts").GetProperty("get"),
+            paths.GetProperty("/api/v1/exchange-accounts").GetProperty("post"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}/verify").GetProperty("post"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}/credentials").GetProperty("put"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}/sync").GetProperty("post"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}").GetProperty("delete"),
+        };
+        f02Operations.Should().HaveCount(6);
+        foreach (var operation in f02Operations)
+            operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        var connect = f02Operations[1];
         connect.GetProperty("responses").TryGetProperty("201", out _).Should().BeTrue();
-        connect.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        f02Operations[2].GetProperty("responses").TryGetProperty("403", out _).Should().BeTrue();
         root.GetProperty("components").GetProperty("securitySchemes").GetProperty("Bearer")
             .GetProperty("scheme").GetString().Should().Be("bearer");
         paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")

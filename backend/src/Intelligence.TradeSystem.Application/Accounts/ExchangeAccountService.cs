@@ -2,28 +2,20 @@ using System.Runtime.ExceptionServices;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
-using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 public sealed class ExchangeAccountService(
-    ICurrentUserContext currentUserContext,
     IExchangeAccountAccessVerifier accessVerifier,
     IExchangeAccountRepository repository,
     IExchangeAccountCredentialStore credentialStore,
-    IExchangeAccountLifecycleTransaction? lifecycleTransaction = null)
+    IExchangeAccountLifecycleTransaction lifecycleTransaction)
     : IExchangeAccountService
 {
     private const ExchangeAccountCapabilities RequiredCapabilities =
         ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions;
-
-    public Task<ExchangeAccountConnectionResult> ConnectAsync(
-        ExchangeId exchange,
-        ExchangeAccountCredentialSecret credentials,
-        CancellationToken cancellationToken = default) =>
-        ConnectAsync(currentUserContext.UserId, exchange, credentials, cancellationToken);
 
     public async Task<IReadOnlyList<ExchangeAccount>> ListActiveAsync(
         UserId userId,
@@ -134,8 +126,6 @@ public sealed class ExchangeAccountService(
             return new(outcome, null);
 
         ExchangeAccount? rotated = null;
-        if (lifecycleTransaction is null)
-            throw new InvalidOperationException("The exchange account lifecycle transaction is not configured.");
         await lifecycleTransaction.ExecuteAsync(async transactionToken =>
         {
             var currentAccount = await repository.GetByIdAsync(userId, exchangeAccountId, transactionToken).ConfigureAwait(false);
@@ -160,12 +150,6 @@ public sealed class ExchangeAccountService(
 
         return new(ExchangeAccountCredentialRotationOutcome.Succeeded, rotated);
     }
-
-    public async Task<ExchangeAccount?> DisconnectAsync(
-        ExchangeAccountId exchangeAccountId,
-        CancellationToken cancellationToken = default) =>
-        await DisconnectAsync(currentUserContext.UserId, exchangeAccountId, cancellationToken)
-            .ConfigureAwait(false);
 
     public async Task<ExchangeAccount?> DisconnectAsync(
         UserId userId,

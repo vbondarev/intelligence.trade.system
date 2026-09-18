@@ -592,6 +592,11 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     {
         private int readCount;
 
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            inner.ListActiveAsync(userId, cancellationToken);
+
         public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
             UserId userId,
             ExchangeAccountId id,
