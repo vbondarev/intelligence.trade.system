@@ -179,7 +179,60 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .GetProperty("scheme").GetString().Should().Be("bearer");
         paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
             .TryGetProperty("security", out _).Should().BeFalse();
+
+        // Documented runtime status codes must match the outcomes ExchangeAccountsController
+        // actually produces (see ExchangeAccountsControllerTests for the corresponding runtime assertions).
+        f02Operations[0].GetProperty("responses").TryGetProperty("200", out _).Should().BeTrue();
+        f02Operations[2].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().Contain(["200", "400", "403", "404", "409", "503"]);
+        f02Operations[3].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().Contain(["200", "400", "403", "404", "409", "503"]);
+        f02Operations[4].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().Contain(["200", "400", "404", "409", "503"]);
+        f02Operations[5].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().Contain(["204", "400", "404", "409"]);
+
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var accountSchema = schemas.GetProperty("ExchangeAccountResponse");
+        var accountProperties = accountSchema.GetProperty("properties");
+        accountProperties.EnumerateObject().Select(x => x.Name)
+            .Should().Equal("id", "exchange", "connectionStatus", "capabilities", "lastSyncedAt");
+        var lastSyncedAtSchema = accountProperties.GetProperty("lastSyncedAt");
+        lastSyncedAtSchema.TryGetProperty("nullable", out var nullable).Should().BeTrue();
+        nullable.GetBoolean().Should().BeTrue();
+
+        // Response schemas (not request bodies, which legitimately accept apiKey/apiSecret to
+        // submit credentials) must never expose secrets or internal credential diagnostics.
+        var responseSchemaNames = new[] { "ExchangeAccountResponse", "ExchangeAccountListResponse" };
+        foreach (var schemaName in responseSchemaNames)
+        {
+            var responseSchemaJson = schemas.GetProperty(schemaName).GetRawText();
+            responseSchemaJson.Should().NotContainAny(
+                "apiKey", "apiSecret", "credentialVersion", "ciphertext", "encryptionKeyId");
+        }
+
+        var listSchema = schemas.GetProperty("ExchangeAccountListResponse");
+        listSchema.GetProperty("properties").EnumerateObject().Select(x => x.Name)
+            .Should().Equal("items");
+
+        var exchangeProviderSchema = schemas.GetProperty("ExchangeProvider");
+        exchangeProviderSchema.GetProperty("type").GetString().Should().Be("string");
+        exchangeProviderSchema.GetProperty("enum").EnumerateArray().Select(x => x.GetString())
+            .Should().Equal("bybit");
+
+        var statusSchema = schemas.GetProperty("ExchangeAccountStatus");
+        statusSchema.GetProperty("enum").EnumerateArray().Select(x => x.GetString())
+            .Should().Equal("unknown", "connected", "unavailable", "disabled");
+
+        var capabilitySchema = schemas.GetProperty("ExchangeAccountCapability");
+        capabilitySchema.GetProperty("enum").EnumerateArray().Select(x => x.GetString())
+            .Should().Equal("readBalance", "readPositions");
+
+        // F-02 is limited to lifecycle; F-03+ (positions/portfolio) v1 paths must not exist yet.
+        paths.EnumerateObject().Select(x => x.Name)
+            .Should().NotContain(name => name.Contains("/api/v1/positions") || name.Contains("/api/v1/portfolio"));
     }
+
 
     [Fact]
     public async Task Swagger_Is_Not_Available_Outside_Development()

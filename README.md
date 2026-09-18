@@ -595,7 +595,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Этапы **A–E завершены**. Этап **F начат**, F-01 и F-02 завершены. Текущий следующий шаг — **F-03: read API позиций и account-scoped portfolio**.
 
-Этап F намеренно разбит на последовательные небольшие изменения: F-01 уже зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; далее идут lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; далее идут позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
@@ -631,9 +631,9 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
-- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, но полный API для exchange accounts, account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершён;
+- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, F-02 завершил канонический lifecycle API биржевых аккаунтов, но account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершены;
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
-- существующий `api/exchange-accounts` остаётся временным pre-v1 маршрутом до появления канонического `/api/v1/exchange-accounts` в F-02; v1 alias в F-01 не добавлялся;
+- канонический `/api/v1/exchange-accounts` публикует lifecycle read-only подключений; временный pre-v1 `api/exchange-accounts` удалён в F-02 и возвращает `404`;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
 - browser-specific BFF/SignalR integration ещё не реализована и относится к этапу G;
 - React-клиент ещё не создан;
