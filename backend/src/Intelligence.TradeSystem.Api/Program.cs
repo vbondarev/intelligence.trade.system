@@ -5,6 +5,7 @@ using Intelligence.TradeSystem.Api.Configuration;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Errors;
+using Intelligence.TradeSystem.Api.OpenApi;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Validation;
@@ -69,6 +70,14 @@ public partial class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
         {
+            options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.OpenApiSecurityScheme
+            {
+                Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "OAuth 2.0 / OpenID Connect bearer access token.",
+            });
+            options.OperationFilter<ExchangeAccountV1AuthorizationOperationFilter>();
             var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
             var xmlFilePath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
 

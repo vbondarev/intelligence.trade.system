@@ -78,7 +78,7 @@
 
 Этапы **A, B, C, D и E завершены**. Этап **F начат**, а F-01 завершён: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-Следующий шаг этапа F — **F-02: lifecycle подключений к биржевым аккаунтам**. Последующие F-03 — F-07 добавят account-scoped portfolio, позиции, position-scoped market/candles, согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
+F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. Следующий шаг этапа F — **F-03: read API позиций и account-scoped portfolio**. Последующие F-04 — F-07 добавят position-scoped market/candles, согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
 ### Уже реализовано
 
@@ -216,7 +216,7 @@ Timeline на этапах F–G включает доступную истор�
 
 SignalR сообщает, что пользовательское состояние изменилось, но не заменяет REST. Native/token clients предъявляют Bearer непосредственно hub. Browser-клиент использует BFF-compatible integration поверх той же identity и не получает access token в JavaScript; после realtime-события или восстановления соединения клиент перечитывает актуальный resource через REST.
 
-Существующий незаверсионированный `api/exchange-accounts` является временным pre-v1 контрактом: F-01 сохранил его без v1 alias и покрыл это решение тестами. F-02 создаст каноническую `/api/v1/exchange-accounts`, после чего pre-v1 route будет удалён, если не обнаружится подтверждённый runtime consumer для ограниченной по времени compatibility migration.
+`/api/v1/exchange-accounts` является каноническим lifecycle-контрактом read-only биржевых аккаунтов. Незаверсионированные `/api/exchange-accounts/**` маршруты удалены.
 
 Публичный market-analysis API, включая `GET /api/market-analysis/{symbol}/llm-payload` 1.0, остаётся отдельным поддерживаемым публичным сценарием и основой BTC Daily Check. Legacy является `POST /api/market-analysis/snapshot`; будущий React-клиент не использует market-analysis API как основной пользовательский контракт.
 
@@ -593,13 +593,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–E завершены**. Этап **F начат**, F-01 завершён. Текущий следующий шаг — **F-02: lifecycle подключений к биржевым аккаунтам**.
+Этапы **A–E завершены**. Этап **F начат**, F-01 и F-02 завершены. Текущий следующий шаг — **F-03: read API позиций и account-scoped portfolio**.
 
 Этап F намеренно разбит на последовательные небольшие изменения: F-01 уже зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; далее идут lifecycle биржевого аккаунта, позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
-1. F-02: lifecycle подключений к биржевым аккаунтам;
+1. F-03: read API позиций и account-scoped portfolio;
 2. React-панель и BFF;
 3. непрерывное наблюдение за активными позициями;
 4. Telegram-уведомления и детерминированные объяснения;

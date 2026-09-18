@@ -25,10 +25,19 @@ internal sealed class ExchangeAccountCredentialStore(
             return null;
         }
 
-        var secret = protector.Unprotect(
-            userId,
-            exchangeAccountId,
-            ToEnvelope(entity));
+        ExchangeAccountCredentialSecret secret;
+        try
+        {
+            secret = protector.Unprotect(
+                userId,
+                exchangeAccountId,
+                ToEnvelope(entity));
+        }
+        catch (CredentialProtectionException)
+        {
+            throw new ExchangeAccountCredentialsUnavailableException();
+        }
+
         return new ExchangeAccountCredential(
             secret,
             new ConcurrencyVersion(entity.Version));

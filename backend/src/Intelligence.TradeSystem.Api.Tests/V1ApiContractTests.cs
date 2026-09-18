@@ -219,7 +219,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
-    public async Task Pre_v1_exchange_accounts_route_remains_protected_without_a_v1_alias()
+    public async Task Pre_v1_exchange_accounts_routes_are_removed_after_v1_migration()
     {
         using var legacyResponse = await _client.PostAsJsonAsync(
             "/api/exchange-accounts/bybit",
@@ -237,9 +237,9 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
                 apiSecret = "api-secret",
             });
 
-        legacyResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        v1ListResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        legacyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        v1ListResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
     }
 
     [Fact]

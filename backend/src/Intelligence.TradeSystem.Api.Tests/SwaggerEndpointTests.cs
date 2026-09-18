@@ -148,6 +148,33 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Swagger_Describes_Protected_V1_Exchange_Account_Lifecycle()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Development))
+            .CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var paths = root.GetProperty("paths");
+        paths.GetProperty("/api/v1/exchange-accounts").TryGetProperty("get", out _).Should().BeTrue();
+        paths.GetProperty("/api/v1/exchange-accounts").TryGetProperty("post", out var connect).Should().BeTrue();
+        paths.GetProperty("/api/v1/exchange-accounts/{id}/verify").TryGetProperty("post", out _).Should().BeTrue();
+        paths.GetProperty("/api/v1/exchange-accounts/{id}/credentials").TryGetProperty("put", out _).Should().BeTrue();
+        paths.GetProperty("/api/v1/exchange-accounts/{id}/sync").TryGetProperty("post", out _).Should().BeTrue();
+        paths.GetProperty("/api/v1/exchange-accounts/{id}").TryGetProperty("delete", out _).Should().BeTrue();
+        connect.GetProperty("responses").TryGetProperty("201", out _).Should().BeTrue();
+        connect.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        root.GetProperty("components").GetProperty("securitySchemes").GetProperty("Bearer")
+            .GetProperty("scheme").GetString().Should().Be("bearer");
+        paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
+            .TryGetProperty("security", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Swagger_Is_Not_Available_Outside_Development()
     {
         using var client = _factory

@@ -53,12 +53,13 @@ Endpoints для пользовательских данных использу�
 
 ## Границы миграции
 
-`POST /api/exchange-accounts/bybit` и остальные существующие маршруты
-`/api/exchange-accounts` продолжают работать как pre-v1 routes в рамках F-01.
-F-01 не добавляет alias `/api/v1/exchange-accounts`. В F-02 появится
-каноническая v1-замена, после чего pre-v1 route будет удалён, если только
-подтверждённый runtime consumer не потребует ограниченной по времени
-compatibility migration.
+`/api/v1/exchange-accounts` является канонической v1-границей lifecycle
+биржевого аккаунта. Незаверсионированные маршруты `/api/exchange-accounts/**`
+удалены и не имеют compatibility alias.
+
+Для user-owned exchange account resources отсутствующий и чужой идентификатор
+возвращают одинаковый `404 ProblemDetails`: `resource_not_found`,
+`urn:intelligence-trade:error:resource-not-found`, `Resource not found.`.
 
 `/api/market-analysis/snapshot` и
 `/api/market-analysis/{symbol}/llm-payload` остаются отдельными публичными

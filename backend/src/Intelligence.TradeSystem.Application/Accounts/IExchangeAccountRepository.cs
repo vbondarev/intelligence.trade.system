@@ -6,6 +6,11 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 
 public interface IExchangeAccountRepository
 {
+    Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
+        UserId userId,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Listing exchange accounts is not implemented.");
+
     Task<Versioned<ExchangeAccount>?> GetByIdAsync(
         UserId userId,
         ExchangeAccountId id,
