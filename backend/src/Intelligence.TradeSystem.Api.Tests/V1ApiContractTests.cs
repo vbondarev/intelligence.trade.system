@@ -34,6 +34,26 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Theory]
+    [InlineData("GET", "/api/v1/exchange-accounts")]
+    [InlineData("POST", "/api/v1/exchange-accounts")]
+    [InlineData("POST", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/verify")]
+    [InlineData("PUT", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/credentials")]
+    [InlineData("POST", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/sync")]
+    [InlineData("DELETE", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
+    public async Task Exchange_account_lifecycle_operations_require_authentication(
+        string method,
+        string path)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (method is "POST" or "PUT")
+            request.Content = JsonContent.Create(new { exchange = "bybit", apiKey = "key", apiSecret = "secret" });
+
+        using var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     [Fact]
     public async Task Test_only_serialization_route_is_not_in_the_production_surface()
     {
@@ -219,7 +239,7 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
-    public async Task Pre_v1_exchange_accounts_route_remains_protected_without_a_v1_alias()
+    public async Task Pre_v1_exchange_accounts_routes_are_removed_after_v1_migration()
     {
         using var legacyResponse = await _client.PostAsJsonAsync(
             "/api/exchange-accounts/bybit",
@@ -237,9 +257,9 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
                 apiSecret = "api-secret",
             });
 
-        legacyResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        v1ListResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        legacyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        v1ListResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
     }
 
     [Fact]

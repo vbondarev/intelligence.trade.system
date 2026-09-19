@@ -8,6 +8,12 @@ internal static class ApiErrorDescriptors
         "Request validation failed.",
         "urn:intelligence-trade:error:validation-failed");
 
+    public static ApiErrorDescriptor ResourceNotFound { get; } = new(
+        ApiErrorCodes.ResourceNotFound,
+        StatusCodes.Status404NotFound,
+        "Resource not found.",
+        "urn:intelligence-trade:error:resource-not-found");
+
     public static ApiErrorDescriptor ConcurrencyConflict { get; } = new(
         ApiErrorCodes.ConcurrencyConflict,
         StatusCodes.Status409Conflict,

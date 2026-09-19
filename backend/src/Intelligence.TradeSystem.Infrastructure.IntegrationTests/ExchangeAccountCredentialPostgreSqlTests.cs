@@ -134,7 +134,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
 
         Assert.NotNull(metadata);
         Assert.Equal(ConcurrencyVersion.Initial, metadata!.Version);
-        await Assert.ThrowsAsync<CredentialProtectionException>(
+        await Assert.ThrowsAsync<ExchangeAccountCredentialsUnavailableException>(
             () => store.GetAsync(account.UserId, account.Id));
 
         await store.RevokeAsync(account.UserId, account.Id, metadata.Version);
@@ -265,7 +265,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
 
         await using var readContext = await CreateMigratedContext();
         var readStore = CreateStore(readContext, "v1", keys);
-        await Assert.ThrowsAsync<CredentialProtectionException>(
+        await Assert.ThrowsAsync<ExchangeAccountCredentialsUnavailableException>(
             () => readStore.GetAsync(userId, second.Id));
     }
 
@@ -291,7 +291,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
 
         await using var readContext = await CreateMigratedContext();
         var store = CreateStore(readContext, "v1", keys);
-        await Assert.ThrowsAsync<CredentialProtectionException>(
+        await Assert.ThrowsAsync<ExchangeAccountCredentialsUnavailableException>(
             () => store.GetAsync(account.UserId, account.Id));
 
         var metadata = await store.GetMetadataAsync(account.UserId, account.Id);

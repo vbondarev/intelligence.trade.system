@@ -262,7 +262,7 @@
 - F не вводит Telegram UX для acknowledge/dismiss — это этап I;
 - F не создаёт cross-account portfolio analytics — это последующее расширение этапа M;
 - публичный market-analysis API сохраняется независимо и не становится контрактом React-клиента; `POST /api/market-analysis/snapshot` остаётся legacy endpoint;
-- существующий незаверсионированный `api/exchange-accounts` остаётся временным pre-v1 контрактом: F-01 принял и покрыл тестами решение сохранить маршрут без v1 alias, а F-02 создаёт каноническую `/api/v1/exchange-accounts` и затем удаляет pre-v1 route, если не будет подтверждён runtime consumer для ограниченной по времени compatibility migration;
+- `/api/v1/exchange-accounts` является каноническим lifecycle-контрактом read-only биржевых аккаунтов; временный pre-v1 `api/exchange-accounts` удалён в F-02, compatibility alias отсутствует;
 - F реализует SignalR boundary самого resource server, но browser transport остаётся частью BFF-интеграции этапа G: access token не передаётся в browser JavaScript.
 
 Минимальный API:
@@ -309,7 +309,7 @@ GET    /api/v1/auth/me
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
 | F-01 | Зафиксировать структуру `/api/v1`, миграцию pre-v1 routes и стабильные пользовательские контракты | ✅ | Зафиксированы v1 DTO/read models, JSON/ProblemDetails/cursor conventions, route-scoped serialization и OpenAPI enum contract; pre-v1 `api/exchange-accounts` временно сохранён без v1 alias; public market-analysis boundary не изменена; решения покрыты API/HTTP contract tests |
-| F-02 | Реализовать API жизненного цикла биржевого аккаунта | ⬜ | Пользователь может получить список подключений, подключить read-only аккаунт, повторно проверить credentials/permissions, безопасно ротировать credentials без смены `ExchangeAccountId`, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
+| F-02 | Реализовать API жизненного цикла биржевого аккаунта | ✅ | Пользователь может получить список подключений, подключить read-only аккаунт, повторно проверить credentials/permissions, безопасно ротировать credentials без смены `ExchangeAccountId`, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
 | F-03 | Реализовать read API позиций и account-scoped портфеля | ⬜ | Доступны постраничный список с фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, карточка позиции и `PortfolioState` конкретного exchange account; по умолчанию закрытые позиции не смешиваются с активным рабочим списком; cross-user доступ скрыт; общий cross-account `/portfolio` не имитируется без соответствующей доменной модели; OpenAPI/API tests обновлены |
 | F-04 | Реализовать position-scoped market context и свечи | ⬜ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
 | F-05 | Реализовать единый evaluation workflow и read model | ⬜ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
@@ -452,19 +452,18 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Добавить API жизненного цикла биржевого аккаунта | F-02 |
-| 2 | Добавить read API позиций и account-scoped портфеля | F-03 |
-| 3 | Добавить position-scoped market context и свечи | F-04 |
-| 4 | Добавить evaluation workflow и согласованный read model | F-05 |
-| 5 | Добавить timeline, cursor pagination и фильтры | F-06 |
-| 6 | Добавить user-scoped SignalR с REST recovery | F-07 |
-| 7 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
-| 9 | Создать адаптивную React-панель | G-01 — G-08 |
-| 10 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 11 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 12 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 13 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 14 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Добавить read API позиций и account-scoped портфеля | F-03 |
+| 2 | Добавить position-scoped market context и свечи | F-04 |
+| 3 | Добавить evaluation workflow и согласованный read model | F-05 |
+| 4 | Добавить timeline, cursor pagination и фильтры | F-06 |
+| 5 | Добавить user-scoped SignalR с REST recovery | F-07 |
+| 6 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
+| 7 | Создать адаптивную React-панель | G-01 — G-08 |
+| 8 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 9 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 10 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 11 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 12 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
 Этапы A–E завершены и больше не входят в очередь ближайших PR. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
