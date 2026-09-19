@@ -7,6 +7,7 @@ public enum ExchangeAccountVerificationOutcome
     AccountDisabled,
     InvalidCredentials,
     PermissionsRejected,
+    ProviderIdentityMismatch,
     CredentialsUnavailable,
     ExchangeUnavailable,
     UnsupportedExchange,

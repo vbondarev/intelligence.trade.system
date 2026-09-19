@@ -199,6 +199,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     [Theory]
     [InlineData(ExchangeAccountVerificationOutcome.NotFound, HttpStatusCode.NotFound)]
     [InlineData(ExchangeAccountVerificationOutcome.AccountDisabled, HttpStatusCode.Conflict)]
+    [InlineData(ExchangeAccountVerificationOutcome.ProviderIdentityMismatch, HttpStatusCode.Conflict)]
     [InlineData(ExchangeAccountVerificationOutcome.InvalidCredentials, HttpStatusCode.BadRequest)]
     [InlineData(ExchangeAccountVerificationOutcome.PermissionsRejected, HttpStatusCode.Forbidden)]
     [InlineData(ExchangeAccountVerificationOutcome.CredentialsUnavailable, HttpStatusCode.ServiceUnavailable)]
@@ -290,6 +291,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
     [Theory]
     [InlineData(ExchangeAccountCredentialRotationOutcome.NotFound, HttpStatusCode.NotFound)]
     [InlineData(ExchangeAccountCredentialRotationOutcome.AccountDisabled, HttpStatusCode.Conflict)]
+    [InlineData(ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch, HttpStatusCode.Conflict)]
     [InlineData(ExchangeAccountCredentialRotationOutcome.InvalidCredentials, HttpStatusCode.BadRequest)]
     [InlineData(ExchangeAccountCredentialRotationOutcome.PermissionsRejected, HttpStatusCode.Forbidden)]
     [InlineData(ExchangeAccountCredentialRotationOutcome.CredentialsUnavailable, HttpStatusCode.ServiceUnavailable)]
@@ -313,6 +315,28 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
         response.StatusCode.Should().Be(expectedStatus);
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContainAny("new-key", "new-secret");
+    }
+
+    [Fact]
+    public async Task Rotate_identity_mismatch_returns_the_stable_problem_details_code()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RotateCredentialsAsync(
+                userId, accountId, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountCredentialRotationResult(
+                ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch, null));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PutAsJsonAsync(
+            $"/api/v1/exchange-accounts/{accountId.Value}/credentials",
+            new { apiKey = "new-key", apiSecret = "new-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Type.Should().Be("urn:intelligence-trade:error:exchange-account-identity-mismatch");
+        problem.Extensions["code"]!.ToString().Should().Be("exchange_account_identity_mismatch");
     }
 
     [Fact]
@@ -470,6 +494,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicati
             id ?? ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 }

@@ -9,6 +9,7 @@ public sealed class ExchangeAccount
         ExchangeAccountId id,
         UserId userId,
         ExchangeId exchangeId,
+        ExchangeAccountProviderIdentity providerIdentity,
         ExchangeAccountConnectionStatus connectionStatus,
         ExchangeAccountCapabilities capabilities,
         DateTimeOffset? lastSyncedAt,
@@ -19,6 +20,7 @@ public sealed class ExchangeAccount
         Id = id;
         UserId = userId;
         ExchangeId = exchangeId;
+        ProviderIdentity = providerIdentity;
         ConnectionStatus = connectionStatus;
         Capabilities = capabilities;
         LastSyncedAt = lastSyncedAt;
@@ -30,6 +32,7 @@ public sealed class ExchangeAccount
     public ExchangeAccountId Id { get; }
     public UserId UserId { get; }
     public ExchangeId ExchangeId { get; }
+    public ExchangeAccountProviderIdentity ProviderIdentity { get; }
     public ExchangeAccountConnectionStatus ConnectionStatus { get; private set; }
     public ExchangeAccountCapabilities Capabilities { get; }
     public DateTimeOffset? LastSyncedAt { get; private set; }
@@ -45,6 +48,7 @@ public sealed class ExchangeAccount
         ExchangeAccountId id,
         UserId userId,
         ExchangeId exchangeId,
+        ExchangeAccountProviderIdentity providerIdentity,
         ExchangeAccountConnectionStatus connectionStatus = ExchangeAccountConnectionStatus.Unknown,
         ExchangeAccountCapabilities capabilities = ExchangeAccountCapabilities.None,
         DateTimeOffset? lastSyncedAt = null,
@@ -60,6 +64,11 @@ public sealed class ExchangeAccount
 
         if (!Enum.IsDefined(exchangeId))
             throw new ArgumentOutOfRangeException(nameof(exchangeId), exchangeId, "ExchangeId must be defined.");
+
+        if (providerIdentity == default)
+            throw new ArgumentException(
+                "Exchange account provider identity must be initialized.",
+                nameof(providerIdentity));
 
         if (!Enum.IsDefined(connectionStatus))
             throw new ArgumentOutOfRangeException(
@@ -86,6 +95,7 @@ public sealed class ExchangeAccount
             id,
             userId,
             exchangeId,
+            providerIdentity,
             connectionStatus,
             capabilities,
             lastSyncedAt,

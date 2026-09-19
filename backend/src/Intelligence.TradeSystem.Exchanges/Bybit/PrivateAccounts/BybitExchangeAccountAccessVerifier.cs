@@ -72,6 +72,7 @@ public sealed class BybitExchangeAccountAccessVerifier(
         }
 
         return ExchangeAccountAccessVerificationResult.Verified(
+            metadata.Metadata!.ProviderIdentity,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
     }
 

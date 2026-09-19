@@ -236,6 +236,7 @@ public sealed class ApplicationEventContractTests
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance |
             ExchangeAccountCapabilities.ReadPositions);

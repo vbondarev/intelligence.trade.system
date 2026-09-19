@@ -44,10 +44,18 @@ public sealed class ExchangeAccountService(
             });
         }
 
+        if (verification.ProviderIdentity is not { } providerIdentity)
+            return ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.Unavailable);
+
         if (!HasRequiredCapabilities(verification.Capabilities))
             return ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.PermissionsRejected);
 
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, exchange, capabilities: verification.Capabilities);
+        var account = ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            userId,
+            exchange,
+            providerIdentity,
+            capabilities: verification.Capabilities);
         var accountVersion = await repository.SaveAsync(userId, account, null, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -91,6 +99,11 @@ public sealed class ExchangeAccountService(
         var verification = await accessVerifier.VerifyAsync(account.ExchangeId, credential.Use((key, secret) =>
             new ExchangeAccountCredentialSecret(key, secret)), cancellationToken).ConfigureAwait(false);
         var outcome = ToVerificationOutcome(verification);
+        if (outcome == ExchangeAccountVerificationOutcome.Succeeded &&
+            verification.ProviderIdentity != account.ProviderIdentity)
+        {
+            outcome = ExchangeAccountVerificationOutcome.ProviderIdentityMismatch;
+        }
         if (outcome == ExchangeAccountVerificationOutcome.UnsupportedExchange)
             return new(outcome, null);
 
@@ -122,6 +135,11 @@ public sealed class ExchangeAccountService(
         var verification = await accessVerifier.VerifyAsync(initialAccount.Value.ExchangeId, replacement, cancellationToken)
             .ConfigureAwait(false);
         var outcome = ToRotationOutcome(verification);
+        if (outcome == ExchangeAccountCredentialRotationOutcome.Succeeded &&
+            verification.ProviderIdentity != initialAccount.Value.ProviderIdentity)
+        {
+            return new(ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch, null);
+        }
         if (outcome != ExchangeAccountCredentialRotationOutcome.Succeeded)
             return new(outcome, null);
 
@@ -179,8 +197,14 @@ public sealed class ExchangeAccountService(
         ExchangeAccountAccessVerificationResult verification) =>
         verification.Status switch
         {
-            ExchangeAccountAccessVerificationStatus.Verified when HasRequiredCapabilities(verification.Capabilities) =>
+            ExchangeAccountAccessVerificationStatus.Verified
+                when verification.ProviderIdentity is not null &&
+                     HasRequiredCapabilities(verification.Capabilities) =>
                 ExchangeAccountVerificationOutcome.Succeeded,
+            ExchangeAccountAccessVerificationStatus.Verified =>
+                HasRequiredCapabilities(verification.Capabilities)
+                    ? ExchangeAccountVerificationOutcome.ExchangeUnavailable
+                    : ExchangeAccountVerificationOutcome.PermissionsRejected,
             ExchangeAccountAccessVerificationStatus.InvalidCredentials =>
                 ExchangeAccountVerificationOutcome.InvalidCredentials,
             ExchangeAccountAccessVerificationStatus.Unavailable =>

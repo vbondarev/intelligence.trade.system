@@ -8,6 +8,7 @@ using FluentAssertions;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -68,6 +69,11 @@ public sealed class BybitExchangeAccountAccessVerifierTests
         result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Verified);
         result.Capabilities.Should().Be(
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        result.ProviderIdentity.Should().Be(
+            ExchangeAccountProviderIdentity.From("123456789"));
+        account.Verify(
+            api => api.GetApiKeyInfoAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
         client.Verify(value => value.Dispose(), Times.Once);
     }
 
@@ -276,6 +282,7 @@ public sealed class BybitExchangeAccountAccessVerifierTests
             .ReturnsAsync(CreateSuccess(new BybitApiKeyInfo
             {
                 Readonly = readOnly,
+                UserId = 123456789,
                 Permissions = new BybitPermissions
                 {
                     Wallet = [],

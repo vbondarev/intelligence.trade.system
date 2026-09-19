@@ -57,7 +57,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_Returns_AccountDisabled_Without_Reading_Credentials_Or_Calling_Verifier()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Disabled);
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         var store = new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict);
@@ -77,7 +77,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_Succeeds_And_Marks_The_Account_Connected()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -86,7 +86,7 @@ public sealed class ExchangeAccountVerificationTests
         var credential = new ExchangeAccountCredential(new ExchangeAccountCredentialSecret("key", "secret"), version);
         store.Setup(value => value.GetAsync(userId, account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(credential);
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         repository.Setup(value => value.SaveAsync(userId,
                 It.Is<ExchangeAccount>(saved => saved.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
                 version, It.IsAny<CancellationToken>()))
@@ -97,6 +97,7 @@ public sealed class ExchangeAccountVerificationTests
 
         result.Outcome.Should().Be(ExchangeAccountVerificationOutcome.Succeeded);
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
         repository.VerifyAll();
         store.VerifyAll();
         verifier.VerifyAll();
@@ -109,6 +110,16 @@ public sealed class ExchangeAccountVerificationTests
             ExchangeAccountAccessVerificationStatus.InvalidCredentials));
 
         result.Outcome.Should().Be(ExchangeAccountVerificationOutcome.InvalidCredentials);
+        result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_WhenProviderIdentityDiffers_MarksAccountUnavailable()
+    {
+        var result = await RunVerifyOutcomeAsync(ExchangeAccountAccessVerificationResult.Verified(
+            OtherProviderIdentity, RequiredCapabilities));
+
+        result.Outcome.Should().Be(ExchangeAccountVerificationOutcome.ProviderIdentityMismatch);
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
     }
 
@@ -126,7 +137,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_WhenCapabilitiesAreInsufficient_TreatsItAsPermissionsRejectedAndMarksUnavailable()
     {
         var result = await RunVerifyOutcomeAsync(ExchangeAccountAccessVerificationResult.Verified(
-            ExchangeAccountCapabilities.ReadBalance));
+            ProviderIdentity, ExchangeAccountCapabilities.ReadBalance));
 
         result.Outcome.Should().Be(ExchangeAccountVerificationOutcome.PermissionsRejected);
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
@@ -140,6 +151,7 @@ public sealed class ExchangeAccountVerificationTests
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
+            ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected,
             capabilities: RequiredCapabilities);
         var accountVersion = ConcurrencyVersion.Initial;
@@ -178,7 +190,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_WhenCredentialsAreUnreadable_ReturnsCredentialsUnavailableWithoutCallingVerifier()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -200,7 +212,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_WhenNoCredentialRowExists_ReturnsCredentialsUnavailableWithoutCallingVerifier()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -218,7 +230,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task VerifyAsync_Propagates_A_Concurrency_Conflict_From_The_Final_Save()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -227,7 +239,7 @@ public sealed class ExchangeAccountVerificationTests
         var credential = new ExchangeAccountCredential(new ExchangeAccountCredentialSecret("key", "secret"), version);
         store.Setup(value => value.GetAsync(userId, account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(credential);
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         repository.Setup(value => value.SaveAsync(userId, It.IsAny<ExchangeAccount>(), version, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("stale version"));
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
@@ -241,7 +253,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_WhenVersionsAreUnchanged_RotatesAndMarksConnected()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable,
             capabilities: ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
@@ -254,7 +266,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
-                ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions));
+                ProviderIdentity, ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions));
         store.Setup(value => value.RotateAsync(userId, account.Id, version, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
         repository.Setup(value => value.SaveAsync(userId,
@@ -279,7 +291,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_Reads_Versions_Before_Calling_The_Verifier()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -292,7 +304,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.InSequence(sequence)
             .Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         repository.InSequence(sequence)
             .Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, version));
@@ -351,7 +363,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_Returns_AccountDisabled_Without_Calling_The_Verifier()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Disabled);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -368,7 +380,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_Returns_CredentialsUnavailable_When_No_Credential_Row_Exists()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -392,7 +404,7 @@ public sealed class ExchangeAccountVerificationTests
         ExchangeAccountCredentialRotationOutcome expectedOutcome)
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -416,7 +428,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_WhenReplacementHasInsufficientCapabilities_ReturnsPermissionsRejectedAndWritesNothing()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -425,7 +437,8 @@ public sealed class ExchangeAccountVerificationTests
         store.Setup(value => value.GetMetadataAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ExchangeAccountCapabilities.ReadBalance));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
+                ProviderIdentity, ExchangeAccountCapabilities.ReadBalance));
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
@@ -440,7 +453,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_WhenAccountVersionChangedDuringVerification_ThrowsConcurrencyConflict()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var initialVersion = ConcurrencyVersion.Initial;
         var changedVersion = initialVersion.Next();
@@ -451,7 +464,7 @@ public sealed class ExchangeAccountVerificationTests
         store.Setup(value => value.GetMetadataAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(initialVersion));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
@@ -465,7 +478,7 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_WhenCredentialVersionChangedDuringVerification_ThrowsConcurrencyConflict()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var initialCredentialVersion = ConcurrencyVersion.Initial;
@@ -477,7 +490,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(initialCredentialVersion))
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(changedCredentialVersion));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
@@ -490,10 +503,10 @@ public sealed class ExchangeAccountVerificationTests
     public async Task RotateCredentialsAsync_WhenAccountWasDisabledDuringVerification_ThrowsConcurrencyConflictAndDoesNotReactivate()
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
-        var disabledAccount = ExchangeAccount.Create(account.Id, userId, ExchangeId.Bybit,
+        var disabledAccount = ExchangeAccount.Create(account.Id, userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Disabled, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.SetupSequence(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -502,7 +515,7 @@ public sealed class ExchangeAccountVerificationTests
         store.Setup(value => value.GetMetadataAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
@@ -516,7 +529,7 @@ public sealed class ExchangeAccountVerificationTests
         ExchangeAccountAccessVerificationResult verification)
     {
         var userId = UserId.New();
-        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+        var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -548,5 +561,9 @@ public sealed class ExchangeAccountVerificationTests
             await operation(cancellationToken);
         }
     }
-}
 
+    private static readonly ExchangeAccountProviderIdentity ProviderIdentity =
+        ExchangeAccountProviderIdentity.From("provider-account");
+    private static readonly ExchangeAccountProviderIdentity OtherProviderIdentity =
+        ExchangeAccountProviderIdentity.From("other-provider-account");
+}

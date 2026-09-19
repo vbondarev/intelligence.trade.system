@@ -77,6 +77,8 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountCredentialRotationOutcome.Succeeded when result.Account is not null => Ok(ToResponse(result.Account)),
             ExchangeAccountCredentialRotationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountCredentialRotationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
+            ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch =>
+                Error(ApiErrorDescriptors.ExchangeAccountIdentityMismatch),
             ExchangeAccountCredentialRotationOutcome.InvalidCredentials => Error(ApiErrorDescriptors.ExchangeCredentialsInvalid),
             ExchangeAccountCredentialRotationOutcome.PermissionsRejected => Error(ApiErrorDescriptors.ExchangePermissionsRejected),
             ExchangeAccountCredentialRotationOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),
@@ -121,6 +123,8 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountVerificationOutcome.Succeeded when result.Account is not null => Ok(ToResponse(result.Account)),
             ExchangeAccountVerificationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountVerificationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
+            ExchangeAccountVerificationOutcome.ProviderIdentityMismatch =>
+                Error(ApiErrorDescriptors.ExchangeAccountIdentityMismatch),
             ExchangeAccountVerificationOutcome.InvalidCredentials => Error(ApiErrorDescriptors.ExchangeCredentialsInvalid),
             ExchangeAccountVerificationOutcome.PermissionsRejected => Error(ApiErrorDescriptors.ExchangePermissionsRejected),
             ExchangeAccountVerificationOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),

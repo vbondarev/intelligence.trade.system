@@ -694,6 +694,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             ExchangeAccountId.New(),
             userId ?? UserId.New(),
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 

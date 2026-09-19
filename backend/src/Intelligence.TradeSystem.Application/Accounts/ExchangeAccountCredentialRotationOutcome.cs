@@ -6,6 +6,7 @@ public enum ExchangeAccountCredentialRotationOutcome
     NotFound,
     AccountDisabled,
     PermissionsRejected,
+    ProviderIdentityMismatch,
     InvalidCredentials,
     CredentialsUnavailable,
     ExchangeUnavailable,

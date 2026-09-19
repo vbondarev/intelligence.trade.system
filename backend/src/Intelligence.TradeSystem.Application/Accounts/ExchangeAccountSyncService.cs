@@ -541,6 +541,7 @@ public sealed class ExchangeAccountSyncService(
             account.Id,
             account.UserId,
             account.ExchangeId,
+            account.ProviderIdentity,
             account.ConnectionStatus,
             account.Capabilities,
             account.LastSyncedAt,

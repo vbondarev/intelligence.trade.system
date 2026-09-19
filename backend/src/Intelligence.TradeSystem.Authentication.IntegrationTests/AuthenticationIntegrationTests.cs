@@ -783,6 +783,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             ExchangeAccountId.New(),
             UserId.FromGuid(ownerId),
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 

@@ -12,6 +12,7 @@ public sealed class ExchangeAccountTests
             id,
             userId,
             ExchangeId.Bybit,
+            ProviderIdentity,
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 
@@ -25,23 +26,29 @@ public sealed class ExchangeAccountTests
         account.LastError.Should().BeNull();
         account.LastAppliedBalanceObservationAt.Should().BeNull();
         account.LastAppliedPositionsObservationAt.Should().BeNull();
+        account.ProviderIdentity.Should().Be(ProviderIdentity);
     }
 
     [Fact]
     public void Create_Rejects_Default_Identity()
     {
-        var actUser = () => ExchangeAccount.Create(ExchangeAccountId.New(), default, ExchangeId.Bybit);
-        var actAccount = () => ExchangeAccount.Create(default, UserId.New(), ExchangeId.Bybit);
+        var actUser = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(), default, ExchangeId.Bybit, ProviderIdentity);
+        var actAccount = () => ExchangeAccount.Create(
+            default, UserId.New(), ExchangeId.Bybit, ProviderIdentity);
+        var actProvider = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, default);
 
         actUser.Should().Throw<ArgumentException>();
         actAccount.Should().Throw<ArgumentException>();
+        actProvider.Should().Throw<ArgumentException>();
     }
 
     [Fact]
     public void Create_Rejects_Unknown_Exchange()
     {
         var act = () => ExchangeAccount.Create(
-            ExchangeAccountId.New(), UserId.New(), (ExchangeId)999);
+            ExchangeAccountId.New(), UserId.New(), (ExchangeId)999, ProviderIdentity);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -53,6 +60,7 @@ public sealed class ExchangeAccountTests
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ProviderIdentity,
             capabilities: (ExchangeAccountCapabilities)4);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
@@ -65,6 +73,7 @@ public sealed class ExchangeAccountTests
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ProviderIdentity,
             connectionStatus: (ExchangeAccountConnectionStatus)999);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
@@ -76,6 +85,7 @@ public sealed class ExchangeAccountTests
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.Id))!.SetMethod.Should().BeNull();
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.UserId))!.SetMethod.Should().BeNull();
         typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.ExchangeId))!.SetMethod.Should().BeNull();
+        typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.ProviderIdentity))!.SetMethod.Should().BeNull();
     }
 
     [Fact]
@@ -215,6 +225,10 @@ public sealed class ExchangeAccountTests
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ProviderIdentity,
             status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+
+    private static readonly ExchangeAccountProviderIdentity ProviderIdentity =
+        ExchangeAccountProviderIdentity.From("provider-account");
 }

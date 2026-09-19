@@ -44,6 +44,12 @@ internal static class ApiErrorDescriptors
         "The exchange account is disabled.",
         "urn:intelligence-trade:error:exchange-account-disabled");
 
+    public static ApiErrorDescriptor ExchangeAccountIdentityMismatch { get; } = new(
+        ApiErrorCodes.ExchangeAccountIdentityMismatch,
+        StatusCodes.Status409Conflict,
+        "The credentials belong to a different exchange account.",
+        "urn:intelligence-trade:error:exchange-account-identity-mismatch");
+
     public static ApiErrorDescriptor ExchangeUnavailable { get; } = new(
         ApiErrorCodes.ExchangeUnavailable,
         StatusCodes.Status503ServiceUnavailable,

@@ -209,6 +209,8 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             var responseSchemaJson = schemas.GetProperty(schemaName).GetRawText();
             responseSchemaJson.Should().NotContainAny(
                 "apiKey", "apiSecret", "credentialVersion", "ciphertext", "encryptionKeyId");
+            responseSchemaJson.Should().NotContainAny(
+                "providerAccountId", "providerIdentity", "userID", "userId");
         }
 
         var listSchema = schemas.GetProperty("ExchangeAccountListResponse");

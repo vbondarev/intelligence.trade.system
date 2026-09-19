@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Accounts.Access;
 using CryptoExchange.Net.Objects;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.Mapping;
 using Intelligence.TradeSystem.Exchanges.Bybit.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -284,8 +285,27 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 return ApiKeyAccessMetadataObservation.Failed(failure);
             }
 
+            if (apiKeyInfo.UserId <= 0)
+            {
+                failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
+                BybitPrivateProviderLogMessages.LogFailedToFetchApiKeyAccess(
+                    _logger,
+                    BybitExchangeTelemetry.ApiKeyAccessOperation,
+                    BybitExchangeTelemetry.ExchangeName,
+                    failure.Kind,
+                    failure.Retryable,
+                    null,
+                    BybitExchangeTelemetry.FailureOutcome,
+                    stopwatch.Elapsed.TotalMilliseconds);
+                return ApiKeyAccessMetadataObservation.Failed(failure);
+            }
+
             outcome = BybitExchangeTelemetry.SuccessOutcome;
-            return ApiKeyAccessMetadataObservation.Complete(new ApiKeyAccessMetadata(apiKeyInfo.Readonly));
+            return ApiKeyAccessMetadataObservation.Complete(
+                new ApiKeyAccessMetadata(
+                    apiKeyInfo.Readonly,
+                    ExchangeAccountProviderIdentity.From(
+                        apiKeyInfo.UserId.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         }
         catch (OperationCanceledException)
         {

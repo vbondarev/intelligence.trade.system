@@ -101,6 +101,7 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(entity => entity.ExchangeId, mapped.ExchangeId)
+                    .SetProperty(entity => entity.ProviderAccountId, mapped.ProviderAccountId)
                     .SetProperty(entity => entity.ConnectionStatus, mapped.ConnectionStatus)
                     .SetProperty(entity => entity.Capabilities, mapped.Capabilities)
                     .SetProperty(entity => entity.LastSyncedAt, mapped.LastSyncedAt)

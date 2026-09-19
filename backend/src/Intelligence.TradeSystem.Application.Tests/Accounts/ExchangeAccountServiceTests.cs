@@ -20,7 +20,7 @@ public sealed class ExchangeAccountServiceTests
         var secret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -52,8 +52,49 @@ public sealed class ExchangeAccountServiceTests
         result.Account.Should().NotBeNull();
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
         result.Account.Capabilities.Should().Be(RequiredCapabilities);
+        result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
         fixture.CredentialStore.VerifyAll();
         fixture.Repository.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RotateCredentialsAsync_Rejects_A_Different_Provider_Identity_Without_Persistence_Writes()
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        var version = ConcurrencyVersion.Initial;
+        var replacement = new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret");
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(
+                fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, version));
+        fixture.CredentialStore
+            .Setup(store => store.GetMetadataAsync(
+                fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(
+                ExchangeId.Bybit, replacement, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
+                OtherProviderIdentity, RequiredCapabilities));
+
+        var result = await fixture.Service.RotateCredentialsAsync(
+            fixture.UserId, account.Id, replacement);
+
+        result.Outcome.Should().Be(ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch);
+        result.Account.Should().BeNull();
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        fixture.Repository.Verify(repository => repository.SaveAsync(
+            It.IsAny<UserId>(),
+            It.IsAny<ExchangeAccount>(),
+            It.IsAny<ConcurrencyVersion?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.CredentialStore.Verify(store => store.RotateAsync(
+            It.IsAny<UserId>(),
+            It.IsAny<ExchangeAccountId>(),
+            It.IsAny<ConcurrencyVersion>(),
+            It.IsAny<ExchangeAccountCredentialSecret>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -109,7 +150,7 @@ public sealed class ExchangeAccountServiceTests
         var persistedSecret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -362,6 +403,7 @@ public sealed class ExchangeAccountServiceTests
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
+            ProviderIdentity,
             status,
             RequiredCapabilities);
 
@@ -390,4 +432,9 @@ public sealed class ExchangeAccountServiceTests
         public ExchangeAccountService Service { get; } =
             new(verifier.Object, repository.Object, credentialStore.Object, lifecycleTransaction.Object);
     }
+
+    private static readonly ExchangeAccountProviderIdentity ProviderIdentity =
+        ExchangeAccountProviderIdentity.From("provider-account");
+    private static readonly ExchangeAccountProviderIdentity OtherProviderIdentity =
+        ExchangeAccountProviderIdentity.From("other-provider-account");
 }

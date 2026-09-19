@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Domain;
@@ -45,6 +46,87 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         Assert.Equal(expectedOrder, result.Select(x => x.Value.Id).ToArray());
         Assert.DoesNotContain(result, x => x.Value.Id == disabled.Id);
         Assert.DoesNotContain(result, x => x.Value.Id == foreign.Id);
+    }
+
+    [Fact]
+    public async Task Provider_identity_round_trips_and_is_not_nullable_in_PostgreSql()
+    {
+        var userId = UserId.New();
+        var providerIdentity = ExchangeAccountProviderIdentity.From("bybit-user-123456");
+        var account = ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            userId,
+            ExchangeId.Bybit,
+            providerIdentity);
+
+        await using var context = await CreateMigratedContext();
+        await new ExchangeAccountRepository(context).SaveAsync(userId, account, expectedVersion: null);
+
+        var reloaded = await new ExchangeAccountRepository(context).GetByIdAsync(userId, account.Id);
+        Assert.Equal(providerIdentity, reloaded!.Value.ProviderIdentity);
+
+        await context.Database.OpenConnectionAsync();
+        await using var command = context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = """
+            SELECT is_nullable, data_type, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'exchange_accounts'
+              AND column_name = 'provider_account_id';
+            """;
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("NO", reader.GetString(0));
+        Assert.Equal("character varying", reader.GetString(1));
+        Assert.Equal(128, reader.GetInt32(2));
+    }
+
+    [Fact]
+    public async Task Real_exchange_account_service_rejects_identity_mismatch_without_mutating_postgres()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId, ExchangeAccountConnectionStatus.Connected);
+        var keys = CreateKeys("v1");
+        var replacement = new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret");
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(userId, account, expectedVersion: null);
+            await CreateStore(setupContext, keys).CreateAsync(
+                userId,
+                account.Id,
+                new ExchangeAccountCredentialSecret("original-key", "original-secret"));
+        }
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var repository = new ExchangeAccountRepository(context);
+            var store = CreateStore(context, keys);
+            var service = new ExchangeAccountService(
+                new FixedAccessVerifier(ExchangeAccountProviderIdentity.From("different-bybit-user")),
+                repository,
+                store,
+                new ExchangeAccountLifecycleTransaction(context));
+
+            var result = await service.RotateCredentialsAsync(userId, account.Id, replacement);
+
+            Assert.Equal(
+                ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch,
+                result.Outcome);
+            Assert.Null(result.Account);
+        }
+
+        await using var readContext = await CreateMigratedContext();
+        var reloadedAccount = await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, account.Id);
+        Assert.Equal(ConcurrencyVersion.Initial, reloadedAccount!.Version);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, reloadedAccount.Value.ConnectionStatus);
+        var reloadedCredential = await CreateStore(readContext, keys).GetAsync(userId, account.Id);
+        reloadedCredential!.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("original-key", apiKey);
+            Assert.Equal("original-secret", apiSecret);
+        });
+        Assert.Equal(ConcurrencyVersion.Initial, reloadedCredential.Version);
     }
 
     [Fact]
@@ -203,14 +285,27 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         UserId userId,
         ExchangeAccountConnectionStatus status = ExchangeAccountConnectionStatus.Connected) =>
         ExchangeAccount.Create(
-            ExchangeAccountId.New(), userId, ExchangeId.Bybit, status,
+            ExchangeAccountId.New(), userId, ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"), status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+
+    private sealed class FixedAccessVerifier(ExchangeAccountProviderIdentity providerIdentity)
+        : IExchangeAccountAccessVerifier
+    {
+        public Task<ExchangeAccountAccessVerificationResult> VerifyAsync(
+            ExchangeId exchange,
+            ExchangeAccountCredentialSecret credentials,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ExchangeAccountAccessVerificationResult.Verified(
+                providerIdentity,
+                ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions));
+    }
 
     private static ExchangeAccount CreateAccount(
         ExchangeAccountId id,
         UserId userId,
         ExchangeAccountConnectionStatus status) =>
         ExchangeAccount.Create(
-            id, userId, ExchangeId.Bybit, status,
+            id, userId, ExchangeId.Bybit, ExchangeAccountProviderIdentity.From("provider-account"), status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 }
