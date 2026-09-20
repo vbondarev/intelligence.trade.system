@@ -2,8 +2,8 @@
 
 Версия документа: 3.22
 Дата актуализации: 20 сентября 2026 года
-Проверенная база: Issue #124 (F-03: read API позиций и account-scoped портфеля)
-Последняя учтённая задача: Issue #124 «F-03. Реализовать read API позиций и account-scoped портфеля»
+Проверенная база: PR #125 (F-03: read API позиций и account-scoped портфеля)
+Последняя учтённая задача: Issue #124 «F-03. Реализовать read API позиций и account-scoped портфеля» / PR #125
 Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -532,7 +532,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-20 | 3.22 | Issue #124 завершает F-03: добавлены user-scoped read endpoints позиций и account-scoped portfolio, SQL-side filtering/seek pagination без загрузки `PositionChanges`, versioned opaque cursor, explicit v1 DTO/enums, metadata-driven OpenAPI authorization и API/PostgreSQL contract coverage. Следующий шаг — F-04: position-scoped market context и свечи. |
+| 2026-09-20 | 3.22 | Issue #124 / PR #125 завершает F-03: добавлены user-scoped read endpoints позиций и account-scoped portfolio, SQL-side filtering/seek pagination без загрузки `PositionChanges`, versioned opaque cursor, explicit v1 DTO/enums, metadata-driven OpenAPI authorization и API/PostgreSQL contract coverage. Следующий шаг — F-04: position-scoped market context и свечи. |
 | 2026-09-20 | 3.21 | PR #117 завершил F-02: канонический `/api/v1/exchange-accounts` покрывает list/connect/verify/credential rotation/sync/disconnect, pre-v1 routes удалены, user scope и стабильные ProblemDetails/OpenAPI contracts проверены тестами. Для exchange account введена обязательная provider-side identity (Bybit `userID`): один `ExchangeAccountId` сохраняет один внешний аккаунт на всём lifecycle, rotation другого account/subaccount отклоняется без mutation, persistence/CAS запрещает rebinding. Добавлена migration `provider_account_id NOT NULL`, PostgreSQL race/rollback/invariant coverage и корректное различение permission-denied при чтении positions. Следующий шаг — F-03: read API позиций и account-scoped portfolio. |
 | 2026-09-18 | 3.20 | PR #112 завершил F-01: зафиксированы canonical `/api/v1` contracts, typed DTO/read models, route-scoped JSON conventions с единым поведением для JSON media types, стабильный ProblemDetails и cursor pagination foundation; добавлены HTTP/API contract tests и v1-scoped OpenAPI enum synchronization. Pre-v1 `api/exchange-accounts` сохранён без v1 alias, public market-analysis boundary не изменена. Следующим шагом остаётся F-02 — lifecycle подключений к биржевым аккаунтам. |
 | 2026-09-16 | 3.19 | По review PR #110 устранены замечания Codex/Copilot: SignalR wire contract уточнён как отдельный от OpenAPI и требует serialization/approval tests для client-facing event names и payload schemas; в Stage M разделены cross-account read model и расширенная portfolio analytics без дублирования; ADR-0002 синхронизируется с актуальными примерами `/api/v1` и этапами F. |
