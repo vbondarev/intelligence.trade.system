@@ -130,6 +130,66 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
     }
 
     [Fact]
+    public async Task Real_exchange_account_service_rejects_stale_rotation_after_competing_account_update()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var keys = CreateKeys("v1");
+        var verifier = new GatedAccessVerifier(account.ProviderIdentity);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(userId, account, expectedVersion: null);
+            await CreateStore(setupContext, keys).CreateAsync(
+                userId,
+                account.Id,
+                new ExchangeAccountCredentialSecret("original-key", "original-secret"));
+        }
+
+        var rotationTask = Task.Run(async () =>
+        {
+            await using var context = await CreateMigratedContext();
+            var service = new ExchangeAccountService(
+                verifier,
+                new ExchangeAccountRepository(context),
+                CreateStore(context, keys),
+                new ExchangeAccountLifecycleTransaction(context));
+
+            return await service.RotateCredentialsAsync(
+                userId,
+                account.Id,
+                new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
+        });
+
+        await verifier.VerificationStarted;
+
+        await using (var competingContext = await CreateMigratedContext())
+        {
+            var competingAccount = (await new ExchangeAccountRepository(competingContext)
+                .GetByIdAsync(userId, account.Id))!.Value;
+            competingAccount.MarkUnavailable("competing update");
+            await new ExchangeAccountRepository(competingContext)
+                .SaveAsync(userId, competingAccount, new ConcurrencyVersion(1));
+        }
+
+        verifier.ReleaseVerification();
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(async () => { await rotationTask; });
+
+        await using var readContext = await CreateMigratedContext();
+        var reloadedAccount = await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, account.Id);
+        Assert.Equal(new ConcurrencyVersion(2), reloadedAccount!.Version);
+        Assert.Equal(ExchangeAccountConnectionStatus.Unavailable, reloadedAccount.Value.ConnectionStatus);
+        Assert.Equal("competing update", reloadedAccount.Value.LastError);
+        var reloadedCredential = await CreateStore(readContext, keys).GetAsync(userId, account.Id);
+        reloadedCredential!.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("original-key", apiKey);
+            Assert.Equal("original-secret", apiSecret);
+        });
+        Assert.Equal(ConcurrencyVersion.Initial, reloadedCredential.Version);
+    }
+
+    [Fact]
     public async Task Lifecycle_transaction_commits_credential_and_account_changes_together_on_success()
     {
         var userId = UserId.New();
@@ -299,6 +359,31 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             Task.FromResult(ExchangeAccountAccessVerificationResult.Verified(
                 providerIdentity,
                 ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions));
+    }
+
+    private sealed class GatedAccessVerifier(ExchangeAccountProviderIdentity providerIdentity)
+        : IExchangeAccountAccessVerifier
+    {
+        private readonly TaskCompletionSource<bool> verificationStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> verificationReleased = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task VerificationStarted => verificationStarted.Task;
+
+        public async Task<ExchangeAccountAccessVerificationResult> VerifyAsync(
+            ExchangeId exchange,
+            ExchangeAccountCredentialSecret credentials,
+            CancellationToken cancellationToken = default)
+        {
+            verificationStarted.TrySetResult(true);
+            await verificationReleased.Task.WaitAsync(cancellationToken);
+            return ExchangeAccountAccessVerificationResult.Verified(
+                providerIdentity,
+                ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        }
+
+        public void ReleaseVerification() => verificationReleased.TrySetResult(true);
     }
 
     private static ExchangeAccount CreateAccount(
