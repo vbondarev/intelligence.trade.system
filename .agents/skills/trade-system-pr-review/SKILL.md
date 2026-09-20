@@ -15,3 +15,5 @@ description: Проверяет pull request Intelligence.TradeSystem по те�
 8. Без явного разрешения не выполняй merge, push, изменение кода, публикацию review comments или resolve threads.
 9. Если пользователь разрешил закрыть исправленные review threads, сначала докажи по текущему коду, что замечание больше не актуально, затем resolve только конкретный thread.
 10. Если PR не относится к OpenClaw, учитывай freeze и не анализируй `openclaw/**` как часть основной реализации.
+
+<!-- Temporary CI fast-path validation change; this branch must not be merged. -->
