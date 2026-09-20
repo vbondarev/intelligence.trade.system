@@ -36,12 +36,16 @@ public sealed class PositionsController(
         [FromQuery] string? cursor,
         CancellationToken cancellationToken)
     {
-        if (exchangeAccountId == Guid.Empty)
+        if (Request.Query["exchangeAccountId"].Count > 1 ||
+            (Request.Query.ContainsKey("exchangeAccountId") && exchangeAccountId is null) ||
+            exchangeAccountId == Guid.Empty)
         {
             return BadRequestProblem("The exchangeAccountId must be a non-empty GUID.");
         }
 
-        if (pageSize is < CursorPagination.MinPageSize or > CursorPagination.MaxPageSize)
+        if (Request.Query["pageSize"].Count > 1 ||
+            (Request.Query.ContainsKey("pageSize") && pageSize is null) ||
+            pageSize is < CursorPagination.MinPageSize or > CursorPagination.MaxPageSize)
         {
             return BadRequestProblem(
                 $"The pageSize must be between {CursorPagination.MinPageSize} and {CursorPagination.MaxPageSize}.");

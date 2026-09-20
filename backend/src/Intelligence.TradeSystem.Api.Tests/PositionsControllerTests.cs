@@ -80,6 +80,7 @@ public sealed class PositionsControllerTests : IClassFixture<WebApplicationFacto
             PositionTrackingState.Active,
             PositionTrackingState.Unknown,
             PositionTrackingState.Stale);
+        capturedQuery.ExchangeAccountId.Should().BeNull();
         capturedQuery.PageSize.Should().Be(CursorPagination.DefaultPageSize);
     }
 
@@ -88,7 +89,11 @@ public sealed class PositionsControllerTests : IClassFixture<WebApplicationFacto
     [InlineData("trackingState=other")]
     [InlineData("trackingState=active&trackingState=closed")]
     [InlineData("side=unknown")]
+    [InlineData("exchangeAccountId=")]
+    [InlineData("exchangeAccountId=11111111-1111-1111-1111-111111111111&exchangeAccountId=11111111-1111-1111-1111-111111111111")]
     [InlineData("exchangeAccountId=not-a-guid")]
+    [InlineData("pageSize=")]
+    [InlineData("pageSize=10&pageSize=20")]
     [InlineData("pageSize=0")]
     [InlineData("pageSize=101")]
     [InlineData("symbol=%20%20")]
