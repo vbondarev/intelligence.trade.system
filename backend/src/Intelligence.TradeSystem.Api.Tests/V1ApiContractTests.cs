@@ -41,6 +41,9 @@ public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Pro
     [InlineData("PUT", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/credentials")]
     [InlineData("POST", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/sync")]
     [InlineData("DELETE", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
+    [InlineData("GET", "/api/v1/positions")]
+    [InlineData("GET", "/api/v1/positions/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
+    [InlineData("GET", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/portfolio")]
     public async Task Exchange_account_lifecycle_operations_require_authentication(
         string method,
         string path)

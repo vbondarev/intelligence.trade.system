@@ -252,9 +252,49 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         rotateRequestSchema.GetProperty("properties").EnumerateObject()
             .Should().OnlyContain(property => property.Name == "apiKey" || property.Name == "apiSecret");
 
-        // F-02 is limited to lifecycle; F-03+ (positions/portfolio) v1 paths must not exist yet.
-        paths.EnumerateObject().Select(x => x.Name)
-            .Should().NotContain(name => name.Contains("/api/v1/positions") || name.Contains("/api/v1/portfolio"));
+        var f03Operations = new[]
+        {
+            paths.GetProperty("/api/v1/positions").GetProperty("get"),
+            paths.GetProperty("/api/v1/positions/{id}").GetProperty("get"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}/portfolio").GetProperty("get"),
+        };
+        f03Operations.Should().HaveCount(3);
+        foreach (var operation in f03Operations)
+        {
+            operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+            operation.GetProperty("responses").EnumerateObject().Select(x => x.Name)
+                .Should().Contain(["200", "400", "401"]);
+        }
+
+        var positionsList = f03Operations[0];
+        var positionParameters = positionsList.GetProperty("parameters");
+        positionParameters.EnumerateArray().Select(x => x.GetProperty("name").GetString())
+            .Should().Contain(["exchangeAccountId", "trackingState", "symbol", "side", "pageSize", "cursor"]);
+        var f03Schemas = root.GetProperty("components").GetProperty("schemas");
+        foreach (var enumSchemaName in new[] { "PositionSideV1", "PositionTrackingStateV1", "MarketCategoryV1" })
+        {
+            f03Schemas.GetProperty(enumSchemaName).GetProperty("type").GetString().Should().Be("string");
+            f03Schemas.GetProperty(enumSchemaName).GetProperty("enum").EnumerateArray()
+                .Select(value => value.GetString())
+                .All(value => value is not null && value.Length > 0 && char.IsLower(value[0]))
+                .Should().BeTrue();
+        }
+
+        var positionSchema = f03Schemas.GetProperty("PositionResponse");
+        var positionProperties = positionSchema.GetProperty("properties");
+        positionProperties.TryGetProperty("positionIdx", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("changes", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("assessment", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("recommendation", out _).Should().BeFalse();
+
+        var portfolioSchema = f03Schemas.GetProperty("PortfolioResponse");
+        var portfolioProperties = portfolioSchema.GetProperty("properties");
+        portfolioProperties.TryGetProperty("positions", out _).Should().BeFalse();
+        portfolioProperties.TryGetProperty("staleAfter", out _).Should().BeFalse();
+        portfolioProperties.GetProperty("capital").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/PortfolioCapitalResponse");
+        paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
+            .TryGetProperty("security", out _).Should().BeFalse();
     }
 
 

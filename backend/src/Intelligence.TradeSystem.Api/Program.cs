@@ -77,7 +77,7 @@ public partial class Program
                 BearerFormat = "JWT",
                 Description = "OAuth 2.0 / OpenID Connect bearer access token.",
             });
-            options.OperationFilter<ExchangeAccountV1AuthorizationOperationFilter>();
+            options.OperationFilter<TradeUserAuthorizationOperationFilter>();
             var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
             var xmlFilePath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
 

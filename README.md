@@ -78,7 +78,7 @@
 
 Этапы **A, B, C, D и E завершены**. Этап **F начат**, F-01 и F-02 завершены: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована, а канонический lifecycle API биржевых аккаунтов опубликован. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. Следующий шаг этапа F — **F-03: read API позиций и account-scoped portfolio**. Последующие F-04 — F-07 добавят position-scoped market/candles, согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
+F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. Следующий шаг этапа F — **F-04: position-scoped market context и свечи**. Последующие F-05 — F-07 добавят согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
 ### Уже реализовано
 
@@ -106,6 +106,9 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 - `ExchangeAccount`, `Position` и устойчивая идентичность биржевой позиции с учётом `positionIdx`;
 - подключение Bybit-аккаунта, ручная и фоновая синхронизация баланса, позиций и `PortfolioState`;
 - канонический `/api/v1/exchange-accounts` для list/connect/verify/credential rotation/sync/disconnect с user scope, OpenAPI/API contract tests и удалёнными pre-v1 routes;
+- канонический `/api/v1/positions` с user-scoped SQL-side cursor pagination и фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`;
+- `/api/v1/positions/{id}` с current-state карточкой без истории, timeline, evaluation и market context;
+- `/api/v1/exchange-accounts/{id}/portfolio` с account-scoped latest summary без встроенного списка позиций и с `204 No Content` до первого snapshot;
 - обязательная provider-side identity exchange account (для Bybit — `userID`): один `ExchangeAccountId` остаётся связан с одним внешним аккаунтом, а credentials другого account/subaccount не могут перепривязать существующую историю;
 - существенные изменения позиции `New`, `Updated`, `Increased`, `Reduced`, `Closed`, `MarkedUnknown`, `MarkedStale` и `Recovered`, а также состояния отслеживания `Active`, `Unknown`, `Stale` и `Closed`;
 - безопасная сверка снимков и неизменяемая история существенных изменений `PositionChange`;
@@ -141,7 +144,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 
 ### Ещё не реализовано
 
-- оставшаяся часть user-facing API v1: account-scoped portfolio, позиции, market/candles, evaluation и timeline;
+- оставшаяся часть user-facing API v1: market/candles, evaluation и timeline;
 - SignalR-обновления пользовательского состояния;
 - React-клиент и BFF пользовательского интерфейса;
 - непрерывный цикл повторной оценки активных позиций;
@@ -595,13 +598,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–E завершены**. Этап **F начат**, F-01 и F-02 завершены. Текущий следующий шаг — **F-03: read API позиций и account-scoped portfolio**.
+Этапы **A–E завершены**. Этап **F продолжается**, F-01, F-02 и F-03 завершены. Текущий следующий шаг — **F-04: position-scoped market context и свечи**.
 
-Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; далее идут позиции/account-scoped portfolio, market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; далее идут market/candles, evaluation, timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
-1. F-03: read API позиций и account-scoped portfolio;
+1. F-04: position-scoped market context и свечи;
 2. React-панель и BFF;
 3. непрерывное наблюдение за активными позициями;
 4. Telegram-уведомления и детерминированные объяснения;
