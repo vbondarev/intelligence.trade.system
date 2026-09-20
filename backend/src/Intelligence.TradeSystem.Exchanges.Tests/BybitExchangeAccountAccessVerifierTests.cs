@@ -8,6 +8,7 @@ using FluentAssertions;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -68,6 +69,11 @@ public sealed class BybitExchangeAccountAccessVerifierTests
         result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Verified);
         result.Capabilities.Should().Be(
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        result.ProviderIdentity.Should().Be(
+            ExchangeAccountProviderIdentity.From("123456789"));
+        account.Verify(
+            api => api.GetApiKeyInfoAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
         client.Verify(value => value.Dispose(), Times.Once);
     }
 
@@ -161,6 +167,53 @@ public sealed class BybitExchangeAccountAccessVerifierTests
             new ExchangeAccountCredentialSecret("api-key", "api-secret"));
 
         result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Unavailable);
+    }
+
+    [Theory]
+    [InlineData("10005", ErrorType.Unauthorized, ExchangeAccountAccessVerificationStatus.PermissionsRejected)]
+    [InlineData("10003", ErrorType.Unauthorized, ExchangeAccountAccessVerificationStatus.InvalidCredentials)]
+    public async Task VerifyAsync_Maps_Position_Credential_Failures(
+        string providerCode,
+        ErrorType errorType,
+        ExchangeAccountAccessVerificationStatus expectedStatus)
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        foreach (var settleCoin in new[] { "USDT", "USDC" })
+        {
+            trading
+                .Setup(api => api.GetPositionsAsync(
+                    Category.Linear,
+                    null,
+                    null,
+                    settleCoin,
+                    200,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>(
+                    providerCode,
+                    errorType));
+        }
+
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+            }));
+        var client = CreateClient(account, trading);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var verifier = new BybitExchangeAccountAccessVerifier(
+            new BybitPrivateAccountProviderFactory(loggerFactory, _ => client.Object));
+
+        var result = await verifier.VerifyAsync(
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Status.Should().Be(expectedStatus);
     }
 
     [Fact]
@@ -276,6 +329,7 @@ public sealed class BybitExchangeAccountAccessVerifierTests
             .ReturnsAsync(CreateSuccess(new BybitApiKeyInfo
             {
                 Readonly = readOnly,
+                UserId = 123456789,
                 Permissions = new BybitPermissions
                 {
                     Wallet = [],

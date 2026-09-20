@@ -19,6 +19,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
                 ExchangeAccountId.New(),
                 UserId.New(),
                 ExchangeId.Bybit,
+                ExchangeAccountProviderIdentity.From($"provider-account-{index}"),
                 index == 0
                     ? ExchangeAccountConnectionStatus.Unavailable
                     : ExchangeAccountConnectionStatus.Connected,
@@ -29,11 +30,13 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-disabled"),
             ExchangeAccountConnectionStatus.Disabled);
         var unknown = ExchangeAccount.Create(
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-unknown"),
             ExchangeAccountConnectionStatus.Unknown);
 
         await using (var setupContext = await CreateMigratedContext())

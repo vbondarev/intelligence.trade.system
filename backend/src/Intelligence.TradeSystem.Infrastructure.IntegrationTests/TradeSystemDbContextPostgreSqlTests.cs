@@ -14,6 +14,10 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     private const string D04Migration = "20260909092129_AddExchangeAccountSyncWatermark";
     private const string BeforeRecommendationStabilityMigration =
         "20260913192851_PersistRecommendationContinuationMetadata";
+    private const string BeforeProviderIdentityMigration =
+        "20260914220611_PersistRecommendationStabilityState";
+    private const string ProviderIdentityMigration =
+        "20260919233157_AddExchangeAccountProviderIdentity";
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_migrations")
@@ -166,9 +170,11 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         await dbContext.Database.MigrateAsync(BeforeRecommendationStabilityMigration);
         await SeedLegacyRecommendationsAsync(dbContext, duplicateCurrentRows: false);
 
-        await dbContext.Database.MigrateAsync();
+        await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
-        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.Equal(
+            ProviderIdentityMigration,
+            (await dbContext.Database.GetPendingMigrationsAsync()).Single());
         Assert.True(
             await dbContext.Database.SqlQueryRaw<bool>(
                 """
@@ -285,7 +291,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 
         await using (var dbContext = new TradeSystemDbContext(options))
         {
-            await dbContext.Database.MigrateAsync();
+            await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
             var connection = dbContext.Database.GetDbConnection();
             if (connection.State != System.Data.ConnectionState.Open)
@@ -335,13 +341,37 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 
         await using (var dbContext = new TradeSystemDbContext(options))
         {
+            await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
+
+            var connection = dbContext.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+                await connection.OpenAsync();
+
+            await using var selectCommand = connection.CreateCommand();
+            selectCommand.CommandText = """
+                SELECT user_id, last_applied_balance_observation_at,
+                    last_applied_positions_observation_at
+                FROM exchange_accounts
+                WHERE exchange_account_id = '33333333-3333-3333-3333-333333333333'
+                """;
+            await using (var reader = await selectCommand.ExecuteReaderAsync())
+            {
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(
+                    Guid.Parse("44444444-4444-4444-4444-444444444444"),
+                    reader.GetGuid(0));
+                Assert.True(reader.IsDBNull(1));
+                Assert.True(reader.IsDBNull(2));
+            }
+
+            await using var deleteCommand = connection.CreateCommand();
+            deleteCommand.CommandText = """
+                DELETE FROM exchange_accounts
+                WHERE exchange_account_id = '33333333-3333-3333-3333-333333333333'
+                """;
+            await deleteCommand.ExecuteNonQueryAsync();
             await dbContext.Database.MigrateAsync();
 
-            var account = await dbContext.ExchangeAccounts
-                .SingleAsync(row => row.Id == Guid.Parse("33333333-3333-3333-3333-333333333333"));
-            Assert.Equal(Guid.Parse("44444444-4444-4444-4444-444444444444"), account.UserId);
-            Assert.Null(account.LastAppliedBalanceObservationAt);
-            Assert.Null(account.LastAppliedPositionsObservationAt);
             Assert.True(await dbContext.Database
                 .SqlQueryRaw<bool>(
                     """
@@ -401,10 +431,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 
         await using (var dbContext = new TradeSystemDbContext(options))
         {
-            await dbContext.Database.MigrateAsync();
+            await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
-            var account = await dbContext.ExchangeAccounts
-                .SingleAsync(row => row.Id == Guid.Parse("55555555-5555-5555-5555-555555555555"));
             var expected = new DateTimeOffset(
                 2026,
                 9,
@@ -414,8 +442,31 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
                 0,
                 TimeSpan.Zero);
 
-            Assert.Equal(expected, account.LastAppliedBalanceObservationAt);
-            Assert.Equal(expected, account.LastAppliedPositionsObservationAt);
+            var connection = dbContext.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+                await connection.OpenAsync();
+
+            await using var selectCommand = connection.CreateCommand();
+            selectCommand.CommandText = """
+                SELECT last_applied_balance_observation_at,
+                    last_applied_positions_observation_at
+                FROM exchange_accounts
+                WHERE exchange_account_id = '55555555-5555-5555-5555-555555555555'
+                """;
+            await using (var reader = await selectCommand.ExecuteReaderAsync())
+            {
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(expected, reader.GetFieldValue<DateTimeOffset>(0));
+                Assert.Equal(expected, reader.GetFieldValue<DateTimeOffset>(1));
+            }
+
+            await using var deleteCommand = connection.CreateCommand();
+            deleteCommand.CommandText = """
+                DELETE FROM exchange_accounts
+                WHERE exchange_account_id = '55555555-5555-5555-5555-555555555555'
+                """;
+            await deleteCommand.ExecuteNonQueryAsync();
+            await dbContext.Database.MigrateAsync();
         }
     }
 }

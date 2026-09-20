@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Accounts.Access;
 using CryptoExchange.Net.Objects;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.Mapping;
 using Intelligence.TradeSystem.Exchanges.Bybit.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -164,12 +165,14 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                         symbol,
                         observedAt,
                         positions,
-                        page.Response.Error?.Message)
+                        page.Response.Error?.Message,
+                        MapPositionFailureKind(failure))
                     : OpenPositionsObservation.Failed(
                         category,
                         symbol,
                         observedAt,
-                        page.Response.Error?.Message ?? "Unknown Bybit API error.");
+                        page.Response.Error?.Message ?? "Unknown Bybit API error.",
+                        MapPositionFailureKind(failure));
                 return new PositionScopeResult(
                     observation,
                     retryCount,
@@ -211,6 +214,17 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         var error = scopes
             .Select(scope => scope.Observation.Error)
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        var failureKinds = scopes
+            .Select(scope => scope.Observation.FailureKind)
+            .Where(kind => kind is not null)
+            .Select(kind => kind!.Value)
+            .Distinct()
+            .ToArray();
+        OpenPositionsObservationFailureKind? failureKind = failureKinds.Length == 1
+            ? failureKinds[0]
+            : failureKinds.Length > 1
+                ? OpenPositionsObservationFailureKind.Unknown
+                : null;
 
         if (!hasPartial && !hasFailed)
         {
@@ -223,7 +237,8 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 category,
                 symbol,
                 observedAt,
-                error ?? "All Bybit position scopes failed.");
+                error ?? "All Bybit position scopes failed.",
+                failureKind);
         }
 
         return OpenPositionsObservation.Partial(
@@ -231,8 +246,26 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
             symbol,
             observedAt,
             positions,
-            error);
+            error,
+            failureKind);
     }
+
+    private static OpenPositionsObservationFailureKind? MapPositionFailureKind(
+        ExchangeFailure? failure) =>
+        failure?.Kind switch
+        {
+            ExchangeFailureKind.InvalidCredentials =>
+                OpenPositionsObservationFailureKind.InvalidCredentials,
+            ExchangeFailureKind.PermissionDenied =>
+                OpenPositionsObservationFailureKind.PermissionDenied,
+            ExchangeFailureKind.RateLimited =>
+                OpenPositionsObservationFailureKind.RateLimited,
+            ExchangeFailureKind.Timeout or ExchangeFailureKind.Unavailable =>
+                OpenPositionsObservationFailureKind.Unavailable,
+            ExchangeFailureKind.Unknown or ExchangeFailureKind.InvalidResponse =>
+                OpenPositionsObservationFailureKind.Unknown,
+            _ => null,
+        };
 
     public async Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
         CancellationToken cancellationToken = default)
@@ -284,8 +317,27 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 return ApiKeyAccessMetadataObservation.Failed(failure);
             }
 
+            if (apiKeyInfo.UserId <= 0)
+            {
+                failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
+                BybitPrivateProviderLogMessages.LogFailedToFetchApiKeyAccess(
+                    _logger,
+                    BybitExchangeTelemetry.ApiKeyAccessOperation,
+                    BybitExchangeTelemetry.ExchangeName,
+                    failure.Kind,
+                    failure.Retryable,
+                    null,
+                    BybitExchangeTelemetry.FailureOutcome,
+                    stopwatch.Elapsed.TotalMilliseconds);
+                return ApiKeyAccessMetadataObservation.Failed(failure);
+            }
+
             outcome = BybitExchangeTelemetry.SuccessOutcome;
-            return ApiKeyAccessMetadataObservation.Complete(new ApiKeyAccessMetadata(apiKeyInfo.Readonly));
+            return ApiKeyAccessMetadataObservation.Complete(
+                new ApiKeyAccessMetadata(
+                    apiKeyInfo.Readonly,
+                    ExchangeAccountProviderIdentity.From(
+                        apiKeyInfo.UserId.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         }
         catch (OperationCanceledException)
         {

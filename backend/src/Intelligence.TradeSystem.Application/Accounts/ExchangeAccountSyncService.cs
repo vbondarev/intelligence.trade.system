@@ -58,9 +58,17 @@ public sealed class ExchangeAccountSyncService(
             return ExchangeAccountSyncResult.AccountDisabled();
         }
 
-        var credentials = await credentialStore
-            .GetAsync(userId, exchangeAccountId, cancellationToken)
-            .ConfigureAwait(false);
+        ExchangeAccountCredential? credentials;
+        try
+        {
+            credentials = await credentialStore
+                .GetAsync(userId, exchangeAccountId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ExchangeAccountCredentialsUnavailableException)
+        {
+            return ExchangeAccountSyncResult.CredentialsUnavailable();
+        }
         if (credentials is null)
         {
             return ExchangeAccountSyncResult.CredentialsUnavailable();
@@ -533,6 +541,7 @@ public sealed class ExchangeAccountSyncService(
             account.Id,
             account.UserId,
             account.ExchangeId,
+            account.ProviderIdentity,
             account.ConnectionStatus,
             account.Capabilities,
             account.LastSyncedAt,

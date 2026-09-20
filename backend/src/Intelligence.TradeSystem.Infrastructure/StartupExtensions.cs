@@ -75,6 +75,7 @@ public static class StartupExtensions
         services.AddScoped<IExchangeAccountSyncCandidateSource, ExchangeAccountSyncCandidateSource>();
         services.AddScoped<IExchangeAccountCredentialStore, ExchangeAccountCredentialStore>();
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
+        services.AddScoped<IExchangeAccountLifecycleTransaction, ExchangeAccountLifecycleTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<ApplicationEventOutbox>();
         services.AddScoped<IApplicationEventOutbox>(

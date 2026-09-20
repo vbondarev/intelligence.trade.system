@@ -2,7 +2,6 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
-using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Moq;
@@ -21,7 +20,7 @@ public sealed class ExchangeAccountServiceTests
         var secret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -47,14 +46,55 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var result = await fixture.Service.ConnectAsync(ExchangeId.Bybit, secret);
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Connected);
         result.Account.Should().NotBeNull();
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
         result.Account.Capabilities.Should().Be(RequiredCapabilities);
+        result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
         fixture.CredentialStore.VerifyAll();
         fixture.Repository.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RotateCredentialsAsync_Rejects_A_Different_Provider_Identity_Without_Persistence_Writes()
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        var version = ConcurrencyVersion.Initial;
+        var replacement = new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret");
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(
+                fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, version));
+        fixture.CredentialStore
+            .Setup(store => store.GetMetadataAsync(
+                fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(
+                ExchangeId.Bybit, replacement, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
+                OtherProviderIdentity, RequiredCapabilities));
+
+        var result = await fixture.Service.RotateCredentialsAsync(
+            fixture.UserId, account.Id, replacement);
+
+        result.Outcome.Should().Be(ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch);
+        result.Account.Should().BeNull();
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        fixture.Repository.Verify(repository => repository.SaveAsync(
+            It.IsAny<UserId>(),
+            It.IsAny<ExchangeAccount>(),
+            It.IsAny<ConcurrencyVersion?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.CredentialStore.Verify(store => store.RotateAsync(
+            It.IsAny<UserId>(),
+            It.IsAny<ExchangeAccountId>(),
+            It.IsAny<ConcurrencyVersion>(),
+            It.IsAny<ExchangeAccountCredentialSecret>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -73,6 +113,7 @@ public sealed class ExchangeAccountServiceTests
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Failed(verificationStatus));
 
         var result = await fixture.Service.ConnectAsync(
+            fixture.UserId,
             ExchangeId.Bybit,
             new ExchangeAccountCredentialSecret("api-key", "api-secret"));
 
@@ -109,7 +150,7 @@ public sealed class ExchangeAccountServiceTests
         var persistedSecret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(RequiredCapabilities));
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -153,7 +194,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var act = () => fixture.Service.ConnectAsync(ExchangeId.Bybit, secret);
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         fixture.CredentialStore.Verify(
@@ -206,7 +247,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var result = await fixture.Service.DisconnectAsync(account.Id);
+        var result = await fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
 
         result.Should().NotBeNull();
         result!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
@@ -253,7 +294,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("credential revoke failed"));
 
-        var act = () => fixture.Service.DisconnectAsync(account.Id);
+        var act = () => fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
@@ -276,7 +317,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
 
-        var result = await fixture.Service.DisconnectAsync(ExchangeAccountId.New());
+        var result = await fixture.Service.DisconnectAsync(fixture.UserId, ExchangeAccountId.New());
 
         result.Should().BeNull();
         fixture.CredentialStore.Verify(
@@ -305,7 +346,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((ExchangeAccountCredentialMetadata?)null);
 
-        var result = await fixture.Service.DisconnectAsync(account.Id);
+        var result = await fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
 
         result.Should().BeSameAs(account);
         fixture.Repository.Verify(
@@ -342,7 +383,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var result = await fixture.Service.DisconnectAsync(account.Id);
+        var result = await fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
 
         result.Should().BeSameAs(account);
         fixture.Repository.Verify(
@@ -362,35 +403,38 @@ public sealed class ExchangeAccountServiceTests
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
+            ProviderIdentity,
             status,
             RequiredCapabilities);
 
     private static Fixture CreateFixture()
     {
         var userId = UserId.New();
-        var currentUser = new Mock<ICurrentUserContext>(MockBehavior.Strict);
-        currentUser.SetupGet(context => context.UserId).Returns(userId);
-
         return new Fixture(
             userId,
-            currentUser,
             new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict),
             new Mock<IExchangeAccountRepository>(MockBehavior.Strict),
-            new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict));
+            new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict),
+            new Mock<IExchangeAccountLifecycleTransaction>(MockBehavior.Strict));
     }
 
     private sealed class Fixture(
         UserId userId,
-        Mock<ICurrentUserContext> currentUser,
         Mock<IExchangeAccountAccessVerifier> verifier,
         Mock<IExchangeAccountRepository> repository,
-        Mock<IExchangeAccountCredentialStore> credentialStore)
+        Mock<IExchangeAccountCredentialStore> credentialStore,
+        Mock<IExchangeAccountLifecycleTransaction> lifecycleTransaction)
     {
         public UserId UserId { get; } = userId;
         public Mock<IExchangeAccountAccessVerifier> Verifier { get; } = verifier;
         public Mock<IExchangeAccountRepository> Repository { get; } = repository;
         public Mock<IExchangeAccountCredentialStore> CredentialStore { get; } = credentialStore;
         public ExchangeAccountService Service { get; } =
-            new(currentUser.Object, verifier.Object, repository.Object, credentialStore.Object);
+            new(verifier.Object, repository.Object, credentialStore.Object, lifecycleTransaction.Object);
     }
+
+    private static readonly ExchangeAccountProviderIdentity ProviderIdentity =
+        ExchangeAccountProviderIdentity.From("provider-account");
+    private static readonly ExchangeAccountProviderIdentity OtherProviderIdentity =
+        ExchangeAccountProviderIdentity.From("other-provider-account");
 }

@@ -8,6 +8,12 @@ internal static class ApiErrorDescriptors
         "Request validation failed.",
         "urn:intelligence-trade:error:validation-failed");
 
+    public static ApiErrorDescriptor ResourceNotFound { get; } = new(
+        ApiErrorCodes.ResourceNotFound,
+        StatusCodes.Status404NotFound,
+        "Resource not found.",
+        "urn:intelligence-trade:error:resource-not-found");
+
     public static ApiErrorDescriptor ConcurrencyConflict { get; } = new(
         ApiErrorCodes.ConcurrencyConflict,
         StatusCodes.Status409Conflict,
@@ -37,6 +43,12 @@ internal static class ApiErrorDescriptors
         StatusCodes.Status409Conflict,
         "The exchange account is disabled.",
         "urn:intelligence-trade:error:exchange-account-disabled");
+
+    public static ApiErrorDescriptor ExchangeAccountIdentityMismatch { get; } = new(
+        ApiErrorCodes.ExchangeAccountIdentityMismatch,
+        StatusCodes.Status409Conflict,
+        "The credentials belong to a different exchange account.",
+        "urn:intelligence-trade:error:exchange-account-identity-mismatch");
 
     public static ApiErrorDescriptor ExchangeUnavailable { get; } = new(
         ApiErrorCodes.ExchangeUnavailable,

@@ -9,6 +9,26 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : IExchangeAccountRepository
 {
+    public async Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
+        UserId userId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        var entities = await dbContext.ExchangeAccounts
+            .AsNoTracking()
+            .Where(account =>
+                account.UserId == userId.Value &&
+                account.ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
+            .OrderBy(account => account.Id)
+            .ToArrayAsync(cancellationToken);
+
+        return entities
+            .Select(entity => new Versioned<ExchangeAccount>(
+                ExchangeAccountMapper.ToDomain(entity),
+                new ConcurrencyVersion(entity.Version)))
+            .ToArray();
+    }
+
     public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
         UserId userId,
         ExchangeAccountId id,
@@ -77,7 +97,8 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .Where(entity =>
                 entity.Id == mapped.Id &&
                 entity.UserId == userId.Value &&
-                entity.Version == expectedVersion.Value.Value)
+                entity.Version == expectedVersion.Value.Value &&
+                entity.ProviderAccountId == mapped.ProviderAccountId)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(entity => entity.ExchangeId, mapped.ExchangeId)

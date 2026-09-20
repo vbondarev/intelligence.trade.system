@@ -147,6 +147,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 ExchangeAccountId.New(),
                 UserId.New(),
                 ExchangeId.Bybit,
+                ProviderIdentity,
                 ExchangeAccountConnectionStatus.Connected,
                 RequiredCapabilities,
                 lastSyncedAt: previousSyncAt,
@@ -217,6 +218,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 ExchangeAccountId.New(),
                 UserId.New(),
                 ExchangeId.Bybit,
+                ProviderIdentity,
                 ExchangeAccountConnectionStatus.Connected,
                 RequiredCapabilities,
                 lastSyncedAt: previousSyncAt,
@@ -328,6 +330,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.Account.Id,
             fixture.UserId,
             ExchangeId.Bybit,
+            fixture.Account.ProviderIdentity,
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
             lastAppliedBalanceObservationAt: ObservedAt,
@@ -378,6 +381,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.Account.Id,
             fixture.UserId,
             ExchangeId.Bybit,
+            fixture.Account.ProviderIdentity,
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
             lastAppliedBalanceObservationAt: ObservedAt,
@@ -421,6 +425,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.Account.Id,
             fixture.UserId,
             ExchangeId.Bybit,
+            fixture.Account.ProviderIdentity,
             ExchangeAccountConnectionStatus.Disabled,
             RequiredCapabilities);
         fixture.AccountRepository
@@ -659,6 +664,7 @@ public sealed class ExchangeAccountSyncServiceTests
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
+            ProviderIdentity,
             ExchangeAccountConnectionStatus.Disabled,
             RequiredCapabilities);
         var fixture = CreateFixture(disabledAccount);
@@ -698,6 +704,42 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<ExchangeId>(),
                 It.IsAny<ExchangeAccountCredential>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_Returns_CredentialsUnavailable_WhenCredentialsAreUnreadable()
+    {
+        var fixture = CreateFixture();
+        fixture.CredentialStore
+            .Setup(store => store.GetAsync(fixture.UserId, fixture.Account.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ExchangeAccountCredentialsUnavailableException());
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.CredentialsUnavailable);
+        fixture.Factory.Verify(
+            factory => factory.Create(It.IsAny<ExchangeId>(), It.IsAny<ExchangeAccountCredential>()),
+            Times.Never);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_DoesNotMaskUnexpectedCredentialStoreExceptions()
+    {
+        var fixture = CreateFixture();
+        fixture.CredentialStore
+            .Setup(store => store.GetAsync(fixture.UserId, fixture.Account.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database failure"));
+
+        var act = () => fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]
@@ -1543,6 +1585,7 @@ public sealed class ExchangeAccountSyncServiceTests
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
+            ProviderIdentity,
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities);
         var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
@@ -1636,4 +1679,7 @@ public sealed class ExchangeAccountSyncServiceTests
             CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
+
+    private static readonly ExchangeAccountProviderIdentity ProviderIdentity =
+        ExchangeAccountProviderIdentity.From("provider-account");
 }

@@ -24,6 +24,11 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
             .HasConversion<string>()
             .HasMaxLength(32)
             .IsRequired();
+        builder.Property(account => account.ProviderAccountId)
+            .HasColumnName("provider_account_id")
+            .HasColumnType("varchar(128)")
+            .HasMaxLength(128)
+            .IsRequired();
         builder.Property(account => account.ConnectionStatus)
             .HasColumnName("connection_status")
             .HasConversion<string>()

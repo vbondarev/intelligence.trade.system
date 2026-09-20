@@ -39,6 +39,9 @@ public sealed record OpenPositionsObservation
     /// <see cref="OpenPositionsObservationStatus.Partial"/>, если применимо.</summary>
     public string? Error { get; init; }
 
+    /// <summary>Нейтральная классификация ошибки, если наблюдение не complete.</summary>
+    public OpenPositionsObservationFailureKind? FailureKind { get; init; }
+
     public static OpenPositionsObservation Complete(
         MarketCategory category,
         string? symbol,
@@ -58,7 +61,8 @@ public sealed record OpenPositionsObservation
         string? symbol,
         DateTimeOffset observedAt,
         IReadOnlyList<OpenPosition> positions,
-        string? error = null) =>
+        string? error = null,
+        OpenPositionsObservationFailureKind? failureKind = null) =>
         new()
         {
             Status = OpenPositionsObservationStatus.Partial,
@@ -67,13 +71,15 @@ public sealed record OpenPositionsObservation
             ObservedAt = observedAt,
             Positions = positions,
             Error = error,
+            FailureKind = failureKind,
         };
 
     public static OpenPositionsObservation Failed(
         MarketCategory category,
         string? symbol,
         DateTimeOffset observedAt,
-        string error) =>
+        string error,
+        OpenPositionsObservationFailureKind? failureKind = null) =>
         new()
         {
             Status = OpenPositionsObservationStatus.Failed,
@@ -82,5 +88,6 @@ public sealed record OpenPositionsObservation
             ObservedAt = observedAt,
             Positions = [],
             Error = error,
+            FailureKind = failureKind,
         };
 }
