@@ -1,6 +1,6 @@
 ---
 name: Задача разработки
-about: "Спецификация задачи для agent-first workflow: Issue → Agent Plan → Human Gate → Implementation → Review → Human merge"
+about: "Спецификация задачи для agent-first workflow: Issue → Implementation Plan → Human Gate → Implementation → External Review → Human Merge Gate"
 title: ""
 labels: ""
 assignees: ""
@@ -52,9 +52,9 @@ assignees: ""
 
 ## Definition of Done
 
-- [ ] После фиксации Issue агент подготовил Implementation Plan, а человек явно утвердил его до начала implementation для нетривиальной задачи.
-- [ ] Реализация соответствует всем требованиям Issue и approved Plan и не выходит за согласованный scope.
-- [ ] Если во время Plan/Implementation/Review возникло новое архитектурное решение или изменение scope, Issue/Plan были синхронизированы после human decision и изменение прошло повторный Human Gate.
+- [ ] После фиксации Issue агент подготовил Implementation Plan, а для нетривиальной задачи он прошёл Human Gate до начала implementation.
+- [ ] Реализация соответствует всем требованиям Issue и, если для задачи требовался Implementation Plan, утверждённому Implementation Plan; изменение не выходит за согласованный scope.
+- [ ] Если во время Implementation Plan / Implementation / External Review возникло новое архитектурное решение или изменение scope, Issue/Implementation Plan были синхронизированы после human decision и изменение прошло повторный Human Gate.
 - [ ] Выполнен основной self-review полного diff относительно целевой ветки.
 - [ ] Выполнены все применимые автоматические и ручные проверки.
 - [ ] Добавлены или обновлены необходимые тесты либо в разделе «Тестирование» явно обосновано, почему дополнительные тесты неприменимы.
