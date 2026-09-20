@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.20
-Дата актуализации: 18 сентября 2026 года
-Проверенная база: PR #112 (F-01: стабильные контракты пользовательского API v1)
-Последняя учтённая задача: Issue #111 «Зафиксировать структуру и стабильные контракты пользовательского API v1»
+Версия документа: 3.21
+Дата актуализации: 20 сентября 2026 года
+Проверенная база: PR #117 (F-02: API жизненного цикла биржевых аккаунтов и provider-side identity)
+Последняя учтённая задача: Issue #116 «F-02. Реализовать API жизненного цикла биржевых аккаунтов»
 Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -42,6 +42,7 @@
 17. Синхронизация биржевого аккаунта и оценка позиции — разные операции. `sync` обновляет приватное состояние аккаунта, баланса и позиций из биржи; `evaluation` использует сохранённое состояние позиции/портфеля и актуальный публичный рыночный контекст для расчёта assessment и recommendation. Evaluation не скрывает stale/partial private state автоматическим sync и обязана сохранять safety semantics этапа E.
 18. SignalR является каналом user-scoped уведомления об изменении состояния, а не вторым источником полной бизнес-истины. После события или восстановления соединения клиент перечитывает актуальный resource через REST. Нативные/token-клиенты предъявляют Bearer access token непосредственно API; browser-клиент не получает access token в JavaScript и подключается к realtime через browser-specific BFF integration поверх той же пользовательской identity.
 19. Публичный market-analysis API и `llm-payload` 1.0 остаются отдельным публичным сценарием для рыночного анализа и BTC Daily Check. Legacy-совместимость относится прежде всего к `POST /api/market-analysis/snapshot`; новый React-клиент получает пользовательский рыночный контекст и свечи через position-scoped `/api/v1/*` endpoints и не зависит от market-analysis API.
+20. Один `ExchangeAccountId` на всём lifecycle соответствует одному provider-side биржевому аккаунту. Provider identity является обязательным внутренним инвариантом account, для Bybit определяется по стабильному `userID`, сохраняется при connect и не меняется при verify/rotation; credentials другого provider account/subaccount отклоняются без перепривязки истории.
 
 ## 3. Обозначения статуса
 
@@ -129,6 +130,8 @@
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ✅ Реализовано безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
 - ✅ Реализованы подключение Bybit-аккаунта только для чтения, ручная и фоновая синхронизация баланса, открытых позиций и `PortfolioState`.
+- ✅ F-02 публикует канонический `/api/v1/exchange-accounts`: список подключений, connect, verify, безопасную ротацию credentials, sync и disconnect; pre-v1 routes удалены.
+- ✅ `ExchangeAccount` хранит обязательную provider-side identity (для Bybit — `userID`); CAS/persistence запрещают её перепривязку к существующему `ExchangeAccountId`, а credentials другого account/subaccount отклоняются как controlled conflict.
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
 - ✅ Реализован общий process-local кэш публичного `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный `Symbol` и `MarketCategory`, без пользовательских и приватных измерений.
@@ -141,7 +144,7 @@
 
 ### Пока отсутствует
 
-- ⬜ Полный пользовательский API v1 для управления биржевыми аккаунтами, account-scoped портфеля, позиций, рыночного контекста/свечей, evaluation и timeline.
+- ⬜ Оставшаяся часть пользовательского API v1: account-scoped portfolio, позиции, рыночный контекст/свечи, evaluation и timeline.
 - ⬜ SignalR-обновления пользовательского состояния.
 - ⬜ React-клиент и BFF.
 - ⬜ Непрерывный цикл повторной оценки активных позиций.
@@ -301,7 +304,7 @@ GET    /api/v1/auth/me
 4. `GET /api/v1/positions` является user-scoped постраничным списком. Для первого MVP контракт должен поддерживать как минимум фильтры `exchangeAccountId`, `trackingState`, `symbol` и `side`. По умолчанию выдаются актуальные позиции, требующие сопровождения (`Active`, `Unknown`, `Stale`); закрытые позиции не смешиваются с основным рабочим списком и доступны только при явном фильтре/историческом сценарии.
 5. `positions/{id}/market` возвращает актуальный пользовательский market context для карточки позиции; `positions/{id}/candles` возвращает свечи для графика. React не должен использовать public market-analysis API как основной UI contract.
 6. `positions/{id}/timeline` на этапах F–G объединяет доступную пользовательскую историю существенных изменений позиции, assessments/evaluations и recommendations и поддерживает cursor pagination и фильтры. Рыночные события сопровождения, которых ещё нет до H-04, не являются критерием готовности F/G; после реализации H-04 timeline может быть аддитивно расширен такими событиями.
-7. `PUT /exchange-accounts/{id}/credentials` проверяет новую read-only пару credentials и ротирует её без смены стабильного `ExchangeAccountId`.
+7. `PUT /exchange-accounts/{id}/credentials` проверяет новую read-only пару credentials и ротирует её только для того же provider-side аккаунта: стабильные `ExchangeAccountId` и provider identity не меняются; credentials другого account/subaccount отклоняются без mutation persisted credentials/account state.
 8. SignalR отправляет только user-scoped сообщения об изменении/инвалидации состояния (`exchangeAccount.updated`, `portfolio.updated`, `position.updated`, `evaluation.updated` или эквивалентные версионированные контракты). Полное актуальное состояние клиент получает через REST. Native/token clients подключаются к hub с Bearer access token; browser использует browser-specific BFF integration, определяемую в G-01/G-06, и не получает access token в JavaScript.
 9. Публичные операции `acknowledge` и `dismiss` не входят в F до определения их пользовательской семантики. В частности, `dismiss` нельзя публиковать как API-команду до решения, должно ли отклонение скрывать рекомендацию, приостанавливать её или действовать до существенного изменения состояния.
 10. OpenAPI и контрактные тесты сопровождают API инкрементально: каждый PR F-02 — F-07, который добавляет или меняет публичный v1/realtime contract, обязан обновить соответствующие OpenAPI/API tests. SignalR wire contract проверяется отдельно от OpenAPI: имена client-facing событий и сериализованные payload schemas должны быть зафиксированы serialization/approval tests. F-08 является финальной фиксацией полноты, стабильности и пригодности контракта для последующей генерации React client/types, а не первым моментом документирования API.
@@ -309,7 +312,7 @@ GET    /api/v1/auth/me
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
 | F-01 | Зафиксировать структуру `/api/v1`, миграцию pre-v1 routes и стабильные пользовательские контракты | ✅ | Зафиксированы v1 DTO/read models, JSON/ProblemDetails/cursor conventions, route-scoped serialization и OpenAPI enum contract; pre-v1 `api/exchange-accounts` временно сохранён без v1 alias; public market-analysis boundary не изменена; решения покрыты API/HTTP contract tests |
-| F-02 | Реализовать API жизненного цикла биржевого аккаунта | ✅ | Пользователь может получить список подключений, подключить read-only аккаунт, повторно проверить credentials/permissions, безопасно ротировать credentials без смены `ExchangeAccountId`, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
+| F-02 | Реализовать API жизненного цикла биржевого аккаунта | ✅ | Пользователь может получить список подключений, подключить read-only аккаунт с обязательной provider identity, повторно проверить credentials/permissions, безопасно ротировать credentials только в пределах того же provider-side аккаунта без смены `ExchangeAccountId`/identity, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
 | F-03 | Реализовать read API позиций и account-scoped портфеля | ⬜ | Доступны постраничный список с фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, карточка позиции и `PortfolioState` конкретного exchange account; по умолчанию закрытые позиции не смешиваются с активным рабочим списком; cross-user доступ скрыт; общий cross-account `/portfolio` не имитируется без соответствующей доменной модели; OpenAPI/API tests обновлены |
 | F-04 | Реализовать position-scoped market context и свечи | ⬜ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
 | F-05 | Реализовать единый evaluation workflow и read model | ⬜ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
@@ -527,6 +530,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-20 | 3.21 | PR #117 завершил F-02: канонический `/api/v1/exchange-accounts` покрывает list/connect/verify/credential rotation/sync/disconnect, pre-v1 routes удалены, user scope и стабильные ProblemDetails/OpenAPI contracts проверены тестами. Для exchange account введена обязательная provider-side identity (Bybit `userID`): один `ExchangeAccountId` сохраняет один внешний аккаунт на всём lifecycle, rotation другого account/subaccount отклоняется без mutation, persistence/CAS запрещает rebinding. Добавлена migration `provider_account_id NOT NULL`, PostgreSQL race/rollback/invariant coverage и корректное различение permission-denied при чтении positions. Следующий шаг — F-03: read API позиций и account-scoped portfolio. |
 | 2026-09-18 | 3.20 | PR #112 завершил F-01: зафиксированы canonical `/api/v1` contracts, typed DTO/read models, route-scoped JSON conventions с единым поведением для JSON media types, стабильный ProblemDetails и cursor pagination foundation; добавлены HTTP/API contract tests и v1-scoped OpenAPI enum synchronization. Pre-v1 `api/exchange-accounts` сохранён без v1 alias, public market-analysis boundary не изменена. Следующим шагом остаётся F-02 — lifecycle подключений к биржевым аккаунтам. |
 | 2026-09-16 | 3.19 | По review PR #110 устранены замечания Codex/Copilot: SignalR wire contract уточнён как отдельный от OpenAPI и требует serialization/approval tests для client-facing event names и payload schemas; в Stage M разделены cross-account read model и расширенная portfolio analytics без дублирования; ADR-0002 синхронизируется с актуальными примерами `/api/v1` и этапами F. |
 | 2026-09-16 | 3.18 | По review Issue #109 уточнены границы Stage F/G/H: SignalR browser integration закреплена за BFF без выдачи access token в JavaScript; в состав F-01 включено решение по миграции существующего pre-v1 `api/exchange-accounts`; для списка позиций зафиксированы pagination/default active states и фильтры; `evaluation` получил обязательные temporal/input identity metadata и nullable recommendation; G-05 больше не зависит от market-monitoring events до H-04; публичный market-analysis API отделён от legacy `snapshot`; OpenAPI/API contract tests должны сопровождать каждый PR F-02 — F-07, а F-08 выполняет финальную проверку полноты. |

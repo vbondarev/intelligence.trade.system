@@ -76,7 +76,7 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D и E завершены**. Этап **F начат**, а F-01 завершён: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D и E завершены**. Этап **F начат**, F-01 и F-02 завершены: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована, а канонический lifecycle API биржевых аккаунтов опубликован. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
 F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. Следующий шаг этапа F — **F-03: read API позиций и account-scoped portfolio**. Последующие F-04 — F-07 добавят position-scoped market/candles, согласованный `evaluation`, timeline и user-scoped realtime-инвалидацию; F-08 завершит финальную проверку OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
@@ -105,6 +105,8 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 - типизированные идентификаторы пользователя, биржевого аккаунта, позиции и инструмента;
 - `ExchangeAccount`, `Position` и устойчивая идентичность биржевой позиции с учётом `positionIdx`;
 - подключение Bybit-аккаунта, ручная и фоновая синхронизация баланса, позиций и `PortfolioState`;
+- канонический `/api/v1/exchange-accounts` для list/connect/verify/credential rotation/sync/disconnect с user scope, OpenAPI/API contract tests и удалёнными pre-v1 routes;
+- обязательная provider-side identity exchange account (для Bybit — `userID`): один `ExchangeAccountId` остаётся связан с одним внешним аккаунтом, а credentials другого account/subaccount не могут перепривязать существующую историю;
 - существенные изменения позиции `New`, `Updated`, `Increased`, `Reduced`, `Closed`, `MarkedUnknown`, `MarkedStale` и `Recovered`, а также состояния отслеживания `Active`, `Unknown`, `Stale` и `Closed`;
 - безопасная сверка снимков и неизменяемая история существенных изменений `PositionChange`;
 - `PortfolioState`, агрегирование портфеля и базовая политика увеличения риска;
@@ -139,7 +141,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 
 ### Ещё не реализовано
 
-- полный user-facing API v1 для lifecycle биржевых аккаунтов, account-scoped portfolio, позиций, market/candles, evaluation и timeline;
+- оставшаяся часть user-facing API v1: account-scoped portfolio, позиции, market/candles, evaluation и timeline;
 - SignalR-обновления пользовательского состояния;
 - React-клиент и BFF пользовательского интерфейса;
 - непрерывный цикл повторной оценки активных позиций;
@@ -246,7 +248,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React, BFF и Bybit onboarding через пользовательский API ещё не реализованы. User isolation выполняется на Application/Infrastructure boundary, но полный user-facing CRUD относится к этапу F.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`; последующие user-facing read models и команды продолжают реализовываться по этапу F. User isolation выполняется на Application/Infrastructure boundary.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 

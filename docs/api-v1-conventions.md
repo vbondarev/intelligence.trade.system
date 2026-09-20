@@ -57,6 +57,13 @@ Endpoints для пользовательских данных использу�
 биржевого аккаунта. Незаверсионированные маршруты `/api/exchange-accounts/**`
 удалены и не имеют compatibility alias.
 
+Один `ExchangeAccountId` на всём lifecycle соответствует одному provider-side
+биржевому аккаунту. Provider identity является внутренним инвариантом и не
+публикуется в v1 response/OpenAPI. Ротация credentials другого внешнего
+account/subaccount возвращает `409 ProblemDetails` с
+`code = exchange_account_identity_mismatch` и не изменяет persisted
+credentials/account state.
+
 Для user-owned exchange account resources отсутствующий и чужой идентификатор
 возвращают одинаковый `404 ProblemDetails`: `resource_not_found`,
 `urn:intelligence-trade:error:resource-not-found`, `Resource not found.`.
