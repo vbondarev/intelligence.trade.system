@@ -97,11 +97,11 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .Where(entity =>
                 entity.Id == mapped.Id &&
                 entity.UserId == userId.Value &&
-                entity.Version == expectedVersion.Value.Value)
+                entity.Version == expectedVersion.Value.Value &&
+                entity.ProviderAccountId == mapped.ProviderAccountId)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(entity => entity.ExchangeId, mapped.ExchangeId)
-                    .SetProperty(entity => entity.ProviderAccountId, mapped.ProviderAccountId)
                     .SetProperty(entity => entity.ConnectionStatus, mapped.ConnectionStatus)
                     .SetProperty(entity => entity.Capabilities, mapped.Capabilities)
                     .SetProperty(entity => entity.LastSyncedAt, mapped.LastSyncedAt)

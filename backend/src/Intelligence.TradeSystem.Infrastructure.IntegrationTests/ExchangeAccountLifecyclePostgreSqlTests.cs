@@ -82,6 +82,47 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
     }
 
     [Fact]
+    public async Task SaveAsync_rejects_provider_identity_rebinding_and_preserves_the_existing_row()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(
+                userId,
+                account,
+                expectedVersion: null);
+        }
+
+        var rebound = ExchangeAccount.Create(
+            account.Id,
+            userId,
+            account.ExchangeId,
+            ExchangeAccountProviderIdentity.From("different-provider-account"),
+            ExchangeAccountConnectionStatus.Unavailable,
+            account.Capabilities,
+            lastError: "attempted provider rebinding");
+
+        await using (var updateContext = await CreateMigratedContext())
+        {
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(
+                () => new ExchangeAccountRepository(updateContext).SaveAsync(
+                    userId,
+                    rebound,
+                    ConcurrencyVersion.Initial));
+        }
+
+        await using var readContext = await CreateMigratedContext();
+        var persisted = await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, account.Id);
+        Assert.Equal(ConcurrencyVersion.Initial, persisted!.Version);
+        Assert.Equal(account.ProviderIdentity, persisted.Value.ProviderIdentity);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, persisted.Value.ConnectionStatus);
+        Assert.Null(persisted.Value.LastError);
+        Assert.Equal(account.Capabilities, persisted.Value.Capabilities);
+    }
+
+    [Fact]
     public async Task Real_exchange_account_service_rejects_identity_mismatch_without_mutating_postgres()
     {
         var userId = UserId.New();

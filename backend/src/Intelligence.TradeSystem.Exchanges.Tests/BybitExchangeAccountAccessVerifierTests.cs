@@ -169,6 +169,53 @@ public sealed class BybitExchangeAccountAccessVerifierTests
         result.Status.Should().Be(ExchangeAccountAccessVerificationStatus.Unavailable);
     }
 
+    [Theory]
+    [InlineData("10005", ErrorType.Unauthorized, ExchangeAccountAccessVerificationStatus.PermissionsRejected)]
+    [InlineData("10003", ErrorType.Unauthorized, ExchangeAccountAccessVerificationStatus.InvalidCredentials)]
+    public async Task VerifyAsync_Maps_Position_Credential_Failures(
+        string providerCode,
+        ErrorType errorType,
+        ExchangeAccountAccessVerificationStatus expectedStatus)
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        foreach (var settleCoin in new[] { "USDT", "USDC" })
+        {
+            trading
+                .Setup(api => api.GetPositionsAsync(
+                    Category.Linear,
+                    null,
+                    null,
+                    settleCoin,
+                    200,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateError<BybitResponse<BybitPosition>>(
+                    providerCode,
+                    errorType));
+        }
+
+        var account = CreateAccountApi(readOnly: true);
+        account
+            .Setup(api => api.GetBalancesAsync(
+                BybitAccountType.Unified,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitBalance>
+            {
+                List = [new BybitBalance { AccountType = BybitAccountType.Unified }],
+            }));
+        var client = CreateClient(account, trading);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var verifier = new BybitExchangeAccountAccessVerifier(
+            new BybitPrivateAccountProviderFactory(loggerFactory, _ => client.Object));
+
+        var result = await verifier.VerifyAsync(
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Status.Should().Be(expectedStatus);
+    }
+
     [Fact]
     public async Task VerifyAsync_Rejects_Write_Enabled_Key_Before_Read_Operations()
     {

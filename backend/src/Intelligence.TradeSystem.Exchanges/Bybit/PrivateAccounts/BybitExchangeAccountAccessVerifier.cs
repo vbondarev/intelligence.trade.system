@@ -68,7 +68,7 @@ public sealed class BybitExchangeAccountAccessVerifier(
         if (positions.Status != OpenPositionsObservationStatus.Complete)
         {
             return ExchangeAccountAccessVerificationResult.Failed(
-                ExchangeAccountAccessVerificationStatus.Unavailable);
+                FromPositionFailure(positions.FailureKind));
         }
 
         return ExchangeAccountAccessVerificationResult.Verified(
@@ -89,4 +89,15 @@ public sealed class BybitExchangeAccountAccessVerifier(
 
         return ExchangeAccountAccessVerificationResult.Failed(status);
     }
+
+    private static ExchangeAccountAccessVerificationStatus FromPositionFailure(
+        OpenPositionsObservationFailureKind? failureKind) =>
+        failureKind switch
+        {
+            OpenPositionsObservationFailureKind.InvalidCredentials =>
+                ExchangeAccountAccessVerificationStatus.InvalidCredentials,
+            OpenPositionsObservationFailureKind.PermissionDenied =>
+                ExchangeAccountAccessVerificationStatus.PermissionsRejected,
+            _ => ExchangeAccountAccessVerificationStatus.Unavailable,
+        };
 }
