@@ -8,8 +8,198 @@ on:
   workflow_dispatch:
 
 jobs:
+  classify-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ci_path: ${{ steps.classify.outputs.ci_path }}
+      diff_base_sha: ${{ steps.classify.outputs.diff_base_sha }}
+      diff_head_sha: ${{ steps.classify.outputs.diff_head_sha }}
+      reason: ${{ steps.classify.outputs.reason }}
+
+    steps:
+      - name: Checkout classified ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          diff_base_sha=""
+          diff_head_sha=""
+          changed_paths=()
+
+          commit_exists() {
+            git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          is_whitelisted() {
+            case "$1" in
+              README.md|ROADMAP.md|AGENTS.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/copilot-instructions.md|.github/instructions/*|.github/pull_request_template.md|.agents/skills/README.md|.agents/skills/trade-system-pr-review/SKILL.md)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          emit_route() {
+            local ci_path="$1"
+            local reason="$2"
+
+            {
+              printf 'ci_path=%s\n' "$ci_path"
+              printf 'diff_base_sha=%s\n' "$diff_base_sha"
+              printf 'diff_head_sha=%s\n' "$diff_head_sha"
+              printf 'reason=%s\n' "$reason"
+            } >> "$GITHUB_OUTPUT"
+
+            {
+              echo "## CI path selection"
+              echo "- Event: \`$EVENT_NAME\`"
+              case "$EVENT_NAME" in
+                pull_request)
+                  echo "- Event base SHA: \`$PR_BASE_SHA\`"
+                  echo "- Event head SHA: \`$PR_HEAD_SHA\`"
+                  ;;
+                push)
+                  echo "- Event before SHA: \`$PUSH_BEFORE_SHA\`"
+                  echo "- Event after SHA: \`$PUSH_AFTER_SHA\`"
+                  ;;
+              esac
+              echo "- Selected path: \`$ci_path\`"
+              echo "- Reason: $reason"
+              if [[ -n "$diff_base_sha" && -n "$diff_head_sha" ]]; then
+                echo "- Diff range: \`$diff_base_sha..$diff_head_sha\`"
+              fi
+              echo "### Changed files"
+              if (( ${#changed_paths[@]} == 0 )); then
+                echo "- No classified paths."
+              else
+                for changed_path in "${changed_paths[@]}"; do
+                  printf -- '- `%q`\n' "$changed_path"
+                done
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          select_full() {
+            diff_base_sha=""
+            diff_head_sha=""
+            emit_route full "$1"
+            exit 0
+          }
+
+          case "$EVENT_NAME" in
+            pull_request)
+              if [[ -z "$PR_BASE_SHA" || -z "$PR_HEAD_SHA" ]]; then
+                select_full "Pull request event did not provide both revision SHAs."
+              fi
+              if ! commit_exists "$PR_BASE_SHA" || ! commit_exists "$PR_HEAD_SHA"; then
+                select_full "Pull request revision is unavailable in the checkout."
+              fi
+              if ! diff_base_sha="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"; then
+                select_full "Unable to calculate the pull request merge base."
+              fi
+              diff_head_sha="$PR_HEAD_SHA"
+              ;;
+            push)
+              if [[ -z "$PUSH_BEFORE_SHA" || -z "$PUSH_AFTER_SHA" || "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+                select_full "Push event does not provide a trusted before/after range."
+              fi
+              if ! commit_exists "$PUSH_BEFORE_SHA" || ! commit_exists "$PUSH_AFTER_SHA"; then
+                select_full "Push revision is unavailable in the checkout."
+              fi
+              diff_base_sha="$PUSH_BEFORE_SHA"
+              diff_head_sha="$PUSH_AFTER_SHA"
+              ;;
+            workflow_dispatch)
+              select_full "workflow_dispatch has no trusted diff range."
+              ;;
+            *)
+              select_full "Unsupported event type."
+              ;;
+          esac
+
+          changed_paths_file="$RUNNER_TEMP/changed-paths"
+          if ! git diff --no-renames --name-only -z "$diff_base_sha" "$diff_head_sha" > "$changed_paths_file"; then
+            select_full "Unable to calculate the changed-file list."
+          fi
+
+          while IFS= read -r -d '' changed_path; do
+            changed_paths+=("$changed_path")
+          done < "$changed_paths_file"
+
+          if (( ${#changed_paths[@]} == 0 )); then
+            select_full "The changed-file range is empty."
+          fi
+
+          for changed_path in "${changed_paths[@]}"; do
+            if ! is_whitelisted "$changed_path"; then
+              emit_route full "At least one changed path is outside the documentation/instructions whitelist."
+              exit 0
+            fi
+          done
+
+          emit_route docs "All changed paths are in the documentation/instructions whitelist."
+
+  docs-validation:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: needs['classify-changes'].outputs.ci_path == 'docs'
+
+    steps:
+      - name: Checkout classified head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs['classify-changes'].outputs.diff_head_sha }}
+          fetch-depth: 0
+
+      - name: Validate documentation diff
+        shell: bash
+        env:
+          DIFF_BASE_SHA: ${{ needs['classify-changes'].outputs.diff_base_sha }}
+          DIFF_HEAD_SHA: ${{ needs['classify-changes'].outputs.diff_head_sha }}
+          CLASSIFICATION_REASON: ${{ needs['classify-changes'].outputs.reason }}
+        run: |
+          set -euo pipefail
+
+          ensure_commit() {
+            local sha="$1"
+
+            if git cat-file -e "$sha^{commit}" 2>/dev/null; then
+              return
+            fi
+
+            git fetch --no-tags origin "$sha"
+            git cat-file -e "$sha^{commit}"
+          }
+
+          ensure_commit "$DIFF_BASE_SHA"
+          ensure_commit "$DIFF_HEAD_SHA"
+          git diff --check "$DIFF_BASE_SHA" "$DIFF_HEAD_SHA"
+
+          {
+            echo "## Documentation validation"
+            echo "- Classification reason: $CLASSIFICATION_REASON"
+            echo "- Validated diff range: \`$DIFF_BASE_SHA..$DIFF_HEAD_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
     runs-on: ubuntu-latest
+    needs: classify-changes
+    if: needs['classify-changes'].outputs.ci_path == 'full'
 
     steps:
       - name: Checkout
@@ -133,3 +323,60 @@ jobs:
       - name: Stop authentication stack
         if: always()
         run: docker compose -f backend/compose.yaml down -v
+
+  ci-gate:
+    runs-on: ubuntu-latest
+    needs:
+      - classify-changes
+      - docs-validation
+      - build
+      - test
+      - docker-build
+    if: always()
+
+    steps:
+      - name: Validate selected CI path
+        shell: bash
+        env:
+          CLASSIFIER_RESULT: ${{ needs['classify-changes'].result }}
+          CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
+          DOCS_VALIDATION_RESULT: ${{ needs['docs-validation'].result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          DOCKER_BUILD_RESULT: ${{ needs['docker-build'].result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## CI gate"
+            echo "- Selected path: \`$CI_PATH\`"
+            echo "- classify-changes: \`$CLASSIFIER_RESULT\`"
+            echo "- docs-validation: \`$DOCS_VALIDATION_RESULT\`"
+            echo "- build: \`$BUILD_RESULT\`"
+            echo "- test: \`$TEST_RESULT\`"
+            echo "- docker-build: \`$DOCKER_BUILD_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$CLASSIFIER_RESULT" != "success" ]]; then
+            echo "Changed-file classification did not succeed." >&2
+            exit 1
+          fi
+
+          case "$CI_PATH" in
+            docs)
+              [[ "$DOCS_VALIDATION_RESULT" == "success" ]]
+              [[ "$BUILD_RESULT" == "skipped" ]]
+              [[ "$TEST_RESULT" == "skipped" ]]
+              [[ "$DOCKER_BUILD_RESULT" == "skipped" ]]
+              ;;
+            full)
+              [[ "$DOCS_VALIDATION_RESULT" == "skipped" ]]
+              [[ "$BUILD_RESULT" == "success" ]]
+              [[ "$TEST_RESULT" == "success" ]]
+              [[ "$DOCKER_BUILD_RESULT" == "success" ]]
+              ;;
+            *)
+              echo "Unknown CI path: $CI_PATH" >&2
+              exit 1
+              ;;
+          esac
