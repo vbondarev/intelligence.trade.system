@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
@@ -77,12 +78,16 @@ public static class StartupExtensions
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IExchangeAccountLifecycleTransaction, ExchangeAccountLifecycleTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
+        services.AddScoped<IPositionReadStore, PositionReadRepository>();
+        services.AddScoped<PositionReadService>();
         services.AddScoped<ApplicationEventOutbox>();
         services.AddScoped<IApplicationEventOutbox>(
             serviceProvider => serviceProvider.GetRequiredService<ApplicationEventOutbox>());
         services.AddScoped<IOutboxMessageStore>(
             serviceProvider => serviceProvider.GetRequiredService<ApplicationEventOutbox>());
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
+        services.AddScoped<IPortfolioReadStore, PortfolioReadRepository>();
+        services.AddScoped<PortfolioReadService>();
         services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();
         services.AddScoped<RecommendationRepository>();
         services.AddScoped<IRecommendationRepository>(

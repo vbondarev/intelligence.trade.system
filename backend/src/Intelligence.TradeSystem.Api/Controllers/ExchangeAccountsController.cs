@@ -2,7 +2,9 @@ using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
+using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Users;
+using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -16,7 +18,8 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
     IExchangeAccountSyncService syncService,
-    ICurrentUserContext currentUserContext) : ControllerBase
+    ICurrentUserContext currentUserContext,
+    PortfolioReadService portfolioReadService) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ExchangeAccountListResponse), StatusCodes.Status200OK)]
@@ -115,6 +118,37 @@ public sealed class ExchangeAccountsController(
         return account is null ? NotFoundProblem() : NoContent();
     }
 
+    [HttpGet("{id}/portfolio")]
+    [ProducesResponseType(typeof(PortfolioResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PortfolioResponse>> Portfolio(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
+        }
+
+        var result = await portfolioReadService
+            .GetLatestAsync(
+                currentUserContext.UserId,
+                ExchangeAccountId.FromGuid(id),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.AccountExists)
+        {
+            return NotFoundProblem();
+        }
+
+        return result.Summary is null
+            ? NoContent()
+            : Ok(ToPortfolioResponse(result.Summary));
+    }
+
     private async Task<ActionResult<ExchangeAccountResponse>> ExecuteVerification(Guid id, CancellationToken cancellationToken)
     {
         var result = await accountService.VerifyAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
@@ -165,4 +199,27 @@ public sealed class ExchangeAccountsController(
             result.Add(ExchangeAccountCapability.ReadPositions);
         return result.ToArray();
     }
+
+    private static PortfolioResponse ToPortfolioResponse(PortfolioReadSummary summary) => new(
+        summary.ExchangeAccountId.Value,
+        summary.CalculatedAt,
+        new PortfolioCapitalResponse(
+            summary.TotalEquity,
+            summary.AvailableCapital,
+            summary.TotalWalletBalance,
+            summary.CapitalObservedAt),
+        summary.GrossExposure,
+        summary.LongExposure,
+        summary.ShortExposure,
+        summary.NetExposure,
+        summary.TotalUnrealizedPnl,
+        summary.UsedCapital,
+        summary.FreeCapital,
+        summary.FreeCapitalPercent,
+        summary.GrossExposureToEquityPercent,
+        summary.LargestPositionConcentrationPercent,
+        summary.LargestPositionId?.Value,
+        summary.PositionsFullyReconciled,
+        summary.IsComplete,
+        summary.IsFresh);
 }

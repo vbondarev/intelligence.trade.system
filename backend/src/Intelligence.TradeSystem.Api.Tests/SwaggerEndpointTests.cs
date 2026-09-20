@@ -252,9 +252,88 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         rotateRequestSchema.GetProperty("properties").EnumerateObject()
             .Should().OnlyContain(property => property.Name == "apiKey" || property.Name == "apiSecret");
 
-        // F-02 is limited to lifecycle; F-03+ (positions/portfolio) v1 paths must not exist yet.
-        paths.EnumerateObject().Select(x => x.Name)
-            .Should().NotContain(name => name.Contains("/api/v1/positions") || name.Contains("/api/v1/portfolio"));
+        var f03Operations = new[]
+        {
+            paths.GetProperty("/api/v1/positions").GetProperty("get"),
+            paths.GetProperty("/api/v1/positions/{id}").GetProperty("get"),
+            paths.GetProperty("/api/v1/exchange-accounts/{id}/portfolio").GetProperty("get"),
+        };
+        f03Operations.Should().HaveCount(3);
+        foreach (var operation in f03Operations)
+            operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        f03Operations[0].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401"]);
+        f03Operations[1].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401", "404"]);
+        f03Operations[2].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
+
+        var positionsList = f03Operations[0];
+        var positionParameters = positionsList.GetProperty("parameters");
+        positionParameters.EnumerateArray().Select(x => x.GetProperty("name").GetString())
+            .Should().Contain(["exchangeAccountId", "trackingState", "symbol", "side", "pageSize", "cursor"]);
+        var trackingStateParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "trackingState");
+        trackingStateParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("active", "unknown", "stale", "closed");
+        var sideParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "side");
+        sideParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("long", "short");
+        var pageSizeParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "pageSize");
+        var pageSizeSchema = pageSizeParameter.GetProperty("schema");
+        pageSizeSchema.GetProperty("minimum").GetInt32().Should().Be(1);
+        pageSizeSchema.GetProperty("maximum").GetInt32().Should().Be(100);
+        pageSizeSchema.GetProperty("default").GetInt32().Should().Be(50);
+        var f03Schemas = root.GetProperty("components").GetProperty("schemas");
+        f03Schemas.GetProperty("PositionSideV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("long", "short");
+        f03Schemas.GetProperty("PositionTrackingStateV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("active", "unknown", "stale", "closed");
+        f03Schemas.GetProperty("MarketCategoryV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("linear", "inverse");
+
+        var positionSchema = f03Schemas.GetProperty("PositionResponse");
+        var positionProperties = positionSchema.GetProperty("properties");
+        positionProperties.TryGetProperty("positionIdx", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("changes", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("assessment", out _).Should().BeFalse();
+        positionProperties.TryGetProperty("recommendation", out _).Should().BeFalse();
+
+        var portfolioSchema = f03Schemas.GetProperty("PortfolioResponse");
+        var portfolioProperties = portfolioSchema.GetProperty("properties");
+        portfolioProperties.TryGetProperty("positions", out _).Should().BeFalse();
+        portfolioProperties.TryGetProperty("staleAfter", out _).Should().BeFalse();
+        portfolioProperties.GetProperty("capital").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/PortfolioCapitalResponse");
+        AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "averageEntryPrice");
+        AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "closedAt");
+        AssertNullableProperty(positionSchema, "markPrice");
+        AssertNullableProperty(positionSchema, "breakEvenPrice");
+        AssertNullableProperty(positionSchema, "closedAt");
+        AssertNullableProperty(portfolioSchema, "grossExposure");
+        AssertNullableProperty(portfolioSchema, "largestPositionId");
+        var capitalSchema = f03Schemas.GetProperty("PortfolioCapitalResponse");
+        AssertNullableProperty(capitalSchema, "totalEquity");
+        AssertNullableProperty(capitalSchema, "observedAt");
+        paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
+            .TryGetProperty("security", out _).Should().BeFalse();
+    }
+
+    private static void AssertNullableProperty(JsonElement schema, string propertyName)
+    {
+        schema.GetProperty("properties")
+            .GetProperty(propertyName)
+            .GetProperty("nullable")
+            .GetBoolean()
+            .Should()
+            .BeTrue();
     }
 
 
