@@ -85,7 +85,7 @@
 
 Для нетривиальной задачи используй последовательность:
 
-`Issue → Agent Implementation Plan → Human Plan Review → Human Gate → Implementation → Self-review → Fixes → Tests / CI-equivalent checks → Documentation sync → Final self-review → Commit → Push → Draft PR → PR sanity check → External Review → Review fixes → Re-review → Human Merge Gate`.
+`Issue → Agent Implementation Plan → Human Plan Review → Human Gate → Create implementation branch → Implementation → Self-review → Fixes → Tests / CI-equivalent checks → Documentation sync → Final self-review → Commit → Push → Draft PR → PR sanity check → External Review → Review fixes → Re-review → Human Merge Gate`.
 
 #### Plan и Human Gate
 
@@ -94,6 +94,8 @@
 - Для нетривиальной задачи не начинай implementation до явного прохождения Human Gate — утверждения Implementation Plan человеком.
 - Если Plan выявил неоднозначность, новый архитектурный выбор, конфликт требований или необходимость выйти за scope Issue, остановись и передай вопрос человеку. После human decision при необходимости сначала синхронизируй Issue, затем Plan и только после повторного Human Gate продолжай.
 - Не расширяй scope соседними улучшениями, рефакторингом или следующими пунктами `ROADMAP.md` без явного решения человека. Отдельный долг фиксируй как follow-up.
+- После прохождения Human Gate implementation-agent обновляет целевую ветку и создаёт от её актуального состояния отдельную рабочую ветку до начала implementation.
+- Имя рабочей ветки должно соответствовать шаблону `task/<issue_number>-<branch-name>`, где `<branch-name>` — краткое описание задачи в `kebab-case`.
 
 #### Implementation, self-review и проверки
 
@@ -104,12 +106,14 @@
 - Если реализация делает `README.md`, `ROADMAP.md`, ADR, contract docs или применимые `AGENTS.md` неверными или неполными, синхронизируй их до финального self-review, если Issue не задаёт другую границу.
 - После fixes/tests/docs выполни короткий final self-review: ещё раз сверь final diff с Issue/Plan и убедись, что code/tests/docs согласованы.
 
-#### Commit, Draft PR и sanity check
+#### Ветка, commit, Draft PR и sanity check
 
-- Commit messages и Pull Request должны явно ссылаться на номер Issue.
+- Commit message должен соответствовать шаблону `#<issue_number>: <текст на русском языке в прошедшем времени>`.
+- Заголовок Pull Request должен соответствовать шаблону `#<issue_number>: <краткое название на русском языке>`; предпочтительно используй прошедшее время, описывающее фактически выполненную работу.
+- Описание Pull Request, включая Summary и основные пояснительные разделы, должно быть написано на русском языке. Английский допускается только для устоявшихся технических терминов, имён API, типов, файлов, команд, jobs/checks и кода.
 - После успешного final self-review можно выполнить commit/push и открыть Draft PR.
-- PR должен описывать фактическую реализацию, отклонения от плана, выполненные проверки, риски и намеренно исключённый scope.
-- До External Review выполни PR sanity check: правильные base/head, `Closes #Issue`, ожидаемый diff, отсутствие случайных файлов и запуск применимого CI.
+- Draft PR должен содержать `Closes #<issue_number>`, описание фактической реализации, отклонения от Implementation Plan либо явное указание, что их нет, выполненные проверки, риски и намеренно исключённый scope.
+- До External Review выполни PR sanity check: правильные base/head, соответствие имени ветки, commit message, PR title и PR description этим правилам, `Closes #Issue`, ожидаемый diff, отсутствие случайных файлов и запуск применимого CI.
 
 #### External Review и review fixes
 
