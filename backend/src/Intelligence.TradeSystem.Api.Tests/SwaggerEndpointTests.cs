@@ -260,11 +260,13 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         };
         f03Operations.Should().HaveCount(3);
         foreach (var operation in f03Operations)
-        {
             operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
-            operation.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-                .Should().Contain(["200", "400", "401"]);
-        }
+        f03Operations[0].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401"]);
+        f03Operations[1].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401", "404"]);
+        f03Operations[2].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
 
         var positionsList = f03Operations[0];
         var positionParameters = positionsList.GetProperty("parameters");
@@ -310,8 +312,28 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         portfolioProperties.TryGetProperty("staleAfter", out _).Should().BeFalse();
         portfolioProperties.GetProperty("capital").GetProperty("$ref").GetString()
             .Should().Be("#/components/schemas/PortfolioCapitalResponse");
+        AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "averageEntryPrice");
+        AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "closedAt");
+        AssertNullableProperty(positionSchema, "markPrice");
+        AssertNullableProperty(positionSchema, "breakEvenPrice");
+        AssertNullableProperty(positionSchema, "closedAt");
+        AssertNullableProperty(portfolioSchema, "grossExposure");
+        AssertNullableProperty(portfolioSchema, "largestPositionId");
+        var capitalSchema = f03Schemas.GetProperty("PortfolioCapitalResponse");
+        AssertNullableProperty(capitalSchema, "totalEquity");
+        AssertNullableProperty(capitalSchema, "observedAt");
         paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
             .TryGetProperty("security", out _).Should().BeFalse();
+    }
+
+    private static void AssertNullableProperty(JsonElement schema, string propertyName)
+    {
+        schema.GetProperty("properties")
+            .GetProperty(propertyName)
+            .GetProperty("nullable")
+            .GetBoolean()
+            .Should()
+            .BeTrue();
     }
 
 

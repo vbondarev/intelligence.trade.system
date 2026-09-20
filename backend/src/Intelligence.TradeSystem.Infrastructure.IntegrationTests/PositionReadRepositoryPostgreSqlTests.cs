@@ -85,6 +85,59 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task List_composes_owned_account_symbol_side_and_tracking_state_filters()
+    {
+        var userId = UserId.New();
+        var accountA = CreateAccount(userId);
+        var accountB = CreateAccount(userId);
+        var foreign = CreateAccount(UserId.New());
+        var accountALong = CreatePosition(accountA.Id, "BTCUSDT", T0, PositionSide.Long);
+        var accountAShort = CreatePosition(accountA.Id, "BTCUSDT", T0.AddMinutes(-1), PositionSide.Short);
+        var accountBPosition = CreatePosition(accountB.Id, "BTCUSDT", T0, PositionSide.Long);
+        var foreignPosition = CreatePosition(foreign.Id, "BTCUSDT", T0, PositionSide.Long);
+
+        await Persist(accountA, [accountALong, accountAShort]);
+        await Persist(accountB, [accountBPosition]);
+        await Persist(foreign, [foreignPosition]);
+
+        await using var context = await CreateMigratedContext();
+        var repository = new PositionReadRepository(context);
+
+        var accountALongPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                accountA.Id,
+                PositionTrackingState.Active,
+                "btcusdt",
+                PositionSide.Long,
+                50,
+                null));
+        var accountAShortPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                accountA.Id,
+                PositionTrackingState.Active,
+                "BTCUSDT",
+                PositionSide.Short,
+                50,
+                null));
+        var accountBPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                accountB.Id,
+                null,
+                null,
+                null,
+                50,
+                null));
+
+        Assert.Equal([accountALong.Id], accountALongPage.Items.Select(item => item.Id));
+        Assert.Equal([accountAShort.Id], accountAShortPage.Items.Select(item => item.Id));
+        Assert.Equal([accountBPosition.Id], accountBPage.Items.Select(item => item.Id));
+        Assert.DoesNotContain(foreignPosition.Id, accountALongPage.Items.Select(item => item.Id));
+    }
+
+    [Fact]
     public async Task Cursor_traversal_returns_every_position_once_and_uses_id_desc_tie_breaker()
     {
         var owner = CreateAccount(UserId.New());
@@ -357,12 +410,13 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
     private static Position CreatePosition(
         ExchangeAccountId accountId,
         string symbol,
-        DateTimeOffset firstDetectedAt) =>
+        DateTimeOffset firstDetectedAt,
+        PositionSide positionSide = PositionSide.Long) =>
         Position.Create(
             ExchangePositionKey.Create(
                 accountId,
                 InstrumentId.From(symbol),
-                PositionSide.Long,
+                positionSide,
                 0),
             MarketCategory.Linear,
             1m,
