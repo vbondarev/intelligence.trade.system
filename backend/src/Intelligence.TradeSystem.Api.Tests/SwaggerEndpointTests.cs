@@ -270,15 +270,32 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         var positionParameters = positionsList.GetProperty("parameters");
         positionParameters.EnumerateArray().Select(x => x.GetProperty("name").GetString())
             .Should().Contain(["exchangeAccountId", "trackingState", "symbol", "side", "pageSize", "cursor"]);
+        var trackingStateParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "trackingState");
+        trackingStateParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("active", "unknown", "stale", "closed");
+        var sideParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "side");
+        sideParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("long", "short");
+        var pageSizeParameter = positionParameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "pageSize");
+        var pageSizeSchema = pageSizeParameter.GetProperty("schema");
+        pageSizeSchema.GetProperty("minimum").GetInt32().Should().Be(1);
+        pageSizeSchema.GetProperty("maximum").GetInt32().Should().Be(100);
+        pageSizeSchema.GetProperty("default").GetInt32().Should().Be(50);
         var f03Schemas = root.GetProperty("components").GetProperty("schemas");
-        foreach (var enumSchemaName in new[] { "PositionSideV1", "PositionTrackingStateV1", "MarketCategoryV1" })
-        {
-            f03Schemas.GetProperty(enumSchemaName).GetProperty("type").GetString().Should().Be("string");
-            f03Schemas.GetProperty(enumSchemaName).GetProperty("enum").EnumerateArray()
-                .Select(value => value.GetString())
-                .All(value => value is not null && value.Length > 0 && char.IsLower(value[0]))
-                .Should().BeTrue();
-        }
+        f03Schemas.GetProperty("PositionSideV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("long", "short");
+        f03Schemas.GetProperty("PositionTrackingStateV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("active", "unknown", "stale", "closed");
+        f03Schemas.GetProperty("MarketCategoryV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("linear", "inverse");
 
         var positionSchema = f03Schemas.GetProperty("PositionResponse");
         var positionProperties = positionSchema.GetProperty("properties");

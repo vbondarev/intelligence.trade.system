@@ -227,7 +227,6 @@ public sealed class PositionsController(
 
     private static WireMarketCategory ToWireMarketCategory(DomainMarketCategory category) => category switch
     {
-        DomainMarketCategory.Spot => WireMarketCategory.Spot,
         DomainMarketCategory.Linear => WireMarketCategory.Linear,
         DomainMarketCategory.Inverse => WireMarketCategory.Inverse,
         _ => throw new NotSupportedException(

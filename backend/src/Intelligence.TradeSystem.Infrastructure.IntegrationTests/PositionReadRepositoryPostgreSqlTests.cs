@@ -85,6 +85,50 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task Cursor_traversal_returns_every_position_once_and_uses_id_desc_tie_breaker()
+    {
+        var owner = CreateAccount(UserId.New());
+        var tiedPositions = Enumerable.Range(0, 4)
+            .Select(index => CreatePosition(owner.Id, $"TIED{index}", T0))
+            .ToArray();
+        var positions = tiedPositions
+            .Concat(
+            [
+                CreatePosition(owner.Id, "OLDER1", T0.AddMinutes(-1)),
+                CreatePosition(owner.Id, "OLDER2", T0.AddMinutes(-2)),
+            ])
+            .ToArray();
+        await Persist(owner, positions);
+
+        var expected = positions
+            .OrderByDescending(position => position.FirstDetectedAt)
+            .ThenByDescending(position => position.Id.Value)
+            .Select(position => position.Id)
+            .ToArray();
+        var actual = new List<PositionId>();
+        PositionReadCursor? cursor = null;
+        var hasMore = true;
+
+        await using var context = await CreateMigratedContext();
+        var repository = new PositionReadRepository(context);
+        while (hasMore)
+        {
+            var page = await repository.ListAsync(
+                owner.UserId,
+                PositionReadQuery.Create(null, null, null, null, 2, cursor));
+            actual.AddRange(page.Items.Select(item => item.Id));
+            hasMore = page.HasMore;
+            cursor = page.NextCursor;
+        }
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(expected.Length, actual.Distinct().Count());
+        Assert.Equal(
+            expected[..tiedPositions.Length],
+            actual.Take(tiedPositions.Length).ToArray());
+    }
+
+    [Fact]
     public async Task Detail_and_portfolio_reads_hide_foreign_resources_and_do_not_load_history_tables()
     {
         var owner = CreateAccount(UserId.New());
@@ -118,6 +162,50 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.False(foreignSummary.AccountExists);
         Assert.Null(foreignSummary.Summary);
         Assert.False(missingSummary.AccountExists);
+    }
+
+    [Fact]
+    public async Task Portfolio_read_distinguishes_owned_without_snapshot_and_returns_latest_snapshot()
+    {
+        var withoutSnapshot = CreateAccount(UserId.New());
+        await Persist(withoutSnapshot, []);
+
+        var owner = CreateAccount(UserId.New());
+        var position = CreatePosition(owner.Id, "BTCUSDT", T0);
+        var older = PortfolioState.Create(
+            owner.Id,
+            [position],
+            new PortfolioCapitalState(1000m, 800m, T0, 1000m),
+            T0,
+            TimeSpan.FromMinutes(5));
+        var newer = PortfolioState.Create(
+            owner.Id,
+            [position],
+            new PortfolioCapitalState(2000m, 1500m, T0.AddMinutes(1), 2000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        await Persist(owner, [position], older);
+
+        await using (var context = await CreateMigratedContext())
+        {
+            await new PortfolioStateRepository(context)
+                .SaveAsync(owner.UserId, newer);
+        }
+
+        await using var readContext = await CreateMigratedContext();
+        var repository = new PortfolioReadRepository(readContext);
+        var withoutSnapshotResult = await repository.GetLatestAsync(
+            withoutSnapshot.UserId,
+            withoutSnapshot.Id);
+        var latestResult = await repository.GetLatestAsync(owner.UserId, owner.Id);
+
+        Assert.True(withoutSnapshotResult.AccountExists);
+        Assert.Null(withoutSnapshotResult.Summary);
+        Assert.True(latestResult.AccountExists);
+        Assert.NotNull(latestResult.Summary);
+        Assert.Equal(2000m, latestResult.Summary!.TotalEquity);
+        Assert.Equal(1500m, latestResult.Summary.AvailableCapital);
+        Assert.Equal(T0.AddMinutes(1), latestResult.Summary.CalculatedAt);
     }
 
     [Fact]

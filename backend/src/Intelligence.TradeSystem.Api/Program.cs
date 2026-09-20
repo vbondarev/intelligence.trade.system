@@ -78,6 +78,7 @@ public partial class Program
                 Description = "OAuth 2.0 / OpenID Connect bearer access token.",
             });
             options.OperationFilter<TradeUserAuthorizationOperationFilter>();
+            options.OperationFilter<PositionsV1OperationFilter>();
             var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
             var xmlFilePath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
 

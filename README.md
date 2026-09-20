@@ -251,7 +251,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`; последующие user-facing read models и команды продолжают реализовываться по этапу F. User isolation выполняется на Application/Infrastructure boundary.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`, а user-facing read API позиций и account-scoped portfolio реализован в F-03; следующие read models и команды относятся к F-04—F-08. User isolation выполняется на Application/Infrastructure boundary.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 
@@ -387,7 +387,7 @@ GET /api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear&mode
 |---|---|
 | `Intraday` | Внутридневной рыночный контекст |
 | `Swing` | Более широкий контекст для удержания сценария дольше одного дня |
-| `Portfolio` | Рыночный контекст с набором старших основных таймфреймов; account-scoped пользовательский portfolio API относится к этапу F, а общий cross-account portfolio — к последующему расширению |
+| `Portfolio` | Рыночный контекст с набором старших основных таймфреймов; account-scoped пользовательский portfolio API реализован в F-03, а общий cross-account portfolio относится к последующему расширению |
 
 ### Legacy market snapshot
 
@@ -636,7 +636,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
-- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, F-02 завершил канонический lifecycle API биржевых аккаунтов, но account-scoped portfolio, positions, market/candles, evaluation и timeline ещё не завершены;
+- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, F-02 завершил канонический lifecycle API биржевых аккаунтов, F-03 добавил positions и account-scoped portfolio, а market/candles, evaluation и timeline ещё не завершены;
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
 - канонический `/api/v1/exchange-accounts` публикует lifecycle read-only подключений; временный pre-v1 `api/exchange-accounts` удалён в F-02 и возвращает `404`;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
