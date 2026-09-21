@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.22
-Дата актуализации: 20 сентября 2026 года
-Проверенная база: PR #125 (F-03: read API позиций и account-scoped портфеля)
-Последняя учтённая задача: Issue #124 «F-03. Реализовать read API позиций и account-scoped портфеля» / PR #125
+Версия документа: 3.23
+Дата актуализации: 21 сентября 2026 года
+Проверенная база: реализация Issue #126 в ветке `task/126-f04-position-market-context-and-candles`
+Последняя учтённая задача: Issue #126 «F-04. Реализовать position-scoped market context и свечи»
 Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -316,7 +316,7 @@ GET    /api/v1/auth/me
 | F-01 | Зафиксировать структуру `/api/v1`, миграцию pre-v1 routes и стабильные пользовательские контракты | ✅ | Зафиксированы v1 DTO/read models, JSON/ProblemDetails/cursor conventions, route-scoped serialization и OpenAPI enum contract; pre-v1 `api/exchange-accounts` временно сохранён без v1 alias; public market-analysis boundary не изменена; решения покрыты API/HTTP contract tests |
 | F-02 | Реализовать API жизненного цикла биржевого аккаунта | ✅ | Пользователь может получить список подключений, подключить read-only аккаунт с обязательной provider identity, повторно проверить credentials/permissions, безопасно ротировать credentials только в пределах того же provider-side аккаунта без смены `ExchangeAccountId`/identity, запустить sync и отключить аккаунт; OpenAPI/API tests обновлены вместе с контрактом |
 | F-03 | Реализовать read API позиций и account-scoped портфеля | ✅ | Доступны постраничный список с фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, карточка позиции и `PortfolioState` конкретного exchange account; по умолчанию закрытые позиции не смешиваются с активным рабочим списком; cross-user доступ скрыт; общий cross-account `/portfolio` не имитируется без соответствующей доменной модели; OpenAPI/API tests обновлены |
-| F-04 | Реализовать position-scoped market context и свечи | ⬜ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
+| F-04 | Реализовать position-scoped market context и свечи | ✅ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
 | F-05 | Реализовать единый evaluation workflow и read model | ⬜ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
 | F-06 | Реализовать timeline позиции, cursor pagination и фильтры | ⬜ | История позиции, assessments/evaluations и recommendation changes доступны единым пользовательским timeline без загрузки всей истории; market monitoring events не требуются до H-04; OpenAPI/API tests обновлены |
 | F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ⬜ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; имена client-facing событий и сериализованные payload contracts покрыты serialization/approval tests, а несовместимое изменение wire contract требует новой версии |
@@ -532,6 +532,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-21 | 3.23 | Issue #126 завершает F-04: добавлены user-scoped position market identity projection, `/api/v1/positions/{id}/market` через существующий cached public snapshot pipeline и `/api/v1/positions/{id}/candles` с bounded interval/limit contract, explicit v1 DTO mapping, OpenAPI synchronization и API/Application/PostgreSQL/architecture coverage. Следующий шаг — F-05: единый evaluation workflow и read model. |
 | 2026-09-20 | 3.22 | Issue #124 / PR #125 завершает F-03: добавлены user-scoped read endpoints позиций и account-scoped portfolio, SQL-side filtering/seek pagination без загрузки `PositionChanges`, versioned opaque cursor, explicit v1 DTO/enums, metadata-driven OpenAPI authorization и API/PostgreSQL contract coverage. Следующий шаг — F-04: position-scoped market context и свечи. |
 | 2026-09-20 | 3.21 | PR #117 завершил F-02: канонический `/api/v1/exchange-accounts` покрывает list/connect/verify/credential rotation/sync/disconnect, pre-v1 routes удалены, user scope и стабильные ProblemDetails/OpenAPI contracts проверены тестами. Для exchange account введена обязательная provider-side identity (Bybit `userID`): один `ExchangeAccountId` сохраняет один внешний аккаунт на всём lifecycle, rotation другого account/subaccount отклоняется без mutation, persistence/CAS запрещает rebinding. Добавлена migration `provider_account_id NOT NULL`, PostgreSQL race/rollback/invariant coverage и корректное различение permission-denied при чтении positions. Следующий шаг — F-03: read API позиций и account-scoped portfolio. |
 | 2026-09-18 | 3.20 | PR #112 завершил F-01: зафиксированы canonical `/api/v1` contracts, typed DTO/read models, route-scoped JSON conventions с единым поведением для JSON media types, стабильный ProblemDetails и cursor pagination foundation; добавлены HTTP/API contract tests и v1-scoped OpenAPI enum synchronization. Pre-v1 `api/exchange-accounts` сохранён без v1 alias, public market-analysis boundary не изменена. Следующим шагом остаётся F-02 — lifecycle подключений к биржевым аккаунтам. |

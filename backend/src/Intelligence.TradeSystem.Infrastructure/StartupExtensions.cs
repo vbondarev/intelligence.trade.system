@@ -13,6 +13,7 @@ using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Intelligence.TradeSystem.Infrastructure.RecommendationPolicy;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Market.Positions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -79,6 +80,7 @@ public static class StartupExtensions
         services.AddScoped<IExchangeAccountLifecycleTransaction, ExchangeAccountLifecycleTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPositionReadStore, PositionReadRepository>();
+        services.AddScoped<IPositionMarketIdentityStore, PositionMarketIdentityRepository>();
         services.AddScoped<PositionReadService>();
         services.AddScoped<ApplicationEventOutbox>();
         services.AddScoped<IApplicationEventOutbox>(
