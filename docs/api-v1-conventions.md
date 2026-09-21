@@ -68,6 +68,11 @@ credentials/account state.
 возвращают одинаковый `404 ProblemDetails`: `resource_not_found`,
 `urn:intelligence-trade:error:resource-not-found`, `Resource not found.`.
 
+`POST /api/v1/positions/{id}/evaluation` возвращает `409 ProblemDetails` с
+`code = position_not_evaluable`, если позиция закрыта, snapshot портфеля
+отсутствует или противоречив, либо temporal identity входов не позволяет
+безопасно выполнить оценку.
+
 `/api/market-analysis/snapshot` и
 `/api/market-analysis/{symbol}/llm-payload` остаются отдельными публичными
 anonymous-контрактами и не переносятся под `/api/v1`.

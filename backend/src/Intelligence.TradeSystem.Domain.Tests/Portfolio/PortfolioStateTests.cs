@@ -181,6 +181,25 @@ public sealed class PortfolioStateTests
     }
 
     [Fact]
+    public void IsFreshAt_matches_current_freshness_at_calculation_time_and_expires_later()
+    {
+        var state = CreateState([]);
+
+        state.IsFreshAt(state.CalculatedAt).Should().Be(state.IsFresh);
+        var expiry = state.Capital.ObservedAt!.Value.Add(state.StaleAfter);
+        state.IsFreshAt(expiry).Should().BeTrue();
+        state.IsFreshAt(expiry.AddTicks(1)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsFreshAt_rejects_a_time_before_the_snapshot_calculation()
+    {
+        var state = CreateState([]);
+
+        state.IsFreshAt(state.CalculatedAt.AddTicks(-1)).Should().BeFalse();
+    }
+
+    [Fact]
     public void CalculatedAt_Before_PositionLastObservedAt_Is_Rejected()
     {
         var position = CreatePosition(PositionSide.Long, 10m, 1m);

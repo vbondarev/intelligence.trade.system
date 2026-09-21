@@ -181,6 +181,13 @@ public sealed class RecommendationServiceTests
             Task.FromResult<PositionAssessment?>(
                 id == assessment.Id ? assessment : null);
 
+        public Task<PositionAssessment?> GetLatestForPositionAsync(
+            UserId userId,
+            PositionId positionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<PositionAssessment?>(
+                positionId == assessment.PositionId ? assessment : null);
+
         public Task SaveAsync(
             UserId userId,
             PositionAssessment value,

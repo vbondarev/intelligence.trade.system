@@ -27,6 +27,7 @@ public sealed class PositionAssessmentService
         var currentPrice = PositionAssessmentFeatureCalculator.GetCurrentPrice(input.MarketSnapshot);
         var marketQuality = ResolveMarketQuality(input, currentPrice);
         var portfolioQuality = ResolvePortfolioQuality(input);
+        input = input.WithDataQuality(marketQuality, portfolioQuality);
         var overallQuality = MaxQuality(marketQuality, portfolioQuality);
 
         var portfolioRiskResult = PortfolioRiskPolicy.EvaluateRiskIncrease(
@@ -134,7 +135,7 @@ public sealed class PositionAssessmentService
         var quality = input.PortfolioDataQuality;
         if (!input.PortfolioState.IsComplete)
             quality = MaxQuality(quality, AssessmentDataQuality.Partial);
-        if (!input.PortfolioState.IsFresh)
+        if (!input.PortfolioIsFreshAtAsOf)
             quality = MaxQuality(quality, AssessmentDataQuality.Stale);
 
         return quality;

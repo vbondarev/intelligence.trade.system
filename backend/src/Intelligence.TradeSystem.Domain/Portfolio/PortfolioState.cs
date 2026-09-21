@@ -70,14 +70,7 @@ public sealed class PortfolioState
             capital.TotalEquity > 0m &&
             capital.AvailableCapital.HasValue &&
             values.All(p => p.PositionValue.HasValue && p.UnrealizedPnl.HasValue);
-        IsFresh = positionsFullyReconciled &&
-            capital.ObservedAt.HasValue &&
-            calculatedAt >= capital.ObservedAt.Value &&
-            calculatedAt - capital.ObservedAt.Value <= staleAfter &&
-            values.All(p =>
-                p.TrackingState is not (PositionTrackingState.Unknown or PositionTrackingState.Stale) &&
-                calculatedAt >= p.LastObservedAt &&
-                calculatedAt - p.LastObservedAt <= staleAfter);
+        IsFresh = IsFreshAtCore(calculatedAt);
     }
 
     public ExchangeAccountId ExchangeAccountId { get; }
@@ -99,6 +92,18 @@ public sealed class PortfolioState
     public PositionId? LargestPositionId { get; }
     public bool IsComplete { get; }
     public bool IsFresh { get; }
+
+    /// <summary>
+    /// Проверяет свежесть сохранённого snapshot относительно момента использования,
+    /// а не только относительно времени его расчёта.
+    /// </summary>
+    public bool IsFreshAt(DateTimeOffset asOf)
+    {
+        if (asOf < CalculatedAt)
+            return false;
+
+        return IsFreshAtCore(asOf);
+    }
 
     public static PortfolioState Create(
         ExchangeAccountId exchangeAccountId,
@@ -237,4 +242,14 @@ public sealed class PortfolioState
             ? null
             : materialized.Sum(value => value!.Value);
     }
+
+    private bool IsFreshAtCore(DateTimeOffset asOf) =>
+        PositionsFullyReconciled &&
+        Capital.ObservedAt.HasValue &&
+        asOf >= Capital.ObservedAt.Value &&
+        asOf - Capital.ObservedAt.Value <= StaleAfter &&
+        Positions.All(position =>
+            position.TrackingState is not (PositionTrackingState.Unknown or PositionTrackingState.Stale) &&
+            asOf >= position.LastObservedAt &&
+            asOf - position.LastObservedAt <= StaleAfter);
 }

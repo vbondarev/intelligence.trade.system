@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json;
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
+using Intelligence.TradeSystem.Api.Serialization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -324,6 +326,118 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         AssertNullableProperty(capitalSchema, "observedAt");
         paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
             .TryGetProperty("security", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Swagger_describes_protected_position_evaluation_contract()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Development))
+            .CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var paths = root.GetProperty("paths");
+        var get = paths.GetProperty("/api/v1/positions/{id}/evaluation").GetProperty("get");
+        var post = paths.GetProperty("/api/v1/positions/{id}/evaluation").GetProperty("post");
+
+        get.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        post.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        get.GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
+        post.GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401", "404", "409", "503"]);
+
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var evaluation = schemas.GetProperty("PositionEvaluationResponse");
+        AssertNullableReferenceProperty(
+            evaluation,
+            "recommendation",
+            "#/components/schemas/PositionRecommendationResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionAssessmentResponse"),
+            "result",
+            "#/components/schemas/PositionAssessmentResultResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionRecommendationResponse"),
+            "continuation",
+            "#/components/schemas/PositionRecommendationContinuationResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "conditions",
+            "#/components/schemas/PositionRecommendationAddConditionsResponse");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationActionResponse"),
+            "confidence");
+        AssertNullableStringEnumReferenceProperty(
+            schemas.GetProperty("PositionRecommendationActionResponse"),
+            "priority",
+            "#/components/schemas/RecommendationPriorityV1");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "maximumAdditionalPositionValue");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "maximumAdditionalQuantity");
+        schemas.GetProperty("ReasonCodeV1").GetProperty("type").GetString()
+            .Should().Be("string");
+        schemas.GetProperty("ReasonCodeV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Contain("riskIncreaseBlockedByDataQuality");
+        var prioritySchema = schemas.GetProperty("RecommendationPriorityV1");
+        prioritySchema.GetProperty("type").GetString().Should().Be("string");
+        var serializedHighPriority = JsonSerializer.Serialize(
+            RecommendationPriorityV1.High,
+            V1JsonSerializerOptions.Default);
+        using var highPriorityJson = JsonDocument.Parse(serializedHighPriority);
+        prioritySchema.GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .Should()
+            .Contain(highPriorityJson.RootElement.GetString());
+
+        evaluation.GetRawText().Should().NotContainAny(
+            "userId",
+            "apiSecret",
+            "providerAccountId",
+            "versionToken",
+            "indicatorDiagnostics");
+    }
+
+    private static void AssertNullableReferenceProperty(
+        JsonElement schema,
+        string propertyName,
+        string reference)
+    {
+        var nullableProperty = schema
+            .GetProperty("properties")
+            .GetProperty(propertyName);
+        nullableProperty.GetProperty("type").GetString().Should().Be("object");
+        nullableProperty.GetProperty("nullable").GetBoolean().Should().BeTrue();
+        nullableProperty.GetProperty("allOf")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("$ref").GetString())
+            .Should().Contain(reference);
+    }
+
+    private static void AssertNullableStringEnumReferenceProperty(
+        JsonElement schema,
+        string propertyName,
+        string reference)
+    {
+        var nullableProperty = schema
+            .GetProperty("properties")
+            .GetProperty(propertyName);
+        nullableProperty.GetProperty("type").GetString().Should().Be("string");
+        nullableProperty.GetProperty("nullable").GetBoolean().Should().BeTrue();
+        nullableProperty.GetProperty("allOf")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("$ref").GetString())
+            .Should()
+            .Contain(reference);
     }
 
     private static void AssertNullableProperty(JsonElement schema, string propertyName)

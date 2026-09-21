@@ -58,7 +58,7 @@ internal static class PositionAssessmentFeatureCalculator
                 input.PortfolioState.TotalUnrealizedPnl,
                 input.PortfolioState.UsedCapital,
                 input.PortfolioState.IsComplete,
-                input.PortfolioState.IsFresh,
+                input.PortfolioIsFreshAtAsOf,
                 input.PortfolioState.Capital.TotalEquity,
                 input.PortfolioState.Capital.AvailableCapital,
                 input.Position.PositionValue,
