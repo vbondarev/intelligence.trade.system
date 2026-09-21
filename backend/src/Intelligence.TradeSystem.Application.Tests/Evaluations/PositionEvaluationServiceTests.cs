@@ -218,6 +218,56 @@ public sealed class PositionEvaluationServiceTests
     }
 
     [Fact]
+    public async Task Evaluate_rejects_portfolio_snapshot_from_a_newer_position_observation()
+    {
+        var harness = CreateHarness();
+        var portfolioPosition = CreatePortfolioPositionState(
+            harness.Position,
+            lastObservedAt: T0.AddMinutes(1));
+        harness.Portfolios.Value = PortfolioState.Restore(
+            harness.Account.Id,
+            [portfolioPosition],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(2),
+            TimeSpan.FromMinutes(5));
+
+        var result = await harness.Service.EvaluateAsync(harness.UserId, harness.Position.Id);
+
+        Assert.Equal(
+            PositionEvaluationNotEvaluableReason.PortfolioInconsistent,
+            result.NotEvaluableReason);
+        Assert.Empty(harness.Market.Calls);
+        Assert.Empty(harness.Policy.Calls);
+        Assert.Equal(0, harness.Assessments.SaveCalls);
+        Assert.Empty(harness.Publication.Calls);
+    }
+
+    [Fact]
+    public async Task Evaluate_rejects_different_position_facts_with_the_same_observation_timestamp()
+    {
+        var harness = CreateHarness();
+        var portfolioPosition = CreatePortfolioPositionState(
+            harness.Position,
+            markPrice: harness.Position.MarkPrice!.Value + 1m);
+        harness.Portfolios.Value = PortfolioState.Restore(
+            harness.Account.Id,
+            [portfolioPosition],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        var result = await harness.Service.EvaluateAsync(harness.UserId, harness.Position.Id);
+
+        Assert.Equal(
+            PositionEvaluationNotEvaluableReason.PortfolioInconsistent,
+            result.NotEvaluableReason);
+        Assert.Empty(harness.Market.Calls);
+        Assert.Empty(harness.Policy.Calls);
+        Assert.Equal(0, harness.Assessments.SaveCalls);
+        Assert.Empty(harness.Publication.Calls);
+    }
+
+    [Fact]
     public async Task Evaluate_uses_persisted_exchange_symbol_and_category_for_market_request()
     {
         var harness = CreateHarness();
@@ -537,6 +587,25 @@ public sealed class PositionEvaluationServiceTests
             [],
             createdAt,
             createdAt.AddMinutes(10));
+
+    private static PortfolioPositionState CreatePortfolioPositionState(
+        Position position,
+        DateTimeOffset? lastObservedAt = null,
+        decimal? markPrice = null) =>
+        new(
+            position.Id,
+            position.ExchangePositionKey,
+            position.MarketCategory,
+            position.ExchangePositionKey.PositionSide,
+            position.TrackingState,
+            position.Size,
+            position.PositionValue,
+            position.UnrealizedPnl,
+            position.AverageEntryPrice,
+            markPrice ?? position.MarkPrice,
+            position.LiquidationPrice,
+            position.Leverage,
+            lastObservedAt ?? position.LastObservedAt);
 
     private static Recommendation CreateLegacyRecommendation(
         PositionAssessment assessment,

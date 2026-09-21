@@ -9,20 +9,31 @@ internal sealed class PositionEvaluationSchemaFilter : ISchemaFilter
     public void Apply(IOpenApiSchema schema, SchemaFilterContext context)
     {
         if (context.Type == typeof(PositionEvaluationResponse))
-            MakeNullable(schema, "recommendation");
+            MakeNullableObjectReference(schema, "recommendation");
         else if (context.Type == typeof(PositionAssessmentResponse))
-            MakeNullable(schema, "result");
+            MakeNullableObjectReference(schema, "result");
         else if (context.Type == typeof(PositionRecommendationResponse))
-            MakeNullable(schema, "continuation");
+            MakeNullableObjectReference(schema, "continuation");
         else if (context.Type == typeof(PositionRecommendationActionResponse))
-            MakeNullable(schema, "priority");
+            MakeNullableStringEnumReference(schema, "priority");
         else if (context.Type == typeof(PositionRecommendationAddDecisionResponse))
-            MakeNullable(schema, "conditions");
+            MakeNullableObjectReference(schema, "conditions");
     }
 
-    private static void MakeNullable(
+    private static void MakeNullableObjectReference(
         IOpenApiSchema schema,
-        string propertyName)
+        string propertyName) =>
+        MakeNullableReference(schema, propertyName, JsonSchemaType.Object);
+
+    private static void MakeNullableStringEnumReference(
+        IOpenApiSchema schema,
+        string propertyName) =>
+        MakeNullableReference(schema, propertyName, JsonSchemaType.String);
+
+    private static void MakeNullableReference(
+        IOpenApiSchema schema,
+        string propertyName,
+        JsonSchemaType referencedType)
     {
         if (schema.Properties is null ||
             !schema.Properties.TryGetValue(propertyName, out var property) ||
@@ -33,7 +44,7 @@ internal sealed class PositionEvaluationSchemaFilter : ISchemaFilter
 
         var nullableSchema = new OpenApiSchema
         {
-            Type = JsonSchemaType.Object | JsonSchemaType.Null,
+            Type = referencedType | JsonSchemaType.Null,
             AllOf = [reference],
         };
         schema.Properties[propertyName] = nullableSchema;

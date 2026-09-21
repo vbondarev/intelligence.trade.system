@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json;
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
+using Intelligence.TradeSystem.Api.Serialization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -370,9 +372,10 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         AssertNullableProperty(
             schemas.GetProperty("PositionRecommendationActionResponse"),
             "confidence");
-        AssertNullableProperty(
+        AssertNullableStringEnumReferenceProperty(
             schemas.GetProperty("PositionRecommendationActionResponse"),
-            "priority");
+            "priority",
+            "#/components/schemas/RecommendationPriorityV1");
         AssertNullableProperty(
             schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
             "maximumAdditionalPositionValue");
@@ -384,6 +387,17 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         schemas.GetProperty("ReasonCodeV1").GetProperty("enum")
             .EnumerateArray().Select(value => value.GetString())
             .Should().Contain("riskIncreaseBlockedByDataQuality");
+        var prioritySchema = schemas.GetProperty("RecommendationPriorityV1");
+        prioritySchema.GetProperty("type").GetString().Should().Be("string");
+        var serializedHighPriority = JsonSerializer.Serialize(
+            RecommendationPriorityV1.High,
+            V1JsonSerializerOptions.Default);
+        using var highPriorityJson = JsonDocument.Parse(serializedHighPriority);
+        prioritySchema.GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .Should()
+            .Contain(highPriorityJson.RootElement.GetString());
 
         evaluation.GetRawText().Should().NotContainAny(
             "userId",
@@ -407,6 +421,23 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .EnumerateArray()
             .Select(element => element.GetProperty("$ref").GetString())
             .Should().Contain(reference);
+    }
+
+    private static void AssertNullableStringEnumReferenceProperty(
+        JsonElement schema,
+        string propertyName,
+        string reference)
+    {
+        var nullableProperty = schema
+            .GetProperty("properties")
+            .GetProperty(propertyName);
+        nullableProperty.GetProperty("type").GetString().Should().Be("string");
+        nullableProperty.GetProperty("nullable").GetBoolean().Should().BeTrue();
+        nullableProperty.GetProperty("allOf")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("$ref").GetString())
+            .Should()
+            .Contain(reference);
     }
 
     private static void AssertNullableProperty(JsonElement schema, string propertyName)

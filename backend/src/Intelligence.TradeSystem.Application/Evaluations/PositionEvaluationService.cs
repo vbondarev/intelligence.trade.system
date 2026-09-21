@@ -189,7 +189,16 @@ public sealed class PositionEvaluationService(
         var portfolioPosition = matchingPositions[0];
         return portfolioPosition.ExchangePositionKey == position.ExchangePositionKey &&
             portfolioPosition.MarketCategory == position.MarketCategory &&
-            portfolioPosition.PositionSide == position.ExchangePositionKey.PositionSide;
+            portfolioPosition.PositionSide == position.ExchangePositionKey.PositionSide &&
+            portfolioPosition.TrackingState == position.TrackingState &&
+            portfolioPosition.Size == position.Size &&
+            portfolioPosition.PositionValue == position.PositionValue &&
+            portfolioPosition.UnrealizedPnl == position.UnrealizedPnl &&
+            portfolioPosition.AverageEntryPrice == position.AverageEntryPrice &&
+            portfolioPosition.MarkPrice == position.MarkPrice &&
+            portfolioPosition.LiquidationPrice == position.LiquidationPrice &&
+            portfolioPosition.Leverage == position.Leverage &&
+            portfolioPosition.LastObservedAt == position.LastObservedAt;
     }
 
     private static AssessmentDataQuality ResolvePortfolioQuality(

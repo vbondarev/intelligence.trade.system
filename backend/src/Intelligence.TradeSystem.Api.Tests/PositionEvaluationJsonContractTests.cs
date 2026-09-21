@@ -110,6 +110,23 @@ public sealed class PositionEvaluationJsonContractTests
     }
 
     [Fact]
+    public void Non_null_priority_is_serialized_as_the_v1_string_enum_value()
+    {
+        var action = new PositionRecommendationActionResponse(
+            PositionActionV1.Watch,
+            null,
+            RecommendationPriorityV1.High,
+            []);
+
+        using var document = JsonDocument.Parse(
+            JsonSerializer.Serialize(action, V1JsonSerializerOptions.Default));
+        var priority = document.RootElement.GetProperty("priority");
+
+        Assert.Equal(JsonValueKind.String, priority.ValueKind);
+        Assert.Equal("high", priority.GetString());
+    }
+
+    [Fact]
     public void Domain_reason_codes_and_evaluation_enums_have_explicit_v1_members()
     {
         AssertSameMembers<ReasonCode, ReasonCodeV1>();
