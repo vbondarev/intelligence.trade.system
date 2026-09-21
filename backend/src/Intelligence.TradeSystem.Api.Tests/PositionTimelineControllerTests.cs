@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Recommendations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -64,6 +65,60 @@ public sealed class PositionTimelineControllerTests : IClassFixture<WebApplicati
         capturedQuery!.PositionId.Should().Be(positionId);
         capturedQuery.PageSize.Should().Be(2);
         capturedQuery.SelectedKinds.Should().Equal(PositionTimelineItemKind.Evaluation);
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Get_maps_repeatable_multi_type_filter_to_the_selected_timeline_subset()
+    {
+        var userId = UserId.New();
+        var positionId = PositionId.New();
+        var allCandidates = new PositionTimelineCandidates(
+            [CreatePositionChange()],
+            [PositionTimelineItem.ForEvaluation(CreateEvaluation())],
+            [PositionTimelineItem.ForRecommendation(CreateRecommendation())]);
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        PositionTimelineQuery? capturedQuery = null;
+        store.Setup(x => x.ReadCandidatesAsync(userId, It.IsAny<PositionTimelineQuery>(), It.IsAny<CancellationToken>()))
+            .Callback<UserId, PositionTimelineQuery, CancellationToken>((_, query, _) => capturedQuery = query)
+            .ReturnsAsync((UserId _, PositionTimelineQuery query, CancellationToken _) =>
+                new PositionTimelineCandidates(
+                    query.Includes(PositionTimelineItemKind.PositionChange)
+                        ? allCandidates.PositionChanges
+                        : [],
+                    query.Includes(PositionTimelineItemKind.Evaluation)
+                        ? allCandidates.Evaluations
+                        : [],
+                    query.Includes(PositionTimelineItemKind.Recommendation)
+                        ? allCandidates.Recommendations
+                        : []));
+        using var client = CreateClient(userId, store.Object);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/positions/{positionId.Value}/timeline?type=evaluation&type=recommendation");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CursorPage<PositionTimelineItemResponse>>(
+            V1JsonSerializerOptions.Default);
+        body!.Items.Should().HaveCount(2);
+        body.Items.Should().OnlyContain(item =>
+            item.Type == PositionTimelineItemTypeV1.Evaluation ||
+            item.Type == PositionTimelineItemTypeV1.Recommendation);
+        body.Items.Should().NotContain(item => item.Type == PositionTimelineItemTypeV1.PositionChange);
+        body.Items.Select(item => item.Type)
+            .Should()
+            .BeEquivalentTo(
+                new[]
+                {
+                    PositionTimelineItemTypeV1.Evaluation,
+                    PositionTimelineItemTypeV1.Recommendation,
+                });
+
+        capturedQuery.Should().NotBeNull();
+        capturedQuery!.SelectedKinds.Should().Equal(
+            PositionTimelineItemKind.Evaluation,
+            PositionTimelineItemKind.Recommendation);
+        capturedQuery.SelectedKinds.Should().NotContain(PositionTimelineItemKind.PositionChange);
         store.VerifyAll();
     }
 
@@ -224,5 +279,47 @@ public sealed class PositionTimelineControllerTests : IClassFixture<WebApplicati
                 AssessmentDataQuality.FreshCompleteReliable),
             RiskIncreaseDecision.Allowed,
             []);
+    }
+
+    private static PositionTimelineRecommendation CreateRecommendation()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 12, 1, 0, TimeSpan.Zero);
+        return new PositionTimelineRecommendation(
+            RecommendationId.New(),
+            PositionAssessmentId.New(),
+            now,
+            now.AddMinutes(5),
+            RecommendationStatus.Active,
+            PositionAction.Watch,
+            null,
+            null,
+            AddDecision.DoNotAdd,
+            [],
+            true);
+    }
+
+    private static PositionTimelineItem CreatePositionChange()
+    {
+        var now = new DateTimeOffset(2026, 9, 21, 12, 2, 0, TimeSpan.Zero);
+        return PositionTimelineItem.ForPositionChange(
+            now,
+            new PositionTimelinePositionChange(
+                1,
+                PositionChangeKind.Updated,
+                PositionChangeCause.ExchangeObservation,
+                PositionTrackingState.Active,
+                null,
+                new PositionTimelinePositionSnapshot(
+                    1m,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null)));
     }
 }
