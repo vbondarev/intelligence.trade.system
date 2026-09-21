@@ -603,7 +603,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Этапы **A–E завершены**. Этап **F продолжается**, F-01 — F-06 завершены. Текущий следующий шаг — **F-07: SignalR-инвалидация пользовательского состояния**.
 
-Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; далее идут timeline, SignalR и финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; далее идут F-07 SignalR-инвалидация пользовательского состояния и F-08 финальная проверка OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
