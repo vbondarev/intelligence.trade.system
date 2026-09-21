@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
@@ -18,6 +19,7 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -60,6 +62,23 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
     }
 
     [Fact]
+    public async Task Get_rejects_empty_and_malformed_position_ids_with_validation_problems()
+    {
+        var userId = UserId.New();
+        using var client = CreateClient(
+            userId,
+            CreateService(new Mock<IPositionRepository>(MockBehavior.Strict).Object));
+
+        using var emptyResponse = await client.GetAsync(
+            $"/api/v1/positions/{Guid.Empty}/evaluation");
+        using var malformedResponse = await client.GetAsync(
+            "/api/v1/positions/not-a-guid/evaluation");
+
+        await AssertValidationProblem(emptyResponse);
+        await AssertValidationProblem(malformedResponse);
+    }
+
+    [Fact]
     public async Task Get_returns_legacy_assessment_without_fabricating_structured_result()
     {
         var userId = UserId.New();
@@ -99,6 +118,348 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().Contain("\"recommendation\":null");
         raw.Should().NotContainAny("userId", "credentials", "indicatorDiagnostics");
+    }
+
+    [Fact]
+    public async Task Post_returns_200_with_a_complete_evaluation_read_model()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portfolio);
+        var policyProvider = new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict);
+        policyProvider
+            .Setup(provider => provider.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PolicyDefinition.Default);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        market
+            .Setup(service => service.BuildSnapshotAsync(
+                account.ExchangeId,
+                position.ExchangePositionKey.InstrumentId.Value!,
+                position.MarketCategory,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiSnapshotTestData.CreateSnapshot());
+        var assessmentRepository = new Mock<IPositionAssessmentRepository>(MockBehavior.Strict);
+        PositionAssessment? persistedAssessment = null;
+        assessmentRepository
+            .Setup(repository => repository.SaveAsync(
+                userId,
+                It.IsAny<PositionAssessment>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<UserId, PositionAssessment, CancellationToken>(
+                (_, assessment, _) => persistedAssessment = assessment)
+            .Returns(Task.CompletedTask);
+        assessmentRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                It.IsAny<PositionAssessmentId>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((UserId _, PositionAssessmentId id, CancellationToken _) =>
+                Task.FromResult<PositionAssessment?>(
+                    persistedAssessment?.Id == id ? persistedAssessment : null));
+        var recommendationRepository = new Mock<IRecommendationRepository>(MockBehavior.Strict);
+        recommendationRepository
+            .Setup(repository => repository.GetCurrentForPositionAsync(
+                userId,
+                position.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<Recommendation>?)null);
+        var stabilityStateRepository =
+            new Mock<IRecommendationStabilityStateRepository>(MockBehavior.Strict);
+        stabilityStateRepository
+            .Setup(repository => repository.GetAsync(
+                userId,
+                position.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<RecommendationStabilityStateSnapshot>?)null);
+        var publicationTransaction =
+            new Mock<IRecommendationPublicationTransaction>(MockBehavior.Strict);
+        publicationTransaction
+            .Setup(transaction => transaction.PublishInitialAsync(
+                userId,
+                It.IsAny<Recommendation>(),
+                It.IsAny<RecommendationCurrentExpectation>(),
+                It.IsAny<RecommendationStabilityStateExpectation>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var recommendationService = CreateRecommendationService(
+            policyProvider.Object,
+            recommendationRepository.Object,
+            stabilityStateRepository.Object,
+            publicationTransaction.Object,
+            assessmentRepository.Object);
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                assessmentRepository.Object,
+                recommendationRepository.Object,
+                market.Object,
+                accountRepository.Object,
+                portfolioRepository.Object,
+                policyProvider.Object,
+                recommendationService));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<PositionEvaluationResponse>(
+            V1JsonSerializerOptions.Default);
+        body.Should().NotBeNull();
+        body!.PositionId.Should().Be(position.Id.Value);
+        body.Assessment.Id.Should().NotBe(Guid.Empty);
+        body.Assessment.EvaluatedAt.Should().Be(T0.AddMinutes(2));
+        body.Assessment.ValidUntil.Should().BeAfter(body.Assessment.EvaluatedAt);
+        body.Assessment.InputIdentity.PositionId.Should().Be(position.Id.Value);
+        body.Assessment.InputIdentity.ExchangeAccountId.Should().Be(account.Id.Value);
+        body.Assessment.BasePolicyIdentity.Version.Should().NotBeNullOrWhiteSpace();
+        body.Assessment.EffectiveConfigurationIdentity.Version.Should().NotBeNullOrWhiteSpace();
+        body.Recommendation.Should().NotBeNull();
+        body.Recommendation!.AssessmentId.Should().Be(body.Assessment.Id);
+        body.Recommendation.Action.Value.Should().NotBe(PositionActionV1.Close);
+    }
+
+    [Fact]
+    public async Task Post_rejects_empty_and_malformed_position_ids_with_validation_problems()
+    {
+        var userId = UserId.New();
+        using var client = CreateClient(
+            userId,
+            CreateService(new Mock<IPositionRepository>(MockBehavior.Strict).Object));
+
+        using var emptyResponse = await client.PostAsync(
+            $"/api/v1/positions/{Guid.Empty}/evaluation",
+            content: null);
+        using var malformedResponse = await client.PostAsync(
+            "/api/v1/positions/not-a-guid/evaluation",
+            content: null);
+
+        await AssertValidationProblem(emptyResponse);
+        await AssertValidationProblem(malformedResponse);
+    }
+
+    [Fact]
+    public async Task Post_returns_404_for_a_missing_position()
+    {
+        var userId = UserId.New();
+        var positionRepository = new Mock<IPositionRepository>(MockBehavior.Strict);
+        positionRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                It.IsAny<PositionId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<Position>?)null);
+        using var client = CreateClient(
+            userId,
+            CreateService(positionRepository.Object));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{Guid.NewGuid()}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("resource_not_found");
+    }
+
+    [Fact]
+    public async Task Post_returns_409_when_portfolio_state_is_missing_without_market_io()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PortfolioState?)null);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                exchangeAccountRepository: accountRepository.Object,
+                portfolioStateRepository: portfolioRepository.Object,
+                marketSnapshotService: market.Object));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
+        market.Verify(
+            service => service.BuildSnapshotAsync(
+                It.IsAny<ExchangeId>(),
+                It.IsAny<string>(),
+                It.IsAny<MarketCategory>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Post_maps_evaluation_concurrency_conflict_to_409_problem()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portfolio);
+        var policyProvider = new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict);
+        policyProvider
+            .Setup(provider => provider.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PolicyDefinition.Default);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        market
+            .Setup(service => service.BuildSnapshotAsync(
+                account.ExchangeId,
+                position.ExchangePositionKey.InstrumentId.Value!,
+                position.MarketCategory,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiSnapshotTestData.CreateSnapshot());
+        var assessmentRepository = new Mock<IPositionAssessmentRepository>(MockBehavior.Strict);
+        PositionAssessment? persistedAssessment = null;
+        assessmentRepository
+            .Setup(repository => repository.SaveAsync(
+                userId,
+                It.IsAny<PositionAssessment>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<UserId, PositionAssessment, CancellationToken>(
+                (_, assessment, _) => persistedAssessment = assessment)
+            .Returns(Task.CompletedTask);
+        assessmentRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                It.IsAny<PositionAssessmentId>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((UserId _, PositionAssessmentId id, CancellationToken _) =>
+                Task.FromResult<PositionAssessment?>(
+                    persistedAssessment?.Id == id ? persistedAssessment : null));
+        var recommendationRepository = new Mock<IRecommendationRepository>(MockBehavior.Strict);
+        recommendationRepository
+            .Setup(repository => repository.GetCurrentForPositionAsync(
+                userId,
+                position.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<Recommendation>?)null);
+        var stabilityStateRepository =
+            new Mock<IRecommendationStabilityStateRepository>(MockBehavior.Strict);
+        stabilityStateRepository
+            .Setup(repository => repository.GetAsync(
+                userId,
+                position.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<RecommendationStabilityStateSnapshot>?)null);
+        var publicationTransaction =
+            new Mock<IRecommendationPublicationTransaction>(MockBehavior.Strict);
+        publicationTransaction
+            .Setup(transaction => transaction.PublishInitialAsync(
+                userId,
+                It.IsAny<Recommendation>(),
+                It.IsAny<RecommendationCurrentExpectation>(),
+                It.IsAny<RecommendationStabilityStateExpectation>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("test concurrency conflict"));
+        var recommendationService = CreateRecommendationService(
+            policyProvider.Object,
+            recommendationRepository.Object,
+            stabilityStateRepository.Object,
+            publicationTransaction.Object,
+            assessmentRepository.Object);
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                assessmentRepository.Object,
+                recommendationRepository.Object,
+                market.Object,
+                accountRepository.Object,
+                portfolioRepository.Object,
+                policyProvider.Object,
+                recommendationService));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("concurrency_conflict");
+        publicationTransaction.Verify(
+            transaction => transaction.PublishInitialAsync(
+                userId,
+                It.IsAny<Recommendation>(),
+                It.IsAny<RecommendationCurrentExpectation>(),
+                It.IsAny<RecommendationStabilityStateExpectation>(),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(3));
     }
 
     [Fact]
@@ -243,7 +604,8 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
         IMarketSnapshotService? marketSnapshotService = null,
         IExchangeAccountRepository? exchangeAccountRepository = null,
         IPortfolioStateRepository? portfolioStateRepository = null,
-        IRecommendationPolicyDefinitionProvider? policyDefinitionProvider = null) =>
+        IRecommendationPolicyDefinitionProvider? policyDefinitionProvider = null,
+        RecommendationService? recommendationService = null) =>
         new(
             positionRepository,
             exchangeAccountRepository ?? new Mock<IExchangeAccountRepository>(MockBehavior.Strict).Object,
@@ -254,11 +616,26 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
             policyDefinitionProvider ??
                 new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict).Object,
             new PositionAssessmentService(),
-            null!,
+            recommendationService ?? null!,
             new PositionEvaluationPolicySettings(
                 PositionAssessmentRules.Default,
                 new PortfolioRiskPolicySettings(20m, 200m, 50m)),
             new FixedTimeProvider(T0.AddMinutes(2)));
+
+    private static RecommendationService CreateRecommendationService(
+        IRecommendationPolicyDefinitionProvider policyProvider,
+        IRecommendationRepository recommendationRepository,
+        IRecommendationStabilityStateRepository stabilityStateRepository,
+        IRecommendationPublicationTransaction publicationTransaction,
+        IPositionAssessmentRepository assessmentRepository) =>
+        new(
+            policyProvider,
+            new RecommendationPolicy(),
+            new RecommendationStabilityPolicy(),
+            recommendationRepository,
+            stabilityStateRepository,
+            publicationTransaction,
+            assessmentRepository);
 
     private static Mock<IPositionRepository> CreatePositionRepository(
         UserId userId,
@@ -291,6 +668,23 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
             positionValue: 100m,
             markPrice: 105m,
             unrealizedPnl: 5m);
+    }
+
+    private static async Task AssertValidationProblem(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType
+            .Should()
+            .Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Type.Should().Be("urn:intelligence-trade:error:validation-failed");
+        problem.Title.Should().Be("Request validation failed.");
+        problem.Status.Should().Be(StatusCodes.Status400BadRequest);
+        problem.Detail.Should().NotBeNullOrWhiteSpace();
+        problem.Instance.Should().NotBeNullOrWhiteSpace();
+        problem.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        problem.Extensions["traceId"]!.ToString().Should().NotBeNullOrWhiteSpace();
     }
 
     private static PositionAssessment CreateLegacyAssessment(Position position) =>
