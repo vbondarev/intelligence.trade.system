@@ -79,7 +79,60 @@
 - Если задача ещё не зафиксирована в Issue, сначала исследуй проблему, варианты, риски, scope/out-of-scope и acceptance criteria. Не превращай неоднозначную идею в implementation автоматически.
 - Архитектурные, продуктовые и scope-решения принимает человек. Агент может подготовить варианты и последствия, но не подменяет human decision.
 - После согласования `WHAT` создай или синхронизируй GitHub Issue. Только после этого Issue становится source of truth для Delivery.
+- Перед созданием Issue определи один `type:*`, один или несколько применимых `area:*` и необходимые optional labels.
 - `ROADMAP.md` определяет текущий этап и последовательность развития, но не заменяет Issue конкретной задачи.
+
+### Классификация Issue и Pull Request через Labels
+
+Labels используются только для классификации задачи и затрагиваемых областей. Они не заменяют Issue, `ROADMAP.md`, GitHub state, Human Gate или review lifecycle.
+
+#### Type
+
+Каждый Issue должен иметь ровно один label группы `type:*`:
+
+- `type:feature` — новая функциональность или возможность;
+- `type:bug` — исправление некорректного поведения;
+- `type:refactor` — изменение внутренней структуры без намеренного изменения поведения;
+- `type:documentation` — изменения только документации и repository instructions;
+- `type:maintenance` — CI, tooling, repository/process maintenance и техническое обслуживание.
+
+#### Area
+
+Каждый Issue должен иметь один или несколько применимых labels группы `area:*`:
+
+- `area:domain`;
+- `area:application`;
+- `area:api`;
+- `area:market-intelligence`;
+- `area:infrastructure`;
+- `area:exchange`;
+- `area:identity`;
+- `area:frontend`;
+- `area:platform`;
+- `area:ci`;
+- `area:agent-workflow`;
+- `area:openclaw`.
+
+Назначай только области, которые фактически входят в scope задачи. Не добавляй `area:*` только потому, что реализация использует уже существующую возможность этого слоя.
+
+#### Дополнительные labels
+
+Используй только при наличии соответствующего смысла:
+
+- `impact:breaking-change` — намеренное несовместимое изменение публичного или долговечного контракта;
+- `impact:performance` — производительность является существенной целью или acceptance criterion;
+- `risk:security` — задача существенно изменяет security boundary, authentication/authorization, secrets или user isolation;
+- `follow-up` — задача сознательно вынесена из другой задачи или Pull Request.
+
+#### Правила lifecycle
+
+- Labels определяются во время Discovery и фиксируются при создании GitHub Issue.
+- Issue является source of truth для классификации задачи.
+- Pull Request должен наследовать текущие labels связанного Issue.
+- Pull Request не должен самостоятельно вводить другую классификацию задачи.
+- Если Implementation Plan или реализация выявили новую область, сначала проверь, является ли это уточнением существующего scope или его расширением.
+- Если новая область означает изменение scope или новое архитектурное решение, остановись и верни вопрос на Human Gate до изменения Issue и labels.
+- Labels не используются для хранения состояния workflow: не вводи `in-progress`, `ready`, `done`, `approved`, `needs-review`, `stage:*`, `human-gate-passed` и аналогичные статусы.
 
 ### Delivery: от Issue до Human Merge Gate
 
@@ -113,7 +166,7 @@
 - Описание Pull Request, включая Summary и основные пояснительные разделы, должно быть написано на русском языке. Английский допускается только для устоявшихся технических терминов, имён API, типов, файлов, команд, jobs/checks и кода.
 - После успешного final self-review можно выполнить commit/push и открыть Draft PR.
 - Draft PR должен содержать `Closes #<issue_number>`, описание фактической реализации, отклонения от Implementation Plan либо явное указание, что их нет, выполненные проверки, риски и намеренно исключённый scope.
-- До External Review выполни PR sanity check: правильные base/head, соответствие имени ветки, commit message, PR title и PR description этим правилам, `Closes #Issue`, ожидаемый diff, отсутствие случайных файлов и запуск применимого CI.
+- До External Review выполни PR sanity check: правильные base/head, соответствие имени ветки, commit message, PR title и PR description этим правилам, `Closes #Issue`, наследование текущих labels связанного Issue, ожидаемый diff, отсутствие случайных файлов и запуск применимого CI.
 
 #### External Review и review fixes
 
