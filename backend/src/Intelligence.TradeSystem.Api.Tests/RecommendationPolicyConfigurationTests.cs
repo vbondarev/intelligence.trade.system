@@ -1,5 +1,7 @@
 using FluentAssertions;
+using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Infrastructure;
+using Intelligence.TradeSystem.Application.Evaluations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Intelligence.TradeSystem.Application.Assessments;
@@ -88,6 +90,18 @@ public sealed class RecommendationPolicyConfigurationTests
             .Should().NotBeNull();
     }
 
+    [Fact]
+    public void Application_composition_registers_position_evaluation_service_before_cached_market_replacement()
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+
+        services.AddInfrastructure(CreateConfiguration(includePersistence: true));
+
+        services.Should().ContainSingle(
+            descriptor => descriptor.ServiceType == typeof(PositionEvaluationService));
+    }
+
     private static IConfiguration CreateConfiguration(bool includePersistence = false)
     {
         var values = new List<KeyValuePair<string, string?>>
@@ -96,6 +110,16 @@ public sealed class RecommendationPolicyConfigurationTests
                 AppContext.BaseDirectory,
                 "Configuration",
                 "recommendation-policy.json")),
+            new("PositionEvaluationPolicy:AssessmentRules:Version", "assessment-v1"),
+            new("PositionEvaluationPolicy:AssessmentRules:RsiOverbought", "70"),
+            new("PositionEvaluationPolicy:AssessmentRules:RsiOversold", "30"),
+            new("PositionEvaluationPolicy:AssessmentRules:NearbyLevelPercent", "1"),
+            new("PositionEvaluationPolicy:AssessmentRules:LiquidationDangerPercent", "5"),
+            new("PositionEvaluationPolicy:AssessmentRules:LowVolumeRatio", "0.5"),
+            new("PositionEvaluationPolicy:AssessmentRules:ValidityPeriod", "00:05:00"),
+            new("PositionEvaluationPolicy:PortfolioRisk:MinimumFreeCapitalPercent", "20"),
+            new("PositionEvaluationPolicy:PortfolioRisk:MaximumGrossExposureToEquityPercent", "200"),
+            new("PositionEvaluationPolicy:PortfolioRisk:MaximumPositionConcentrationPercent", "50"),
         };
 
         if (includePersistence)

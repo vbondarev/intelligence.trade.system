@@ -2,11 +2,13 @@ using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Events;
+using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
+using Intelligence.TradeSystem.Infrastructure.Evaluation;
 using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
@@ -51,6 +53,7 @@ public static class StartupExtensions
         string? contentRootPath = null)
     {
         RegisterRecommendationPolicy(services, configuration, contentRootPath);
+        RegisterPositionEvaluationPolicy(services, configuration);
 
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -91,6 +94,11 @@ public static class StartupExtensions
         services.AddScoped<IPortfolioReadStore, PortfolioReadRepository>();
         services.AddScoped<PortfolioReadService>();
         services.AddScoped<IPositionAssessmentRepository, PositionAssessmentRepository>();
+        if (services.Any(descriptor =>
+                descriptor.ServiceType == typeof(IMarketSnapshotService)))
+        {
+            services.AddScoped<PositionEvaluationService>();
+        }
         services.AddScoped<RecommendationRepository>();
         services.AddScoped<IRecommendationRepository>(
             serviceProvider => serviceProvider.GetRequiredService<RecommendationRepository>());
@@ -101,6 +109,23 @@ public static class StartupExtensions
         services.AddScoped<RecommendationService>();
 
         return services;
+    }
+
+    private static void RegisterPositionEvaluationPolicy(
+        IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var section = configuration.GetSection(PositionEvaluationPolicyOptions.SectionName);
+        if (!section.Exists())
+        {
+            throw new InvalidOperationException(
+                "PositionEvaluationPolicy configuration is required.");
+        }
+
+        var options = section.Get<PositionEvaluationPolicyOptions>()
+            ?? throw new InvalidOperationException(
+                "PositionEvaluationPolicy configuration is invalid.");
+        services.AddSingleton(options.ToDomain());
     }
 
     private static void RegisterRecommendationPolicy(

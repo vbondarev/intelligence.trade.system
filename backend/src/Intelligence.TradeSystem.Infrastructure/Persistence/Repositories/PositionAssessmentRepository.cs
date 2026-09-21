@@ -40,6 +40,42 @@ public sealed class PositionAssessmentRepository(TradeSystemDbContext dbContext)
         return PositionAssessmentMapper.ToDomain(entity, reasons);
     }
 
+    public async Task<PositionAssessment?> GetLatestForPositionAsync(
+        UserId userId,
+        PositionId positionId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        if (positionId == default)
+            throw new ArgumentException("PositionId must be initialized.", nameof(positionId));
+
+        var entity = await dbContext.PositionAssessments
+            .AsNoTracking()
+            .Where(
+                assessment =>
+                    assessment.PositionId == positionId.Value &&
+                    dbContext.Positions.Any(position =>
+                        position.Id == assessment.PositionId &&
+                        position.ExchangeAccountId == assessment.ExchangeAccountId &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value)))
+            .OrderByDescending(assessment => assessment.CreatedAt)
+            .ThenByDescending(assessment => assessment.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (entity is null)
+            return null;
+
+        var reasons = await dbContext.PositionAssessmentReasons
+            .AsNoTracking()
+            .Where(reason => reason.PositionAssessmentId == entity.Id)
+            .OrderBy(reason => reason.Sequence)
+            .ToArrayAsync(cancellationToken);
+
+        return PositionAssessmentMapper.ToDomain(entity, reasons);
+    }
+
     public async Task SaveAsync(
         UserId userId,
         PositionAssessment assessment,

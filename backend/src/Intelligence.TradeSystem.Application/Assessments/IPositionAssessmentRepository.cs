@@ -10,6 +10,11 @@ public interface IPositionAssessmentRepository
         PositionAssessmentId id,
         CancellationToken cancellationToken = default);
 
+    Task<PositionAssessment?> GetLatestForPositionAsync(
+        UserId userId,
+        PositionId positionId,
+        CancellationToken cancellationToken = default);
+
     Task SaveAsync(
         UserId userId,
         PositionAssessment assessment,

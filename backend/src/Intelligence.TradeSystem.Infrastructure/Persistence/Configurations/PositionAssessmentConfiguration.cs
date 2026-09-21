@@ -79,5 +79,14 @@ public sealed class PositionAssessmentConfiguration : IEntityTypeConfiguration<P
             .HasForeignKey(assessment => assessment.ExchangeAccountId)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_position_assessments_exchange_accounts");
+
+        builder.HasIndex(assessment => new
+            {
+                assessment.PositionId,
+                assessment.CreatedAt,
+                assessment.Id,
+            })
+            .HasDatabaseName("ix_position_assessments_position_created_at_id")
+            .IsDescending(false, true, true);
     }
 }
