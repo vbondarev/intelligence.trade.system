@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
+using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 
@@ -72,7 +73,8 @@ internal static class PositionAssessmentMapper
         var orderedReasons = reasons.OrderBy(reason => reason.Sequence)
             .Select(reason => reason.ReasonCode);
 
-        if (string.IsNullOrWhiteSpace(entity.ResultJson))
+        var result = ToResult(entity.Id, entity.ResultJson, entity.PortfolioRiskDecision);
+        if (result.IsLegacy)
             return PositionAssessment.Restore(
                 id,
                 inputVersions,
@@ -82,18 +84,6 @@ internal static class PositionAssessmentMapper
                 entity.PortfolioRiskDecision,
                 orderedReasons);
 
-        using var document = JsonDocument.Parse(entity.ResultJson);
-        if (IsLegacyPayload(document.RootElement))
-            return PositionAssessment.Restore(
-                id,
-                inputVersions,
-                ruleVersion,
-                createdAt,
-                validUntil,
-                entity.PortfolioRiskDecision,
-                orderedReasons);
-
-        var result = DeserializeStructuredResult(entity.ResultJson, entity.Id);
         return PositionAssessment.Restore(
             id,
             inputVersions,
@@ -103,6 +93,29 @@ internal static class PositionAssessmentMapper
             entity.PortfolioRiskDecision,
             result,
             orderedReasons);
+    }
+
+    public static PositionAssessmentTimelineData ToTimelineData(
+        Guid assessmentId,
+        string? resultJson,
+        RiskIncreaseDecision portfolioRiskDecision)
+    {
+        var result = ToResult(assessmentId, resultJson, portfolioRiskDecision);
+        return new(result.IsLegacy, result.DataQuality);
+    }
+
+    private static PositionAssessmentResult ToResult(
+        Guid assessmentId,
+        string? resultJson,
+        RiskIncreaseDecision portfolioRiskDecision)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson))
+            return PositionAssessmentResult.Legacy(portfolioRiskDecision);
+
+        using var document = JsonDocument.Parse(resultJson);
+        return IsLegacyPayload(document.RootElement)
+            ? PositionAssessmentResult.Legacy(portfolioRiskDecision)
+            : DeserializeStructuredResult(resultJson, assessmentId);
     }
 
     private static PositionAssessmentResult DeserializeStructuredResult(
@@ -152,6 +165,10 @@ internal static class PositionAssessmentMapper
         };
     }
 }
+
+internal sealed record PositionAssessmentTimelineData(
+    bool IsLegacy,
+    PositionAssessmentDataQualityContext DataQuality);
 
 internal static class PositionAssessmentJson
 {

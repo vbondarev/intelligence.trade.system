@@ -84,6 +84,26 @@ internal static class RecommendationMapper
     public static bool ContinuationContextsEqual(string? left, string? right) =>
         DecisionContextsEqual(left, right);
 
+    public static bool IsLegacy(
+        string? policyHash,
+        decimal? confidence,
+        RecommendationPriority? priority,
+        string? decisionContextJson)
+    {
+        var any = policyHash is not null ||
+            confidence is not null ||
+            priority is not null ||
+            decisionContextJson is not null;
+        var complete = policyHash is not null &&
+            confidence is not null &&
+            priority is not null &&
+            decisionContextJson is not null;
+        if (any && !complete)
+            throw new InvalidOperationException(
+                "Recommendation contains incomplete structured decision metadata.");
+        return !complete;
+    }
+
     public static Recommendation ToDomain(
         RecommendationEntity entity,
         IReadOnlyCollection<RecommendationReasonEntity> reasons,
@@ -186,18 +206,20 @@ internal static class RecommendationMapper
 
     private static bool HasCompleteStructuredMetadata(RecommendationEntity entity)
     {
-        var any = entity.PolicyHash is not null ||
-            entity.Confidence is not null ||
-            entity.Priority is not null ||
-            entity.DecisionContextJson is not null;
-        var complete = entity.PolicyHash is not null &&
-            entity.Confidence is not null &&
-            entity.Priority is not null &&
-            entity.DecisionContextJson is not null;
-        if (any && !complete)
+        try
+        {
+            return !IsLegacy(
+                entity.PolicyHash,
+                entity.Confidence,
+                entity.Priority,
+                entity.DecisionContextJson);
+        }
+        catch (InvalidOperationException exception)
+        {
             throw new InvalidOperationException(
-                $"Recommendation {entity.Id} contains incomplete structured decision metadata.");
-        return complete;
+                $"Recommendation {entity.Id} contains incomplete structured decision metadata.",
+                exception);
+        }
     }
 
     private static bool HasAnyContinuationMetadata(RecommendationEntity entity) =>

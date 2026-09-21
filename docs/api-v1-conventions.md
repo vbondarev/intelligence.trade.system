@@ -51,6 +51,25 @@ Endpoints для пользовательских данных использу�
 Отсутствующий optional-фильтр не применяется; пустое значение фильтра не
 имеет неявной семантики wildcard.
 
+### Position timeline
+
+`GET /api/v1/positions/{id}/timeline` возвращает user-scoped историю одной
+позиции. Начальные типы item: `positionChange`, `evaluation` и
+`recommendation`. `occurredAt` равен соответственно времени изменения
+позиции, созданию assessment или созданию recommendation.
+
+Результат упорядочен newest-first по `occurredAt`, затем по внутреннему rank
+типа (`recommendation`, `evaluation`, `positionChange`) и source identity
+внутри типа. Cursor opaque и versioned; клиент передаёт только `nextCursor`
+из предыдущей страницы. `pageSize` использует общий диапазон и default cursor
+pagination. Query-параметр `type` repeatable, дедуплицируется и ограничивает
+источники item; без него выбираются все начальные типы.
+
+Отсутствующая и чужая позиция имеют одинаковый `404 resource_not_found`.
+Lifecycle timestamps recommendation (acknowledged, dismissed, superseded,
+expired) не являются отдельными timeline events. Следующие типы item могут
+добавляться аддитивно.
+
 ## Границы миграции
 
 `/api/v1/exchange-accounts` является канонической v1-границей lifecycle

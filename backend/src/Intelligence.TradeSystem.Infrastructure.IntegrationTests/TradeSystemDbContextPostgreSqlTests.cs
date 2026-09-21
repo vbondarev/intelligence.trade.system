@@ -1,7 +1,11 @@
 using System.Globalization;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -20,6 +24,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         "20260919233157_AddExchangeAccountProviderIdentity";
     private const string LatestAssessmentIndexMigration =
         "20260921170115_AddPositionAssessmentLatestIndex";
+    private const string TimelineReadIndexesMigration =
+        "20260921211621_AddPositionTimelineReadIndexes";
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_migrations")
@@ -45,8 +51,12 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
 
         Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());
         await dbContext.Database.MigrateAsync();
-        Assert.NotEmpty(await dbContext.Database.GetAppliedMigrationsAsync());
+        var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync();
+        Assert.NotEmpty(appliedMigrations);
+        Assert.Contains(TimelineReadIndexesMigration, appliedMigrations);
         Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        await AssertTimelineReadIndexesAsync(dbContext);
+        AssertTimelineReadIndexSnapshotIsCoherent(dbContext);
         Assert.Equal(
             "timestamp with time zone",
             await dbContext.Database.SqlQueryRaw<string>(
@@ -175,7 +185,11 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
         Assert.Equal(
-            [ProviderIdentityMigration, LatestAssessmentIndexMigration],
+            [
+                ProviderIdentityMigration,
+                LatestAssessmentIndexMigration,
+                TimelineReadIndexesMigration,
+            ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
             await dbContext.Database.SqlQueryRaw<bool>(
@@ -190,6 +204,30 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
                 .SingleAsync());
     }
 
+    [Fact]
+    public async Task Timeline_read_indexes_migration_upgrades_from_immediately_preceding_schema()
+    {
+        await using var dbContext = CreateMigrationContext();
+
+        await dbContext.Database.MigrateAsync(LatestAssessmentIndexMigration);
+
+        Assert.Equal(
+            [TimelineReadIndexesMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
+        Assert.False(await IndexExistsAsync(
+            dbContext,
+            "ix_position_changes_position_occurred_at_sequence"));
+        Assert.False(await IndexExistsAsync(
+            dbContext,
+            "ix_recommendations_position_created_at_id"));
+
+        await dbContext.Database.MigrateAsync();
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        await AssertTimelineReadIndexesAsync(dbContext);
+        AssertTimelineReadIndexSnapshotIsCoherent(dbContext);
+    }
+
     private TradeSystemDbContext CreateMigrationContext() =>
         new(new DbContextOptionsBuilder<TradeSystemDbContext>()
             .UseNpgsql(
@@ -197,6 +235,99 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(
                     typeof(TradeSystemDbContext).Assembly.GetName().Name))
             .Options);
+
+    private static async Task AssertTimelineReadIndexesAsync(TradeSystemDbContext dbContext)
+    {
+        var positionChangesIndex = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_position_changes_position_occurred_at_sequence");
+        var recommendationsIndex = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_recommendations_position_created_at_id");
+
+        Assert.Contains(
+            "position_id, occurred_at DESC, sequence DESC",
+            positionChangesIndex,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "position_id, created_at DESC, recommendation_id DESC",
+            recommendationsIndex,
+            StringComparison.Ordinal);
+    }
+
+    private static async Task<bool> IndexExistsAsync(
+        TradeSystemDbContext dbContext,
+        string indexName) =>
+        await dbContext.Database.SqlQuery<bool>(
+            $"""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = {indexName}) AS "Value"
+            """)
+            .SingleAsync();
+
+    private static async Task<string> ReadIndexDefinitionAsync(
+        TradeSystemDbContext dbContext,
+        string indexName) =>
+        await dbContext.Database.SqlQuery<string>(
+            $"""
+            SELECT indexdef AS "Value"
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND indexname = {indexName}
+            """)
+            .SingleAsync();
+
+    private static void AssertTimelineReadIndexSnapshotIsCoherent(
+        TradeSystemDbContext dbContext)
+    {
+        var snapshot = dbContext.GetService<IMigrationsAssembly>().ModelSnapshot;
+        var designTimeModel = dbContext.GetService<IDesignTimeModel>().Model;
+        Assert.NotNull(snapshot);
+
+        AssertTimelineIndex(
+            designTimeModel,
+            typeof(PositionChangeEntity),
+            "ix_position_changes_position_occurred_at_sequence",
+            ["PositionId", "OccurredAt", "Sequence"],
+            assertDescending: true);
+        AssertTimelineIndex(
+            designTimeModel,
+            typeof(RecommendationEntity),
+            "ix_recommendations_position_created_at_id",
+            ["PositionId", "CreatedAt", "Id"],
+            assertDescending: true);
+        AssertTimelineIndex(
+            snapshot.Model,
+            typeof(PositionChangeEntity),
+            "ix_position_changes_position_occurred_at_sequence",
+            ["PositionId", "OccurredAt", "Sequence"]);
+        AssertTimelineIndex(
+            snapshot.Model,
+            typeof(RecommendationEntity),
+            "ix_recommendations_position_created_at_id",
+            ["PositionId", "CreatedAt", "Id"]);
+    }
+
+    private static void AssertTimelineIndex(
+        IModel model,
+        Type entityType,
+        string indexName,
+        IReadOnlyList<string> propertyNames,
+        bool assertDescending = false)
+    {
+        var entity = model.FindEntityType(entityType);
+        Assert.NotNull(entity);
+        var index = Assert.Single(
+            entity!.GetIndexes(),
+            candidate => candidate.GetDatabaseName() == indexName);
+
+        Assert.Equal(propertyNames, index.Properties.Select(property => property.Name));
+        if (assertDescending)
+            Assert.Equal([false, true, true], index.IsDescending);
+    }
 
     private static async Task SeedLegacyRecommendationsAsync(
         TradeSystemDbContext dbContext,
