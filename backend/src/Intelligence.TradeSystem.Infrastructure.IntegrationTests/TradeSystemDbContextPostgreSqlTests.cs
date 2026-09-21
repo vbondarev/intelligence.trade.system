@@ -18,6 +18,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         "20260914220611_PersistRecommendationStabilityState";
     private const string ProviderIdentityMigration =
         "20260919233157_AddExchangeAccountProviderIdentity";
+    private const string LatestAssessmentIndexMigration =
+        "20260921170115_AddPositionAssessmentLatestIndex";
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("tradesystem_migrations")
@@ -173,8 +175,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
         Assert.Equal(
-            ProviderIdentityMigration,
-            (await dbContext.Database.GetPendingMigrationsAsync()).Single());
+            [ProviderIdentityMigration, LatestAssessmentIndexMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
             await dbContext.Database.SqlQueryRaw<bool>(
                 """

@@ -130,6 +130,68 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
     }
 
     [Fact]
+    public async Task Post_maps_market_unavailable_to_stable_503_problem()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portfolio);
+        var policyProvider = new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict);
+        policyProvider
+            .Setup(provider => provider.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PolicyDefinition.Default);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        market
+            .Setup(service => service.BuildSnapshotAsync(
+                account.ExchangeId,
+                position.ExchangePositionKey.InstrumentId.Value!,
+                position.MarketCategory,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new MarketDataUnavailableException("market unavailable"));
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                marketSnapshotService: market.Object,
+                exchangeAccountRepository: accountRepository.Object,
+                portfolioStateRepository: portfolioRepository.Object,
+                policyDefinitionProvider: policyProvider.Object));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("market_data_unavailable");
+    }
+
+    [Fact]
     public async Task Get_hides_missing_position_as_not_found()
     {
         var userId = UserId.New();
@@ -178,15 +240,19 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
         IPositionRepository positionRepository,
         IPositionAssessmentRepository? assessmentRepository = null,
         IRecommendationRepository? recommendationRepository = null,
-        IMarketSnapshotService? marketSnapshotService = null) =>
+        IMarketSnapshotService? marketSnapshotService = null,
+        IExchangeAccountRepository? exchangeAccountRepository = null,
+        IPortfolioStateRepository? portfolioStateRepository = null,
+        IRecommendationPolicyDefinitionProvider? policyDefinitionProvider = null) =>
         new(
             positionRepository,
-            new Mock<IExchangeAccountRepository>(MockBehavior.Strict).Object,
-            new Mock<IPortfolioStateRepository>(MockBehavior.Strict).Object,
+            exchangeAccountRepository ?? new Mock<IExchangeAccountRepository>(MockBehavior.Strict).Object,
+            portfolioStateRepository ?? new Mock<IPortfolioStateRepository>(MockBehavior.Strict).Object,
             assessmentRepository ?? new Mock<IPositionAssessmentRepository>(MockBehavior.Strict).Object,
             recommendationRepository ?? new Mock<IRecommendationRepository>(MockBehavior.Strict).Object,
             marketSnapshotService ?? new Mock<IMarketSnapshotService>(MockBehavior.Strict).Object,
-            new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict).Object,
+            policyDefinitionProvider ??
+                new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict).Object,
             new PositionAssessmentService(),
             null!,
             new PositionEvaluationPolicySettings(

@@ -61,6 +61,41 @@ public sealed class ApiExceptionHandlerTests
     }
 
     [Fact]
+    public async Task Concurrency_and_market_failures_use_stable_v1_problem_codes()
+    {
+        var problemDetailsService = new Mock<IProblemDetailsService>(MockBehavior.Strict);
+        ProblemDetailsContext? capturedContext = null;
+        problemDetailsService
+            .Setup(service => service.WriteAsync(It.IsAny<ProblemDetailsContext>()))
+            .Callback<ProblemDetailsContext>(context => capturedContext = context)
+            .Returns(ValueTask.CompletedTask);
+        var handler = new ApiExceptionHandler(problemDetailsService.Object);
+
+        var concurrencyContext = new DefaultHttpContext();
+        var handledConcurrency = await handler.TryHandleAsync(
+            concurrencyContext,
+            new ConcurrencyConflictException("conflict"),
+            CancellationToken.None);
+
+        handledConcurrency.Should().BeTrue();
+        concurrencyContext.Response.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        capturedContext!.ProblemDetails.Extensions["code"].Should().Be("concurrency_conflict");
+
+        var marketContext = new DefaultHttpContext();
+        var handledMarket = await handler.TryHandleAsync(
+            marketContext,
+            new MarketDataUnavailableException("unavailable"),
+            CancellationToken.None);
+
+        handledMarket.Should().BeTrue();
+        marketContext.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+        capturedContext!.ProblemDetails.Extensions["code"].Should().Be("market_data_unavailable");
+        problemDetailsService.Verify(
+            service => service.WriteAsync(It.IsAny<ProblemDetailsContext>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public void Diagnostics_Are_Suppressed_For_Expected_Failures()
     {
         ApiExceptionHandler.ShouldSuppressDiagnostics(

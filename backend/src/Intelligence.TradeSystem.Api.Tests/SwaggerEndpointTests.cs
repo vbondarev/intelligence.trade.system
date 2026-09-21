@@ -351,9 +351,34 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
 
         var schemas = root.GetProperty("components").GetProperty("schemas");
         var evaluation = schemas.GetProperty("PositionEvaluationResponse");
-        evaluation.GetProperty("properties").GetProperty("recommendation")
-            .GetProperty("$ref").GetString()
-            .Should().Be("#/components/schemas/PositionRecommendationResponse");
+        AssertNullableReferenceProperty(
+            evaluation,
+            "recommendation",
+            "#/components/schemas/PositionRecommendationResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionAssessmentResponse"),
+            "result",
+            "#/components/schemas/PositionAssessmentResultResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionRecommendationResponse"),
+            "continuation",
+            "#/components/schemas/PositionRecommendationContinuationResponse");
+        AssertNullableReferenceProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "conditions",
+            "#/components/schemas/PositionRecommendationAddConditionsResponse");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationActionResponse"),
+            "confidence");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationActionResponse"),
+            "priority");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "maximumAdditionalPositionValue");
+        AssertNullableProperty(
+            schemas.GetProperty("PositionRecommendationAddDecisionResponse"),
+            "maximumAdditionalQuantity");
         schemas.GetProperty("ReasonCodeV1").GetProperty("type").GetString()
             .Should().Be("string");
         schemas.GetProperty("ReasonCodeV1").GetProperty("enum")
@@ -366,6 +391,22 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             "providerAccountId",
             "versionToken",
             "indicatorDiagnostics");
+    }
+
+    private static void AssertNullableReferenceProperty(
+        JsonElement schema,
+        string propertyName,
+        string reference)
+    {
+        var nullableProperty = schema
+            .GetProperty("properties")
+            .GetProperty(propertyName);
+        nullableProperty.GetProperty("type").GetString().Should().Be("object");
+        nullableProperty.GetProperty("nullable").GetBoolean().Should().BeTrue();
+        nullableProperty.GetProperty("allOf")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("$ref").GetString())
+            .Should().Contain(reference);
     }
 
     private static void AssertNullableProperty(JsonElement schema, string propertyName)
