@@ -514,6 +514,8 @@ cd backend/src
 dotnet run --project Intelligence.TradeSystem.AppHost
 ```
 
+AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически.
+
 ### Docker
 
 При первом локальном запуске с новым PostgreSQL volume сгенерируйте ключ и сохраните его в локальном secret mechanism:
