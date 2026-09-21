@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Recommendations;
@@ -127,6 +128,38 @@ public sealed class PositionEvaluationJsonContractTests
     }
 
     [Fact]
+    public void Timeline_envelope_serializes_exactly_one_typed_payload_and_explicit_nulls()
+    {
+        var response = new PositionTimelineItemResponse(
+            PositionTimelineItemTypeV1.Evaluation,
+            T0,
+            null,
+            new(
+                Guid.NewGuid(),
+                T0,
+                T0.AddMinutes(5),
+                "assessment-v1",
+                false,
+                new(
+                    AssessmentDataQualityV1.FreshCompleteReliable,
+                    AssessmentDataQualityV1.FreshCompleteReliable,
+                    AssessmentDataQualityV1.FreshCompleteReliable,
+                    AssessmentSafetyStateV1.Allowed),
+                RiskIncreaseDecisionV1.Allowed,
+                []),
+            null);
+
+        using var document = JsonDocument.Parse(
+            JsonSerializer.Serialize(response, V1JsonSerializerOptions.Default));
+        var root = document.RootElement;
+
+        root.GetProperty("type").GetString().Should().Be("evaluation");
+        root.GetProperty("positionChange").ValueKind.Should().Be(JsonValueKind.Null);
+        root.GetProperty("evaluation").ValueKind.Should().Be(JsonValueKind.Object);
+        root.GetProperty("recommendation").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
     public void Domain_reason_codes_and_evaluation_enums_have_explicit_v1_members()
     {
         AssertSameMembers<ReasonCode, ReasonCodeV1>();
@@ -145,6 +178,8 @@ public sealed class PositionEvaluationJsonContractTests
         AssertSameMembers<DomainRecommendationStatus, RecommendationStatusV1>();
         AssertSameMembers<DomainRecommendationConditionScope, RecommendationConditionScopeV1>();
         AssertSameMembers<DomainRecommendationConditionKind, RecommendationConditionKindV1>();
+        AssertSameMembers<PositionChangeKind, PositionChangeKindV1>();
+        AssertSameMembers<PositionChangeCause, PositionChangeCauseV1>();
     }
 
     private static void AssertSameMembers<TDomain, TV1>()
