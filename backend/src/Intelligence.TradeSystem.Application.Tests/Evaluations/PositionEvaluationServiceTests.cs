@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
@@ -438,6 +439,25 @@ public sealed class PositionEvaluationServiceTests
         Assert.Equal(RecommendationApplicationResultKind.Published, harness.LastRecommendationKind);
         Assert.Equal(1, harness.Publication.PublishInitialCalls);
         Assert.NotNull(result.Snapshot!.Recommendation);
+    }
+
+    [Fact]
+    public async Task Evaluate_uses_the_same_canonical_as_of_for_assessment_and_recommendation()
+    {
+        var asOf = new DateTimeOffset(
+            T0.AddMinutes(3).Ticks + 1,
+            TimeSpan.Zero);
+        var harness = CreateHarness(asOf);
+
+        var result = await harness.Service.EvaluateAsync(
+            harness.UserId,
+            harness.Position.Id);
+
+        Assert.Equal(PositionEvaluationOutcome.Succeeded, result.Outcome);
+        Assert.Equal(
+            TimestampCanonicalizer.ToUtcMicroseconds(asOf),
+            result.Snapshot!.Assessment.CreatedAt);
+        Assert.NotNull(result.Snapshot.Recommendation);
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -118,7 +119,7 @@ public sealed class PositionEvaluationService(
             position.Value.MarketCategory,
             cancellationToken);
 
-        var asOf = timeProvider.GetUtcNow();
+        var asOf = TimestampCanonicalizer.ToUtcMicroseconds(timeProvider.GetUtcNow());
         if (asOf < position.Value.LastObservedAt ||
             asOf < portfolio.CalculatedAt ||
             asOf < market.CapturedAtUtc)
