@@ -391,6 +391,19 @@ public sealed class PositionEvaluationServiceTests
     }
 
     [Fact]
+    public async Task Evaluate_propagates_recommendation_concurrency_conflict_after_assessment_persistence()
+    {
+        var harness = CreateHarness();
+        harness.Publication.ThrowConcurrencyConflicts = true;
+
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => harness.Service.EvaluateAsync(harness.UserId, harness.Position.Id));
+
+        Assert.Equal(1, harness.Assessments.SaveCalls);
+        Assert.Equal(3, harness.Publication.PublishInitialCalls);
+    }
+
+    [Fact]
     public async Task Evaluate_returns_new_assessment_with_kept_previous_recommendation()
     {
         var harness = CreateHarness();
@@ -963,6 +976,7 @@ public sealed class PositionEvaluationServiceTests
         public int ReplaceCalls { get; private set; }
         public int SavePendingCalls { get; private set; }
         public int ConfirmKeepCalls { get; private set; }
+        public bool ThrowConcurrencyConflicts { get; set; }
         public RecommendationApplicationResultKind? LastKind { get; private set; }
         public List<CancellationToken> CancellationTokens { get; } = [];
         public List<string> Calls { get; } = [];
@@ -975,6 +989,8 @@ public sealed class PositionEvaluationServiceTests
             CancellationToken cancellationToken = default)
         {
             PublishInitialCalls++;
+            if (ThrowConcurrencyConflicts)
+                throw new ConcurrencyConflictException("test concurrency conflict");
             LastKind = RecommendationApplicationResultKind.Published;
             Calls.Add(nameof(PublishInitialAsync));
             order.Add("recommendation-publish");
