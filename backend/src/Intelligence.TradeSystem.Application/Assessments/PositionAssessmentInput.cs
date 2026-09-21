@@ -22,7 +22,8 @@ public sealed record PositionAssessmentInput
         AssessmentDataQuality marketDataQuality,
         AssessmentDataQuality portfolioDataQuality,
         DateTimeOffset asOf,
-        PositionAssessmentRules rules)
+        PositionAssessmentRules rules,
+        bool? portfolioIsFreshAtAsOf = null)
     {
         ArgumentNullException.ThrowIfNull(position);
         ArgumentNullException.ThrowIfNull(marketSnapshot);
@@ -61,6 +62,7 @@ public sealed record PositionAssessmentInput
         PortfolioDataQuality = portfolioDataQuality;
         AsOf = asOf;
         Rules = rules;
+        PortfolioIsFreshAtAsOf = portfolioIsFreshAtAsOf ?? portfolioState.IsFresh;
     }
 
     /// <summary>Оцениваемая позиция.</summary>
@@ -89,4 +91,31 @@ public sealed record PositionAssessmentInput
 
     /// <summary>Явно переданные пороги и срок актуальности assessment algorithm.</summary>
     public PositionAssessmentRules Rules { get; }
+
+    /// <summary>
+    /// Свежесть портфеля в момент оценки, включая возраст snapshot относительно <see cref="AsOf"/>.
+    /// </summary>
+    public bool PortfolioIsFreshAtAsOf { get; }
+
+    internal PositionAssessmentInput WithDataQuality(
+        AssessmentDataQuality marketDataQuality,
+        AssessmentDataQuality portfolioDataQuality) =>
+        new(
+            Position,
+            MarketSnapshot,
+            PortfolioState,
+            PortfolioRiskPolicySettings,
+            new PositionAssessmentInputVersions(
+                InputVersions.PositionId,
+                InputVersions.ExchangeAccountId,
+                InputVersions.InstrumentId,
+                InputVersions.PositionObservedAt,
+                InputVersions.PortfolioCalculatedAt,
+                InputVersions.MarketCapturedAt,
+                InputVersions.BasePolicyConfigurationIdentity),
+            marketDataQuality,
+            portfolioDataQuality,
+            AsOf,
+            Rules,
+            PortfolioIsFreshAtAsOf);
 }

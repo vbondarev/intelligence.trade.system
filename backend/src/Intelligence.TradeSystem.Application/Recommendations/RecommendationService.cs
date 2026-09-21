@@ -25,7 +25,24 @@ public sealed class RecommendationService(
         DateTimeOffset asOf,
         CancellationToken cancellationToken = default)
     {
+        var definition = await policyDefinitionProvider.GetAsync(cancellationToken);
+        return await CreateAsync(
+            userId,
+            assessment,
+            definition,
+            asOf,
+            cancellationToken);
+    }
+
+    public async ValueTask<RecommendationApplicationResult> CreateAsync(
+        UserId userId,
+        PositionAssessment assessment,
+        PolicyDefinition policyDefinition,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(assessment);
+        ArgumentNullException.ThrowIfNull(policyDefinition);
         if (userId == default)
             throw new ArgumentException("UserId must be initialized.", nameof(userId));
 
@@ -37,8 +54,7 @@ public sealed class RecommendationService(
                 "Position assessment is unavailable in the requested user scope.");
         assessment = persistedAssessment;
 
-        var definition = await policyDefinitionProvider.GetAsync(cancellationToken);
-        var evaluation = policy.Evaluate(assessment, definition, asOf);
+        var evaluation = policy.Evaluate(assessment, policyDefinition, asOf);
 
         for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
         {
@@ -81,7 +97,7 @@ public sealed class RecommendationService(
                 current?.Value,
                 evaluation,
                 effectivePending,
-                definition.StabilityProfile,
+                policyDefinition.StabilityProfile,
                 asOf);
 
             try

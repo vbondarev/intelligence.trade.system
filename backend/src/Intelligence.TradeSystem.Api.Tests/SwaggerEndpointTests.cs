@@ -326,6 +326,48 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
             .TryGetProperty("security", out _).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Swagger_describes_protected_position_evaluation_contract()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Development))
+            .CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var paths = root.GetProperty("paths");
+        var get = paths.GetProperty("/api/v1/positions/{id}/evaluation").GetProperty("get");
+        var post = paths.GetProperty("/api/v1/positions/{id}/evaluation").GetProperty("post");
+
+        get.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        post.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        get.GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
+        post.GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().BeEquivalentTo(["200", "400", "401", "404", "409", "503"]);
+
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var evaluation = schemas.GetProperty("PositionEvaluationResponse");
+        evaluation.GetProperty("properties").GetProperty("recommendation")
+            .GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/PositionRecommendationResponse");
+        schemas.GetProperty("ReasonCodeV1").GetProperty("type").GetString()
+            .Should().Be("string");
+        schemas.GetProperty("ReasonCodeV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Contain("riskIncreaseBlockedByDataQuality");
+
+        evaluation.GetRawText().Should().NotContainAny(
+            "userId",
+            "apiSecret",
+            "providerAccountId",
+            "versionToken",
+            "indicatorDiagnostics");
+    }
+
     private static void AssertNullableProperty(JsonElement schema, string propertyName)
     {
         schema.GetProperty("properties")

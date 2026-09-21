@@ -20,6 +20,12 @@ internal static class ApiErrorDescriptors
         "Resource conflict.",
         "urn:intelligence-trade:error:concurrency-conflict");
 
+    public static ApiErrorDescriptor PositionNotEvaluable { get; } = new(
+        ApiErrorCodes.PositionNotEvaluable,
+        StatusCodes.Status409Conflict,
+        "Position cannot be evaluated.",
+        "urn:intelligence-trade:error:position-not-evaluable");
+
     public static ApiErrorDescriptor MarketDataUnavailable { get; } = new(
         ApiErrorCodes.MarketDataUnavailable,
         StatusCodes.Status503ServiceUnavailable,
