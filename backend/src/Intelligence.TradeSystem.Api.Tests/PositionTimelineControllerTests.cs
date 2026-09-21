@@ -31,18 +31,18 @@ public sealed class PositionTimelineControllerTests : IClassFixture<WebApplicati
         var userId = UserId.New();
         var positionId = PositionId.New();
         var evaluation = CreateEvaluation();
-        var nextCursor = new PositionTimelineCursor(
-            evaluation.EvaluatedAt,
-            PositionTimelineItemKind.Evaluation,
-            evaluation.Id.Value,
-            null);
+        var laterEvaluation = CreateEvaluation();
         var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
         PositionTimelineQuery? capturedQuery = null;
         store.Setup(x => x.ReadCandidatesAsync(userId, It.IsAny<PositionTimelineQuery>(), It.IsAny<CancellationToken>()))
             .Callback<UserId, PositionTimelineQuery, CancellationToken>((_, query, _) => capturedQuery = query)
             .ReturnsAsync(new PositionTimelineCandidates(
                 [],
-                [PositionTimelineItem.ForEvaluation(evaluation)],
+                [
+                    PositionTimelineItem.ForEvaluation(evaluation),
+                    PositionTimelineItem.ForEvaluation(laterEvaluation),
+                    PositionTimelineItem.ForEvaluation(CreateEvaluation()),
+                ],
                 []));
         using var client = CreateClient(userId, store.Object);
 
@@ -52,18 +52,78 @@ public sealed class PositionTimelineControllerTests : IClassFixture<WebApplicati
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<CursorPage<PositionTimelineItemResponse>>(
             V1JsonSerializerOptions.Default);
-        body!.Items.Should().ContainSingle();
-        body.Items[0].Type.Should().Be(PositionTimelineItemTypeV1.Evaluation);
-        body.Items[0].Evaluation!.Id.Should().Be(evaluation.Id.Value);
-        body.Items[0].PositionChange.Should().BeNull();
-        body.Items[0].Recommendation.Should().BeNull();
-        body.HasMore.Should().BeFalse();
-        body.NextCursor.Should().BeNull();
+        body!.Items.Should().HaveCount(2);
+        body.Items.Should().OnlyContain(item => item.Type == PositionTimelineItemTypeV1.Evaluation);
+        body.Items.Should().OnlyContain(item => item.PositionChange == null && item.Recommendation == null);
+        body.HasMore.Should().BeTrue();
+        body.NextCursor.Should().NotBeNullOrWhiteSpace();
+        PositionTimelineCursorCodec.TryDecode(body.NextCursor!, out var decodedCursor).Should().BeTrue();
+        decodedCursor.Kind.Should().Be(PositionTimelineItemKind.Evaluation);
 
         capturedQuery.Should().NotBeNull();
         capturedQuery!.PositionId.Should().Be(positionId);
         capturedQuery.PageSize.Should().Be(2);
         capturedQuery.SelectedKinds.Should().Equal(PositionTimelineItemKind.Evaluation);
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Get_returns_empty_owned_timeline_as_a_200_empty_cursor_page()
+    {
+        var userId = UserId.New();
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        store.Setup(x => x.ReadCandidatesAsync(
+                userId,
+                It.IsAny<PositionTimelineQuery>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PositionTimelineCandidates([], [], []));
+        using var client = CreateClient(userId, store.Object);
+
+        using var response = await client.GetAsync($"/api/v1/positions/{Guid.NewGuid()}/timeline");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CursorPage<PositionTimelineItemResponse>>(
+            V1JsonSerializerOptions.Default);
+        body!.Items.Should().BeEmpty();
+        body.NextCursor.Should().BeNull();
+        body.HasMore.Should().BeFalse();
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Get_returns_closed_position_history_as_an_owned_resource()
+    {
+        var userId = UserId.New();
+        var now = new DateTimeOffset(2026, 9, 21, 12, 0, 0, TimeSpan.Zero);
+        var closedChange = PositionTimelineItem.ForPositionChange(
+            now,
+            new PositionTimelinePositionChange(
+                2,
+                PositionChangeKind.Closed,
+                PositionChangeCause.MissingFromCompleteObservation,
+                PositionTrackingState.Closed,
+                new PositionTimelinePositionSnapshot(
+                    1m, null, null, null, null, null, null, null, null, null, null),
+                new PositionTimelinePositionSnapshot(
+                    0m, null, null, null, null, null, null, null, null, null, null)));
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        store.Setup(x => x.ReadCandidatesAsync(
+                userId,
+                It.IsAny<PositionTimelineQuery>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PositionTimelineCandidates([closedChange], [], []));
+        using var client = CreateClient(userId, store.Object);
+
+        using var response = await client.GetAsync($"/api/v1/positions/{Guid.NewGuid()}/timeline");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CursorPage<PositionTimelineItemResponse>>(
+            V1JsonSerializerOptions.Default);
+        body!.Items.Should().ContainSingle();
+        var closed = body.Items[0].PositionChange;
+        closed.Should().NotBeNull();
+        closed!.Kind.Should().Be(PositionChangeKindV1.Closed);
+        closed.TrackingStateAfter.Should().Be(PositionTrackingStateV1.Closed);
         store.VerifyAll();
     }
 

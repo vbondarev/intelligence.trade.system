@@ -58,6 +58,24 @@ public sealed class PositionTimelineServiceTests
     }
 
     [Fact]
+    public async Task Service_returns_an_empty_owned_timeline_as_an_empty_page()
+    {
+        var userId = UserId.New();
+        var query = CreateQuery(pageSize: 10);
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        store.Setup(store => store.ReadCandidatesAsync(userId, query, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PositionTimelineCandidates([], [], []));
+
+        var page = await new PositionTimelineService(store.Object).GetAsync(userId, query);
+
+        page.Should().NotBeNull();
+        page!.Items.Should().BeEmpty();
+        page.NextCursor.Should().BeNull();
+        page.HasMore.Should().BeFalse();
+        store.VerifyAll();
+    }
+
+    [Fact]
     public async Task Service_merges_sources_using_global_order_and_emits_the_page_boundary_cursor()
     {
         var userId = UserId.New();
@@ -110,6 +128,49 @@ public sealed class PositionTimelineServiceTests
         page.NextCursor.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Service_orders_equal_evaluation_timestamps_by_descending_source_identity()
+    {
+        var first = PositionAssessmentId.FromGuid(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var second = PositionAssessmentId.FromGuid(Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+        var userId = UserId.New();
+        var query = CreateQuery(pageSize: 10, [PositionTimelineItemKind.Evaluation]);
+        var candidates = new PositionTimelineCandidates(
+            [],
+            [CreateEvaluation(T0, first), CreateEvaluation(T0, second)],
+            []);
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        store.Setup(store => store.ReadCandidatesAsync(userId, query, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(candidates);
+
+        var page = await new PositionTimelineService(store.Object).GetAsync(userId, query);
+
+        page!.Items.Select(item => item.Evaluation!.Id).Should().Equal(second, first);
+        page.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Service_preserves_closed_position_change_items()
+    {
+        var userId = UserId.New();
+        var query = CreateQuery(pageSize: 10, [PositionTimelineItemKind.PositionChange]);
+        var candidates = new PositionTimelineCandidates(
+            [CreateChange(T0, 7, PositionChangeKind.Closed, PositionTrackingState.Closed)],
+            [],
+            []);
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        store.Setup(store => store.ReadCandidatesAsync(userId, query, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(candidates);
+
+        var page = await new PositionTimelineService(store.Object).GetAsync(userId, query);
+
+        page!.Items.Should().ContainSingle();
+        var change = page.Items[0].PositionChange;
+        change.Should().NotBeNull();
+        change!.Kind.Should().Be(PositionChangeKind.Closed);
+        change.TrackingStateAfter.Should().Be(PositionTrackingState.Closed);
+    }
+
     private static PositionTimelineQuery CreateQuery(
         int pageSize,
         IEnumerable<PositionTimelineItemKind>? kinds = null) =>
@@ -124,14 +185,18 @@ public sealed class PositionTimelineServiceTests
             ],
             null);
 
-    private static PositionTimelineItem CreateChange(DateTimeOffset occurredAt, int sequence) =>
+    private static PositionTimelineItem CreateChange(
+        DateTimeOffset occurredAt,
+        int sequence,
+        PositionChangeKind kind = PositionChangeKind.Updated,
+        PositionTrackingState trackingState = PositionTrackingState.Active) =>
         PositionTimelineItem.ForPositionChange(
             occurredAt,
             new PositionTimelinePositionChange(
                 sequence,
-                PositionChangeKind.Updated,
+                kind,
                 PositionChangeCause.ExchangeObservation,
-                PositionTrackingState.Active,
+                trackingState,
                 null,
                 new PositionTimelinePositionSnapshot(
                     1m,

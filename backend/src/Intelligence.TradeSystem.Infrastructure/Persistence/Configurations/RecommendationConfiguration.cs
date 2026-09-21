@@ -114,5 +114,13 @@ public sealed class RecommendationConfiguration : IEntityTypeConfiguration<Recom
             .HasFilter("\"status\" IN ('Active', 'Acknowledged')")
             .IsUnique()
             .HasDatabaseName("ux_recommendations_current_position");
+        builder.HasIndex(recommendation => new
+            {
+                recommendation.PositionId,
+                recommendation.CreatedAt,
+                recommendation.Id,
+            })
+            .HasDatabaseName("ix_recommendations_position_created_at_id")
+            .IsDescending(false, true, true);
     }
 }

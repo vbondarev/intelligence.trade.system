@@ -42,6 +42,14 @@ public sealed class PositionTimelineSwaggerTests : IClassFixture<WebApplicationF
 
         var type = parameters.EnumerateArray()
             .Single(parameter => parameter.GetProperty("name").GetString() == "type");
+        var style = type.TryGetProperty("style", out var styleValue)
+            ? styleValue.GetString()
+            : "form";
+        var explode = type.TryGetProperty("explode", out var explodeValue)
+            ? explodeValue.GetBoolean()
+            : string.Equals(style, "form", StringComparison.Ordinal);
+        style.Should().Be("form");
+        explode.Should().BeTrue();
         type.GetProperty("schema").GetProperty("items").GetProperty("enum")
             .EnumerateArray().Select(value => value.GetString())
             .Should().Equal("positionChange", "evaluation", "recommendation");

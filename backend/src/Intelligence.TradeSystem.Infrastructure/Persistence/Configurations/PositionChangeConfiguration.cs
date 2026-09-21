@@ -11,6 +11,14 @@ public sealed class PositionChangeConfiguration : IEntityTypeConfiguration<Posit
         builder.ToTable("position_changes", table => table.HasCheckConstraint(
             "ck_position_changes_sequence_positive", "sequence > 0"));
         builder.HasKey(change => new { change.PositionId, change.Sequence });
+        builder.HasIndex(change => new
+            {
+                change.PositionId,
+                change.OccurredAt,
+                change.Sequence,
+            })
+            .HasDatabaseName("ix_position_changes_position_occurred_at_sequence")
+            .IsDescending(false, true, true);
 
         builder.Property(change => change.PositionId)
             .HasColumnName("position_id")
