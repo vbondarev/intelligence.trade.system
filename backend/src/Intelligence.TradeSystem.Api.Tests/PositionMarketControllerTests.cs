@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions.Market;
@@ -67,6 +68,59 @@ public sealed class PositionMarketControllerTests : IClassFixture<WebApplication
             "recommendation",
             "userId",
             "credentials");
+    }
+
+    [Fact]
+    public async Task Market_preserves_nullable_fields_as_explicit_json_nulls()
+    {
+        var userId = UserId.New();
+        var identity = CreateIdentity();
+        var baseline = ApiSnapshotTestData.CreateSnapshot();
+        var snapshot = baseline with
+        {
+            Derivatives = baseline.Derivatives with
+            {
+                NextFundingTimeUtc = null,
+                PremiumVsIndexPct = null,
+            },
+            M15 = baseline.M15 with
+            {
+                Ema20 = null,
+                Rsi14 = null,
+                Support1 = null,
+                DistanceToSupport1Pct = null,
+            },
+        };
+        var identityStore = CreateIdentityStore(userId, identity);
+        var snapshotService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        snapshotService
+            .Setup(service => service.BuildSnapshotAsync(
+                identity.ExchangeId,
+                identity.Symbol,
+                identity.MarketCategory,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+        var service = CreateService(
+            identityStore,
+            snapshotService,
+            new Mock<IMarketDataProvider>(MockBehavior.Strict));
+        using var client = CreateClient(userId, service);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/positions/{identity.PositionId.Value}/market");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var derivatives = root.GetProperty("derivatives");
+        var m15 = root.GetProperty("m15");
+
+        AssertJsonNull(derivatives, "nextFundingTime");
+        AssertJsonNull(derivatives, "premiumVsIndexPct");
+        AssertJsonNull(m15, "ema20");
+        AssertJsonNull(m15, "rsi14");
+        AssertJsonNull(m15, "support1");
+        AssertJsonNull(m15, "distanceToSupport1Pct");
     }
 
     [Fact]
@@ -144,6 +198,25 @@ public sealed class PositionMarketControllerTests : IClassFixture<WebApplication
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         problem!.Extensions["code"]!.ToString().Should().Be("resource_not_found");
+        marketDataProvider.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Candles_missing_interval_returns_validation_problem_without_market_io()
+    {
+        var userId = UserId.New();
+        var identityStore = new Mock<IPositionMarketIdentityStore>(MockBehavior.Strict);
+        var snapshotService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        var marketDataProvider = new Mock<IMarketDataProvider>(MockBehavior.Strict);
+        var service = CreateService(identityStore, snapshotService, marketDataProvider);
+        using var client = CreateClient(userId, service);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/positions/{Guid.NewGuid()}/candles");
+
+        await AssertValidationProblem(response);
+        identityStore.VerifyNoOtherCalls();
+        snapshotService.VerifyNoOtherCalls();
         marketDataProvider.VerifyNoOtherCalls();
     }
 
@@ -440,5 +513,11 @@ public sealed class PositionMarketControllerTests : IClassFixture<WebApplication
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+    }
+
+    private static void AssertJsonNull(JsonElement parent, string propertyName)
+    {
+        parent.TryGetProperty(propertyName, out var property).Should().BeTrue();
+        property.ValueKind.Should().Be(JsonValueKind.Null);
     }
 }

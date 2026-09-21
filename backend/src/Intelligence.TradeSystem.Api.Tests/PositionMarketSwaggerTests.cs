@@ -52,6 +52,19 @@ public sealed class PositionMarketSwaggerTests : IClassFixture<WebApplicationFac
         limit.GetProperty("default").GetInt32().Should().Be(200);
 
         var schemas = root.GetProperty("components").GetProperty("schemas");
+        var derivativesProperties = schemas
+            .GetProperty("PositionMarketDerivativesResponse")
+            .GetProperty("properties");
+        AssertNullableSchema(derivativesProperties, "nextFundingTime");
+        AssertNullableSchema(derivativesProperties, "premiumVsIndexPct");
+
+        var timeframeProperties = schemas
+            .GetProperty("PositionMarketTimeframeResponse")
+            .GetProperty("properties");
+        AssertNullableSchema(timeframeProperties, "ema20");
+        AssertNullableSchema(timeframeProperties, "rsi14");
+        AssertNullableSchema(timeframeProperties, "support1");
+
         schemas.GetProperty("PositionCandlesResponse")
             .GetProperty("properties")
             .GetProperty("interval")
@@ -85,5 +98,11 @@ public sealed class PositionMarketSwaggerTests : IClassFixture<WebApplicationFac
             .And.NotContain("assessment")
             .And.NotContain("recommendation")
             .And.NotContain("indicatorDiagnostics");
+    }
+
+    private static void AssertNullableSchema(JsonElement properties, string propertyName)
+    {
+        properties.TryGetProperty(propertyName, out var schema).Should().BeTrue();
+        schema.GetProperty("nullable").GetBoolean().Should().BeTrue();
     }
 }
