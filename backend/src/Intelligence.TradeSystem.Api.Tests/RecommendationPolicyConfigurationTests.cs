@@ -1,5 +1,7 @@
 using FluentAssertions;
+using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Infrastructure;
+using Intelligence.TradeSystem.Application.Evaluations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Intelligence.TradeSystem.Application.Assessments;
@@ -86,6 +88,18 @@ public sealed class RecommendationPolicyConfigurationTests
             .Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionAssessmentRepository>()
             .Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Application_composition_registers_position_evaluation_service_before_cached_market_replacement()
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+
+        services.AddInfrastructure(CreateConfiguration(includePersistence: true));
+
+        services.Should().ContainSingle(
+            descriptor => descriptor.ServiceType == typeof(PositionEvaluationService));
     }
 
     private static IConfiguration CreateConfiguration(bool includePersistence = false)
