@@ -88,6 +88,7 @@ public partial class Program
             }
 
             options.SchemaFilter<V1EnumSchemaFilter>();
+            options.SchemaFilter<PositionMarketSchemaFilter>();
         });
         builder.Services.AddApplication();
         builder.Services.AddBybitExchange();

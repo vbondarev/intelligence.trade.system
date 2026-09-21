@@ -1,4 +1,7 @@
 using System.Text.Json.Nodes;
+using System.Globalization;
+using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Application.Market.Positions;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -8,15 +11,27 @@ internal sealed class PositionsV1OperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
-        if (!string.Equals(context.ApiDescription.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(
-                context.ApiDescription.RelativePath?.Trim('/'),
-                "api/v1/positions",
-                StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(context.ApiDescription.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        var path = context.ApiDescription.RelativePath?.Trim('/');
+        if (string.Equals(path, "api/v1/positions", StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyPositionList(operation);
+        }
+        else if (string.Equals(
+                     path,
+                     "api/v1/positions/{id}/candles",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyCandles(operation);
+        }
+    }
+
+    private static void ApplyPositionList(OpenApiOperation operation)
+    {
         SetEnum(
             operation,
             "trackingState",
@@ -37,6 +52,30 @@ internal sealed class PositionsV1OperationFilter : IOperationFilter
         pageSizeSchema.Minimum = "1";
         pageSizeSchema.Maximum = "100";
         pageSizeSchema.Default = JsonValue.Create(50);
+    }
+
+    private static void ApplyCandles(OpenApiOperation operation)
+    {
+        SetEnum(operation, "interval", [.. CandleIntervalV1Codec.AllWireValues]);
+        var interval = operation.Parameters?
+            .SingleOrDefault(parameter =>
+                string.Equals(parameter.Name, "interval", StringComparison.Ordinal));
+        if (interval is OpenApiParameter intervalParameter)
+        {
+            intervalParameter.Required = true;
+        }
+
+        var limit = operation.Parameters?
+            .SingleOrDefault(parameter =>
+                string.Equals(parameter.Name, "limit", StringComparison.Ordinal));
+        if (limit?.Schema is not OpenApiSchema limitSchema)
+        {
+            return;
+        }
+
+        limitSchema.Minimum = "1";
+        limitSchema.Maximum = PositionMarketService.MaxCandleLimit.ToString(CultureInfo.InvariantCulture);
+        limitSchema.Default = JsonValue.Create(PositionMarketService.DefaultCandleLimit);
     }
 
     private static void SetEnum(
