@@ -199,10 +199,16 @@ public sealed class ExchangeAccountService(
             if (currentAccount.Value.ConnectionStatus == ExchangeAccountConnectionStatus.Disabled)
                 throw new ConcurrencyConflictException("The exchange account was disabled during credential verification.");
 
-            await credentialStore.RotateAsync(userId, exchangeAccountId, initialCredential.Version, replacement, transactionToken)
-                .ConfigureAwait(false);
             currentAccount.Value.MarkConnected();
             await repository.SaveAsync(userId, currentAccount.Value, initialAccount.Version, transactionToken)
+                .ConfigureAwait(false);
+            await credentialStore
+                .RotateAsync(
+                    userId,
+                    exchangeAccountId,
+                    initialCredential.Version,
+                    replacement,
+                    transactionToken)
                 .ConfigureAwait(false);
             await applicationEventOutbox
                 .AddAsync(
