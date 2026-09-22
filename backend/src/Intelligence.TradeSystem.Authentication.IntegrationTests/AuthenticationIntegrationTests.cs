@@ -481,6 +481,53 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Updates_hub_closes_an_authenticated_websocket_when_the_token_expires()
+    {
+        var token = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddSeconds(8),
+            scope: "trade.api",
+            subject: userId.ToString(),
+            principalType: UserPrincipalType);
+        await using var connection = CreateUpdatesConnection(
+            token,
+            HttpTransportType.WebSockets,
+            useWebSockets: true);
+        var closed = new TaskCompletionSource<Exception?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var deliveredAfterExpiration = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.Closed += exception =>
+        {
+            closed.TrySetResult(exception);
+            return Task.CompletedTask;
+        };
+        connection.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            _ => deliveredAfterExpiration.TrySetResult(true));
+
+        await connection.StartAsync();
+        connection.State.Should().Be(HubConnectionState.Connected);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        connection.State.Should().Be(HubConnectionState.Disconnected);
+        var handler = apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>();
+        await handler.HandleAsync(
+            new ExchangeAccountUpdatedEventV1(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                userId,
+                Guid.NewGuid()));
+        (await Task.WhenAny(
+                deliveredAfterExpiration.Task,
+                Task.Delay(TimeSpan.FromSeconds(1))))
+            .Should()
+            .NotBe(deliveredAfterExpiration.Task);
+    }
+
+    [Fact]
     public async Task Updates_hub_rejects_anonymous_negotiate_requests()
     {
         using var client = apiFactory.CreateClient();
@@ -972,15 +1019,31 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     private static readonly DateTimeOffset MappingOccurredAt =
         new(2026, 9, 22, 5, 0, 0, TimeSpan.Zero);
 
-    private HubConnection CreateUpdatesConnection(string token) =>
+    private HubConnection CreateUpdatesConnection(
+        string token,
+        HttpTransportType transport = HttpTransportType.LongPolling,
+        bool useWebSockets = false) =>
         new HubConnectionBuilder()
             .WithUrl(
                 new Uri(apiFactory.Server.BaseAddress, "/hubs/v1/updates"),
                 options =>
                 {
                     options.AccessTokenProvider = () => Task.FromResult<string?>(token);
-                    options.Transports = HttpTransportType.LongPolling;
+                    options.Transports = transport;
                     options.HttpMessageHandlerFactory = _ => apiFactory.Server.CreateHandler();
+                    if (useWebSockets)
+                    {
+                        options.WebSocketFactory = async (context, cancellationToken) =>
+                        {
+                            var webSocketClient = apiFactory.Server.CreateWebSocketClient();
+                            webSocketClient.ConfigureRequest = request =>
+                            {
+                                request.Headers["Authorization"] = $"Bearer {token}";
+                            };
+                            return await webSocketClient
+                                .ConnectAsync(context.Uri, cancellationToken);
+                        };
+                    }
                 })
             .Build();
 

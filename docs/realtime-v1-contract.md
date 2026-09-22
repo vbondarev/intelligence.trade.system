@@ -29,6 +29,11 @@ Query-string access token не поддерживается. Browser-specific tr
 граница относятся к этапу G; access token не должен попадать в JavaScript
 клиента.
 
+Для bearer/native clients lifetime hub connection ограничен lifetime
+authentication context: после истечения access token соединение закрывается
+сервером. Повторное подключение требует новой действительной аутентификации.
+После reconnect клиент выполняет REST refresh.
+
 ## События и payload
 
 SignalR является каналом invalidation. После каждого события клиент перечитывает
