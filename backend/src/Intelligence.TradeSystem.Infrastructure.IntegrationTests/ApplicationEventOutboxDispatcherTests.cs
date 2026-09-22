@@ -18,9 +18,9 @@ public sealed class ApplicationEventOutboxDispatcherTests
     private static readonly int[] ExpectedSequence = [1, 2];
 
     [Fact]
-    public void Dispatcher_is_disabled_by_default_and_instance_id_is_bounded()
+    public void Dispatcher_is_enabled_by_default_and_instance_id_is_bounded()
     {
-        Assert.False(new ApplicationEventOutboxDispatcherOptions().Enabled);
+        Assert.True(new ApplicationEventOutboxDispatcherOptions().Enabled);
         Assert.InRange(
             ApplicationEventOutboxDispatcherWorker.CreateInstanceId().Length,
             1,
@@ -157,10 +157,80 @@ public sealed class ApplicationEventOutboxDispatcherTests
         Assert.Equal(2, store.Processed.Count);
     }
 
+    [Fact]
+    public async Task Resource_events_are_dispatched_through_their_typed_handlers()
+    {
+        var store = new InMemoryOutboxStore();
+        var openedEvents = new List<PositionOpenedEventV1>();
+        var changedEvents = new List<PositionChangedEventV1>();
+        var closedEvents = new List<PositionClosedEventV1>();
+        var degradedEvents = new List<ExchangeAccountSyncDegradedEventV1>();
+        var accountEvents = new List<ExchangeAccountUpdatedEventV1>();
+        var portfolioEvents = new List<PortfolioUpdatedEventV1>();
+        var evaluationEvents = new List<PositionEvaluationUpdatedEventV1>();
+        using var fixture = CreateDispatcher(
+            store,
+            handler: new RecordingEventHandler<PositionOpenedEventV1>(openedEvents),
+            changedHandler: new RecordingEventHandler<PositionChangedEventV1>(changedEvents),
+            closedHandler: new RecordingEventHandler<PositionClosedEventV1>(closedEvents),
+            degradedHandler: new RecordingEventHandler<ExchangeAccountSyncDegradedEventV1>(degradedEvents),
+            accountHandler: new RecordingEventHandler<ExchangeAccountUpdatedEventV1>(accountEvents),
+            portfolioHandler: new RecordingEventHandler<PortfolioUpdatedEventV1>(portfolioEvents),
+            evaluationHandler: new RecordingEventHandler<PositionEvaluationUpdatedEventV1>(evaluationEvents));
+        var userId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var positionId = Guid.NewGuid();
+        var occurredAt = OccurredAt.AddMinutes(1);
+        IApplicationEvent[] events =
+        [
+            CreateOpenedEvent() with { UserId = userId, ExchangeAccountId = accountId, PositionId = positionId },
+            CreateChangedEvent(positionId, 2) with { UserId = userId, ExchangeAccountId = accountId },
+            CreateClosedEvent(positionId) with { UserId = userId, ExchangeAccountId = accountId },
+            new ExchangeAccountSyncDegradedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                accountId,
+                ExchangeId.Bybit,
+                "positions_partial",
+                OccurredAt),
+            new ExchangeAccountUpdatedEventV1(Guid.NewGuid(), occurredAt, userId, accountId),
+            new PortfolioUpdatedEventV1(Guid.NewGuid(), occurredAt, userId, accountId),
+            new PositionEvaluationUpdatedEventV1(Guid.NewGuid(), occurredAt, userId, positionId),
+        ];
+
+        await fixture.Worker.DispatchBatchAsync(
+            events
+                .Select(applicationEvent =>
+                {
+                    var serialized = ApplicationEventSerializer.Serialize(applicationEvent);
+                    return CreateClaim(ApplicationEventSerializer.Deserialize(
+                        serialized.EventType,
+                        serialized.SchemaVersion,
+                        serialized.Payload));
+                })
+                .ToArray(),
+            CancellationToken.None);
+
+        Assert.Single(openedEvents);
+        Assert.Single(changedEvents);
+        Assert.Single(closedEvents);
+        Assert.Single(degradedEvents);
+        Assert.Single(accountEvents);
+        Assert.Single(portfolioEvents);
+        Assert.Single(evaluationEvents);
+        Assert.Equal(7, store.Processed.Count);
+    }
+
     private static DispatcherFixture CreateDispatcher(
         InMemoryOutboxStore store,
         IApplicationEventHandler<PositionOpenedEventV1>? handler = null,
-        IApplicationEventHandler<PositionChangedEventV1>? changedHandler = null)
+        IApplicationEventHandler<PositionChangedEventV1>? changedHandler = null,
+        IApplicationEventHandler<PositionClosedEventV1>? closedHandler = null,
+        IApplicationEventHandler<ExchangeAccountSyncDegradedEventV1>? degradedHandler = null,
+        IApplicationEventHandler<ExchangeAccountUpdatedEventV1>? accountHandler = null,
+        IApplicationEventHandler<PortfolioUpdatedEventV1>? portfolioHandler = null,
+        IApplicationEventHandler<PositionEvaluationUpdatedEventV1>? evaluationHandler = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOutboxMessageStore>(store);
@@ -171,6 +241,26 @@ public sealed class ApplicationEventOutboxDispatcherTests
         if (changedHandler is not null)
         {
             services.AddSingleton<IApplicationEventHandler<PositionChangedEventV1>>(changedHandler);
+        }
+        if (closedHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<PositionClosedEventV1>>(closedHandler);
+        }
+        if (degradedHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<ExchangeAccountSyncDegradedEventV1>>(degradedHandler);
+        }
+        if (accountHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>(accountHandler);
+        }
+        if (portfolioHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<PortfolioUpdatedEventV1>>(portfolioHandler);
+        }
+        if (evaluationHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<PositionEvaluationUpdatedEventV1>>(evaluationHandler);
         }
 
         var provider = services.BuildServiceProvider();
@@ -201,6 +291,9 @@ public sealed class ApplicationEventOutboxDispatcherTests
 
     private static OutboxMessageClaim CreateClaim(
         PositionChangedEventV1 applicationEvent) =>
+        CreateClaim((IApplicationEvent)applicationEvent);
+
+    private static OutboxMessageClaim CreateClaim(IApplicationEvent applicationEvent) =>
         CreateClaimCore(
             applicationEvent.EventId,
             applicationEvent.EventType,
@@ -306,6 +399,50 @@ public sealed class ApplicationEventOutboxDispatcherTests
                 null,
                 null));
 
+    private static PositionClosedEventV1 CreateClosedEvent(Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            OccurredAt.AddMinutes(3),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            ExchangeId.Bybit,
+            positionId,
+            3,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            OccurredAt,
+            OccurredAt.AddMinutes(3),
+            OccurredAt.AddMinutes(3),
+            PositionChangeKind.Closed,
+            PositionChangeCause.MissingFromCompleteObservation,
+            PositionTrackingState.Closed,
+            new PositionStateEventPayloadV1(
+                1m,
+                100m,
+                100m,
+                2m,
+                100m,
+                null,
+                null,
+                0m,
+                null,
+                null,
+                null),
+            new PositionStateEventPayloadV1(
+                0m,
+                0m,
+                0m,
+                2m,
+                100m,
+                null,
+                null,
+                0m,
+                null,
+                null,
+                null));
+
     private static readonly DateTimeOffset OccurredAt =
         new(2026, 9, 9, 10, 0, 0, TimeSpan.Zero);
 
@@ -347,6 +484,19 @@ public sealed class ApplicationEventOutboxDispatcherTests
             CancellationToken cancellationToken = default)
         {
             received.Add(applicationEvent.PositionChangeSequence);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingEventHandler<TEvent>(
+        List<TEvent> received) : IApplicationEventHandler<TEvent>
+        where TEvent : IApplicationEvent
+    {
+        public Task HandleAsync(
+            TEvent applicationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            received.Add(applicationEvent);
             return Task.CompletedTask;
         }
     }

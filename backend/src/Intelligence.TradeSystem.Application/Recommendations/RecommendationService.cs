@@ -67,6 +67,12 @@ public sealed class RecommendationService(
                 userId,
                 assessment.PositionId,
                 cancellationToken);
+            if (current is not null && asOf < current.Value.CreatedAt)
+            {
+                throw new ConcurrencyConflictException(
+                    "The evaluation timestamp precedes the current recommendation after a concurrent publication.");
+            }
+
             RecommendationCurrentExpectation currentExpectation = current is null
                 ? new RecommendationCurrentExpectation.Absent()
                 : new RecommendationCurrentExpectation.Present(
@@ -78,11 +84,18 @@ public sealed class RecommendationService(
                     pending.Value.StateId,
                     pending.Value.BaselineRecommendationId,
                     pending.Version);
+            if (pending is not null && asOf < pending.Value.State.LastObservedAt)
+            {
+                throw new ConcurrencyConflictException(
+                    "The evaluation timestamp precedes the pending stability observation after a concurrent publication.");
+            }
+
             var effectivePending = current is not null &&
                 pending is not null &&
                 pending.Value.BaselineRecommendationId == current.Value.Id
                 ? pending.Value.State
                 : null;
+
             if (attempt > 1 &&
                 current is not null &&
                 evaluation.CreatedAt <= current.Value.CreatedAt &&

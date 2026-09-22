@@ -15,6 +15,17 @@ public interface IPositionRepository
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Возвращает лёгкий ID/version watermark всех позиций биржевой учётной записи в указанной
+    /// области пользователя, без materialization доменного агрегата и его
+    /// <see cref="Domain.History.PositionChange"/> истории. Предназначен для pre-lock race
+    /// detection, где полный агрегат не требуется.
+    /// </summary>
+    Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
     Task<Versioned<Position>?> GetByIdAsync(
         UserId userId,
         PositionId id,

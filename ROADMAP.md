@@ -133,6 +133,9 @@
 - ✅ F-02 публикует канонический `/api/v1/exchange-accounts`: список подключений, connect, verify, безопасную ротацию credentials, sync и disconnect; pre-v1 routes удалены.
 - ✅ F-03 публикует `/api/v1/positions` с SQL-side cursor pagination, фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, стабильным порядком и opaque versioned cursor.
 - ✅ F-03 публикует `/api/v1/positions/{id}` как user-scoped current-state карточку без `PositionChanges`, timeline, evaluation и market context, а `/api/v1/exchange-accounts/{id}/portfolio` — account-scoped summary без встроенного списка позиций.
+- ✅ F-04 публикует user-scoped `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`, получая market identity из позиции и не смешивая пользовательское состояние с public market-analysis API.
+- ✅ F-05 публикует user-scoped GET/POST evaluation с согласованными assessment + nullable current recommendation, temporal/input identity и сохранением safety semantics stale/partial/uncertain данных.
+- ✅ F-06 публикует user-scoped timeline позиции с persisted position changes, assessments/evaluations и recommendations, cursor pagination и repeatable type filter.
 - ✅ `ExchangeAccount` хранит обязательную provider-side identity (для Bybit — `userID`); CAS/persistence запрещают её перепривязку к существующему `ExchangeAccountId`, а credentials другого account/subaccount отклоняются как controlled conflict.
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
@@ -146,7 +149,6 @@
 
 ### Пока отсутствует
 
-- ⬜ Оставшаяся часть пользовательского API v1: рыночный контекст/свечи, evaluation и timeline.
 - ⬜ SignalR-обновления пользовательского состояния.
 - ⬜ React-клиент и BFF.
 - ⬜ Непрерывный цикл повторной оценки активных позиций.

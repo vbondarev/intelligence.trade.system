@@ -27,6 +27,18 @@ internal static class ApplicationEventHandlerDispatcher
                 serviceProvider,
                 value,
                 cancellationToken),
+            ExchangeAccountUpdatedEventV1 value => DispatchTypedAsync(
+                serviceProvider,
+                value,
+                cancellationToken),
+            PortfolioUpdatedEventV1 value => DispatchTypedAsync(
+                serviceProvider,
+                value,
+                cancellationToken),
+            PositionEvaluationUpdatedEventV1 value => DispatchTypedAsync(
+                serviceProvider,
+                value,
+                cancellationToken),
             _ => throw new InvalidOperationException(
                 $"No dispatcher mapping exists for application event '{applicationEvent.EventType}'."),
         };

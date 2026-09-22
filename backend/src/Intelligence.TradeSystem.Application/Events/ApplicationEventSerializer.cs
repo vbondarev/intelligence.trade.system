@@ -38,6 +38,21 @@ public static class ApplicationEventSerializer
                 value.SchemaVersion,
                 value.OccurredAt,
                 value),
+            ExchangeAccountUpdatedEventV1 value => Serialize(
+                value.EventType,
+                value.SchemaVersion,
+                value.OccurredAt,
+                value),
+            PortfolioUpdatedEventV1 value => Serialize(
+                value.EventType,
+                value.SchemaVersion,
+                value.OccurredAt,
+                value),
+            PositionEvaluationUpdatedEventV1 value => Serialize(
+                value.EventType,
+                value.SchemaVersion,
+                value.OccurredAt,
+                value),
             _ => throw new ApplicationEventSerializationException(
                 $"Unknown application event CLR contract '{applicationEvent.GetType().Name}'.",
                 applicationEvent.EventType,
@@ -64,6 +79,12 @@ public static class ApplicationEventSerializer
                 Deserialize<PositionClosedEventV1>(eventType, schemaVersion, payload),
             (ApplicationEventTypes.ExchangeAccountSyncDegraded, ApplicationEventSchemaVersions.V1) =>
                 Deserialize<ExchangeAccountSyncDegradedEventV1>(eventType, schemaVersion, payload),
+            (ApplicationEventTypes.ExchangeAccountUpdated, ApplicationEventSchemaVersions.V1) =>
+                Deserialize<ExchangeAccountUpdatedEventV1>(eventType, schemaVersion, payload),
+            (ApplicationEventTypes.PortfolioUpdated, ApplicationEventSchemaVersions.V1) =>
+                Deserialize<PortfolioUpdatedEventV1>(eventType, schemaVersion, payload),
+            (ApplicationEventTypes.PositionEvaluationUpdated, ApplicationEventSchemaVersions.V1) =>
+                Deserialize<PositionEvaluationUpdatedEventV1>(eventType, schemaVersion, payload),
             _ => throw new ApplicationEventSerializationException(
                 $"Unknown application event contract '{eventType}' version {schemaVersion}.",
                 eventType,
@@ -197,6 +218,46 @@ public static class ApplicationEventSerializer
                 }
 
                 break;
+            case ExchangeAccountUpdatedEventV1 value:
+                ValidateResourceEvent(
+                    value.EventType,
+                    value.SchemaVersion,
+                    value.UserId,
+                    value.ExchangeAccountId,
+                    "Exchange account updated event");
+                break;
+            case PortfolioUpdatedEventV1 value:
+                ValidateResourceEvent(
+                    value.EventType,
+                    value.SchemaVersion,
+                    value.UserId,
+                    value.ExchangeAccountId,
+                    "Portfolio updated event");
+                break;
+            case PositionEvaluationUpdatedEventV1 value:
+                ValidateResourceEvent(
+                    value.EventType,
+                    value.SchemaVersion,
+                    value.UserId,
+                    value.PositionId,
+                    "Position evaluation updated event");
+                break;
+        }
+    }
+
+    private static void ValidateResourceEvent(
+        string eventType,
+        int schemaVersion,
+        Guid userId,
+        Guid resourceId,
+        string eventName)
+    {
+        if (userId == Guid.Empty || resourceId == Guid.Empty)
+        {
+            throw new ApplicationEventSerializationException(
+                $"{eventName} contains an invalid ownership or resource identifier.",
+                eventType,
+                schemaVersion);
         }
     }
 
