@@ -575,9 +575,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         var userOutboxMessages = (await verification.OutboxMessages
                 .ToArrayAsync())
             .Where(message =>
-                message.Payload.Contains(
-                    userId.Value.ToString(),
-                    StringComparison.Ordinal))
+                BelongsToUser(message, userId))
             .ToArray();
         Assert.Empty(userOutboxMessages
             .Where(message =>
