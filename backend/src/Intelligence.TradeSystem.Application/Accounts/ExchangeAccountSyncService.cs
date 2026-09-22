@@ -134,8 +134,8 @@ public sealed class ExchangeAccountSyncService(
                                 return;
                             }
 
-                            var trackedBeforeLocks = await positionRepository
-                                .GetByExchangeAccountAsync(
+                            var watermarkBeforeLocks = await positionRepository
+                                .GetVersionWatermarkByExchangeAccountAsync(
                                     userId,
                                     exchangeAccountId,
                                     persistenceCancellationToken)
@@ -176,7 +176,7 @@ public sealed class ExchangeAccountSyncService(
                                     exchangeAccountId,
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
-                            if (!HasSamePositionWatermark(trackedBeforeLocks, tracked))
+                            if (!HasSamePositionWatermark(watermarkBeforeLocks, tracked))
                             {
                                 throw new ConcurrencyConflictException(
                                     "The position set changed while the synchronization acquired its serialization locks.");
@@ -495,14 +495,14 @@ public sealed class ExchangeAccountSyncService(
         disposition == ExchangeAccountObservationDisposition.Applied;
 
     private static bool HasSamePositionWatermark(
-        IReadOnlyCollection<Versioned<Position>> expected,
+        IReadOnlyCollection<PositionVersionWatermark> expected,
         IReadOnlyCollection<Versioned<Position>> actual)
     {
         if (expected.Count != actual.Count)
             return false;
 
         var expectedOrdered = expected
-            .OrderBy(versioned => versioned.Value.Id.Value)
+            .OrderBy(watermark => watermark.PositionId.Value)
             .ToArray();
         var actualOrdered = actual
             .OrderBy(versioned => versioned.Value.Id.Value)
@@ -511,7 +511,7 @@ public sealed class ExchangeAccountSyncService(
         return expectedOrdered
             .Zip(actualOrdered)
             .All(pair =>
-                pair.First.Value.Id == pair.Second.Value.Id &&
+                pair.First.PositionId == pair.Second.Value.Id &&
                 pair.First.Version == pair.Second.Version);
     }
 

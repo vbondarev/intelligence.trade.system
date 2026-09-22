@@ -845,6 +845,12 @@ public sealed class PositionEvaluationServiceTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ConcurrencyVersion> SaveAsync(
             UserId userId,
             Position position,

@@ -54,6 +54,31 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             .ToArray();
     }
 
+    public async Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+
+        var rows = await dbContext.Positions
+            .AsNoTracking()
+            .Where(position =>
+                position.ExchangeAccountId == exchangeAccountId.Value &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == position.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .OrderBy(position => position.Id)
+            .Select(position => new { position.Id, position.Version })
+            .ToArrayAsync(cancellationToken);
+
+        return rows
+            .Select(row => new PositionVersionWatermark(
+                PositionId.FromGuid(row.Id),
+                new ConcurrencyVersion(row.Version)))
+            .ToArray();
+    }
+
     public async Task<Versioned<Position>?> GetByIdAsync(
         UserId userId,
         PositionId id,

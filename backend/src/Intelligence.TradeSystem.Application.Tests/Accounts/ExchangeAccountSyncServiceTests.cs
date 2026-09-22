@@ -100,6 +100,92 @@ public sealed class ExchangeAccountSyncServiceTests
     }
 
     [Fact]
+    public async Task SynchronizeAsync_UsesLightweightWatermarkForPreLockCheck_AndLoadsFullAggregateOnlyOnce()
+    {
+        // The pre-lock race check must use the lightweight ID/version watermark projection,
+        // not a second full-aggregate (with history) load: GetByExchangeAccountAsync should
+        // only be called once, for the post-lock reconciliation read.
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        SetupPositionLoad(fixture, trackedPosition);
+        fixture.PositionRepository
+            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new PositionVersionWatermark(trackedPosition.Id, ConcurrencyVersion.Initial)]);
+        SetupPositionSave(fixture);
+        SetupPortfolioSave(fixture, []);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        fixture.PositionRepository.Verify(
+            repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.PositionRepository.Verify(
+            repository => repository.GetByExchangeAccountAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SynchronizeAsync_WhenPositionSetChangesBetweenWatermarkAndLocks_ThrowsConcurrencyConflict()
+    {
+        // A watermark mismatch (someone else's transaction changed the tracked position set
+        // between the pre-lock read and the account/position locks) must surface as a
+        // ConcurrencyConflictException so the caller can retry, instead of silently
+        // persisting against a stale set.
+        var fixture = CreateFixture();
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        SetupPositionLoad(fixture, trackedPosition);
+        fixture.PositionRepository
+            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var act = () => fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        fixture.PositionRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<Position>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.PortfolioRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<PortfolioState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.AccountRepository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task SynchronizeAsync_Duplicate_Observation_Is_A_NoOp()
     {
         var fixture = CreateFixture();
@@ -1471,6 +1557,12 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+        fixture.PositionRepository.Verify(
+            repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
         fixture.PortfolioRepository.Verify(
             repository => repository.SaveAsync(
                 It.IsAny<UserId>(),
@@ -1615,6 +1707,20 @@ public sealed class ExchangeAccountSyncServiceTests
         var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
         lease.SetupGet(value => value.Provider).Returns(provider.Object);
         lease.Setup(value => value.Dispose());
+        positionRepository
+            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+                userId,
+                ownedAccount.Id,
+                It.IsAny<CancellationToken>()))
+            .Returns<UserId, ExchangeAccountId, CancellationToken>(async (u, a, ct) =>
+            {
+                var tracked = await positionRepository.Object
+                    .GetByExchangeAccountAsync(u, a, ct)
+                    .ConfigureAwait(false);
+                return (IReadOnlyCollection<PositionVersionWatermark>)tracked
+                    .Select(versioned => new PositionVersionWatermark(versioned.Value.Id, versioned.Version))
+                    .ToArray();
+            });
         factory
             .Setup(value => value.Create(
                 ownedAccount.ExchangeId,
