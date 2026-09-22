@@ -27,7 +27,7 @@ internal static class ExchangeAccountSerializationLock
             FROM exchange_accounts
             WHERE exchange_account_id = @exchange_account_id
               AND user_id = @user_id
-            FOR UPDATE
+            FOR NO KEY UPDATE
             """;
         AddParameter(command, "exchange_account_id", exchangeAccountId.Value);
         AddParameter(command, "user_id", userId.Value);
@@ -36,6 +36,41 @@ internal static class ExchangeAccountSerializationLock
         if (result is null or DBNull)
             throw new ConcurrencyConflictException(
                 $"Exchange account {exchangeAccountId} is unavailable in the requested user scope.");
+    }
+
+    public static async Task LockPositionsAsync(
+        TradeSystemDbContext dbContext,
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken)
+    {
+        await EnsureTransactionAsync(dbContext, cancellationToken).ConfigureAwait(false);
+
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = dbContext.Database.CurrentTransaction!.GetDbTransaction();
+        command.CommandText = """
+            SELECT p.position_id
+            FROM positions AS p
+            INNER JOIN exchange_accounts AS a
+                ON a.exchange_account_id = p.exchange_account_id
+            WHERE p.exchange_account_id = @exchange_account_id
+              AND a.user_id = @user_id
+            ORDER BY p.position_id
+            FOR UPDATE OF p
+            """;
+        AddParameter(command, "exchange_account_id", exchangeAccountId.Value);
+        AddParameter(command, "user_id", userId.Value);
+
+        await using var reader = await command
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+        }
     }
 
     public static async Task LockForPositionAsync(
@@ -59,7 +94,7 @@ internal static class ExchangeAccountSerializationLock
                 ON a.exchange_account_id = p.exchange_account_id
             WHERE p.position_id = @position_id
               AND a.user_id = @user_id
-            FOR UPDATE OF a
+            FOR NO KEY UPDATE OF a
             """;
         AddParameter(command, "position_id", positionId.Value);
         AddParameter(command, "user_id", userId.Value);

@@ -8,6 +8,11 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 /// </summary>
 public interface IExchangeAccountSyncTransaction
 {
+    Task LockPositionsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
     Task LockAccountAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,

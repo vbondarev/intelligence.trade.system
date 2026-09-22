@@ -1677,6 +1677,12 @@ public sealed class ExchangeAccountSyncServiceTests
 
     private sealed class InlineSyncTransaction : IExchangeAccountSyncTransaction
     {
+        public Task LockPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public Task LockAccountAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,

@@ -892,6 +892,18 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         SyncLockCoordinator coordinator)
         : IExchangeAccountSyncTransaction
     {
+        public Task LockPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            coordinator.LockAttempted.TrySetResult(null);
+            return inner.LockPositionsAsync(
+                userId,
+                exchangeAccountId,
+                cancellationToken);
+        }
+
         public Task LockAccountAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,

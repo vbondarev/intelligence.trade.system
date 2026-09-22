@@ -134,6 +134,19 @@ public sealed class ExchangeAccountSyncService(
                                 return;
                             }
 
+                            await persistenceTransaction
+                                .LockPositionsAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+                            await persistenceTransaction
+                                .LockAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
                             var accountForPersistence = CopyAccount(currentAccount);
                             balanceDisposition = accountForPersistence.AdvanceObservationWatermark(
                                 ExchangeAccountObservationResource.Balance,
@@ -219,13 +232,6 @@ public sealed class ExchangeAccountSyncService(
                                         persistenceCancellationToken)
                                     .ConfigureAwait(false);
                             }
-
-                            await persistenceTransaction
-                                .LockAccountAsync(
-                                    userId,
-                                    exchangeAccountId,
-                                    persistenceCancellationToken)
-                                .ConfigureAwait(false);
 
                             var reconciledPositions = trackedPositions
                                 .Concat(reconciliation.NewPositions)
