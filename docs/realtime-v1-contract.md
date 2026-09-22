@@ -65,9 +65,11 @@ adapter преобразует их в минимальные realtime messages.
 - Account lifecycle mutations (`connect`, изменивший состояние `verify`,
   credential rotation и `disconnect`) публикуют `exchangeAccount.updated`.
 - Applied synchronization публикует `exchangeAccount.updated` и
-  `portfolio.updated`; degraded synchronization использует
-  `exchange-account.sync-degraded` как account invalidation и также публикует
   `portfolio.updated`.
+- Degraded synchronization также публикует `exchangeAccount.updated` и
+  `portfolio.updated`. Внутренним источником account invalidation для degraded
+  sync является `ExchangeAccountSyncDegradedEventV1` с типом
+  `exchange-account.sync-degraded`, но это не client-facing SignalR event name.
 - Position lifecycle events публикуются как `position.updated`.
 - Сохранённый новый evaluation публикуется как `evaluation.updated`, даже если
   recommendation stability policy сохранила текущую рекомендацию или оставила

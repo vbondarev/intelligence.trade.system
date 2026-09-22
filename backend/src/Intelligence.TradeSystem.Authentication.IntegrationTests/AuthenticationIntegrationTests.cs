@@ -13,6 +13,7 @@ using Intelligence.TradeSystem.Api.Realtime.V1;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Migrations;
@@ -586,6 +587,126 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Registered_realtime_handlers_map_every_application_event_to_its_client_event()
+    {
+        var token = await IssueAccessTokenAsync();
+        await using var connection = CreateUpdatesConnection(token.AccessToken);
+        var userId = this.userId;
+        var accountId = Guid.NewGuid();
+        var positionId = Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow;
+        var accountEvent = new ExchangeAccountUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId);
+        var degradedEvent = new ExchangeAccountSyncDegradedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            "positions_partial",
+            occurredAt.AddMinutes(-1));
+        var portfolioEvent = new PortfolioUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId);
+        var openedEvent = CreateOpenedEvent(userId, accountId, positionId);
+        var changedEvent = CreateChangedEvent(userId, accountId, positionId);
+        var closedEvent = CreateClosedEvent(userId, accountId, positionId);
+        var evaluationEvent = new PositionEvaluationUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            positionId);
+        var accountReceived = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var degradedReceived = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var portfolioReceived = new TaskCompletionSource<PortfolioUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var openedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var changedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var evaluationReceived = new TaskCompletionSource<EvaluationUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connection.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message =>
+            {
+                if (message.EventId == accountEvent.EventId)
+                    accountReceived.TrySetResult(message);
+                if (message.EventId == degradedEvent.EventId)
+                    degradedReceived.TrySetResult(message);
+            });
+        connection.On<PortfolioUpdatedMessageV1>(
+            RealtimeEventNames.PortfolioUpdated,
+            message => portfolioReceived.TrySetResult(message));
+        connection.On<PositionUpdatedMessageV1>(
+            RealtimeEventNames.PositionUpdated,
+            message =>
+            {
+                if (message.EventId == openedEvent.EventId)
+                    openedReceived.TrySetResult(message);
+                if (message.EventId == changedEvent.EventId)
+                    changedReceived.TrySetResult(message);
+                if (message.EventId == closedEvent.EventId)
+                    closedReceived.TrySetResult(message);
+            });
+        connection.On<EvaluationUpdatedMessageV1>(
+            RealtimeEventNames.EvaluationUpdated,
+            message => evaluationReceived.TrySetResult(message));
+
+        await connection.StartAsync();
+
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>()
+            .HandleAsync(accountEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountSyncDegradedEventV1>>()
+            .HandleAsync(degradedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PortfolioUpdatedEventV1>>()
+            .HandleAsync(portfolioEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionOpenedEventV1>>()
+            .HandleAsync(openedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionChangedEventV1>>()
+            .HandleAsync(changedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionClosedEventV1>>()
+            .HandleAsync(closedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionEvaluationUpdatedEventV1>>()
+            .HandleAsync(evaluationEvent);
+
+        await Task.WhenAll(
+            accountReceived.Task,
+            degradedReceived.Task,
+            portfolioReceived.Task,
+            openedReceived.Task,
+            changedReceived.Task,
+            closedReceived.Task,
+            evaluationReceived.Task)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(accountId, (await accountReceived.Task).ExchangeAccountId);
+        Assert.Equal(accountId, (await degradedReceived.Task).ExchangeAccountId);
+        Assert.Equal(accountId, (await portfolioReceived.Task).ExchangeAccountId);
+        Assert.Equal(positionId, (await openedReceived.Task).PositionId);
+        Assert.Equal(positionId, (await changedReceived.Task).PositionId);
+        Assert.Equal(positionId, (await closedReceived.Task).PositionId);
+        Assert.Equal(positionId, (await evaluationReceived.Task).PositionId);
+    }
+
+    [Fact]
     public async Task Openiddict_selects_the_valid_certificate_with_the_furthest_expiration_and_old_key_remains_accepted()
     {
         var issuedToken = await IssueAccessTokenAsync();
@@ -758,6 +879,98 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client.SendAsync(request);
     }
+
+    private static PositionOpenedEventV1 CreateOpenedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt,
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            1,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt,
+            null,
+            PositionChangeKind.New,
+            PositionChangeCause.InitialObservation,
+            PositionTrackingState.Active,
+            null,
+            PositionPayload(1m));
+
+    private static PositionChangedEventV1 CreateChangedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt.AddMinutes(1),
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            2,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt.AddMinutes(1),
+            null,
+            PositionChangeKind.Increased,
+            PositionChangeCause.ExchangeObservation,
+            PositionTrackingState.Active,
+            PositionPayload(1m),
+            PositionPayload(2m));
+
+    private static PositionClosedEventV1 CreateClosedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt.AddMinutes(2),
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            3,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt.AddMinutes(2),
+            MappingOccurredAt.AddMinutes(2),
+            PositionChangeKind.Closed,
+            PositionChangeCause.MissingFromCompleteObservation,
+            PositionTrackingState.Closed,
+            PositionPayload(2m),
+            PositionPayload(0m));
+
+    private static PositionStateEventPayloadV1 PositionPayload(decimal size) =>
+        new(
+            size,
+            100m,
+            size * 100m,
+            2m,
+            100m,
+            null,
+            null,
+            0m,
+            null,
+            null,
+            null);
+
+    private static readonly DateTimeOffset MappingOccurredAt =
+        new(2026, 9, 22, 5, 0, 0, TimeSpan.Zero);
 
     private HubConnection CreateUpdatesConnection(string token) =>
         new HubConnectionBuilder()
