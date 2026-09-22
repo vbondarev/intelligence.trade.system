@@ -1,7 +1,7 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.25
-Дата актуализации: 21 сентября 2026 года
+Версия документа: 3.26
+Дата актуализации: 22 сентября 2026 года
 Проверенная база: реализация Issue #134 в ветке `task/134-position-timeline`
 Последняя учтённая задача: Issue #134 «F-06. Реализовать timeline позиции с cursor pagination и фильтрами»
 Текущий этап: **F — пользовательский REST API и SignalR**
@@ -9,9 +9,11 @@
 
 ## 1. Цель продукта
 
-Развить текущую систему анализа крипторынка в помощника по сопровождению уже открытых сделок.
+Долгосрочная цель Intelligence.TradeSystem зафиксирована в [Product Vision](docs/product/vision.md): единая интеллектуальная торговая среда, которая видит рынок, знает портфель пользователя, сопровождает сделки, объясняет происходящее, учится на истории пользователя, помогает исследовать рынок и постепенно автоматизирует рутинные действия.
 
-Система должна:
+Текущий ROADMAP намеренно реализует первую основную продуктовую вертикаль — помощника по сопровождению уже открытых сделок — и создаёт безопасный фундамент для дальнейшего развития. Будущие продуктовые направления и уровень их зрелости фиксируются отдельно в [Capability Map](docs/product/capability-map.md) и не меняют последовательность ROADMAP без отдельного human decision.
+
+В рамках текущей вертикали система должна:
 
 - подключать биржевые аккаунты пользователей только для чтения;
 - синхронизировать баланс, открытые позиции и состояние портфеля;
@@ -527,10 +529,30 @@ GET    /api/v1/auth/me
 7. Обновить дату, текущий активный этап и ссылки на связанные Issue/PR.
 8. Если изменилось направление продукта, сначала обновить этот документ, затем код.
 
+## Future Product Directions
+
+Текущий ROADMAP не исчерпывает долгосрочное Product Vision. Отдельно исследуются и концептуально развиваются следующие направления:
+
+- Trading Journal и Journal analytics;
+- Market Screener и сохранённые скринеры;
+- AI Explanation, AI Copilot, AI Trading Coach, Context Synthesis и AI Research;
+- Social / Strategy Intelligence, включая Follow Trader, Shadow Copy и внутреннее Copy Trading;
+- профили и подписки на торговые стратегии;
+- наблюдение и анализ внешних торговых ботов, включая возможную интеграцию с GinArea;
+- подготовка торговых действий и контролируемое исполнение;
+- Controlled Agentic Trading после накопления достаточной статистики качества и появления строгих risk gates.
+
+Полный каталог и степень зрелости этих возможностей фиксируются в [Capability Map](docs/product/capability-map.md), а продуктовые термины и пользовательские сценарии — в [Product Concepts](docs/product/concepts.md) и [Product Scenarios](docs/product/scenarios.md).
+
+Порядок перечисления в этом разделе и в Capability Map **не является порядком реализации**. Перевод Idea / Research / Concept в ROADMAP, GitHub Issue или implementation требует отдельного human decision.
+
+---
+
 ## 10. Журнал изменений
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Долгосрочное видение расширено до единой интеллектуальной торговой среды; будущие Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
 | 2026-09-21 | 3.25 | Issue #134 завершает F-06: добавлен user-scoped `GET /api/v1/positions/{id}/timeline`, объединяющий persisted position changes, assessments/evaluations и recommendations с bounded PostgreSQL projections, deterministic newest-first ordering, versioned opaque cursor и repeatable type filter. Domain не изменялся; по PostgreSQL query-plan evidence через EF Core migration добавлены chronology indexes `ix_position_changes_position_occurred_at_sequence` и `ix_recommendations_position_created_at_id`; F-07 остаётся следующим шагом. |
 | 2026-09-21 | 3.24 | Issue #128 завершает F-05: добавлены user-scoped GET/POST evaluation, latest assessment query, evaluation-time portfolio freshness, typed configuration с risk limits `20/200/50`, explicit v1 read model и stable `position_not_evaluable` error. Следующий шаг — F-06: timeline позиции. |
 | 2026-09-21 | 3.23 | Issue #126 завершает F-04: добавлены user-scoped position market identity projection, `/api/v1/positions/{id}/market` через существующий cached public snapshot pipeline и `/api/v1/positions/{id}/candles` с bounded interval/limit contract, explicit v1 DTO mapping, OpenAPI synchronization и API/Application/PostgreSQL/architecture coverage. Следующий шаг — F-05: единый evaluation workflow и read model. |
