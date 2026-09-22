@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
@@ -160,6 +161,28 @@ public sealed class PositionEvaluationService(
             positionId,
             async persistenceCancellationToken =>
             {
+                var lockedPosition = await positionRepository.GetByIdAsync(
+                    userId,
+                    positionId,
+                    persistenceCancellationToken);
+                if (lockedPosition is null || lockedPosition.Version != position.Version)
+                {
+                    throw new ConcurrencyConflictException(
+                        "The position evaluation snapshot became stale before persistence.");
+                }
+
+                var lockedPortfolio = await portfolioStateRepository.GetLatestAsync(
+                    userId,
+                    account.Value.Id,
+                    persistenceCancellationToken);
+                if (lockedPortfolio is null ||
+                    lockedPortfolio.CalculatedAt != portfolio.CalculatedAt ||
+                    !HasConsistentPortfolioPosition(lockedPosition.Value, lockedPortfolio))
+                {
+                    throw new ConcurrencyConflictException(
+                        "The portfolio evaluation snapshot became stale before persistence.");
+                }
+
                 await positionAssessmentRepository.SaveAsync(
                     userId,
                     assessment,

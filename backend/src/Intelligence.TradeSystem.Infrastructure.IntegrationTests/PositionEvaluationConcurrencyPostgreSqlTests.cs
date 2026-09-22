@@ -194,6 +194,81 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         Assert.Single(evaluationEvents);
     }
 
+    [Fact]
+    public async Task Evaluation_rejects_a_position_snapshot_changed_before_lock_without_partial_state()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var position = CreatePosition(account.Id);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0.AddMinutes(1), 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(10),
+            positionsFullyReconciled: true);
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setup)
+                .SaveAsync(userId, account, expectedVersion: null);
+            await new PositionRepository(setup)
+                .SaveAsync(userId, position, expectedVersion: null);
+            await new PortfolioStateRepository(setup)
+                .SaveAsync(userId, portfolio);
+        }
+
+        var coordinator = new BlockingPositionEvaluationCoordinator();
+        var evaluation = RunEvaluationAsync(
+            userId,
+            position.Id,
+            T0.AddMinutes(3),
+            context => new BlockingPositionEvaluationTransaction(
+                new PositionEvaluationTransaction(context),
+                coordinator));
+
+        try
+        {
+            await coordinator.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await using (var mutationContext = await CreateMigratedContext())
+            {
+                var currentPosition = await new PositionRepository(mutationContext)
+                    .GetByIdAsync(userId, position.Id);
+                Assert.NotNull(currentPosition);
+                var changedPosition = currentPosition!;
+                changedPosition.Value.MarkUnknown(T0.AddMinutes(3));
+                await new PositionRepository(mutationContext)
+                    .SaveAsync(userId, changedPosition.Value, changedPosition.Version);
+            }
+
+            coordinator.Continue.TrySetResult(null);
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(
+                async () => await evaluation.WaitAsync(TimeSpan.FromSeconds(30)));
+        }
+        finally
+        {
+            coordinator.Continue.TrySetResult(null);
+        }
+
+        await using var verification = await CreateMigratedContext();
+        Assert.Empty(await verification.PositionAssessments
+            .Where(assessment =>
+                assessment.PositionId == position.Id.Value &&
+                assessment.ExchangeAccountId == account.Id.Value)
+            .ToArrayAsync());
+        var evaluationEvents = (await verification.OutboxMessages
+            .Where(message =>
+                message.EventType == ApplicationEventTypes.PositionEvaluationUpdated)
+            .ToArrayAsync())
+            .Where(message =>
+                message.Payload.Contains(
+                    position.Id.Value.ToString(),
+                    StringComparison.Ordinal))
+            .ToArray();
+        Assert.Empty(evaluationEvents);
+    }
+
     private async Task<PositionEvaluationResult> RunEvaluationAsync(
         UserId userId,
         PositionId positionId,
@@ -352,6 +427,35 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         {
             await Task.Yield();
             barrier.SignalAndWait(cancellationToken);
+            await inner.ExecuteAsync(
+                userId,
+                positionId,
+                operation,
+                cancellationToken);
+        }
+    }
+
+    private sealed class BlockingPositionEvaluationCoordinator
+    {
+        public TaskCompletionSource<object?> Reached { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> Continue { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class BlockingPositionEvaluationTransaction(
+        IPositionEvaluationTransaction inner,
+        BlockingPositionEvaluationCoordinator coordinator) : IPositionEvaluationTransaction
+    {
+        public async Task ExecuteAsync(
+            UserId userId,
+            PositionId positionId,
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            coordinator.Reached.TrySetResult(null);
+            await coordinator.Continue.Task.WaitAsync(cancellationToken);
             await inner.ExecuteAsync(
                 userId,
                 positionId,
