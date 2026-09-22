@@ -573,10 +573,17 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                 assessment.PositionId == position.Id.Value &&
                 assessment.ExchangeAccountId == account.Id.Value)
             .ToArrayAsync());
-        Assert.Empty(await verification.OutboxMessages
+        var userOutboxMessages = (await verification.OutboxMessages
+                .ToArrayAsync())
+            .Where(message =>
+                message.Payload.Contains(
+                    userId.Value.ToString(),
+                    StringComparison.Ordinal))
+            .ToArray();
+        Assert.Empty(userOutboxMessages
             .Where(message =>
                 message.EventType == ApplicationEventTypes.PositionEvaluationUpdated)
-            .ToArrayAsync());
+            .ToArray());
         Assert.Empty(await verification.Recommendations
             .Where(recommendation => recommendation.PositionId == position.Id.Value)
             .ToArrayAsync());
@@ -587,6 +594,104 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             .GetByIdAsync(userId, position.Id);
         Assert.NotNull(persistedPosition);
         Assert.Equal(ConcurrencyVersion.Initial, persistedPosition!.Version);
+    }
+
+    [Fact]
+    public async Task Stale_sync_retries_when_position_set_grows_before_account_lock_without_deadlock_with_evaluation()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setup)
+                .SaveAsync(userId, account, expectedVersion: null);
+        }
+
+        var positionsObservation = CreateOpenPositionsObservation(T0.AddMinutes(1));
+        var balanceObservation = AccountBalanceObservation.Complete(
+            new AccountBalance(
+                AccountType.Unified,
+                1_000m,
+                800m,
+                700m,
+                1_000m,
+                []),
+            T0.AddMinutes(1));
+        var staleSyncCoordinator = new PositionSetGrowthSyncCoordinator();
+        var staleSync = RunSynchronizationAsync(
+            account,
+            new TestPrivateProvider(positionsObservation, balanceObservation),
+            T0.AddMinutes(2),
+            context => new GateAfterPositionLocksSyncTransaction(
+                new ExchangeAccountSyncTransaction(context),
+                staleSyncCoordinator));
+        await staleSyncCoordinator.PositionLocksAcquired.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var freshSync = await RunSynchronizationAsync(
+            account,
+            new TestPrivateProvider(positionsObservation, balanceObservation),
+            T0.AddMinutes(2),
+            context => new ExchangeAccountSyncTransaction(context));
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, freshSync.Outcome);
+
+        PositionId insertedPositionId;
+        await using (var insertedPositionLookup = await CreateMigratedContext())
+        {
+            var insertedPosition = Assert.Single(
+                await new PositionRepository(insertedPositionLookup)
+                    .GetByExchangeAccountAsync(userId, account.Id));
+            insertedPositionId = insertedPosition.Value.Id;
+        }
+
+        var evaluationCoordinator = new EvaluationAccountLockCoordinator();
+        var evaluation = RunEvaluationAsync(
+            userId,
+            insertedPositionId,
+            T0.AddMinutes(3),
+            context => new BlockingAccountLockEvaluationTransaction(
+                context,
+                evaluationCoordinator));
+        await evaluationCoordinator.PositionLocked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        staleSyncCoordinator.ReleaseAccountLock.TrySetResult(null);
+        evaluationCoordinator.ReleaseAccountLock.TrySetResult(null);
+
+        var staleSyncResult = await staleSync.WaitAsync(TimeSpan.FromSeconds(30));
+        var evaluationResult = await evaluation.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(ExchangeAccountSyncOutcome.AlreadyApplied, staleSyncResult.Outcome);
+        Assert.Equal(PositionEvaluationOutcome.Succeeded, evaluationResult.Outcome);
+
+        await using var verification = await CreateMigratedContext();
+        Assert.Single(
+            await verification.PortfolioStates
+                .Where(state => state.ExchangeAccountId == account.Id.Value)
+                .ToArrayAsync());
+        Assert.Single(
+            await verification.PositionAssessments
+                .Where(assessment =>
+                    assessment.PositionId == insertedPositionId.Value &&
+                    assessment.ExchangeAccountId == account.Id.Value)
+                .ToArrayAsync());
+        var userOutboxMessages = (await verification.OutboxMessages.ToArrayAsync())
+            .Where(message =>
+                message.Payload.Contains(
+                    userId.Value.ToString(),
+                    StringComparison.Ordinal))
+            .ToArray();
+        Assert.Single(
+            userOutboxMessages,
+            message => message.EventType == ApplicationEventTypes.PositionOpened);
+        Assert.Single(
+            userOutboxMessages,
+            message => message.EventType == ApplicationEventTypes.ExchangeAccountUpdated);
+        Assert.Single(
+            userOutboxMessages,
+            message => message.EventType == ApplicationEventTypes.PortfolioUpdated);
+        Assert.Single(
+            userOutboxMessages,
+            message => message.EventType == ApplicationEventTypes.PositionEvaluationUpdated);
     }
 
     private async Task<PositionEvaluationResult> RunEvaluationAsync(
@@ -658,17 +763,29 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         DateTimeOffset synchronizedAt,
         SyncLockCoordinator coordinator)
     {
+        return await RunSynchronizationAsync(
+            account,
+            provider,
+            synchronizedAt,
+            context => new SignalingSyncTransaction(
+                new ExchangeAccountSyncTransaction(context),
+                coordinator));
+    }
+
+    private async Task<ExchangeAccountSyncResult> RunSynchronizationAsync(
+        ExchangeAccount account,
+        TestPrivateProvider provider,
+        DateTimeOffset synchronizedAt,
+        Func<TradeSystemDbContext, IExchangeAccountSyncTransaction> transactionFactory)
+    {
         await using var context = fixture.CreateContext();
-        var transaction = new SignalingSyncTransaction(
-            new ExchangeAccountSyncTransaction(context),
-            coordinator);
         var service = new ExchangeAccountSyncService(
             new ExchangeAccountRepository(context),
             new TestCredentialStore(),
             new TestPrivateProviderFactory(provider),
             new PositionRepository(context),
             new PortfolioStateRepository(context),
-            transaction,
+            transactionFactory(context),
             new ApplicationEventOutbox(context),
             new FixedTimeProvider(synchronizedAt));
 
@@ -887,6 +1004,24 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
+    private sealed class PositionSetGrowthSyncCoordinator
+    {
+        public TaskCompletionSource<object?> PositionLocksAcquired { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> ReleaseAccountLock { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class EvaluationAccountLockCoordinator
+    {
+        public TaskCompletionSource<object?> PositionLocked { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> ReleaseAccountLock { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
     private sealed class SignalingSyncTransaction(
         IExchangeAccountSyncTransaction inner,
         SyncLockCoordinator coordinator)
@@ -920,6 +1055,105 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default) =>
             inner.ExecuteAsync(operation, cancellationToken);
+    }
+
+    private sealed class GateAfterPositionLocksSyncTransaction(
+        IExchangeAccountSyncTransaction inner,
+        PositionSetGrowthSyncCoordinator coordinator)
+        : IExchangeAccountSyncTransaction
+    {
+        public async Task LockPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            await inner.LockPositionsAsync(
+                userId,
+                exchangeAccountId,
+                cancellationToken);
+            coordinator.PositionLocksAcquired.TrySetResult(null);
+            await coordinator.ReleaseAccountLock.Task.WaitAsync(cancellationToken);
+        }
+
+        public Task LockAccountAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            inner.LockAccountAsync(
+                userId,
+                exchangeAccountId,
+                cancellationToken);
+
+        public Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default) =>
+            inner.ExecuteAsync(operation, cancellationToken);
+    }
+
+    private sealed class BlockingAccountLockEvaluationTransaction(
+        TradeSystemDbContext dbContext,
+        EvaluationAccountLockCoordinator coordinator)
+        : IPositionEvaluationTransaction
+    {
+        public async Task ExecuteAsync(
+            UserId userId,
+            PositionId positionId,
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            if (dbContext.Database.CurrentTransaction is not null)
+            {
+                await RecommendationPositionLock.LockAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken);
+                coordinator.PositionLocked.TrySetResult(null);
+                await coordinator.ReleaseAccountLock.Task.WaitAsync(cancellationToken);
+                await ExchangeAccountSerializationLock.LockForPositionAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken);
+                await operation(cancellationToken);
+                return;
+            }
+
+            await using var transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await RecommendationPositionLock.LockAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken);
+                coordinator.PositionLocked.TrySetResult(null);
+                await coordinator.ReleaseAccountLock.Task.WaitAsync(cancellationToken);
+                await ExchangeAccountSerializationLock.LockForPositionAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken);
+                await operation(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                try
+                {
+                    await transaction.RollbackAsync(CancellationToken.None);
+                }
+                finally
+                {
+                    dbContext.ChangeTracker.Clear();
+                }
+
+                throw;
+            }
+        }
     }
 
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore
