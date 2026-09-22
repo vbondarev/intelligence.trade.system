@@ -89,6 +89,12 @@ public sealed class RecommendationService(
                 pending.Value.BaselineRecommendationId == current.Value.Id
                 ? pending.Value.State
                 : null;
+            if (effectivePending is not null && asOf < effectivePending.LastObservedAt)
+            {
+                throw new ConcurrencyConflictException(
+                    "The evaluation timestamp precedes the pending stability observation after a concurrent publication.");
+            }
+
             if (attempt > 1 &&
                 current is not null &&
                 evaluation.CreatedAt <= current.Value.CreatedAt &&

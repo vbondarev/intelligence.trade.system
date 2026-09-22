@@ -110,15 +110,114 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         Assert.Equal(2, evaluationEvents.Length);
     }
 
+    [Fact]
+    public async Task Concurrent_evaluations_with_inverted_logical_time_return_concurrency_conflict_without_partial_state()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var position = CreatePosition(account.Id);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0.AddMinutes(1), 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(10),
+            positionsFullyReconciled: true);
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setup)
+                .SaveAsync(userId, account, expectedVersion: null);
+            await new PositionRepository(setup)
+                .SaveAsync(userId, position, expectedVersion: null);
+            await new PortfolioStateRepository(setup)
+                .SaveAsync(userId, portfolio);
+        }
+
+        var coordinator = new InvertedLogicalTimeCoordinator();
+        var earlier = RunEvaluationAsync(
+            userId,
+            position.Id,
+            T0.AddMinutes(3),
+            context => new InvertedLogicalTimeEvaluationTransaction(
+                new PositionEvaluationTransaction(context),
+                coordinator,
+                isEarlier: true));
+        await coordinator.EarlierReached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var later = RunEvaluationAsync(
+            userId,
+            position.Id,
+            T0.AddMinutes(4),
+            context => new InvertedLogicalTimeEvaluationTransaction(
+                new PositionEvaluationTransaction(context),
+                coordinator,
+                isEarlier: false));
+
+        var laterResult = await later.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(PositionEvaluationOutcome.Succeeded, laterResult.Outcome);
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            async () => await earlier.WaitAsync(TimeSpan.FromSeconds(30)));
+
+        await using var verification = await CreateMigratedContext();
+        var assessments = await verification.PositionAssessments
+            .Where(assessment =>
+                assessment.PositionId == position.Id.Value &&
+                assessment.ExchangeAccountId == account.Id.Value)
+            .ToArrayAsync();
+        Assert.Single(assessments);
+        Assert.Equal(T0.AddMinutes(4), assessments[0].CreatedAt);
+
+        var currentRecommendations = await verification.Recommendations
+            .Where(recommendation =>
+                recommendation.PositionId == position.Id.Value &&
+                (recommendation.Status == RecommendationStatus.Active ||
+                 recommendation.Status == RecommendationStatus.Acknowledged))
+            .ToArrayAsync();
+        Assert.Single(currentRecommendations);
+        Assert.Equal(T0.AddMinutes(4), currentRecommendations[0].CreatedAt);
+
+        var stabilityStates = await verification.RecommendationStabilityStates
+            .Where(state => state.PositionId == position.Id.Value)
+            .ToArrayAsync();
+        Assert.Empty(stabilityStates);
+
+        var evaluationEvents = (await verification.OutboxMessages
+                .Where(message =>
+                    message.EventType == ApplicationEventTypes.PositionEvaluationUpdated)
+                .ToArrayAsync())
+            .Where(message =>
+                message.Payload.Contains(
+                    position.Id.Value.ToString(),
+                    StringComparison.Ordinal))
+            .ToArray();
+        Assert.Single(evaluationEvents);
+    }
+
     private async Task<PositionEvaluationResult> RunEvaluationAsync(
         UserId userId,
         PositionId positionId,
         Barrier transactionBoundary)
     {
+        return await RunEvaluationAsync(
+            userId,
+            positionId,
+            T0.AddMinutes(3),
+            context => new CoordinatedPositionEvaluationTransaction(
+                new PositionEvaluationTransaction(context),
+                transactionBoundary));
+    }
+
+    private async Task<PositionEvaluationResult> RunEvaluationAsync(
+        UserId userId,
+        PositionId positionId,
+        DateTimeOffset asOf,
+        Func<TradeSystemDbContext, IPositionEvaluationTransaction> transactionFactory)
+    {
         await using var context = fixture.CreateContext();
         await Task.Yield();
 
-        var market = CreateMarketSnapshot(T0.AddMinutes(2));
+        var market = CreateMarketSnapshot(asOf.AddMinutes(-1));
         var policyProvider = new FixedPolicyProvider();
         var positionAssessmentRepository = new PositionAssessmentRepository(context);
         var recommendationRepository = new RecommendationRepository(context);
@@ -134,9 +233,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                 recommendationRepository,
                 stabilityRepository),
             positionAssessmentRepository);
-        var evaluationTransaction = new CoordinatedPositionEvaluationTransaction(
-            new PositionEvaluationTransaction(context),
-            transactionBoundary);
+        var evaluationTransaction = transactionFactory(context);
         var service = new PositionEvaluationService(
             new PositionRepository(context),
             new ExchangeAccountRepository(context),
@@ -152,7 +249,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             new PositionEvaluationPolicySettings(
                 PositionAssessmentRules.Default,
                 new PortfolioRiskPolicySettings(0m, 200m, 100m)),
-            new FixedTimeProvider(T0.AddMinutes(3)));
+            new FixedTimeProvider(asOf));
 
         return await service.EvaluateAsync(userId, positionId);
     }
@@ -260,6 +357,55 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                 positionId,
                 operation,
                 cancellationToken);
+        }
+    }
+
+    private sealed class InvertedLogicalTimeCoordinator
+    {
+        public TaskCompletionSource<object?> EarlierReached { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> LaterCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class InvertedLogicalTimeEvaluationTransaction(
+        IPositionEvaluationTransaction inner,
+        InvertedLogicalTimeCoordinator coordinator,
+        bool isEarlier) : IPositionEvaluationTransaction
+    {
+        public async Task ExecuteAsync(
+            UserId userId,
+            PositionId positionId,
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            if (isEarlier)
+            {
+                coordinator.EarlierReached.TrySetResult(null);
+                await coordinator.LaterCompleted.Task.WaitAsync(cancellationToken);
+                await inner.ExecuteAsync(
+                    userId,
+                    positionId,
+                    operation,
+                    cancellationToken);
+                return;
+            }
+
+            try
+            {
+                await inner.ExecuteAsync(
+                    userId,
+                    positionId,
+                    operation,
+                    cancellationToken);
+                coordinator.LaterCompleted.TrySetResult(null);
+            }
+            catch (Exception exception)
+            {
+                coordinator.LaterCompleted.TrySetException(exception);
+                throw;
+            }
         }
     }
 
