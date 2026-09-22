@@ -1149,6 +1149,8 @@ public sealed class PositionEvaluationServiceTests
     private sealed class RecordingEvaluationTransaction : IPositionEvaluationTransaction
     {
         public Task ExecuteAsync(
+            UserId userId,
+            PositionId positionId,
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default) =>
             operation(cancellationToken);

@@ -643,6 +643,8 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
     private sealed class InlineEvaluationTransaction : IPositionEvaluationTransaction
     {
         public Task ExecuteAsync(
+            UserId userId,
+            PositionId positionId,
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default) =>
             operation(cancellationToken);

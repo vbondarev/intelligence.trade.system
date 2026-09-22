@@ -156,6 +156,8 @@ public sealed class PositionEvaluationService(
         PositionAssessment? persistedAssessment = null;
         RecommendationApplicationResult? recommendationResult = null;
         await evaluationTransaction.ExecuteAsync(
+            userId,
+            positionId,
             async persistenceCancellationToken =>
             {
                 await positionAssessmentRepository.SaveAsync(

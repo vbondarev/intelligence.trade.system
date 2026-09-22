@@ -1,3 +1,5 @@
+using Intelligence.TradeSystem.Domain.Identity;
+
 namespace Intelligence.TradeSystem.Application.Evaluations;
 
 /// <summary>
@@ -7,6 +9,8 @@ namespace Intelligence.TradeSystem.Application.Evaluations;
 public interface IPositionEvaluationTransaction
 {
     Task ExecuteAsync(
+        UserId userId,
+        PositionId positionId,
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken = default);
 }

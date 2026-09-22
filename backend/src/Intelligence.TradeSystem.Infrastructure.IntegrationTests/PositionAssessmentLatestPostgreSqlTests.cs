@@ -165,6 +165,11 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         {
             await SaveAccountAndPosition(setup, account, position);
         }
+        int baselineOutboxCount;
+        await using (var baselineContext = await CreateMigratedContext())
+        {
+            baselineOutboxCount = await baselineContext.OutboxMessages.CountAsync();
+        }
 
         await using (var context = await CreateMigratedContext())
         {
@@ -174,7 +179,10 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             var transaction = new PositionEvaluationTransaction(context);
 
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                transaction.ExecuteAsync(async cancellationToken =>
+                transaction.ExecuteAsync(
+                    account.UserId,
+                    position.Id,
+                    async cancellationToken =>
                 {
                     await assessments.SaveAsync(
                         account.UserId,
@@ -201,7 +209,48 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             .GetLatestForPositionAsync(account.UserId, position.Id));
         Assert.Null(await new RecommendationRepository(verificationContext)
             .GetCurrentForPositionAsync(account.UserId, position.Id));
-        Assert.Empty(await verificationContext.OutboxMessages.ToArrayAsync());
+        Assert.Equal(baselineOutboxCount, await verificationContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_position_evaluation_transactions_serialize_before_assessment_foreign_key_locks()
+    {
+        var account = CreateAccount(UserId.New());
+        var position = CreatePosition(account.Id);
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await SaveAccountAndPosition(setup, account, position);
+        }
+
+        using var ready = new Barrier(2);
+        var first = PersistConcurrentEvaluationAsync(
+            account,
+            position,
+            T0.AddMinutes(1),
+            ready);
+        var second = PersistConcurrentEvaluationAsync(
+            account,
+            position,
+            T0.AddMinutes(2),
+            ready);
+
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.Equal(
+            2,
+            await verificationContext.PositionAssessments.CountAsync(
+                assessment => assessment.PositionId == position.Id.Value));
+        var evaluationEvents = (await verificationContext.OutboxMessages
+                .Where(message =>
+                    message.EventType == ApplicationEventTypes.PositionEvaluationUpdated)
+                .ToArrayAsync())
+            .Where(message => message.Payload.Contains(
+                position.Id.Value.ToString(),
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, evaluationEvents.Length);
     }
 
     [Fact]
@@ -274,6 +323,40 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         var context = new TradeSystemDbContext(options.Options);
         await context.Database.MigrateAsync();
         return context;
+    }
+
+    private async Task PersistConcurrentEvaluationAsync(
+        ExchangeAccount account,
+        Position position,
+        DateTimeOffset createdAt,
+        Barrier ready)
+    {
+        await using var context = fixture.CreateContext();
+        await Task.Yield();
+        ready.SignalAndWait();
+
+        var assessment = CreateAssessment(account, position, createdAt);
+        var transaction = new PositionEvaluationTransaction(context);
+        var assessments = new PositionAssessmentRepository(context);
+        var outbox = new ApplicationEventOutbox(context);
+
+        await transaction.ExecuteAsync(
+            account.UserId,
+            position.Id,
+            async cancellationToken =>
+            {
+                await assessments.SaveAsync(
+                    account.UserId,
+                    assessment,
+                    cancellationToken);
+                await outbox.AddAsync(
+                    new PositionEvaluationUpdatedEventV1(
+                        Guid.NewGuid(),
+                        createdAt,
+                        account.UserId.Value,
+                        position.Id.Value),
+                    cancellationToken);
+            });
     }
 
     private static async Task SaveAccountAndPosition(
