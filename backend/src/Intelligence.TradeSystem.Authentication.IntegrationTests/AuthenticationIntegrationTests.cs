@@ -9,20 +9,27 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
 using Intelligence.TradeSystem.Api.Authentication;
+using Intelligence.TradeSystem.Api.Realtime.V1;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Migrations;
 using Intelligence.TradeSystem.Identity.Persistence;
+using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using Testcontainers.PostgreSql;
@@ -121,6 +128,17 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public void Api_testing_host_does_not_start_outbox_dispatcher_worker()
+    {
+        using var scope = apiFactory.Services.CreateScope();
+
+        scope.ServiceProvider
+            .GetServices<IHostedService>()
+            .Should()
+            .NotContain(service => service.GetType().Name == "ApplicationEventOutboxDispatcherWorker");
+    }
+
+    [Fact]
     public async Task Identity_migrations_create_auth_schema_without_pending_migrations()
     {
         await using var context = CreateIdentityContext();
@@ -156,6 +174,15 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() =>
             IdentityMigrationRunner.ApplyAsync(
                 "Host=127.0.0.1;Port=1;Database=unreachable;Username=none;Password=none;Timeout=1"));
+    }
+
+    [Fact]
+    public void Testing_api_host_does_not_register_the_outbox_dispatcher_worker()
+    {
+        apiFactory.Services
+            .GetServices<IHostedService>()
+            .Should()
+            .NotContain(service => service is ApplicationEventOutboxDispatcherWorker);
     }
 
     [Fact]
@@ -464,6 +491,318 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task User_token_connects_to_the_updates_hub_with_an_authorization_header()
+    {
+        var token = await IssueAccessTokenAsync();
+        await using var connection = CreateUpdatesConnection(token.AccessToken);
+
+        await connection.StartAsync();
+
+        connection.State.Should().Be(HubConnectionState.Connected);
+        await connection.StopAsync();
+    }
+
+    [Fact]
+    public async Task Updates_hub_closes_an_authenticated_websocket_when_the_token_expires()
+    {
+        var token = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddSeconds(8),
+            scope: "trade.api",
+            subject: userId.ToString(),
+            principalType: UserPrincipalType);
+        await using var connection = CreateUpdatesConnection(
+            token,
+            HttpTransportType.WebSockets,
+            useWebSockets: true);
+        var closed = new TaskCompletionSource<Exception?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var deliveredAfterExpiration = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.Closed += exception =>
+        {
+            closed.TrySetResult(exception);
+            return Task.CompletedTask;
+        };
+        connection.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            _ => deliveredAfterExpiration.TrySetResult(true));
+
+        await connection.StartAsync();
+        connection.State.Should().Be(HubConnectionState.Connected);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        connection.State.Should().Be(HubConnectionState.Disconnected);
+        var handler = apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>();
+        await handler.HandleAsync(
+            new ExchangeAccountUpdatedEventV1(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                userId,
+                Guid.NewGuid()));
+        (await Task.WhenAny(
+                deliveredAfterExpiration.Task,
+                Task.Delay(TimeSpan.FromSeconds(1))))
+            .Should()
+            .NotBe(deliveredAfterExpiration.Task);
+    }
+
+    [Fact]
+    public async Task Updates_hub_rejects_anonymous_negotiate_requests()
+    {
+        using var client = apiFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            "/hubs/v1/updates/negotiate?negotiateVersion=1",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Updates_hub_does_not_accept_query_string_access_tokens()
+    {
+        var token = await IssueAccessTokenAsync();
+        using var client = apiFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            "/hubs/v1/updates/negotiate?negotiateVersion=1"
+            + $"&access_token={Uri.EscapeDataString(token.AccessToken)}",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Updates_hub_rejects_non_user_or_insufficient_scope_tokens()
+    {
+        using var client = apiFactory.CreateClient();
+        var machineToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            principalType: "machine");
+        var missingScopeToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            scope: "openid",
+            principalType: UserPrincipalType);
+        var invalidSubjectToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            subject: "not-a-guid",
+            principalType: UserPrincipalType);
+
+        (await NegotiateWithTokenAsync(client, machineToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await NegotiateWithTokenAsync(client, missingScopeToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await NegotiateWithTokenAsync(client, invalidSubjectToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Registered_realtime_handler_delivers_only_to_the_event_owner()
+    {
+        var tokenA = await IssueAccessTokenAsync();
+        var tokenB = await IssueAccessTokenAsync(SecondUsername, SecondPassword);
+        await using var connectionA = CreateUpdatesConnection(tokenA.AccessToken);
+        await using var connectionA2 = CreateUpdatesConnection(tokenA.AccessToken);
+        await using var connectionB = CreateUpdatesConnection(tokenB.AccessToken);
+        var receivedA = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receivedA2 = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receivedB = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connectionA.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedA.TrySetResult(message));
+        connectionA2.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedA2.TrySetResult(message));
+        connectionB.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedB.TrySetResult(message));
+        await connectionA.StartAsync();
+        await connectionA2.StartAsync();
+        await connectionB.StartAsync();
+
+        var accountId = Guid.NewGuid();
+        var applicationEvent = new ExchangeAccountUpdatedEventV1(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            userId,
+            accountId);
+        var handler = apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>();
+
+        await handler.HandleAsync(applicationEvent);
+
+        var received = await receivedA.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.EventId.Should().Be(applicationEvent.EventId);
+        received.ExchangeAccountId.Should().Be(accountId);
+        (await receivedA2.Task.WaitAsync(TimeSpan.FromSeconds(10)))
+            .EventId.Should()
+            .Be(applicationEvent.EventId);
+        (await Task.WhenAny(receivedB.Task, Task.Delay(500)))
+            .Should()
+            .NotBe(receivedB.Task);
+    }
+
+    [Fact]
+    public async Task Registered_realtime_handlers_map_every_application_event_to_its_client_event()
+    {
+        var token = await IssueAccessTokenAsync();
+        await using var connection = CreateUpdatesConnection(token.AccessToken);
+        var userId = this.userId;
+        var accountId = Guid.NewGuid();
+        var positionId = Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow;
+        var accountEvent = new ExchangeAccountUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId);
+        var degradedEvent = new ExchangeAccountSyncDegradedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            "positions_partial",
+            occurredAt.AddMinutes(-1));
+        var portfolioEvent = new PortfolioUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            accountId);
+        var openedEvent = CreateOpenedEvent(userId, accountId, positionId);
+        var changedEvent = CreateChangedEvent(userId, accountId, positionId);
+        var closedEvent = CreateClosedEvent(userId, accountId, positionId);
+        var evaluationEvent = new PositionEvaluationUpdatedEventV1(
+            Guid.NewGuid(),
+            occurredAt,
+            userId,
+            positionId);
+        var accountReceived = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var degradedReceived = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var portfolioReceived = new TaskCompletionSource<PortfolioUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var openedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var changedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closedReceived = new TaskCompletionSource<PositionUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var evaluationReceived = new TaskCompletionSource<EvaluationUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connection.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message =>
+            {
+                if (message.EventId == accountEvent.EventId)
+                    accountReceived.TrySetResult(message);
+                if (message.EventId == degradedEvent.EventId)
+                    degradedReceived.TrySetResult(message);
+            });
+        connection.On<PortfolioUpdatedMessageV1>(
+            RealtimeEventNames.PortfolioUpdated,
+            message => portfolioReceived.TrySetResult(message));
+        connection.On<PositionUpdatedMessageV1>(
+            RealtimeEventNames.PositionUpdated,
+            message =>
+            {
+                if (message.EventId == openedEvent.EventId)
+                    openedReceived.TrySetResult(message);
+                if (message.EventId == changedEvent.EventId)
+                    changedReceived.TrySetResult(message);
+                if (message.EventId == closedEvent.EventId)
+                    closedReceived.TrySetResult(message);
+            });
+        connection.On<EvaluationUpdatedMessageV1>(
+            RealtimeEventNames.EvaluationUpdated,
+            message => evaluationReceived.TrySetResult(message));
+
+        await connection.StartAsync();
+
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>()
+            .HandleAsync(accountEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountSyncDegradedEventV1>>()
+            .HandleAsync(degradedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PortfolioUpdatedEventV1>>()
+            .HandleAsync(portfolioEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionOpenedEventV1>>()
+            .HandleAsync(openedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionChangedEventV1>>()
+            .HandleAsync(changedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionClosedEventV1>>()
+            .HandleAsync(closedEvent);
+        await apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<PositionEvaluationUpdatedEventV1>>()
+            .HandleAsync(evaluationEvent);
+
+        await Task.WhenAll(
+            accountReceived.Task,
+            degradedReceived.Task,
+            portfolioReceived.Task,
+            openedReceived.Task,
+            changedReceived.Task,
+            closedReceived.Task,
+            evaluationReceived.Task)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        var accountMessage = await accountReceived.Task;
+        Assert.Equal(accountEvent.EventId, accountMessage.EventId);
+        Assert.Equal(accountEvent.OccurredAt, accountMessage.OccurredAt);
+        Assert.Equal(accountEvent.ExchangeAccountId, accountMessage.ExchangeAccountId);
+
+        var degradedMessage = await degradedReceived.Task;
+        Assert.Equal(degradedEvent.EventId, degradedMessage.EventId);
+        Assert.Equal(degradedEvent.OccurredAt, degradedMessage.OccurredAt);
+        Assert.Equal(degradedEvent.ExchangeAccountId, degradedMessage.ExchangeAccountId);
+
+        var portfolioMessage = await portfolioReceived.Task;
+        Assert.Equal(portfolioEvent.EventId, portfolioMessage.EventId);
+        Assert.Equal(portfolioEvent.OccurredAt, portfolioMessage.OccurredAt);
+        Assert.Equal(portfolioEvent.ExchangeAccountId, portfolioMessage.ExchangeAccountId);
+
+        var openedMessage = await openedReceived.Task;
+        Assert.Equal(openedEvent.EventId, openedMessage.EventId);
+        Assert.Equal(openedEvent.OccurredAt, openedMessage.OccurredAt);
+        Assert.Equal(openedEvent.PositionId, openedMessage.PositionId);
+
+        var changedMessage = await changedReceived.Task;
+        Assert.Equal(changedEvent.EventId, changedMessage.EventId);
+        Assert.Equal(changedEvent.OccurredAt, changedMessage.OccurredAt);
+        Assert.Equal(changedEvent.PositionId, changedMessage.PositionId);
+
+        var closedMessage = await closedReceived.Task;
+        Assert.Equal(closedEvent.EventId, closedMessage.EventId);
+        Assert.Equal(closedEvent.OccurredAt, closedMessage.OccurredAt);
+        Assert.Equal(closedEvent.PositionId, closedMessage.PositionId);
+
+        var evaluationMessage = await evaluationReceived.Task;
+        Assert.Equal(evaluationEvent.EventId, evaluationMessage.EventId);
+        Assert.Equal(evaluationEvent.OccurredAt, evaluationMessage.OccurredAt);
+        Assert.Equal(evaluationEvent.PositionId, evaluationMessage.PositionId);
+    }
+
+    [Fact]
     public async Task Openiddict_selects_the_valid_certificate_with_the_furthest_expiration_and_old_key_remains_accepted()
     {
         var issuedToken = await IssueAccessTokenAsync();
@@ -625,6 +964,137 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await client.SendAsync(request);
     }
+
+    private static Task<HttpResponseMessage> NegotiateWithTokenAsync(
+        HttpClient client,
+        string token)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/hubs/v1/updates/negotiate?negotiateVersion=1");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client.SendAsync(request);
+    }
+
+    private static PositionOpenedEventV1 CreateOpenedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt,
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            1,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt,
+            null,
+            PositionChangeKind.New,
+            PositionChangeCause.InitialObservation,
+            PositionTrackingState.Active,
+            null,
+            PositionPayload(1m));
+
+    private static PositionChangedEventV1 CreateChangedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt.AddMinutes(1),
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            2,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt.AddMinutes(1),
+            null,
+            PositionChangeKind.Increased,
+            PositionChangeCause.ExchangeObservation,
+            PositionTrackingState.Active,
+            PositionPayload(1m),
+            PositionPayload(2m));
+
+    private static PositionClosedEventV1 CreateClosedEvent(
+        Guid userId,
+        Guid accountId,
+        Guid positionId) =>
+        new(
+            Guid.NewGuid(),
+            MappingOccurredAt.AddMinutes(2),
+            userId,
+            accountId,
+            ExchangeId.Bybit,
+            positionId,
+            3,
+            "BTCUSDT",
+            MarketCategory.Linear,
+            PositionSide.Long,
+            0,
+            MappingOccurredAt,
+            MappingOccurredAt.AddMinutes(2),
+            MappingOccurredAt.AddMinutes(2),
+            PositionChangeKind.Closed,
+            PositionChangeCause.MissingFromCompleteObservation,
+            PositionTrackingState.Closed,
+            PositionPayload(2m),
+            PositionPayload(0m));
+
+    private static PositionStateEventPayloadV1 PositionPayload(decimal size) =>
+        new(
+            size,
+            100m,
+            size * 100m,
+            2m,
+            100m,
+            null,
+            null,
+            0m,
+            null,
+            null,
+            null);
+
+    private static readonly DateTimeOffset MappingOccurredAt =
+        new(2026, 9, 22, 5, 0, 0, TimeSpan.Zero);
+
+    private HubConnection CreateUpdatesConnection(
+        string token,
+        HttpTransportType transport = HttpTransportType.LongPolling,
+        bool useWebSockets = false) =>
+        new HubConnectionBuilder()
+            .WithUrl(
+                new Uri(apiFactory.Server.BaseAddress, "/hubs/v1/updates"),
+                options =>
+                {
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(token);
+                    options.Transports = transport;
+                    options.HttpMessageHandlerFactory = _ => apiFactory.Server.CreateHandler();
+                    if (useWebSockets)
+                    {
+                        options.WebSocketFactory = async (context, cancellationToken) =>
+                        {
+                            var webSocketClient = apiFactory.Server.CreateWebSocketClient();
+                            webSocketClient.ConfigureRequest = request =>
+                            {
+                                request.Headers["Authorization"] = $"Bearer {token}";
+                            };
+                            return await webSocketClient
+                                .ConnectAsync(context.Uri, cancellationToken);
+                        };
+                    }
+                })
+            .Build();
 
     private async Task<HttpResponseMessage> GetAccountWithTokenAsync(
         ExchangeAccountId accountId,

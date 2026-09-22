@@ -97,6 +97,155 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     }
 
     [Fact]
+    public async Task Concurrent_syncs_discovering_different_new_positions_do_not_deadlock()
+    {
+        // The account lock (FOR NO KEY UPDATE) must remain compatible with the implicit
+        // KEY SHARE FK lock a concurrent new-position INSERT holds on exchange_accounts;
+        // otherwise two overlapping syncs inserting different new positions on the same
+        // account would deadlock (PostgreSQL 40P01) instead of serializing/retrying.
+        //
+        // The "newer" observation (T2) is a strict superset of the "older" one (T1),
+        // mirroring the real world: a later poll of the same account/category always
+        // reports every position still open plus anything opened meanwhile. This keeps
+        // the expected final state deterministic (both positions persisted) regardless
+        // of which of the two overlapping attempts happens to commit first, while the
+        // account/position row locks are still genuinely contended via the fetch barrier.
+        var account = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setupContext)
+                .SaveAsync(account.UserId, account, expectedVersion: null);
+        }
+
+        using var fetchBarrier = new Barrier(2);
+        var olderObservation = CreateObservationWithPositions(T1, ("BTCUSDT", 1m));
+        var newerObservation = CreateObservationWithPositions(T2, ("BTCUSDT", 1m), ("ETHUSDT", 1m));
+        var providers = new[]
+        {
+            new TestPrivateProvider(olderObservation, fetchBarrier),
+            new TestPrivateProvider(newerObservation, fetchBarrier),
+        };
+
+        var older = RunSynchronization(account, providers[0], T1);
+        var newer = RunSynchronization(account, providers[1], T2);
+        var results = await Task.WhenAll(older, newer).WaitAsync(TimeSpan.FromSeconds(30));
+
+        // No deadlock: both attempts complete with a well-defined outcome instead of a
+        // PostgresException (40P01) propagating out of Task.WhenAll above. The strictly
+        // newer (T2) observation can never be legitimately superseded by the older one,
+        // so it is always the attempt that ultimately applies; the older attempt either
+        // wins the race (Synchronized) or safely no-ops once outrun (Superseded).
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, results[1].Outcome);
+        Assert.True(
+            results[0].Outcome is ExchangeAccountSyncOutcome.Synchronized
+                or ExchangeAccountSyncOutcome.Superseded,
+            $"Unexpected outcome for the older attempt: {results[0].Outcome}.");
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedPositions = await new PositionRepository(verificationContext)
+            .GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Equal(2, persistedPositions.Count);
+        Assert.Contains(
+            persistedPositions,
+            position => position.Value.ExchangePositionKey.InstrumentId.Value == "BTCUSDT");
+        Assert.Contains(
+            persistedPositions,
+            position => position.Value.ExchangePositionKey.InstrumentId.Value == "ETHUSDT");
+        // Portfolio state history is append-only: it gains one row per attempt that
+        // actually applied a synchronized observation (one or two, depending on which
+        // of the two overlapping attempts won the account-lock race).
+        var expectedPortfolioStates = results.Count(
+            result => result.Outcome == ExchangeAccountSyncOutcome.Synchronized);
+        Assert.Equal(
+            expectedPortfolioStates,
+            await verificationContext.PortfolioStates.CountAsync(
+                state => state.ExchangeAccountId == account.Id.Value));
+        var openedEvents = (await verificationContext.OutboxMessages
+            .Where(message => message.EventType == "position.opened")
+            .ToArrayAsync())
+            .Where(message => message.Payload.Contains(
+                account.UserId.Value.ToString(),
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, openedEvents.Length);
+        Assert.Equal(1, providers[0].PositionCalls);
+        Assert.Equal(1, providers[1].PositionCalls);
+    }
+
+    [Fact]
+    public async Task GetVersionWatermarkByExchangeAccountAsync_ReturnsLightweightUserScopedProjection()
+    {
+        var owner = CreateAccount();
+        var otherUser = CreateAccount();
+        await using (var setupContext = await CreateMigratedContext())
+        {
+            var accountRepository = new ExchangeAccountRepository(setupContext);
+            await accountRepository.SaveAsync(owner.UserId, owner, expectedVersion: null);
+            await accountRepository.SaveAsync(otherUser.UserId, otherUser, expectedVersion: null);
+        }
+
+        Position btc;
+        Position eth;
+        Position foreign;
+        await using (var seedContext = await CreateMigratedContext())
+        {
+            var positions = new PositionRepository(seedContext);
+            btc = Position.Create(
+                ExchangePositionKey.Create(owner.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
+                MarketCategory.Linear,
+                1m,
+                T1,
+                T1,
+                averageEntryPrice: 100m,
+                positionValue: 100m,
+                leverage: 2m,
+                unrealizedPnl: 0m);
+            eth = Position.Create(
+                ExchangePositionKey.Create(owner.Id, InstrumentId.From("ETHUSDT"), PositionSide.Long, 0),
+                MarketCategory.Linear,
+                1m,
+                T1,
+                T1,
+                averageEntryPrice: 100m,
+                positionValue: 100m,
+                leverage: 2m,
+                unrealizedPnl: 0m);
+            foreign = Position.Create(
+                ExchangePositionKey.Create(otherUser.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
+                MarketCategory.Linear,
+                1m,
+                T1,
+                T1,
+                averageEntryPrice: 100m,
+                positionValue: 100m,
+                leverage: 2m,
+                unrealizedPnl: 0m);
+            await positions.SaveAsync(owner.UserId, btc, expectedVersion: null);
+            await positions.SaveAsync(owner.UserId, eth, expectedVersion: null);
+            await positions.SaveAsync(otherUser.UserId, foreign, expectedVersion: null);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var repository = new PositionRepository(verificationContext);
+        var watermark = await repository.GetVersionWatermarkByExchangeAccountAsync(owner.UserId, owner.Id);
+        var full = await repository.GetByExchangeAccountAsync(owner.UserId, owner.Id);
+
+        Assert.Equal(2, watermark.Count);
+        Assert.Equal(
+            full.Select(versioned => versioned.Value.Id).OrderBy(id => id.Value),
+            watermark.Select(entry => entry.PositionId).OrderBy(id => id.Value));
+        Assert.Equal(
+            full.OrderBy(versioned => versioned.Value.Id.Value).Select(versioned => versioned.Version),
+            watermark.OrderBy(entry => entry.PositionId.Value).Select(entry => entry.Version));
+        Assert.Equal(
+            watermark.Select(entry => entry.PositionId).ToArray(),
+            watermark.OrderBy(entry => entry.PositionId.Value).Select(entry => entry.PositionId).ToArray());
+        Assert.DoesNotContain(watermark, entry => entry.PositionId == foreign.Id);
+        Assert.Contains(watermark, entry => entry.PositionId == btc.Id);
+        Assert.Contains(watermark, entry => entry.PositionId == eth.Id);
+    }
+
+    [Fact]
     public async Task Newer_observation_wins_after_the_older_transaction_commits_first()
     {
         var account = CreateAccount();
@@ -191,9 +340,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .ToArrayAsync();
         var eventRow = Assert.Single(
             accountEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "position.changed" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
         var applicationEvent = ApplicationEventSerializer.Deserialize(
             eventRow.EventType,
             eventRow.SchemaVersion,
@@ -207,7 +357,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     }
 
     [Fact]
-    public async Task Newer_identical_observation_updates_dynamic_state_without_history_or_event()
+    public async Task Newer_identical_observation_updates_dynamic_state_without_history_but_with_invalidation()
     {
         var account = CreateAccount();
         var initialPosition = Position.Create(
@@ -248,11 +398,18 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         var pendingEvents = await verificationContext.OutboxMessages
             .Where(message => message.ProcessedAt == null)
             .ToArrayAsync();
-        Assert.DoesNotContain(
+        Assert.Contains(
             pendingEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "exchange-account.updated" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
+        Assert.Contains(
+            pendingEvents,
+            message => message.EventType == "portfolio.updated" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
     }
 
     [Fact]
@@ -326,9 +483,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .ToArrayAsync();
         Assert.Single(
             supersededAccountEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "position.opened" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
     }
 
     [Fact]
@@ -417,19 +575,24 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private static OpenPositionsObservation CreateObservation(
         DateTimeOffset observedAt,
         decimal size) =>
+        CreateObservationWithPositions(observedAt, ("BTCUSDT", size));
+
+    private static OpenPositionsObservation CreateObservationWithPositions(
+        DateTimeOffset observedAt,
+        params (string Symbol, decimal Size)[] positions) =>
         OpenPositionsObservation.Complete(
             MarketCategory.Linear,
             null,
             observedAt,
-            [
-                new OpenPosition(
-                    "BTCUSDT",
+            positions
+                .Select(entry => new OpenPosition(
+                    entry.Symbol,
                     MarketCategory.Linear,
                     PositionSide.Long,
                     PositionStatus.Normal,
-                    size,
+                    entry.Size,
                     100m,
-                    size * 100m,
+                    entry.Size * 100m,
                     2m,
                     100m,
                     null,
@@ -442,8 +605,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                     null,
                     null,
                     null,
-                    0),
-            ]);
+                    0))
+                .ToArray());
 
     private static OpenPositionsObservation CreateEmptyObservation(
         DateTimeOffset observedAt) =>
@@ -461,6 +624,18 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private sealed class ThrowingAfterOperationSyncTransaction(TradeSystemDbContext dbContext)
         : IExchangeAccountSyncTransaction
     {
+        public Task LockPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task LockAccountAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public async Task ExecuteAsync(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default)

@@ -4,6 +4,11 @@
 Изменения внутри v1 допускаются только аддитивные; несовместимое изменение
 контракта требует новой версии маршрута.
 
+Realtime wire contract `/hubs/v1/updates` описан отдельно в
+[`realtime-v1-contract.md`](realtime-v1-contract.md). SignalR используется
+только для user-scoped invalidation, а актуальное состояние перечитывается
+через REST `/api/v1/...`.
+
 ## JSON
 
 Ответы v1 используют имена свойств в camelCase, строковые значения enum в

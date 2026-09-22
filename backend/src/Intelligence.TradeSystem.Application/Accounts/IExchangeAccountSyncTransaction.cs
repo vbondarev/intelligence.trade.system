@@ -1,3 +1,5 @@
+using Intelligence.TradeSystem.Domain.Identity;
+
 namespace Intelligence.TradeSystem.Application.Accounts;
 
 /// <summary>
@@ -6,6 +8,16 @@ namespace Intelligence.TradeSystem.Application.Accounts;
 /// </summary>
 public interface IExchangeAccountSyncTransaction
 {
+    Task LockPositionsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    Task LockAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
     Task ExecuteAsync(
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken = default);

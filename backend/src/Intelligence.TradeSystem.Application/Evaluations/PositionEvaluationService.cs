@@ -1,5 +1,7 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
@@ -26,6 +28,8 @@ public sealed class PositionEvaluationService(
     IRecommendationPolicyDefinitionProvider policyDefinitionProvider,
     PositionAssessmentService positionAssessmentService,
     RecommendationService recommendationService,
+    IPositionEvaluationTransaction evaluationTransaction,
+    IApplicationEventOutbox applicationEventOutbox,
     PositionEvaluationPolicySettings policySettings,
     TimeProvider timeProvider)
 {
@@ -150,23 +154,81 @@ public sealed class PositionEvaluationService(
             portfolio.IsFreshAt(asOf));
         var assessment = positionAssessmentService.Assess(input);
 
-        await positionAssessmentRepository.SaveAsync(
+        PositionAssessment? persistedAssessment = null;
+        RecommendationApplicationResult? recommendationResult = null;
+        await evaluationTransaction.ExecuteAsync(
             userId,
-            assessment,
+            positionId,
+            async persistenceCancellationToken =>
+            {
+                var lockedPosition = await positionRepository.GetByIdAsync(
+                    userId,
+                    positionId,
+                    persistenceCancellationToken);
+                if (lockedPosition is null || lockedPosition.Version != position.Version)
+                {
+                    throw new ConcurrencyConflictException(
+                        "The position evaluation snapshot became stale before persistence.");
+                }
+
+                var lockedAccount = await exchangeAccountRepository.GetByIdAsync(
+                    userId,
+                    account.Value.Id,
+                    persistenceCancellationToken);
+                if (lockedAccount is null ||
+                    lockedAccount.Value.ConnectionStatus == ExchangeAccountConnectionStatus.Disabled ||
+                    lockedAccount.Value.ExchangeId != account.Value.ExchangeId ||
+                    lockedAccount.Value.ProviderIdentity != account.Value.ProviderIdentity)
+                {
+                    throw new ConcurrencyConflictException(
+                        "The exchange account evaluation snapshot became stale before persistence.");
+                }
+
+                var lockedPortfolio = await portfolioStateRepository.GetLatestAsync(
+                    userId,
+                    account.Value.Id,
+                    persistenceCancellationToken);
+                if (lockedPortfolio is null ||
+                    !HasSameEvaluationInputs(portfolio, lockedPortfolio) ||
+                    !HasConsistentPortfolioPosition(lockedPosition.Value, lockedPortfolio))
+                {
+                    throw new ConcurrencyConflictException(
+                        "The portfolio evaluation snapshot became stale before persistence.");
+                }
+
+                await positionAssessmentRepository.SaveAsync(
+                    userId,
+                    assessment,
+                    persistenceCancellationToken);
+
+                persistedAssessment = await positionAssessmentRepository.GetByIdAsync(
+                    userId,
+                    assessment.Id,
+                    persistenceCancellationToken) ?? throw new InvalidOperationException(
+                    "The persisted position assessment could not be reloaded.");
+
+                recommendationResult = await recommendationService.CreateAsync(
+                    userId,
+                    persistedAssessment,
+                    policyDefinition,
+                    asOf,
+                    persistenceCancellationToken);
+
+                await applicationEventOutbox.AddAsync(
+                    new PositionEvaluationUpdatedEventV1(
+                        Guid.NewGuid(),
+                        asOf,
+                        userId.Value,
+                        positionId.Value),
+                    persistenceCancellationToken);
+            },
             cancellationToken);
 
-        var persistedAssessment = await positionAssessmentRepository.GetByIdAsync(
-            userId,
-            assessment.Id,
-            cancellationToken) ?? throw new InvalidOperationException(
-                "The persisted position assessment could not be reloaded.");
-
-        var recommendationResult = await recommendationService.CreateAsync(
-            userId,
-            persistedAssessment,
-            policyDefinition,
-            asOf,
-            cancellationToken);
+        if (persistedAssessment is null || recommendationResult is null)
+        {
+            throw new InvalidOperationException(
+                "The evaluation persistence boundary completed without an evaluation result.");
+        }
 
         return PositionEvaluationResult.Succeeded(
             new PositionEvaluationSnapshot(
@@ -201,6 +263,20 @@ public sealed class PositionEvaluationService(
             portfolioPosition.Leverage == position.Leverage &&
             portfolioPosition.LastObservedAt == position.LastObservedAt;
     }
+
+    private static bool HasSameEvaluationInputs(
+        PortfolioState expected,
+        PortfolioState actual) =>
+        expected.ExchangeAccountId == actual.ExchangeAccountId &&
+        expected.CalculatedAt == actual.CalculatedAt &&
+        expected.StaleAfter == actual.StaleAfter &&
+        expected.PositionsFullyReconciled == actual.PositionsFullyReconciled &&
+        expected.IsComplete == actual.IsComplete &&
+        expected.IsFresh == actual.IsFresh &&
+        expected.Capital == actual.Capital &&
+        expected.Positions
+            .OrderBy(position => position.PositionId.Value)
+            .SequenceEqual(actual.Positions.OrderBy(position => position.PositionId.Value));
 
     private static AssessmentDataQuality ResolvePortfolioQuality(
         PortfolioState portfolio,

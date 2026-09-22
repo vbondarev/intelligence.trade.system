@@ -34,6 +34,14 @@
 - Для синхронизации сохраняй монотонность observation state и идемпотентность повторных наблюдений.
 - Transactional outbox остаётся атомарным с бизнес-состоянием и использует at-least-once delivery; consumers должны учитывать повторную доставку.
 
+## Concurrency и порядок блокировок
+
+- Workflows, которые одновременно сериализуют `Position` и `ExchangeAccount`, сохраняют единый порядок блокировок `position(s) → account`; не вводи обратный порядок `account → position(s)`.
+- Lifecycle-операции, которые одновременно изменяют account и credentials, сохраняют порядок `account → credential`.
+- Для account serialization используй минимально необходимую силу PostgreSQL lock. Усиление до `FOR UPDATE` требует отдельного анализа взаимодействия с FK `KEY SHARE` и риска lock-upgrade deadlock.
+- Если pre-lock version/watermark используется для обнаружения race, после захвата locks обязательно повторно проверь релевантное состояние. Изменившийся набор или версии должны приводить к контролируемому `ConcurrencyConflictException` и bounded retry на уровне owning workflow, а не к stale write.
+- Изменение этих правил считается concurrency-sensitive изменением и требует PostgreSQL integration/concurrency coverage на реальной БД.
+
 ## Аутентификация и авторизация
 
 Подробные решения находятся в:

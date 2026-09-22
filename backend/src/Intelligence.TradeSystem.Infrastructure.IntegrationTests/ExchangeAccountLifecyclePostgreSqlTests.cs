@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
@@ -20,6 +21,181 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 [Collection("PostgreSql")]
 public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task Connect_persists_account_credentials_and_invalidation_in_one_lifecycle()
+    {
+        var userId = UserId.New();
+        var keys = CreateKeys("v1");
+        var credentials = new ExchangeAccountCredentialSecret("api-key", "api-secret");
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var service = new ExchangeAccountService(
+                new FixedAccessVerifier(ExchangeAccountProviderIdentity.From("provider-account")),
+                new ExchangeAccountRepository(context),
+                CreateStore(context, keys),
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
+
+            var result = await service.ConnectAsync(userId, ExchangeId.Bybit, credentials);
+
+            Assert.Equal(ExchangeAccountConnectionOutcome.Connected, result.Outcome);
+            Assert.NotNull(result.Account);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var account = await verificationContext.ExchangeAccounts
+            .SingleAsync(entity => entity.UserId == userId.Value);
+        var storedEvents = await verificationContext.OutboxMessages
+            .Where(message => message.EventType == ApplicationEventTypes.ExchangeAccountUpdated)
+            .ToArrayAsync();
+        var storedEvent = storedEvents.Single(
+            message => message.Payload.Contains(
+                userId.Value.ToString(),
+                StringComparison.Ordinal));
+        var applicationEvent = ApplicationEventSerializer.Deserialize(
+            storedEvent.EventType,
+            storedEvent.SchemaVersion,
+            storedEvent.Payload);
+        var accountEvent = Assert.IsType<ExchangeAccountUpdatedEventV1>(applicationEvent);
+        Assert.Equal(userId.Value, accountEvent.UserId);
+        Assert.Equal(account.Id, accountEvent.ExchangeAccountId);
+        Assert.Equal(1, await verificationContext.ExchangeAccountCredentials.CountAsync(
+            credential => credential.ExchangeAccountId == account.Id));
+    }
+
+    [Fact]
+    public async Task Concurrent_rotation_and_disconnect_serialize_account_before_credential_without_deadlock()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var keys = CreateKeys("v1");
+        var original = new ExchangeAccountCredentialSecret("original-key", "original-secret");
+        var replacement = new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret");
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await new ExchangeAccountRepository(setup)
+                .SaveAsync(userId, account, expectedVersion: null);
+            await CreateStore(setup, keys).CreateAsync(userId, account.Id, original);
+        }
+
+        using var transactionBoundary = new Barrier(2);
+        var rotation = RunRotationAsync(
+            userId,
+            account,
+            replacement,
+            keys,
+            transactionBoundary);
+        var disconnect = RunDisconnectAsync(
+            userId,
+            account,
+            keys,
+            transactionBoundary);
+
+        await Task
+            .WhenAll(rotation, disconnect)
+            .WaitAsync(TimeSpan.FromSeconds(30));
+        var rotationOutcome = await rotation;
+        var disconnectOutcome = await disconnect;
+
+        foreach (var error in new[] { rotationOutcome.Error, disconnectOutcome.Error }.Where(error => error is not null))
+            Assert.IsType<ConcurrencyConflictException>(error);
+
+        var rotationWon =
+            rotationOutcome.Error is null &&
+            rotationOutcome.Result?.Outcome == ExchangeAccountCredentialRotationOutcome.Succeeded;
+        var disconnectWon =
+            disconnectOutcome.Error is null &&
+            disconnectOutcome.Result is not null;
+        Assert.True(rotationWon ^ disconnectWon);
+
+        await using var verificationContext = await CreateMigratedContext();
+        var persistedAccount = await new ExchangeAccountRepository(verificationContext)
+            .GetByIdAsync(userId, account.Id);
+        Assert.NotNull(persistedAccount);
+        var persistedCredential = await CreateStore(verificationContext, keys)
+            .GetAsync(userId, account.Id);
+        var lifecycleEvents = (await verificationContext.OutboxMessages
+                .Where(message => message.EventType == ApplicationEventTypes.ExchangeAccountUpdated)
+                .ToArrayAsync())
+            .Where(message => message.Payload.Contains(
+                account.Id.Value.ToString(),
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.Single(lifecycleEvents);
+
+        if (rotationWon)
+        {
+            Assert.Equal(
+                ExchangeAccountConnectionStatus.Connected,
+                persistedAccount!.Value.ConnectionStatus);
+            Assert.NotNull(persistedCredential);
+            persistedCredential!.Use((apiKey, apiSecret) =>
+            {
+                replacement.Use((replacementApiKey, replacementApiSecret) =>
+                {
+                    Assert.Equal(replacementApiKey, apiKey);
+                    Assert.Equal(replacementApiSecret, apiSecret);
+                });
+            });
+        }
+        else
+        {
+            Assert.Equal(
+                ExchangeAccountConnectionStatus.Disabled,
+                persistedAccount!.Value.ConnectionStatus);
+            Assert.Null(persistedCredential);
+        }
+    }
+
+    private async Task<(
+        ExchangeAccountCredentialRotationResult? Result,
+        Exception? Error)> RunRotationAsync(
+        UserId userId,
+        ExchangeAccount account,
+        ExchangeAccountCredentialSecret replacement,
+        IReadOnlyDictionary<string, string> keys,
+        Barrier transactionBoundary)
+    {
+        await Task.Yield();
+        await using var context = fixture.CreateContext();
+        return await CaptureAsync(async () =>
+        {
+            var service = new ExchangeAccountService(
+                new FixedAccessVerifier(account.ProviderIdentity),
+                new ExchangeAccountRepository(context),
+                CreateStore(context, keys),
+                new CoordinatedLifecycleTransaction(
+                    new ExchangeAccountLifecycleTransaction(context),
+                    transactionBoundary),
+                new ApplicationEventOutbox(context));
+            return await service.RotateCredentialsAsync(userId, account.Id, replacement);
+        });
+    }
+
+    private async Task<(ExchangeAccount? Result, Exception? Error)> RunDisconnectAsync(
+        UserId userId,
+        ExchangeAccount account,
+        IReadOnlyDictionary<string, string> keys,
+        Barrier transactionBoundary)
+    {
+        await Task.Yield();
+        await using var context = fixture.CreateContext();
+        return await CaptureAsync(async () =>
+        {
+            var service = new ExchangeAccountService(
+                new FixedAccessVerifier(account.ProviderIdentity),
+                new ExchangeAccountRepository(context),
+                CreateStore(context, keys),
+                new CoordinatedLifecycleTransaction(
+                    new ExchangeAccountLifecycleTransaction(context),
+                    transactionBoundary),
+                new ApplicationEventOutbox(context));
+            return await service.DisconnectAsync(userId, account.Id);
+        });
+    }
+
     [Fact]
     public async Task ListActiveAsync_returns_only_the_owning_users_non_disabled_accounts_in_deterministic_id_order()
     {
@@ -147,7 +323,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 new FixedAccessVerifier(ExchangeAccountProviderIdentity.From("different-bybit-user")),
                 repository,
                 store,
-                new ExchangeAccountLifecycleTransaction(context));
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
 
             var result = await service.RotateCredentialsAsync(userId, account.Id, replacement);
 
@@ -194,7 +371,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 verifier,
                 new ExchangeAccountRepository(context),
                 CreateStore(context, keys),
-                new ExchangeAccountLifecycleTransaction(context));
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
 
             return await service.RotateCredentialsAsync(
                 userId,
@@ -389,6 +567,33 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             ExchangeAccountId.New(), userId, ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"), status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+
+    private static async Task<(T? Result, Exception? Error)> CaptureAsync<T>(
+        Func<Task<T>> operation)
+    {
+        try
+        {
+            return (await operation(), null);
+        }
+        catch (Exception exception)
+        {
+            return (default, exception);
+        }
+    }
+
+    private sealed class CoordinatedLifecycleTransaction(
+        IExchangeAccountLifecycleTransaction inner,
+        Barrier barrier) : IExchangeAccountLifecycleTransaction
+    {
+        public async Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            barrier.SignalAndWait(cancellationToken);
+            await inner.ExecuteAsync(operation, cancellationToken);
+        }
+    }
 
     private sealed class FixedAccessVerifier(ExchangeAccountProviderIdentity providerIdentity)
         : IExchangeAccountAccessVerifier

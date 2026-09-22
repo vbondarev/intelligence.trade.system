@@ -2,8 +2,8 @@
 
 Версия документа: 3.26
 Дата актуализации: 22 сентября 2026 года
-Проверенная база: реализация Issue #134 в ветке `task/134-position-timeline`
-Последняя учтённая задача: Issue #134 «F-06. Реализовать timeline позиции с cursor pagination и фильтрами»
+Проверенная база: реализация Issue #136 / PR #137 в `develop`
+Последняя учтённая задача: Issue #136 «F-07. Реализовать SignalR и user-scoped события инвалидации»
 Текущий этап: **F — пользовательский REST API и SignalR**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -135,9 +135,13 @@
 - ✅ F-02 публикует канонический `/api/v1/exchange-accounts`: список подключений, connect, verify, безопасную ротацию credentials, sync и disconnect; pre-v1 routes удалены.
 - ✅ F-03 публикует `/api/v1/positions` с SQL-side cursor pagination, фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, стабильным порядком и opaque versioned cursor.
 - ✅ F-03 публикует `/api/v1/positions/{id}` как user-scoped current-state карточку без `PositionChanges`, timeline, evaluation и market context, а `/api/v1/exchange-accounts/{id}/portfolio` — account-scoped summary без встроенного списка позиций.
+- ✅ F-04 публикует user-scoped `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`, получая market identity из позиции и не смешивая пользовательское состояние с public market-analysis API.
+- ✅ F-05 публикует user-scoped GET/POST evaluation с согласованными assessment + nullable current recommendation, temporal/input identity и сохранением safety semantics stale/partial/uncertain данных.
+- ✅ F-06 публикует user-scoped timeline позиции с persisted position changes, assessments/evaluations и recommendations, cursor pagination и repeatable type filter.
+- ✅ F-07 публикует user-scoped SignalR boundary `/hubs/v1/updates` с invalidation-only событиями `exchangeAccount.updated`, `portfolio.updated`, `position.updated` и `evaluation.updated`; native/token clients используют Bearer, browser integration остаётся за BFF этапа G, а актуальное состояние после события или reconnect восстанавливается через REST.
 - ✅ `ExchangeAccount` хранит обязательную provider-side identity (для Bybit — `userID`); CAS/persistence запрещают её перепривязку к существующему `ExchangeAccountId`, а credentials другого account/subaccount отклоняются как controlled conflict.
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
-- ✅ Реализован PostgreSQL transactional outbox для событий синхронизации: versioned application events, at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher отключён до регистрации downstream handlers.
+- ✅ Реализован PostgreSQL transactional outbox для versioned application events и SignalR invalidation: at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher включён по умолчанию после регистрации handlers для всех persisted event types.
 - ✅ Реализован общий process-local кэш публичного `MarketSnapshot` с коротким TTL и per-key single-flight; ключ содержит только `ExchangeId`, нормализованный `Symbol` и `MarketCategory`, без пользовательских и приватных измерений.
 - ✅ В PR #105 устранена частично сконфигурированная DI-модель `RecommendationService`, зафиксирован SDK и усилен CI quality gate перед этапом F.
 
@@ -148,8 +152,6 @@
 
 ### Пока отсутствует
 
-- ⬜ Оставшаяся часть пользовательского API v1: рыночный контекст/свечи, evaluation и timeline.
-- ⬜ SignalR-обновления пользовательского состояния.
 - ⬜ React-клиент и BFF.
 - ⬜ Непрерывный цикл повторной оценки активных позиций.
 - ⬜ Уведомления о риске конкретной позиции.
@@ -321,7 +323,7 @@ GET    /api/v1/auth/me
 | F-04 | Реализовать position-scoped market context и свечи | ✅ | Страница позиции получает рыночные показатели и candle series через `/api/v1`, не завися от public market-analysis API; backend определяет exchange/symbol/category из user-scoped позиции; OpenAPI/API tests обновлены |
 | F-05 | Реализовать единый evaluation workflow и read model | ✅ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
 | F-06 | Реализовать timeline позиции, cursor pagination и фильтры | ✅ | История позиции, assessments/evaluations и recommendation changes доступны единым пользовательским timeline без загрузки всей истории; market monitoring events не требуются до H-04; OpenAPI/API tests обновлены |
-| F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ⬜ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; имена client-facing событий и сериализованные payload contracts покрыты serialization/approval tests, а несовместимое изменение wire contract требует новой версии |
+| F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ✅ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; имена client-facing событий и сериализованные payload contracts покрыты serialization/approval tests, а несовместимое изменение wire contract требует новой версии |
 | F-08 | Финализировать OpenAPI и контрактные проверки пользовательского API | ⬜ | OpenAPI полностью описывает auth, ProblemDetails, pagination, filters, enums и v1 endpoints; проверена согласованность REST и realtime контрактов F-02 — F-07 и пригодность для последующей генерации типов/клиента React |
 
 Результат этапа: backend предоставляет стабильный пользовательский API для управления read-only биржевыми подключениями, чтения позиции и account-scoped портфеля, получения рынка/свечей, явного evaluation и timeline; SignalR безопасно сообщает об изменениях, а REST остаётся источником актуального состояния. Контракты сопровождаются OpenAPI/tests по мере появления, а browser authentication boundary не нарушает BFF-модель.
@@ -459,19 +461,15 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Добавить read API позиций и account-scoped портфеля | F-03 |
-| 2 | Добавить position-scoped market context и свечи | F-04 |
-| 3 | Добавить timeline, cursor pagination и фильтры | F-06 |
-| 4 | Добавить user-scoped SignalR с REST recovery | F-07 |
-| 5 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
-| 6 | Создать адаптивную React-панель | G-01 — G-08 |
-| 7 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 8 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 9 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 10 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 11 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
+| 2 | Создать адаптивную React-панель | G-01 — G-08 |
+| 3 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–E завершены и больше не входят в очередь ближайших PR. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–E завершены и больше не входят в очередь ближайших PR. F-01 — F-07 завершены; следующим шагом является F-08. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -552,7 +550,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Долгосрочное видение расширено до единой интеллектуальной торговой среды; будущие Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
+| 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Документ одновременно синхронизирован с уже merged Issue #136 / PR #137: F-07 отмечен завершённым, user-scoped SignalR `/hubs/v1/updates` и включённый outbox dispatcher отражены в текущем состоянии, следующим шагом назначен F-08. Долгосрочные Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
 | 2026-09-21 | 3.25 | Issue #134 завершает F-06: добавлен user-scoped `GET /api/v1/positions/{id}/timeline`, объединяющий persisted position changes, assessments/evaluations и recommendations с bounded PostgreSQL projections, deterministic newest-first ordering, versioned opaque cursor и repeatable type filter. Domain не изменялся; по PostgreSQL query-plan evidence через EF Core migration добавлены chronology indexes `ix_position_changes_position_occurred_at_sequence` и `ix_recommendations_position_created_at_id`; F-07 остаётся следующим шагом. |
 | 2026-09-21 | 3.24 | Issue #128 завершает F-05: добавлены user-scoped GET/POST evaluation, latest assessment query, evaluation-time portfolio freshness, typed configuration с risk limits `20/200/50`, explicit v1 read model и stable `position_not_evaluable` error. Следующий шаг — F-06: timeline позиции. |
 | 2026-09-21 | 3.23 | Issue #126 завершает F-04: добавлены user-scoped position market identity projection, `/api/v1/positions/{id}/market` через существующий cached public snapshot pipeline и `/api/v1/positions/{id}/candles` с bounded interval/limit contract, explicit v1 DTO mapping, OpenAPI synchronization и API/Application/PostgreSQL/architecture coverage. Следующий шаг — F-05: единый evaluation workflow и read model. |

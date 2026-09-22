@@ -11,13 +11,13 @@ Capability Map фиксирует текущие и будущие возмож�
 | Idea | Идея зафиксирована, но ещё не прошла предметное исследование. |
 | Research | Изучаются пользовательская ценность, рынок, ограничения или техническая реализуемость. |
 | Concept | Продуктовая модель в целом понятна, но capability ещё не утверждена к реализации. |
-| Planned | Capability вошла в утверждённый ROADMAP или иной явно согласованный план разработки. |
+| Planned | Capability принята как конкретная задача или часть утверждённой последовательности реализации в ROADMAP. Простое упоминание в `Future Product Directions` или среди возможных направлений Stage M само по себе не переводит capability в `Planned`. |
 | In Development | Capability находится в активной реализации. |
 | Available | Capability реализована в согласованной пользовательской или платформенной границе. |
 | Deferred | Capability сознательно отложена до выполнения зависимостей или отдельного решения. |
 | Rejected | Принято решение не развивать capability в рассматриваемой форме. |
 
-Переход Idea / Research / Concept → Planned требует отдельного human decision.
+Переход Idea / Research / Concept → Planned требует отдельного human decision, результатом которого становится конкретное включение capability в утверждённую implementation sequence ROADMAP. Упоминание направления как возможного будущего развития не считается таким переходом.
 
 ## Portfolio & Position Intelligence
 
@@ -28,13 +28,13 @@ Capability Map фиксирует текущие и будущие возмож�
 | Position monitoring | Централизует состояние активных позиций | Position model, sync, Web UI | In Development | UI и realtime ещё развиваются |
 | Position assessment | Даёт воспроизводимую оценку позиции | Market Intelligence, portfolio context, policies | Available | Требует свежих и согласованных inputs |
 | Deterministic recommendation | Предлагает проверяемое действие и причины | Assessment, RecommendationPolicy | Available | AI не может подменять policy |
-| Continuous monitoring | Снимает необходимость ручной постоянной проверки | Background reevaluation, events, notifications | Planned | Нужно контролировать частоту, freshness и noise |
+| Continuous monitoring | Снимает необходимость ручной постоянной проверки | Background reevaluation, events, notifications | Planned | Конкретно запланирован Stage H (`H-01` — `H-06`); нужно контролировать частоту, freshness и noise |
 
 ## AI Intelligence Layer
 
 | Capability | Ценность | Зависимости | Статус | Риски / примечания |
 |---|---|---|---|---|
-| AI Explanation | Объясняет готовую рекомендацию на нужном пользователю уровне | Assessment, Recommendation, reason codes | Planned | LLM не меняет решение backend; нужен deterministic fallback |
+| AI Explanation | Объясняет готовую рекомендацию на нужном пользователю уровне | Assessment, Recommendation, reason codes | Planned | Конкретно запланирован Stage I (`I-05`/`I-06`); LLM не меняет решение backend, нужен deterministic fallback |
 | AI Copilot | Даёт единый естественно-языковой интерфейс к продукту | Стабильный user API, Web/BFF, safe tools | Concept | User isolation, tool authorization, audit, prompt injection |
 | Context Synthesis | Объединяет новости, macro, social, on-chain и market context | Source adapters, provenance, freshness model | Concept | Достоверность источников и шум |
 | Personalization | Адаптирует объяснения и предложения под пользователя | Profile, Journal, explicit preferences | Concept | Нельзя скрыто менять risk policy пользователя |
@@ -48,7 +48,7 @@ Capability Map фиксирует текущие и будущие возмож�
 
 | Capability | Ценность | Зависимости | Статус | Риски / примечания |
 |---|---|---|---|---|
-| Trader Journal | Формирует проверяемую историю торговли пользователя | Position lifecycle, timeline, closed trades | Concept | Нужно отделить факты от пользовательских заметок и интерпретаций |
+| Trader Journal | Формирует проверяемую историю торговли пользователя | Position lifecycle, timeline, closed trades | Concept | Stage M упоминает торговый журнал только как возможное направление расширения; конкретная implementation sequence ещё не утверждена |
 | Journal analytics | Показывает PnL, MAE/MFE, duration, risk и статистику сетапов | Trader Journal, calculation model | Concept | Требуется согласованная методика метрик |
 | Conversational journal queries | Позволяет задавать вопросы своей истории естественным языком | Journal analytics, AI Copilot | Concept | Ответы должны ссылаться на фактические данные |
 | AI Trading Coach | Выявляет повторяющиеся ошибки и сильные стороны | Journal analytics, достаточная история | Concept | Статистические паттерны не должны выдаваться за причинность |

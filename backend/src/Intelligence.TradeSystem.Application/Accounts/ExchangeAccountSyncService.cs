@@ -134,6 +134,25 @@ public sealed class ExchangeAccountSyncService(
                                 return;
                             }
 
+                            var watermarkBeforeLocks = await positionRepository
+                                .GetVersionWatermarkByExchangeAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+                            await persistenceTransaction
+                                .LockPositionsAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+                            await persistenceTransaction
+                                .LockAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
                             var accountForPersistence = CopyAccount(currentAccount);
                             balanceDisposition = accountForPersistence.AdvanceObservationWatermark(
                                 ExchangeAccountObservationResource.Balance,
@@ -157,6 +176,12 @@ public sealed class ExchangeAccountSyncService(
                                     exchangeAccountId,
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
+                            if (!HasSamePositionWatermark(watermarkBeforeLocks, tracked))
+                            {
+                                throw new ConcurrencyConflictException(
+                                    "The position set changed while the synchronization acquired its serialization locks.");
+                            }
+
                             var trackedPositions = tracked
                                 .Select(versioned => versioned.Value)
                                 .ToArray();
@@ -310,12 +335,35 @@ public sealed class ExchangeAccountSyncService(
                                 .ToList<IApplicationEvent>();
                             if (persistedFailureReason is not null)
                             {
+                                var degradedAt = clock.GetUtcNow();
                                 applicationEvents.Add(
                                     PositionApplicationEventFactory.CreateSyncDegraded(
                                         userId,
                                         accountForPersistence,
                                         persistedFailureReason,
-                                        clock.GetUtcNow()));
+                                        degradedAt));
+                                applicationEvents.Add(
+                                    new PortfolioUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        degradedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
+                            }
+                            else
+                            {
+                                var synchronizedAt = clock.GetUtcNow();
+                                applicationEvents.Add(
+                                    new ExchangeAccountUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        synchronizedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
+                                applicationEvents.Add(
+                                    new PortfolioUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        synchronizedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
                             }
 
                             await applicationEventOutbox
@@ -445,6 +493,27 @@ public sealed class ExchangeAccountSyncService(
 
     private static bool IsApplied(ExchangeAccountObservationDisposition disposition) =>
         disposition == ExchangeAccountObservationDisposition.Applied;
+
+    private static bool HasSamePositionWatermark(
+        IReadOnlyCollection<PositionVersionWatermark> expected,
+        IReadOnlyCollection<Versioned<Position>> actual)
+    {
+        if (expected.Count != actual.Count)
+            return false;
+
+        var expectedOrdered = expected
+            .OrderBy(watermark => watermark.PositionId.Value)
+            .ToArray();
+        var actualOrdered = actual
+            .OrderBy(versioned => versioned.Value.Id.Value)
+            .ToArray();
+
+        return expectedOrdered
+            .Zip(actualOrdered)
+            .All(pair =>
+                pair.First.PositionId == pair.Second.Value.Id &&
+                pair.First.Version == pair.Second.Version);
+    }
 
     private static void AdvanceAcceptedWatermarks(
         ExchangeAccount account,
