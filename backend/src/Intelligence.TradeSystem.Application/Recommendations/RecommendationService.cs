@@ -67,6 +67,12 @@ public sealed class RecommendationService(
                 userId,
                 assessment.PositionId,
                 cancellationToken);
+            if (current is not null && asOf < current.Value.CreatedAt)
+            {
+                throw new ConcurrencyConflictException(
+                    "The evaluation timestamp precedes the current recommendation after a concurrent publication.");
+            }
+
             RecommendationCurrentExpectation currentExpectation = current is null
                 ? new RecommendationCurrentExpectation.Absent()
                 : new RecommendationCurrentExpectation.Present(
