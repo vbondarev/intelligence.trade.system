@@ -28,6 +28,7 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using Testcontainers.PostgreSql;
@@ -123,6 +124,17 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
 
     public void Dispose()
     {
+    }
+
+    [Fact]
+    public void Api_testing_host_does_not_start_outbox_dispatcher_worker()
+    {
+        using var scope = apiFactory.Services.CreateScope();
+
+        scope.ServiceProvider
+            .GetServices<IHostedService>()
+            .Should()
+            .NotContain(service => service.GetType().Name == "ApplicationEventOutboxDispatcherWorker");
     }
 
     [Fact]

@@ -133,7 +133,10 @@ public partial class Program
         {
             builder.Services.AddExchangeAccountBackgroundSynchronization(builder.Configuration);
         }
-        builder.Services.AddApplicationEventOutboxDispatcher(builder.Configuration);
+        if (!builder.Environment.IsEnvironment("Testing"))
+        {
+            builder.Services.AddApplicationEventOutboxDispatcher(builder.Configuration);
+        }
         ConfigureAuthentication(builder);
         var freshnessOptions = builder.Configuration
             .GetSection(SnapshotFreshnessOptions.SectionName)

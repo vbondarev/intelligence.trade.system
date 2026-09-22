@@ -201,6 +201,43 @@ public sealed class RecommendationServiceTests
         Assert.Equal(0, publication.ConfirmKeepCalls);
     }
 
+    [Fact]
+    public async Task Stale_evaluation_after_concurrent_newer_orphaned_pending_observation_returns_concurrency_conflict()
+    {
+        var assessment = CreateAssessment();
+        var states = new FakeStabilityStateRepository
+        {
+            Pending = new Versioned<RecommendationStabilityStateSnapshot>(
+                new(
+                    RecommendationId.New(),
+                    new RecommendationStabilityState(
+                        new RecommendationSemanticState(
+                            PositionAction.Watch,
+                            AddDecision.DoNotAdd,
+                            RecommendationPriority.Normal,
+                            [ReasonCode.PortfolioDataStale],
+                            [ReasonCode.PortfolioDataStale],
+                            PolicyDefinition.Default.Identity),
+                        T0.AddMinutes(3),
+                        T0.AddMinutes(5),
+                        2)),
+                ConcurrencyVersion.Initial)
+        };
+        var publication = new FakePublicationTransaction();
+        var service = CreateService(
+            assessment,
+            new FakeRecommendationRepository(),
+            states,
+            publication);
+
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            async () => await service.CreateAsync(UserId.New(), assessment, T0.AddMinutes(4)));
+
+        Assert.Equal(0, publication.PublishInitialCalls);
+        Assert.Equal(0, publication.ReplaceCalls);
+        Assert.Equal(0, publication.ConfirmKeepCalls);
+    }
+
     private static RecommendationService CreateService(
         PositionAssessment assessment,
         FakeRecommendationRepository repository,
