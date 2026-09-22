@@ -6,18 +6,22 @@ using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.OpenApi;
+using Intelligence.TradeSystem.Api.Realtime.V1;
 using Intelligence.TradeSystem.Api.Services;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Exchanges;
 using Intelligence.TradeSystem.Infrastructure;
 using Intelligence.TradeSystem.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using System.Text.Json;
 
 namespace Intelligence.TradeSystem.Api;
 
@@ -37,6 +41,33 @@ public partial class Program
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
             });
+        builder.Services
+            .AddSignalR()
+            .AddJsonProtocol(options =>
+            {
+                options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                options.PayloadSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+                options.PayloadSerializerOptions.DefaultIgnoreCondition =
+                    JsonIgnoreCondition.Never;
+                options.PayloadSerializerOptions.Converters.Add(
+                    new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+            });
+        builder.Services.AddSingleton<IUserIdProvider, TradeUserIdProvider>();
+        builder.Services.AddSingleton<UserUpdatesApplicationEventHandler>();
+        builder.Services.AddSingleton<IApplicationEventHandler<PositionOpenedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<PositionChangedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<PositionClosedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<ExchangeAccountSyncDegradedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<PortfolioUpdatedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
+        builder.Services.AddSingleton<IApplicationEventHandler<PositionEvaluationUpdatedEventV1>>(
+            serviceProvider => serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>());
         builder.Services.AddProblemDetails(options =>
         {
             options.CustomizeProblemDetails = ApiProblemDetails.Customize;
@@ -101,8 +132,8 @@ public partial class Program
         if (!builder.Environment.IsEnvironment("Testing"))
         {
             builder.Services.AddExchangeAccountBackgroundSynchronization(builder.Configuration);
-            builder.Services.AddApplicationEventOutboxDispatcher(builder.Configuration);
         }
+        builder.Services.AddApplicationEventOutboxDispatcher(builder.Configuration);
         ConfigureAuthentication(builder);
         var freshnessOptions = builder.Configuration
             .GetSection(SnapshotFreshnessOptions.SectionName)
@@ -140,6 +171,8 @@ public partial class Program
         }));
 
         app.MapControllers();
+        app.MapHub<UpdatesHub>("/hubs/v1/updates")
+            .RequireAuthorization(TradeAuthorization.UserPolicy);
         app.MapDefaultEndpoints();
 
         app.Run();

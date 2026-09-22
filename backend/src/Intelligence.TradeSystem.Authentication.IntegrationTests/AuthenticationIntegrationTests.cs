@@ -9,6 +9,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
 using Intelligence.TradeSystem.Api.Authentication;
+using Intelligence.TradeSystem.Api.Realtime.V1;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Identity;
@@ -21,6 +23,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -464,6 +468,124 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task User_token_connects_to_the_updates_hub_with_an_authorization_header()
+    {
+        var token = await IssueAccessTokenAsync();
+        await using var connection = CreateUpdatesConnection(token.AccessToken);
+
+        await connection.StartAsync();
+
+        connection.State.Should().Be(HubConnectionState.Connected);
+        await connection.StopAsync();
+    }
+
+    [Fact]
+    public async Task Updates_hub_rejects_anonymous_negotiate_requests()
+    {
+        using var client = apiFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            "/hubs/v1/updates/negotiate?negotiateVersion=1",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Updates_hub_does_not_accept_query_string_access_tokens()
+    {
+        var token = await IssueAccessTokenAsync();
+        using var client = apiFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            "/hubs/v1/updates/negotiate?negotiateVersion=1"
+            + $"&access_token={Uri.EscapeDataString(token.AccessToken)}",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Updates_hub_rejects_non_user_or_insufficient_scope_tokens()
+    {
+        using var client = apiFactory.CreateClient();
+        var machineToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            principalType: "machine");
+        var missingScopeToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            scope: "openid",
+            principalType: UserPrincipalType);
+        var invalidSubjectToken = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddMinutes(5),
+            subject: "not-a-guid",
+            principalType: UserPrincipalType);
+
+        (await NegotiateWithTokenAsync(client, machineToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await NegotiateWithTokenAsync(client, missingScopeToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await NegotiateWithTokenAsync(client, invalidSubjectToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Registered_realtime_handler_delivers_only_to_the_event_owner()
+    {
+        var tokenA = await IssueAccessTokenAsync();
+        var tokenB = await IssueAccessTokenAsync(SecondUsername, SecondPassword);
+        await using var connectionA = CreateUpdatesConnection(tokenA.AccessToken);
+        await using var connectionA2 = CreateUpdatesConnection(tokenA.AccessToken);
+        await using var connectionB = CreateUpdatesConnection(tokenB.AccessToken);
+        var receivedA = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receivedA2 = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receivedB = new TaskCompletionSource<ExchangeAccountUpdatedMessageV1>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connectionA.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedA.TrySetResult(message));
+        connectionA2.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedA2.TrySetResult(message));
+        connectionB.On<ExchangeAccountUpdatedMessageV1>(
+            RealtimeEventNames.ExchangeAccountUpdated,
+            message => receivedB.TrySetResult(message));
+        await connectionA.StartAsync();
+        await connectionA2.StartAsync();
+        await connectionB.StartAsync();
+
+        var accountId = Guid.NewGuid();
+        var applicationEvent = new ExchangeAccountUpdatedEventV1(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            userId,
+            accountId);
+        var handler = apiFactory.Services
+            .GetRequiredService<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>();
+
+        await handler.HandleAsync(applicationEvent);
+
+        var received = await receivedA.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.EventId.Should().Be(applicationEvent.EventId);
+        received.ExchangeAccountId.Should().Be(accountId);
+        (await receivedA2.Task.WaitAsync(TimeSpan.FromSeconds(10)))
+            .EventId.Should()
+            .Be(applicationEvent.EventId);
+        (await Task.WhenAny(receivedB.Task, Task.Delay(500)))
+            .Should()
+            .NotBe(receivedB.Task);
+    }
+
+    [Fact]
     public async Task Openiddict_selects_the_valid_certificate_with_the_furthest_expiration_and_old_key_remains_accepted()
     {
         var issuedToken = await IssueAccessTokenAsync();
@@ -625,6 +747,29 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await client.SendAsync(request);
     }
+
+    private static Task<HttpResponseMessage> NegotiateWithTokenAsync(
+        HttpClient client,
+        string token)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/hubs/v1/updates/negotiate?negotiateVersion=1");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client.SendAsync(request);
+    }
+
+    private HubConnection CreateUpdatesConnection(string token) =>
+        new HubConnectionBuilder()
+            .WithUrl(
+                new Uri(apiFactory.Server.BaseAddress, "/hubs/v1/updates"),
+                options =>
+                {
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(token);
+                    options.Transports = HttpTransportType.LongPolling;
+                    options.HttpMessageHandlerFactory = _ => apiFactory.Server.CreateHandler();
+                })
+            .Build();
 
     private async Task<HttpResponseMessage> GetAccountWithTokenAsync(
         ExchangeAccountId accountId,

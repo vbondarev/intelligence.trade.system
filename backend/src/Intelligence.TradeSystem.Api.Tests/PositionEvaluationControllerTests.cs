@@ -7,6 +7,7 @@ using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Evaluations;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
@@ -617,6 +618,8 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
                 new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict).Object,
             new PositionAssessmentService(),
             recommendationService ?? null!,
+            new InlineEvaluationTransaction(),
+            new InlineEvaluationOutbox(),
             new PositionEvaluationPolicySettings(
                 PositionAssessmentRules.Default,
                 new PortfolioRiskPolicySettings(20m, 200m, 50m)),
@@ -636,6 +639,27 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplica
             stabilityStateRepository,
             publicationTransaction,
             assessmentRepository);
+
+    private sealed class InlineEvaluationTransaction : IPositionEvaluationTransaction
+    {
+        public Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default) =>
+            operation(cancellationToken);
+    }
+
+    private sealed class InlineEvaluationOutbox : IApplicationEventOutbox
+    {
+        public Task AddAsync(
+            IApplicationEvent applicationEvent,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task AddRangeAsync(
+            IReadOnlyCollection<IApplicationEvent> applicationEvents,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
 
     private static Mock<IPositionRepository> CreatePositionRepository(
         UserId userId,

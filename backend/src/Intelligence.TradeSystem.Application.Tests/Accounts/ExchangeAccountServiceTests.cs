@@ -143,11 +143,10 @@ public sealed class ExchangeAccountServiceTests
     }
 
     [Fact]
-    public async Task ConnectAsync_Compensates_Stored_Credentials_When_Final_Account_Save_Fails()
+    public async Task ConnectAsync_Leaves_Rollback_To_The_Lifecycle_Transaction_When_Final_Account_Save_Fails()
     {
         var fixture = CreateFixture();
         var secret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
-        var persistedSecret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
@@ -173,27 +172,6 @@ public sealed class ExchangeAccountServiceTests
                 ConcurrencyVersion.Initial,
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("account persistence failed"));
-        fixture.CredentialStore
-            .Setup(store => store.GetAsync(
-                fixture.UserId,
-                It.IsAny<ExchangeAccountId>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ExchangeAccountCredential(persistedSecret, ConcurrencyVersion.Initial));
-        fixture.CredentialStore
-            .Setup(store => store.RevokeAsync(
-                fixture.UserId,
-                It.IsAny<ExchangeAccountId>(),
-                ConcurrencyVersion.Initial,
-                It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        fixture.Repository
-            .Setup(repository => repository.DeleteAsync(
-                fixture.UserId,
-                It.IsAny<ExchangeAccountId>(),
-                ConcurrencyVersion.Initial,
-                It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-
         var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
@@ -203,14 +181,14 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<ExchangeAccountId>(),
                 ConcurrencyVersion.Initial,
                 It.IsAny<CancellationToken>()),
-            Times.Once);
+            Times.Never);
         fixture.Repository.Verify(
             repository => repository.DeleteAsync(
                 fixture.UserId,
                 It.IsAny<ExchangeAccountId>(),
                 ConcurrencyVersion.Initial,
                 It.IsAny<CancellationToken>()),
-            Times.Once);
+            Times.Never);
     }
 
     [Fact]
@@ -410,12 +388,21 @@ public sealed class ExchangeAccountServiceTests
     private static Fixture CreateFixture()
     {
         var userId = UserId.New();
+        var lifecycleTransaction = new Mock<IExchangeAccountLifecycleTransaction>(MockBehavior.Strict);
+        lifecycleTransaction
+            .Setup(transaction => transaction.ExecuteAsync(
+                It.IsAny<Func<CancellationToken, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(
+                (Func<CancellationToken, Task> operation, CancellationToken cancellationToken) =>
+                    operation(cancellationToken));
+
         return new Fixture(
             userId,
             new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict),
             new Mock<IExchangeAccountRepository>(MockBehavior.Strict),
             new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict),
-            new Mock<IExchangeAccountLifecycleTransaction>(MockBehavior.Strict));
+            lifecycleTransaction);
     }
 
     private sealed class Fixture(
@@ -430,7 +417,12 @@ public sealed class ExchangeAccountServiceTests
         public Mock<IExchangeAccountRepository> Repository { get; } = repository;
         public Mock<IExchangeAccountCredentialStore> CredentialStore { get; } = credentialStore;
         public ExchangeAccountService Service { get; } =
-            new(verifier.Object, repository.Object, credentialStore.Object, lifecycleTransaction.Object);
+            new(
+                verifier.Object,
+                repository.Object,
+                credentialStore.Object,
+                lifecycleTransaction.Object,
+                new TestApplicationEventOutbox());
     }
 
     private static readonly ExchangeAccountProviderIdentity ProviderIdentity =

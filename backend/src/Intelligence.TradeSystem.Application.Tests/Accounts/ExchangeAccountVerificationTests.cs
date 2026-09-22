@@ -23,7 +23,7 @@ public sealed class ExchangeAccountVerificationTests
         var verifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
         repository.Setup(value => value.GetByIdAsync(userId, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, accountId);
 
@@ -45,7 +45,7 @@ public sealed class ExchangeAccountVerificationTests
         // missing one, so the caller and Application layer cannot distinguish the two cases.
         repository.Setup(value => value.GetByIdAsync(otherUser, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(otherUser, accountId);
 
@@ -64,7 +64,7 @@ public sealed class ExchangeAccountVerificationTests
         var verifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, account.Id);
 
@@ -91,7 +91,7 @@ public sealed class ExchangeAccountVerificationTests
                 It.Is<ExchangeAccount>(saved => saved.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
                 version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, account.Id);
 
@@ -175,7 +175,8 @@ public sealed class ExchangeAccountVerificationTests
             verifier.Object,
             repository.Object,
             store.Object,
-            new InlineLifecycleTransaction());
+            new InlineLifecycleTransaction(),
+            new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, account.Id);
 
@@ -197,7 +198,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
         store.Setup(value => value.GetAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ExchangeAccountCredentialsUnavailableException());
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, account.Id);
 
@@ -219,7 +220,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
         store.Setup(value => value.GetAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync((ExchangeAccountCredential?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.VerifyAsync(userId, account.Id);
 
@@ -242,7 +243,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         repository.Setup(value => value.SaveAsync(userId, It.IsAny<ExchangeAccount>(), version, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("stale version"));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var act = () => service.VerifyAsync(userId, account.Id);
 
@@ -274,7 +275,12 @@ public sealed class ExchangeAccountVerificationTests
                 version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
         var transaction = new InlineLifecycleTransaction();
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, transaction);
+        var service = new ExchangeAccountService(
+            verifier.Object,
+            repository.Object,
+            store.Object,
+            transaction,
+            new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -315,7 +321,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ConcurrencyVersion(2));
         repository.Setup(value => value.SaveAsync(userId, It.IsAny<ExchangeAccount>(), version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -334,7 +340,7 @@ public sealed class ExchangeAccountVerificationTests
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, accountId,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -351,7 +357,7 @@ public sealed class ExchangeAccountVerificationTests
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(otherUser, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(otherUser, accountId,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -368,7 +374,7 @@ public sealed class ExchangeAccountVerificationTests
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -387,7 +393,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
         store.Setup(value => value.GetMetadataAsync(userId, account.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync((ExchangeAccountCredentialMetadata?)null);
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -414,7 +420,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Failed(status));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -439,7 +445,7 @@ public sealed class ExchangeAccountVerificationTests
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
                 ProviderIdentity, ExchangeAccountCapabilities.ReadBalance));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var result = await service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -465,7 +471,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(initialVersion));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -491,7 +497,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(changedCredentialVersion));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -516,7 +522,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(version));
         verifier.Setup(value => value.VerifyAsync(ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         var act = () => service.RotateCredentialsAsync(userId, account.Id,
             new ExchangeAccountCredentialSecret("replacement-key", "replacement-secret"));
@@ -541,7 +547,7 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(verification);
         repository.Setup(value => value.SaveAsync(userId, It.IsAny<ExchangeAccount>(), version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction());
+        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
 
         return await service.VerifyAsync(userId, account.Id);
     }

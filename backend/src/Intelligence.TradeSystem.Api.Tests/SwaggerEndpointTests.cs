@@ -76,6 +76,25 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Swagger_does_not_describe_the_realtime_hub_as_a_rest_endpoint()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Development))
+            .CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        json.RootElement
+            .GetProperty("paths")
+            .TryGetProperty("/hubs/v1/updates", out _)
+            .Should()
+            .BeFalse();
+    }
+
+    [Fact]
     public async Task Swagger_Includes_Xml_Comments_For_Actions_And_Dtos()
     {
         using var client = _factory

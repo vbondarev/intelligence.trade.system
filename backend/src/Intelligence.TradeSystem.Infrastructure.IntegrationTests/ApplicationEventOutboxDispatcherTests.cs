@@ -18,9 +18,9 @@ public sealed class ApplicationEventOutboxDispatcherTests
     private static readonly int[] ExpectedSequence = [1, 2];
 
     [Fact]
-    public void Dispatcher_is_disabled_by_default_and_instance_id_is_bounded()
+    public void Dispatcher_is_enabled_by_default_and_instance_id_is_bounded()
     {
-        Assert.False(new ApplicationEventOutboxDispatcherOptions().Enabled);
+        Assert.True(new ApplicationEventOutboxDispatcherOptions().Enabled);
         Assert.InRange(
             ApplicationEventOutboxDispatcherWorker.CreateInstanceId().Length,
             1,
@@ -157,10 +157,58 @@ public sealed class ApplicationEventOutboxDispatcherTests
         Assert.Equal(2, store.Processed.Count);
     }
 
+    [Fact]
+    public async Task Resource_events_are_dispatched_through_their_typed_handlers()
+    {
+        var store = new InMemoryOutboxStore();
+        var accountEvents = new List<ExchangeAccountUpdatedEventV1>();
+        var portfolioEvents = new List<PortfolioUpdatedEventV1>();
+        var evaluationEvents = new List<PositionEvaluationUpdatedEventV1>();
+        using var fixture = CreateDispatcher(
+            store,
+            accountHandler: new RecordingAccountUpdatedHandler(accountEvents),
+            portfolioHandler: new RecordingPortfolioUpdatedHandler(portfolioEvents),
+            evaluationHandler: new RecordingEvaluationUpdatedHandler(evaluationEvents));
+        var userId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var positionId = Guid.NewGuid();
+        var occurredAt = OccurredAt.AddMinutes(1);
+        IApplicationEvent[] events =
+        [
+            new ExchangeAccountUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                accountId),
+            new PortfolioUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                accountId),
+            new PositionEvaluationUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                positionId),
+        ];
+
+        await fixture.Worker.DispatchBatchAsync(
+            events.Select(CreateClaim).ToArray(),
+            CancellationToken.None);
+
+        Assert.Single(accountEvents);
+        Assert.Single(portfolioEvents);
+        Assert.Single(evaluationEvents);
+        Assert.Equal(3, store.Processed.Count);
+    }
+
     private static DispatcherFixture CreateDispatcher(
         InMemoryOutboxStore store,
         IApplicationEventHandler<PositionOpenedEventV1>? handler = null,
-        IApplicationEventHandler<PositionChangedEventV1>? changedHandler = null)
+        IApplicationEventHandler<PositionChangedEventV1>? changedHandler = null,
+        IApplicationEventHandler<ExchangeAccountUpdatedEventV1>? accountHandler = null,
+        IApplicationEventHandler<PortfolioUpdatedEventV1>? portfolioHandler = null,
+        IApplicationEventHandler<PositionEvaluationUpdatedEventV1>? evaluationHandler = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOutboxMessageStore>(store);
@@ -171,6 +219,18 @@ public sealed class ApplicationEventOutboxDispatcherTests
         if (changedHandler is not null)
         {
             services.AddSingleton<IApplicationEventHandler<PositionChangedEventV1>>(changedHandler);
+        }
+        if (accountHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<ExchangeAccountUpdatedEventV1>>(accountHandler);
+        }
+        if (portfolioHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<PortfolioUpdatedEventV1>>(portfolioHandler);
+        }
+        if (evaluationHandler is not null)
+        {
+            services.AddSingleton<IApplicationEventHandler<PositionEvaluationUpdatedEventV1>>(evaluationHandler);
         }
 
         var provider = services.BuildServiceProvider();
@@ -201,6 +261,9 @@ public sealed class ApplicationEventOutboxDispatcherTests
 
     private static OutboxMessageClaim CreateClaim(
         PositionChangedEventV1 applicationEvent) =>
+        CreateClaim((IApplicationEvent)applicationEvent);
+
+    private static OutboxMessageClaim CreateClaim(IApplicationEvent applicationEvent) =>
         CreateClaimCore(
             applicationEvent.EventId,
             applicationEvent.EventType,
@@ -347,6 +410,45 @@ public sealed class ApplicationEventOutboxDispatcherTests
             CancellationToken cancellationToken = default)
         {
             received.Add(applicationEvent.PositionChangeSequence);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingAccountUpdatedHandler(
+        List<ExchangeAccountUpdatedEventV1> received)
+        : IApplicationEventHandler<ExchangeAccountUpdatedEventV1>
+    {
+        public Task HandleAsync(
+            ExchangeAccountUpdatedEventV1 applicationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            received.Add(applicationEvent);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingPortfolioUpdatedHandler(
+        List<PortfolioUpdatedEventV1> received)
+        : IApplicationEventHandler<PortfolioUpdatedEventV1>
+    {
+        public Task HandleAsync(
+            PortfolioUpdatedEventV1 applicationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            received.Add(applicationEvent);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingEvaluationUpdatedHandler(
+        List<PositionEvaluationUpdatedEventV1> received)
+        : IApplicationEventHandler<PositionEvaluationUpdatedEventV1>
+    {
+        public Task HandleAsync(
+            PositionEvaluationUpdatedEventV1 applicationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            received.Add(applicationEvent);
             return Task.CompletedTask;
         }
     }

@@ -78,6 +78,15 @@ public sealed class ExchangeAccountSyncServiceTests
         result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
         result.PortfolioState.IsFresh.Should().BeTrue();
         result.PortfolioState.IsComplete.Should().BeTrue();
+        fixture.EventOutbox.Events
+            .Select(applicationEvent => applicationEvent.EventType)
+            .Should()
+            .BeEquivalentTo(
+            [
+                ApplicationEventTypes.PositionOpened,
+                ApplicationEventTypes.ExchangeAccountUpdated,
+                ApplicationEventTypes.PortfolioUpdated,
+            ]);
         fixture.CredentialStore.Verify(
             store => store.GetAsync(
                 fixture.UserId,
@@ -136,6 +145,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<ConcurrencyVersion?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+        fixture.EventOutbox.Events.Should().HaveCount(2);
     }
 
     [Fact]
@@ -903,6 +913,14 @@ public sealed class ExchangeAccountSyncServiceTests
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
         savedState.Should().NotBeNull();
+        fixture.EventOutbox.Events
+            .Select(applicationEvent => applicationEvent.EventType)
+            .Should()
+            .BeEquivalentTo(
+            [
+                ApplicationEventTypes.ExchangeAccountSyncDegraded,
+                ApplicationEventTypes.PortfolioUpdated,
+            ]);
         savedState!.Capital.TotalEquity.Should().BeNull();
         savedState.Capital.AvailableCapital.Should().BeNull();
         savedState.Capital.TotalWalletBalance.Should().BeNull();
@@ -1618,6 +1636,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Versioned<ExchangeAccount>(ownedAccount, ConcurrencyVersion.Initial));
         var transaction = new InlineSyncTransaction();
+        var eventOutbox = new RecordingApplicationEventOutbox();
 
         return new Fixture(
             userId,
@@ -1630,6 +1649,7 @@ public sealed class ExchangeAccountSyncServiceTests
             positionRepository,
             portfolioRepository,
             transaction,
+            eventOutbox,
             new ExchangeAccountSyncService(
                 accountRepository.Object,
                 credentialStore.Object,
@@ -1637,7 +1657,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 positionRepository.Object,
                 portfolioRepository.Object,
                 transaction,
-                new NoOpApplicationEventOutbox(),
+                eventOutbox,
                 new FixedTimeProvider(CalculatedAt)));
     }
 
@@ -1652,6 +1672,7 @@ public sealed class ExchangeAccountSyncServiceTests
         Mock<IPositionRepository> PositionRepository,
         Mock<IPortfolioStateRepository> PortfolioRepository,
         IExchangeAccountSyncTransaction Transaction,
+        RecordingApplicationEventOutbox EventOutbox,
         ExchangeAccountSyncService Service);
 
     private sealed class InlineSyncTransaction : IExchangeAccountSyncTransaction
@@ -1667,17 +1688,25 @@ public sealed class ExchangeAccountSyncServiceTests
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
-    private sealed class NoOpApplicationEventOutbox : IApplicationEventOutbox
+    private sealed class RecordingApplicationEventOutbox : IApplicationEventOutbox
     {
+        public List<IApplicationEvent> Events { get; } = [];
+
         public Task AddAsync(
             IApplicationEvent applicationEvent,
-            CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            Events.Add(applicationEvent);
+            return Task.CompletedTask;
+        }
 
         public Task AddRangeAsync(
             IReadOnlyCollection<IApplicationEvent> applicationEvents,
-            CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            Events.AddRange(applicationEvents);
+            return Task.CompletedTask;
+        }
     }
 
     private static readonly ExchangeAccountProviderIdentity ProviderIdentity =

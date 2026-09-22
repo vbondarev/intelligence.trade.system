@@ -1,7 +1,7 @@
-using System.Runtime.ExceptionServices;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 
@@ -11,11 +11,14 @@ public sealed class ExchangeAccountService(
     IExchangeAccountAccessVerifier accessVerifier,
     IExchangeAccountRepository repository,
     IExchangeAccountCredentialStore credentialStore,
-    IExchangeAccountLifecycleTransaction lifecycleTransaction)
+    IExchangeAccountLifecycleTransaction lifecycleTransaction,
+    IApplicationEventOutbox applicationEventOutbox,
+    TimeProvider? timeProvider = null)
     : IExchangeAccountService
 {
     private const ExchangeAccountCapabilities RequiredCapabilities =
         ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions;
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     public async Task<IReadOnlyList<ExchangeAccount>> ListActiveAsync(
         UserId userId,
@@ -50,25 +53,42 @@ public sealed class ExchangeAccountService(
         if (!HasRequiredCapabilities(verification.Capabilities))
             return ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.PermissionsRejected);
 
-        var account = ExchangeAccount.Create(
-            ExchangeAccountId.New(),
-            userId,
-            exchange,
-            providerIdentity,
-            capabilities: verification.Capabilities);
-        var accountVersion = await repository.SaveAsync(userId, account, null, cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await credentialStore.CreateAsync(userId, account.Id, credentials, cancellationToken).ConfigureAwait(false);
-            account.MarkConnected();
-            await repository.SaveAsync(userId, account, accountVersion, cancellationToken).ConfigureAwait(false);
-            return ExchangeAccountConnectionResult.Connected(account);
-        }
-        catch (Exception exception)
-        {
-            await CompensateFailedConnectionAsync(userId, account, accountVersion, exception).ConfigureAwait(false);
-            throw;
-        }
+        ExchangeAccount? connectedAccount = null;
+        await lifecycleTransaction.ExecuteAsync(
+            async transactionToken =>
+            {
+                var account = ExchangeAccount.Create(
+                    ExchangeAccountId.New(),
+                    userId,
+                    exchange,
+                    providerIdentity,
+                    capabilities: verification.Capabilities);
+                var accountVersion = await repository
+                    .SaveAsync(userId, account, null, transactionToken)
+                    .ConfigureAwait(false);
+                await credentialStore
+                    .CreateAsync(userId, account.Id, credentials, transactionToken)
+                    .ConfigureAwait(false);
+                account.MarkConnected();
+                await repository
+                    .SaveAsync(userId, account, accountVersion, transactionToken)
+                    .ConfigureAwait(false);
+                await applicationEventOutbox
+                    .AddAsync(
+                        new ExchangeAccountUpdatedEventV1(
+                            Guid.NewGuid(),
+                            clock.GetUtcNow(),
+                            userId.Value,
+                            account.Id.Value),
+                        transactionToken)
+                    .ConfigureAwait(false);
+                connectedAccount = account;
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return ExchangeAccountConnectionResult.Connected(
+            connectedAccount ?? throw new InvalidOperationException(
+                "The account lifecycle transaction completed without an account."));
     }
 
     public async Task<ExchangeAccountVerificationResult> VerifyAsync(
@@ -107,12 +127,33 @@ public sealed class ExchangeAccountService(
         if (outcome == ExchangeAccountVerificationOutcome.UnsupportedExchange)
             return new(outcome, null);
 
+        var previousState = AccountState.Capture(account);
         if (outcome == ExchangeAccountVerificationOutcome.Succeeded)
             account.MarkConnected();
         else
             account.MarkUnavailable("Exchange credential verification failed.");
 
-        await repository.SaveAsync(userId, account, loaded.Version, cancellationToken).ConfigureAwait(false);
+        if (!previousState.Equals(AccountState.Capture(account)))
+        {
+            await lifecycleTransaction.ExecuteAsync(
+                async transactionToken =>
+                {
+                    await repository
+                        .SaveAsync(userId, account, loaded.Version, transactionToken)
+                        .ConfigureAwait(false);
+                    await applicationEventOutbox
+                        .AddAsync(
+                            new ExchangeAccountUpdatedEventV1(
+                                Guid.NewGuid(),
+                                clock.GetUtcNow(),
+                                userId.Value,
+                                account.Id.Value),
+                            transactionToken)
+                        .ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
         return new(outcome, account);
     }
 
@@ -163,6 +204,15 @@ public sealed class ExchangeAccountService(
             currentAccount.Value.MarkConnected();
             await repository.SaveAsync(userId, currentAccount.Value, initialAccount.Version, transactionToken)
                 .ConfigureAwait(false);
+            await applicationEventOutbox
+                .AddAsync(
+                    new ExchangeAccountUpdatedEventV1(
+                        Guid.NewGuid(),
+                        clock.GetUtcNow(),
+                        userId.Value,
+                        exchangeAccountId.Value),
+                    transactionToken)
+                .ConfigureAwait(false);
             rotated = currentAccount.Value;
         }, cancellationToken).ConfigureAwait(false);
 
@@ -181,12 +231,48 @@ public sealed class ExchangeAccountService(
         var metadata = await credentialStore.GetMetadataAsync(userId, exchangeAccountId, cancellationToken).ConfigureAwait(false);
         if (account.ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
         {
-            account.Disable();
-            await repository.SaveAsync(userId, account, loaded.Version, cancellationToken).ConfigureAwait(false);
+            await lifecycleTransaction.ExecuteAsync(
+                async transactionToken =>
+                {
+                    account.Disable();
+                    await repository
+                        .SaveAsync(userId, account, loaded.Version, transactionToken)
+                        .ConfigureAwait(false);
+
+                    if (metadata is not null)
+                    {
+                        await credentialStore
+                            .RevokeAsync(
+                                userId,
+                                exchangeAccountId,
+                                metadata.Version,
+                                transactionToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    await applicationEventOutbox
+                        .AddAsync(
+                            new ExchangeAccountUpdatedEventV1(
+                                Guid.NewGuid(),
+                                clock.GetUtcNow(),
+                                userId.Value,
+                                exchangeAccountId.Value),
+                            transactionToken)
+                        .ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (metadata is not null)
+        {
+            await lifecycleTransaction.ExecuteAsync(
+                transactionToken => credentialStore.RevokeAsync(
+                    userId,
+                    exchangeAccountId,
+                    metadata.Version,
+                    transactionToken),
+                cancellationToken).ConfigureAwait(false);
         }
 
-        if (metadata is not null)
-            await credentialStore.RevokeAsync(userId, exchangeAccountId, metadata.Version, cancellationToken).ConfigureAwait(false);
         return account;
     }
 
@@ -225,21 +311,19 @@ public sealed class ExchangeAccountService(
             _ => ExchangeAccountCredentialRotationOutcome.UnsupportedExchange,
         };
 
-    private async Task CompensateFailedConnectionAsync(UserId userId, ExchangeAccount account,
-        ConcurrencyVersion accountVersion, Exception originalException)
+    private readonly record struct AccountState(
+        ExchangeAccountConnectionStatus ConnectionStatus,
+        DateTimeOffset? LastSyncedAt,
+        string? LastError,
+        DateTimeOffset? LastAppliedBalanceObservationAt,
+        DateTimeOffset? LastAppliedPositionsObservationAt)
     {
-        var failures = new List<Exception>();
-        try
-        {
-            var credential = await credentialStore.GetAsync(userId, account.Id, CancellationToken.None).ConfigureAwait(false);
-            if (credential is not null)
-                await credentialStore.RevokeAsync(userId, account.Id, credential.Version, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception exception) { failures.Add(exception); }
-        try { await repository.DeleteAsync(userId, account.Id, accountVersion, CancellationToken.None).ConfigureAwait(false); }
-        catch (Exception exception) { failures.Add(exception); }
-        if (failures.Count == 0)
-            ExceptionDispatchInfo.Capture(originalException).Throw();
-        throw new AggregateException("The exchange account operation failed and its compensation also failed.", [originalException, .. failures]);
+        public static AccountState Capture(ExchangeAccount account) =>
+            new(
+                account.ConnectionStatus,
+                account.LastSyncedAt,
+                account.LastError,
+                account.LastAppliedBalanceObservationAt,
+                account.LastAppliedPositionsObservationAt);
     }
 }

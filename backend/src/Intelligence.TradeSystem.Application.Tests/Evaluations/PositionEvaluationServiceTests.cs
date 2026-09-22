@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
@@ -297,6 +298,10 @@ public sealed class PositionEvaluationServiceTests
         Assert.Single(harness.Policy.Calls);
         Assert.Equal(harness.Policy.Definition.Identity, result.Snapshot!.Assessment.InputVersions.BasePolicyConfigurationIdentity);
         Assert.Equal(harness.Policy.Definition.Identity, result.Snapshot.Recommendation!.PolicyIdentity);
+        var evaluationEvent = Assert.IsType<PositionEvaluationUpdatedEventV1>(
+            Assert.Single(harness.EvaluationOutbox.Events));
+        Assert.Equal(harness.UserId.Value, evaluationEvent.UserId);
+        Assert.Equal(harness.Position.Id.Value, evaluationEvent.PositionId);
     }
 
     [Fact]
@@ -471,6 +476,7 @@ public sealed class PositionEvaluationServiceTests
 
         Assert.Equal(1, harness.Assessments.SaveCalls);
         Assert.Equal(3, harness.Publication.PublishInitialCalls);
+        Assert.Empty(harness.EvaluationOutbox.Events);
     }
 
     [Fact]
@@ -496,6 +502,7 @@ public sealed class PositionEvaluationServiceTests
         Assert.Equal(previousAssessment.Id, result.Snapshot!.Recommendation!.AssessmentId);
         Assert.NotEqual(result.Snapshot.Assessment.Id, result.Snapshot.Recommendation.AssessmentId);
         Assert.Equal(1, harness.Publication.ConfirmKeepCalls);
+        Assert.Single(harness.EvaluationOutbox.Events);
     }
 
     [Fact]
@@ -519,6 +526,7 @@ public sealed class PositionEvaluationServiceTests
         Assert.Equal(current.Id, result.Snapshot!.Recommendation!.Id);
         Assert.Equal(previousAssessment.Id, result.Snapshot.Recommendation.AssessmentId);
         Assert.Equal(1, harness.Publication.SavePendingCalls);
+        Assert.Single(harness.EvaluationOutbox.Events);
     }
 
     [Fact]
@@ -752,6 +760,8 @@ public sealed class PositionEvaluationServiceTests
             Market = new RecordingMarketSnapshotService(market);
             Stability = new RecordingStabilityStateRepository();
             Publication = new RecordingPublicationTransaction(Order);
+            EvaluationTransaction = new RecordingEvaluationTransaction();
+            EvaluationOutbox = new RecordingEvaluationEventOutbox();
             RecommendationService = new(
                 Policy,
                 new RecommendationPolicy(),
@@ -770,6 +780,8 @@ public sealed class PositionEvaluationServiceTests
                 Policy,
                 new PositionAssessmentService(),
                 RecommendationService,
+                EvaluationTransaction,
+                EvaluationOutbox,
                 settings,
                 new FixedTimeProvider(asOf));
         }
@@ -789,6 +801,8 @@ public sealed class PositionEvaluationServiceTests
         public RecordingMarketSnapshotService Market { get; }
         public RecordingStabilityStateRepository Stability { get; }
         public RecordingPublicationTransaction Publication { get; }
+        public RecordingEvaluationTransaction EvaluationTransaction { get; }
+        public RecordingEvaluationEventOutbox EvaluationOutbox { get; }
         public RecommendationService RecommendationService { get; }
         public PositionEvaluationService Service { get; }
         public RecommendationApplicationResultKind? LastRecommendationKind =>
@@ -1128,6 +1142,35 @@ public sealed class PositionEvaluationServiceTests
             LastKind = RecommendationApplicationResultKind.KeptExisting;
             Calls.Add(nameof(ConfirmKeepExistingAsync));
             CancellationTokens.Add(cancellationToken);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingEvaluationTransaction : IPositionEvaluationTransaction
+    {
+        public Task ExecuteAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default) =>
+            operation(cancellationToken);
+    }
+
+    private sealed class RecordingEvaluationEventOutbox : IApplicationEventOutbox
+    {
+        public List<IApplicationEvent> Events { get; } = [];
+
+        public Task AddAsync(
+            IApplicationEvent applicationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            Events.Add(applicationEvent);
+            return Task.CompletedTask;
+        }
+
+        public Task AddRangeAsync(
+            IReadOnlyCollection<IApplicationEvent> applicationEvents,
+            CancellationToken cancellationToken = default)
+        {
+            Events.AddRange(applicationEvents);
             return Task.CompletedTask;
         }
     }

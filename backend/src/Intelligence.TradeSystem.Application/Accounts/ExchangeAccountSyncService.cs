@@ -310,12 +310,35 @@ public sealed class ExchangeAccountSyncService(
                                 .ToList<IApplicationEvent>();
                             if (persistedFailureReason is not null)
                             {
+                                var degradedAt = clock.GetUtcNow();
                                 applicationEvents.Add(
                                     PositionApplicationEventFactory.CreateSyncDegraded(
                                         userId,
                                         accountForPersistence,
                                         persistedFailureReason,
-                                        clock.GetUtcNow()));
+                                        degradedAt));
+                                applicationEvents.Add(
+                                    new PortfolioUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        degradedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
+                            }
+                            else
+                            {
+                                var synchronizedAt = clock.GetUtcNow();
+                                applicationEvents.Add(
+                                    new ExchangeAccountUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        synchronizedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
+                                applicationEvents.Add(
+                                    new PortfolioUpdatedEventV1(
+                                        Guid.NewGuid(),
+                                        synchronizedAt,
+                                        userId.Value,
+                                        exchangeAccountId.Value));
                             }
 
                             await applicationEventOutbox

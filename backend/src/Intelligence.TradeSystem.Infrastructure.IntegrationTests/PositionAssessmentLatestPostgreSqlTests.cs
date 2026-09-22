@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Text.Json;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Decisions;
@@ -143,6 +144,64 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         Assert.Equal(assessmentA2.Id, latest!.Id);
         Assert.Equal(assessmentA1.Id, current!.Value.AssessmentId);
         Assert.NotEqual(latest.Id, current.Value.AssessmentId);
+    }
+
+    [Fact]
+    public async Task Position_evaluation_transaction_rolls_back_assessment_recommendation_and_event_together()
+    {
+        var account = CreateAccount(UserId.New());
+        var position = CreatePosition(account.Id);
+        var assessment = CreateAssessment(account, position, T0.AddMinutes(1));
+        var recommendation = Recommendation.Create(
+            assessment,
+            PositionAction.Watch,
+            AddDecision.DoNotAdd,
+            new RuleVersion("policy-v1"),
+            [],
+            T0.AddMinutes(2),
+            T0.AddMinutes(3));
+
+        await using (var setup = await CreateMigratedContext())
+        {
+            await SaveAccountAndPosition(setup, account, position);
+        }
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var assessments = new PositionAssessmentRepository(context);
+            var recommendations = new RecommendationRepository(context);
+            var outbox = new ApplicationEventOutbox(context);
+            var transaction = new PositionEvaluationTransaction(context);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                transaction.ExecuteAsync(async cancellationToken =>
+                {
+                    await assessments.SaveAsync(
+                        account.UserId,
+                        assessment,
+                        cancellationToken);
+                    await recommendations.SaveAsync(
+                        account.UserId,
+                        recommendation,
+                        expectedVersion: null,
+                        cancellationToken);
+                    await outbox.AddAsync(
+                        new PositionEvaluationUpdatedEventV1(
+                            Guid.NewGuid(),
+                            assessment.CreatedAt,
+                            account.UserId.Value,
+                            position.Id.Value),
+                        cancellationToken);
+                    throw new InvalidOperationException("Injected evaluation persistence failure.");
+                }));
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        Assert.Null(await new PositionAssessmentRepository(verificationContext)
+            .GetLatestForPositionAsync(account.UserId, position.Id));
+        Assert.Null(await new RecommendationRepository(verificationContext)
+            .GetCurrentForPositionAsync(account.UserId, position.Id));
+        Assert.Empty(await verificationContext.OutboxMessages.ToArrayAsync());
     }
 
     [Fact]

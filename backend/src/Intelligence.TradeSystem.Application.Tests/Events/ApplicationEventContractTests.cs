@@ -231,6 +231,46 @@ public sealed class ApplicationEventContractTests
                 DateTimeOffset.UtcNow));
     }
 
+    [Fact]
+    public void User_resource_events_round_trip_with_only_scoped_resource_identity()
+    {
+        var userId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var positionId = Guid.NewGuid();
+        var occurredAt = new DateTimeOffset(2026, 9, 9, 10, 0, 0, TimeSpan.Zero);
+        IApplicationEvent[] events =
+        [
+            new ExchangeAccountUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                accountId),
+            new PortfolioUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                accountId),
+            new PositionEvaluationUpdatedEventV1(
+                Guid.NewGuid(),
+                occurredAt,
+                userId,
+                positionId),
+        ];
+
+        foreach (var applicationEvent in events)
+        {
+            var serialized = ApplicationEventSerializer.Serialize(applicationEvent);
+            var deserialized = ApplicationEventSerializer.Deserialize(
+                serialized.EventType,
+                serialized.SchemaVersion,
+                serialized.Payload);
+
+            Assert.Equal(applicationEvent, deserialized);
+            Assert.Contains("\"userId\"", serialized.Payload, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret", serialized.Payload, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static ExchangeAccount CreateAccount() =>
         ExchangeAccount.Create(
             ExchangeAccountId.New(),

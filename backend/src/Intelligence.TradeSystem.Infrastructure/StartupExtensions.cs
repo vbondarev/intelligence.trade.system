@@ -82,6 +82,7 @@ public static class StartupExtensions
         services.AddScoped<IExchangeAccountCredentialStore, ExchangeAccountCredentialStore>();
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IExchangeAccountLifecycleTransaction, ExchangeAccountLifecycleTransaction>();
+        services.AddScoped<IPositionEvaluationTransaction, PositionEvaluationTransaction>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPositionReadStore, PositionReadRepository>();
         services.AddScoped<IPositionTimelineReadStore, PositionTimelineReadRepository>();

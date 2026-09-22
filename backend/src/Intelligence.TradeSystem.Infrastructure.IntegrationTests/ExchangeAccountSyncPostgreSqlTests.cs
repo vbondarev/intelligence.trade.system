@@ -191,9 +191,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .ToArrayAsync();
         var eventRow = Assert.Single(
             accountEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "position.changed" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
         var applicationEvent = ApplicationEventSerializer.Deserialize(
             eventRow.EventType,
             eventRow.SchemaVersion,
@@ -207,7 +208,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     }
 
     [Fact]
-    public async Task Newer_identical_observation_updates_dynamic_state_without_history_or_event()
+    public async Task Newer_identical_observation_updates_dynamic_state_without_history_but_with_invalidation()
     {
         var account = CreateAccount();
         var initialPosition = Position.Create(
@@ -248,11 +249,18 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         var pendingEvents = await verificationContext.OutboxMessages
             .Where(message => message.ProcessedAt == null)
             .ToArrayAsync();
-        Assert.DoesNotContain(
+        Assert.Contains(
             pendingEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "exchange-account.updated" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
+        Assert.Contains(
+            pendingEvents,
+            message => message.EventType == "portfolio.updated" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
     }
 
     [Fact]
@@ -326,9 +334,10 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             .ToArrayAsync();
         Assert.Single(
             supersededAccountEvents,
-            message => message.Payload.Contains(
-                account.UserId.Value.ToString(),
-                StringComparison.Ordinal));
+            message => message.EventType == "position.opened" &&
+                       message.Payload.Contains(
+                           account.UserId.Value.ToString(),
+                           StringComparison.Ordinal));
     }
 
     [Fact]

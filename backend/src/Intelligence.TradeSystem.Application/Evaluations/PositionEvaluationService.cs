@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Recommendations;
@@ -26,6 +27,8 @@ public sealed class PositionEvaluationService(
     IRecommendationPolicyDefinitionProvider policyDefinitionProvider,
     PositionAssessmentService positionAssessmentService,
     RecommendationService recommendationService,
+    IPositionEvaluationTransaction evaluationTransaction,
+    IApplicationEventOutbox applicationEventOutbox,
     PositionEvaluationPolicySettings policySettings,
     TimeProvider timeProvider)
 {
@@ -150,23 +153,44 @@ public sealed class PositionEvaluationService(
             portfolio.IsFreshAt(asOf));
         var assessment = positionAssessmentService.Assess(input);
 
-        await positionAssessmentRepository.SaveAsync(
-            userId,
-            assessment,
+        PositionAssessment? persistedAssessment = null;
+        RecommendationApplicationResult? recommendationResult = null;
+        await evaluationTransaction.ExecuteAsync(
+            async persistenceCancellationToken =>
+            {
+                await positionAssessmentRepository.SaveAsync(
+                    userId,
+                    assessment,
+                    persistenceCancellationToken);
+
+                persistedAssessment = await positionAssessmentRepository.GetByIdAsync(
+                    userId,
+                    assessment.Id,
+                    persistenceCancellationToken) ?? throw new InvalidOperationException(
+                    "The persisted position assessment could not be reloaded.");
+
+                recommendationResult = await recommendationService.CreateAsync(
+                    userId,
+                    persistedAssessment,
+                    policyDefinition,
+                    asOf,
+                    persistenceCancellationToken);
+
+                await applicationEventOutbox.AddAsync(
+                    new PositionEvaluationUpdatedEventV1(
+                        Guid.NewGuid(),
+                        asOf,
+                        userId.Value,
+                        positionId.Value),
+                    persistenceCancellationToken);
+            },
             cancellationToken);
 
-        var persistedAssessment = await positionAssessmentRepository.GetByIdAsync(
-            userId,
-            assessment.Id,
-            cancellationToken) ?? throw new InvalidOperationException(
-                "The persisted position assessment could not be reloaded.");
-
-        var recommendationResult = await recommendationService.CreateAsync(
-            userId,
-            persistedAssessment,
-            policyDefinition,
-            asOf,
-            cancellationToken);
+        if (persistedAssessment is null || recommendationResult is null)
+        {
+            throw new InvalidOperationException(
+                "The evaluation persistence boundary completed without an evaluation result.");
+        }
 
         return PositionEvaluationResult.Succeeded(
             new PositionEvaluationSnapshot(

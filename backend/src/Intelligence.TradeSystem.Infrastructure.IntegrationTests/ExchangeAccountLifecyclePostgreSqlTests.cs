@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
@@ -20,6 +21,49 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 [Collection("PostgreSql")]
 public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task Connect_persists_account_credentials_and_invalidation_in_one_lifecycle()
+    {
+        var userId = UserId.New();
+        var keys = CreateKeys("v1");
+        var credentials = new ExchangeAccountCredentialSecret("api-key", "api-secret");
+
+        await using (var context = await CreateMigratedContext())
+        {
+            var service = new ExchangeAccountService(
+                new FixedAccessVerifier(ExchangeAccountProviderIdentity.From("provider-account")),
+                new ExchangeAccountRepository(context),
+                CreateStore(context, keys),
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
+
+            var result = await service.ConnectAsync(userId, ExchangeId.Bybit, credentials);
+
+            Assert.Equal(ExchangeAccountConnectionOutcome.Connected, result.Outcome);
+            Assert.NotNull(result.Account);
+        }
+
+        await using var verificationContext = await CreateMigratedContext();
+        var account = await verificationContext.ExchangeAccounts
+            .SingleAsync(entity => entity.UserId == userId.Value);
+        var storedEvents = await verificationContext.OutboxMessages
+            .Where(message => message.EventType == ApplicationEventTypes.ExchangeAccountUpdated)
+            .ToArrayAsync();
+        var storedEvent = storedEvents.Single(
+            message => message.Payload.Contains(
+                userId.Value.ToString(),
+                StringComparison.Ordinal));
+        var applicationEvent = ApplicationEventSerializer.Deserialize(
+            storedEvent.EventType,
+            storedEvent.SchemaVersion,
+            storedEvent.Payload);
+        var accountEvent = Assert.IsType<ExchangeAccountUpdatedEventV1>(applicationEvent);
+        Assert.Equal(userId.Value, accountEvent.UserId);
+        Assert.Equal(account.Id, accountEvent.ExchangeAccountId);
+        Assert.Equal(1, await verificationContext.ExchangeAccountCredentials.CountAsync(
+            credential => credential.ExchangeAccountId == account.Id));
+    }
+
     [Fact]
     public async Task ListActiveAsync_returns_only_the_owning_users_non_disabled_accounts_in_deterministic_id_order()
     {
@@ -147,7 +191,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 new FixedAccessVerifier(ExchangeAccountProviderIdentity.From("different-bybit-user")),
                 repository,
                 store,
-                new ExchangeAccountLifecycleTransaction(context));
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
 
             var result = await service.RotateCredentialsAsync(userId, account.Id, replacement);
 
@@ -194,7 +239,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 verifier,
                 new ExchangeAccountRepository(context),
                 CreateStore(context, keys),
-                new ExchangeAccountLifecycleTransaction(context));
+                new ExchangeAccountLifecycleTransaction(context),
+                new ApplicationEventOutbox(context));
 
             return await service.RotateCredentialsAsync(
                 userId,
