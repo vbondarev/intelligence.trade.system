@@ -1,5 +1,6 @@
 ﻿using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Application.Accounts.Access;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Domain.Recommendations;
@@ -40,5 +41,29 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
             .GetRequiredService<IRecommendationPolicyDefinitionProvider>()
             .GetAsync();
         definition.Identity.Should().Be(PolicyDefinition.Default.Identity);
+    }
+
+    [Fact]
+    public void Program_CompositionRoot_Registers_A_Handler_For_Every_Persisted_Application_Event()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var serviceProvider = scope.ServiceProvider;
+
+        AssertHandler<PositionOpenedEventV1>(serviceProvider);
+        AssertHandler<PositionChangedEventV1>(serviceProvider);
+        AssertHandler<PositionClosedEventV1>(serviceProvider);
+        AssertHandler<ExchangeAccountSyncDegradedEventV1>(serviceProvider);
+        AssertHandler<ExchangeAccountUpdatedEventV1>(serviceProvider);
+        AssertHandler<PortfolioUpdatedEventV1>(serviceProvider);
+        AssertHandler<PositionEvaluationUpdatedEventV1>(serviceProvider);
+    }
+
+    private static void AssertHandler<TEvent>(IServiceProvider serviceProvider)
+        where TEvent : IApplicationEvent
+    {
+        serviceProvider
+            .GetServices<IApplicationEventHandler<TEvent>>()
+            .Should()
+            .ContainSingle();
     }
 }

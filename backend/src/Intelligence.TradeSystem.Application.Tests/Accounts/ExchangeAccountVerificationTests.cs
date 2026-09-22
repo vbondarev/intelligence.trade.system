@@ -243,11 +243,18 @@ public sealed class ExchangeAccountVerificationTests
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
         repository.Setup(value => value.SaveAsync(userId, It.IsAny<ExchangeAccount>(), version, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("stale version"));
-        var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
+        var outbox = new TestApplicationEventOutbox();
+        var service = new ExchangeAccountService(
+            verifier.Object,
+            repository.Object,
+            store.Object,
+            new InlineLifecycleTransaction(),
+            outbox);
 
         var act = () => service.VerifyAsync(userId, account.Id);
 
         await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        outbox.Events.Should().BeEmpty();
     }
 
     [Fact]
