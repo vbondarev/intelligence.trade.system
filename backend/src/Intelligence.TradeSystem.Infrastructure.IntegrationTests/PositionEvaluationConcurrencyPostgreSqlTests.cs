@@ -17,6 +17,7 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Intelligence.TradeSystem.MarketIntelligence.Snapshots;
 using Microsoft.EntityFrameworkCore;
@@ -473,9 +474,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         var userOutboxMessages = (await verification.OutboxMessages
                 .ToArrayAsync())
             .Where(message =>
-                message.Payload.Contains(
-                    userId.Value.ToString(),
-                    StringComparison.Ordinal))
+                BelongsToUser(message, userId))
             .ToArray();
         Assert.Equal(
             1,
@@ -676,9 +675,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                 .ToArrayAsync());
         var userOutboxMessages = (await verification.OutboxMessages.ToArrayAsync())
             .Where(message =>
-                message.Payload.Contains(
-                    userId.Value.ToString(),
-                    StringComparison.Ordinal))
+                BelongsToUser(message, userId))
             .ToArray();
         Assert.Single(
             userOutboxMessages,
@@ -905,6 +902,27 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             H4 = timeframe,
             D1 = timeframe with { Timeframe = "1d" },
             Sentiment = new(),
+        };
+    }
+
+    private static bool BelongsToUser(
+        OutboxMessageEntity message,
+        UserId userId)
+    {
+        var applicationEvent = ApplicationEventSerializer.Deserialize(
+            message.EventType,
+            message.SchemaVersion,
+            message.Payload);
+        return applicationEvent switch
+        {
+            ExchangeAccountUpdatedEventV1 accountEvent => accountEvent.UserId == userId.Value,
+            ExchangeAccountSyncDegradedEventV1 degradedEvent => degradedEvent.UserId == userId.Value,
+            PortfolioUpdatedEventV1 portfolioEvent => portfolioEvent.UserId == userId.Value,
+            PositionOpenedEventV1 positionOpenedEvent => positionOpenedEvent.UserId == userId.Value,
+            PositionChangedEventV1 positionChangedEvent => positionChangedEvent.UserId == userId.Value,
+            PositionClosedEventV1 positionClosedEvent => positionClosedEvent.UserId == userId.Value,
+            PositionEvaluationUpdatedEventV1 evaluationEvent => evaluationEvent.UserId == userId.Value,
+            _ => false,
         };
     }
 
