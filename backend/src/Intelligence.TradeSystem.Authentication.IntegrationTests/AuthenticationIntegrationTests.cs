@@ -18,6 +18,7 @@ using Intelligence.TradeSystem.Identity;
 using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Migrations;
 using Intelligence.TradeSystem.Identity.Persistence;
+using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -173,6 +174,15 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() =>
             IdentityMigrationRunner.ApplyAsync(
                 "Host=127.0.0.1;Port=1;Database=unreachable;Username=none;Password=none;Timeout=1"));
+    }
+
+    [Fact]
+    public void Testing_api_host_does_not_register_the_outbox_dispatcher_worker()
+    {
+        apiFactory.Services
+            .GetServices<IHostedService>()
+            .Should()
+            .NotContain(service => service is ApplicationEventOutboxDispatcherWorker);
     }
 
     [Fact]
