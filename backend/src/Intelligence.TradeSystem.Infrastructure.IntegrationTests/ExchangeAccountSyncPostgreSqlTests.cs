@@ -470,6 +470,12 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     private sealed class ThrowingAfterOperationSyncTransaction(TradeSystemDbContext dbContext)
         : IExchangeAccountSyncTransaction
     {
+        public Task LockAccountAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public async Task ExecuteAsync(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default)

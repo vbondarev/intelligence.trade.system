@@ -171,12 +171,25 @@ public sealed class PositionEvaluationService(
                         "The position evaluation snapshot became stale before persistence.");
                 }
 
+                var lockedAccount = await exchangeAccountRepository.GetByIdAsync(
+                    userId,
+                    account.Value.Id,
+                    persistenceCancellationToken);
+                if (lockedAccount is null ||
+                    lockedAccount.Value.ConnectionStatus == ExchangeAccountConnectionStatus.Disabled ||
+                    lockedAccount.Value.ExchangeId != account.Value.ExchangeId ||
+                    lockedAccount.Value.ProviderIdentity != account.Value.ProviderIdentity)
+                {
+                    throw new ConcurrencyConflictException(
+                        "The exchange account evaluation snapshot became stale before persistence.");
+                }
+
                 var lockedPortfolio = await portfolioStateRepository.GetLatestAsync(
                     userId,
                     account.Value.Id,
                     persistenceCancellationToken);
                 if (lockedPortfolio is null ||
-                    lockedPortfolio.CalculatedAt != portfolio.CalculatedAt ||
+                    !HasSameEvaluationInputs(portfolio, lockedPortfolio) ||
                     !HasConsistentPortfolioPosition(lockedPosition.Value, lockedPortfolio))
                 {
                     throw new ConcurrencyConflictException(
@@ -250,6 +263,20 @@ public sealed class PositionEvaluationService(
             portfolioPosition.Leverage == position.Leverage &&
             portfolioPosition.LastObservedAt == position.LastObservedAt;
     }
+
+    private static bool HasSameEvaluationInputs(
+        PortfolioState expected,
+        PortfolioState actual) =>
+        expected.ExchangeAccountId == actual.ExchangeAccountId &&
+        expected.CalculatedAt == actual.CalculatedAt &&
+        expected.StaleAfter == actual.StaleAfter &&
+        expected.PositionsFullyReconciled == actual.PositionsFullyReconciled &&
+        expected.IsComplete == actual.IsComplete &&
+        expected.IsFresh == actual.IsFresh &&
+        expected.Capital == actual.Capital &&
+        expected.Positions
+            .OrderBy(position => position.PositionId.Value)
+            .SequenceEqual(actual.Positions.OrderBy(position => position.PositionId.Value));
 
     private static AssessmentDataQuality ResolvePortfolioQuality(
         PortfolioState portfolio,

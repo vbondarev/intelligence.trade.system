@@ -220,6 +220,13 @@ public sealed class ExchangeAccountSyncService(
                                     .ConfigureAwait(false);
                             }
 
+                            await persistenceTransaction
+                                .LockAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
+
                             var reconciledPositions = trackedPositions
                                 .Concat(reconciliation.NewPositions)
                                 .ToArray();

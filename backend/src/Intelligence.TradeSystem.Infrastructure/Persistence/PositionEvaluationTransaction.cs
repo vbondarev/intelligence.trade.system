@@ -24,6 +24,13 @@ public sealed class PositionEvaluationTransaction(TradeSystemDbContext dbContext
                     positionId,
                     cancellationToken)
                 .ConfigureAwait(false);
+            await ExchangeAccountSerializationLock
+                .LockForPositionAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken)
+                .ConfigureAwait(false);
             await operation(cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -34,6 +41,13 @@ public sealed class PositionEvaluationTransaction(TradeSystemDbContext dbContext
         {
             await RecommendationPositionLock
                 .LockAsync(
+                    dbContext,
+                    userId,
+                    positionId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await ExchangeAccountSerializationLock
+                .LockForPositionAsync(
                     dbContext,
                     userId,
                     positionId,

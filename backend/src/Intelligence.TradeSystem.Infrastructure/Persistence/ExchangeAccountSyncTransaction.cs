@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.EntityFrameworkCore;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
@@ -10,6 +11,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence;
 public sealed class ExchangeAccountSyncTransaction(TradeSystemDbContext dbContext)
     : IExchangeAccountSyncTransaction
 {
+    public Task LockAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default) =>
+        ExchangeAccountSerializationLock.LockAsync(
+            dbContext,
+            userId,
+            exchangeAccountId,
+            cancellationToken);
+
     public async Task ExecuteAsync(
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken = default)
