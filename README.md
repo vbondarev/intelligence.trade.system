@@ -1,12 +1,19 @@
 # Intelligence.TradeSystem
 
-**Intelligence.TradeSystem** — развивающийся помощник для сопровождения открытых криптовалютных позиций.
+**Intelligence.TradeSystem — единая интеллектуальная торговая среда, которая видит рынок, знает портфель пользователя, сопровождает сделки, объясняет происходящее, учится на истории пользователя, помогает исследовать рынок и постепенно автоматизирует рутинные действия — при этом критические торговые решения остаются проверяемыми и ограниченными детерминированными правилами риска.**
 
-Цель проекта — помочь пользователю не только найти потенциальную точку входа, а прежде всего понять, **что делать с уже открытой сделкой**: продолжать удерживать позицию, защитить прибыль, сократить риск, закрыть позицию, изменить защитные уровни или дождаться дополнительного подтверждения.
+Текущая разработка сосредоточена на первой основной продуктовой вертикали: безопасном сопровождении уже открытых криптовалютных позиций. Backend получает фактическое состояние биржевого аккаунта и рынка, формирует воспроизводимые оценки и рекомендации, сохраняет историю и отдаёт одинаковое состояние всем клиентам.
 
-Система строится вокруг детерминированного backend, который получает фактическое состояние биржевого аккаунта и рынка, формирует оценки и рекомендации, сохраняет их историю и отдаёт одинаковое состояние всем клиентам. ИИ рассматривается как дополнительный слой объяснения, а не как источник бизнес-истины или единственный механизм принятия решений.
+Долгосрочный продукт шире первого MVP: в Product Vision зафиксированы будущие направления Market Intelligence, Trading Journal, Social & Strategy, внешняя автоматизация и горизонтальный AI Intelligence Layer. Эти направления не являются автоматически утверждённым порядком разработки.
 
-> Проект находится в активной разработке. Ниже отдельно описаны **целевой продукт** и **то, что уже реализовано**, чтобы будущие возможности не смешивались с текущими.
+Подробности:
+
+- [Product Vision](docs/product/vision.md) — каким должен стать продукт;
+- [Capability Map](docs/product/capability-map.md) — какие возможности реализованы, планируются или исследуются;
+- [ROADMAP](ROADMAP.md) — единственный актуальный источник статуса и последовательности разработки;
+- [Документация](docs/README.md) — навигация по source-of-truth документам.
+
+> Проект находится в активной разработке. Product Vision описывает долгосрочную цель, а ROADMAP и раздел «Текущее состояние» ниже — фактическую границу текущей реализации.
 
 ---
 
@@ -76,9 +83,9 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D и E завершены**. Этап **F продолжается**, F-01 — F-06 завершены: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована, канонические lifecycle API биржевых аккаунтов, position-scoped market/candles, evaluation и timeline endpoints опубликованы. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`; browser-specific BFF integration остаётся следующим клиентским этапом. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D и E завершены**. Этап **F продолжается**, F-01 — F-07 завершены: стабильная contract foundation пользовательского `/api/v1` уже зафиксирована, канонические lifecycle API биржевых аккаунтов, position-scoped market/candles, evaluation и timeline endpoints опубликованы. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`; browser-specific BFF integration остаётся следующим клиентским этапом. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 добавляет SignalR invalidation boundary; F-08 — финальная проверка OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
+F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 завершён: user-scoped SignalR invalidation boundary `/hubs/v1/updates` сообщает об изменении account, portfolio, position и evaluation, а актуальное состояние восстанавливается через REST. Следующий шаг — F-08: финальная проверка OpenAPI и contract tests. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
 
 ### Уже реализовано
 
@@ -251,7 +258,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`, а user-facing read API позиций, account-scoped portfolio, market context, evaluation и timeline реализован в F-03—F-06; realtime invalidation boundary описана контрактом F-07, а последующие этапы определяются `ROADMAP.md`. User isolation выполняется на Application/Infrastructure boundary.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`, а user-facing read API позиций, account-scoped portfolio, market context, evaluation, timeline и realtime invalidation boundary реализованы в F-03—F-07, а последующие этапы определяются `ROADMAP.md`. User isolation выполняется на Application/Infrastructure boundary.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 
@@ -600,13 +607,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–E завершены**. Этап **F продолжается**, F-01 — F-06 завершены в `develop`. Статус F-07 и текущий следующий шаг определяются `ROADMAP.md`.
+Этапы **A–E завершены**. Этап **F продолжается**, F-01 — F-07 завершены в `develop`. Текущий следующий шаг — F-08; актуальная последовательность определяется `ROADMAP.md`.
 
-Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавляет user-scoped SignalR invalidation, а F-08 выполняет финальную проверку OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery, а F-08 выполняет финальную проверку OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
 
 Основная ближайшая последовательность:
 
-1. F-08: финальная проверка OpenAPI и contract tests после merge F-07;
+1. F-08: финальная проверка OpenAPI и contract tests;
 2. React-панель и BFF;
 3. непрерывное наблюдение за активными позициями;
 4. Telegram-уведомления и детерминированные объяснения;
@@ -638,7 +645,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 - основной поддерживаемый источник рыночных данных — Bybit;
 - основной внешний сценарий включает публичный рыночный анализ и read-only синхронизацию Bybit-аккаунтов;
-- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, F-02 завершил канонический lifecycle API биржевых аккаунтов, F-03 добавил positions и account-scoped portfolio, F-04 добавил position-scoped market/candles, F-05 добавил evaluation workflow, а F-06 добавил position timeline с cursor pagination и type filtering;
+- persistence доменного состояния, оценок, рекомендаций и stability state реализована; F-01 зафиксировал основу user-facing API v1, F-02 завершил канонический lifecycle API биржевых аккаунтов, F-03 добавил positions и account-scoped portfolio, F-04 добавил position-scoped market/candles, F-05 добавил evaluation workflow, F-06 добавил position timeline с cursor pagination и type filtering, а F-07 добавил user-scoped realtime invalidation;
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
 - канонический `/api/v1/exchange-accounts` публикует lifecycle read-only подключений; временный pre-v1 `api/exchange-accounts` удалён в F-02 и возвращает `404`;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
