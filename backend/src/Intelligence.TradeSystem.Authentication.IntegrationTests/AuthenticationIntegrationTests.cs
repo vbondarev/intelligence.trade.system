@@ -481,6 +481,29 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Updates_hub_closes_the_connection_after_bearer_expiration()
+    {
+        var token = CreateSignedToken(
+            Issuer,
+            Audience,
+            DateTime.UtcNow.AddSeconds(2),
+            principalType: UserPrincipalType);
+        await using var connection = CreateUpdatesConnection(token);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.Closed += _ =>
+        {
+            closed.TrySetResult();
+            return Task.CompletedTask;
+        };
+
+        await connection.StartAsync();
+
+        connection.State.Should().Be(HubConnectionState.Connected);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        connection.State.Should().Be(HubConnectionState.Disconnected);
+    }
+
+    [Fact]
     public async Task Updates_hub_rejects_anonymous_negotiate_requests()
     {
         using var client = apiFactory.CreateClient();

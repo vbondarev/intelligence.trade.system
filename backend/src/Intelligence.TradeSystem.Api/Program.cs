@@ -171,7 +171,9 @@ public partial class Program
         }));
 
         app.MapControllers();
-        app.MapHub<UpdatesHub>("/hubs/v1/updates")
+        app.MapHub<UpdatesHub>(
+                "/hubs/v1/updates",
+                options => options.CloseOnAuthenticationExpiration = true)
             .RequireAuthorization(TradeAuthorization.UserPolicy);
         app.MapDefaultEndpoints();
 
