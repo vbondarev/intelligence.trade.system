@@ -744,13 +744,40 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime, IDisposable
             evaluationReceived.Task)
             .WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(accountId, (await accountReceived.Task).ExchangeAccountId);
-        Assert.Equal(accountId, (await degradedReceived.Task).ExchangeAccountId);
-        Assert.Equal(accountId, (await portfolioReceived.Task).ExchangeAccountId);
-        Assert.Equal(positionId, (await openedReceived.Task).PositionId);
-        Assert.Equal(positionId, (await changedReceived.Task).PositionId);
-        Assert.Equal(positionId, (await closedReceived.Task).PositionId);
-        Assert.Equal(positionId, (await evaluationReceived.Task).PositionId);
+        var accountMessage = await accountReceived.Task;
+        Assert.Equal(accountEvent.EventId, accountMessage.EventId);
+        Assert.Equal(accountEvent.OccurredAt, accountMessage.OccurredAt);
+        Assert.Equal(accountEvent.ExchangeAccountId, accountMessage.ExchangeAccountId);
+
+        var degradedMessage = await degradedReceived.Task;
+        Assert.Equal(degradedEvent.EventId, degradedMessage.EventId);
+        Assert.Equal(degradedEvent.OccurredAt, degradedMessage.OccurredAt);
+        Assert.Equal(degradedEvent.ExchangeAccountId, degradedMessage.ExchangeAccountId);
+
+        var portfolioMessage = await portfolioReceived.Task;
+        Assert.Equal(portfolioEvent.EventId, portfolioMessage.EventId);
+        Assert.Equal(portfolioEvent.OccurredAt, portfolioMessage.OccurredAt);
+        Assert.Equal(portfolioEvent.ExchangeAccountId, portfolioMessage.ExchangeAccountId);
+
+        var openedMessage = await openedReceived.Task;
+        Assert.Equal(openedEvent.EventId, openedMessage.EventId);
+        Assert.Equal(openedEvent.OccurredAt, openedMessage.OccurredAt);
+        Assert.Equal(openedEvent.PositionId, openedMessage.PositionId);
+
+        var changedMessage = await changedReceived.Task;
+        Assert.Equal(changedEvent.EventId, changedMessage.EventId);
+        Assert.Equal(changedEvent.OccurredAt, changedMessage.OccurredAt);
+        Assert.Equal(changedEvent.PositionId, changedMessage.PositionId);
+
+        var closedMessage = await closedReceived.Task;
+        Assert.Equal(closedEvent.EventId, closedMessage.EventId);
+        Assert.Equal(closedEvent.OccurredAt, closedMessage.OccurredAt);
+        Assert.Equal(closedEvent.PositionId, closedMessage.PositionId);
+
+        var evaluationMessage = await evaluationReceived.Task;
+        Assert.Equal(evaluationEvent.EventId, evaluationMessage.EventId);
+        Assert.Equal(evaluationEvent.OccurredAt, evaluationMessage.OccurredAt);
+        Assert.Equal(evaluationEvent.PositionId, evaluationMessage.PositionId);
     }
 
     [Fact]
