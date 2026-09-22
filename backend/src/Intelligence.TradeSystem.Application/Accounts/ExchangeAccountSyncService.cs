@@ -134,6 +134,12 @@ public sealed class ExchangeAccountSyncService(
                                 return;
                             }
 
+                            var trackedBeforeLocks = await positionRepository
+                                .GetByExchangeAccountAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
                             await persistenceTransaction
                                 .LockPositionsAsync(
                                     userId,
@@ -170,6 +176,12 @@ public sealed class ExchangeAccountSyncService(
                                     exchangeAccountId,
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
+                            if (!HasSamePositionWatermark(trackedBeforeLocks, tracked))
+                            {
+                                throw new ConcurrencyConflictException(
+                                    "The position set changed while the synchronization acquired its serialization locks.");
+                            }
+
                             var trackedPositions = tracked
                                 .Select(versioned => versioned.Value)
                                 .ToArray();
@@ -481,6 +493,27 @@ public sealed class ExchangeAccountSyncService(
 
     private static bool IsApplied(ExchangeAccountObservationDisposition disposition) =>
         disposition == ExchangeAccountObservationDisposition.Applied;
+
+    private static bool HasSamePositionWatermark(
+        IReadOnlyCollection<Versioned<Position>> expected,
+        IReadOnlyCollection<Versioned<Position>> actual)
+    {
+        if (expected.Count != actual.Count)
+            return false;
+
+        var expectedOrdered = expected
+            .OrderBy(versioned => versioned.Value.Id.Value)
+            .ToArray();
+        var actualOrdered = actual
+            .OrderBy(versioned => versioned.Value.Id.Value)
+            .ToArray();
+
+        return expectedOrdered
+            .Zip(actualOrdered)
+            .All(pair =>
+                pair.First.Value.Id == pair.Second.Value.Id &&
+                pair.First.Version == pair.Second.Version);
+    }
 
     private static void AdvanceAcceptedWatermarks(
         ExchangeAccount account,
