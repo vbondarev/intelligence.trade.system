@@ -130,13 +130,16 @@ public sealed class ToDomainTypeMapperExtensionsTests
     public void Maps_position_status(BybitPositionStatus? source, Intelligence.TradeSystem.Domain.PositionStatus expected) =>
         new BybitPosition { PositionStatus = source }.MapOpenPosition(MarketCategory.Linear).Status.Should().Be(expected);
 
-    [Fact]
-    public void Preserves_position_idx()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Preserves_position_idx(int positionIdx)
     {
-        var mapped = new BybitPosition { PositionIdx = (BybitPositionIdx)2 }
+        var mapped = new BybitPosition { PositionIdx = (BybitPositionIdx)positionIdx }
             .MapOpenPosition(MarketCategory.Linear);
 
-        mapped.PositionIdx.Should().Be(2);
+        mapped.PositionIdx.Should().Be(positionIdx);
     }
 
     [Fact]

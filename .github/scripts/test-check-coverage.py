@@ -108,6 +108,7 @@ def test_per_assembly_statistics_are_aggregated_independently() -> None:
             "AssemblyA": (1, 1, 100.0),
             "AssemblyB": (0, 1, 0.0),
         }
+        assert list(statistics) == ["AssemblyA", "AssemblyB"]
         assert (sum(value[0] for value in statistics.values()),
                 sum(value[1] for value in statistics.values())) == (1, 2)
 

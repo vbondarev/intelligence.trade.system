@@ -214,7 +214,7 @@ public sealed class BybitPublicMarketProviderTests
     }
 
     [Fact]
-    public async Task GetOrderBookAsync_returns_null_on_failure_and_rejects_no_categories()
+    public async Task GetOrderBookAsync_returns_null_on_provider_failure()
     {
         var exchangeData = CreateExchangeData();
         exchangeData
