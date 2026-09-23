@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.27
+Версия документа: 3.28
 Дата актуализации: 23 сентября 2026 года
-Проверенная база: реализация Issue #140
-Последняя учтённая задача: Issue #140 «F-08. Финализировать OpenAPI и контрактные проверки пользовательского API»
+Проверенная база: реализация Issue #142
+Последняя учтённая задача: Issue #142 «Tech-G01. Исправить coverage quality gate и усилить тесты публичного Bybit-адаптера»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -92,6 +92,10 @@
 - **Tech-F02** ✅ (PR #105): .NET SDK зафиксирован через `global.json`, Docker SDK/runtime images приведены к фиксированным версиям.
 - **Tech-F03** ✅ (PR #105): CI запускается на pull request и push в `develop`/`main`, добавлены aggregate line coverage gate с порогом 92% и проверка direct/transitive NuGet vulnerabilities.
 - **Tech-F04** ✅ (PR #105): coverage aggregator различает production assembly/source file/line, дедуплицирует одну production source line между несколькими test projects и защищён regression tests.
+
+### Техническая подготовка перед этапом G
+
+- **Tech-G01** ✅ (Issue #142): coverage quality gate учитывает только hand-written production code, исключает build-generated и EF migration artifacts, показывает breakdown по production assemblies; публичный Bybit adapter усилен contract tests для mapping и provider boundary.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -550,6 +554,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-23 | 3.28 | Issue #142 завершает Tech-G01 перед этапом G: исправлен coverage quality gate для hand-written production code с диагностикой по assemblies, добавлены regression tests tooling и расширены contract tests публичного Bybit adapter без изменения runtime-поведения. |
 | 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Документ одновременно синхронизирован с уже merged Issue #136 / PR #137: F-07 отмечен завершённым, user-scoped SignalR `/hubs/v1/updates` и включённый outbox dispatcher отражены в текущем состоянии, следующим шагом назначен F-08. Долгосрочные Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
 | 2026-09-21 | 3.25 | Issue #134 завершает F-06: добавлен user-scoped `GET /api/v1/positions/{id}/timeline`, объединяющий persisted position changes, assessments/evaluations и recommendations с bounded PostgreSQL projections, deterministic newest-first ordering, versioned opaque cursor и repeatable type filter. Domain не изменялся; по PostgreSQL query-plan evidence через EF Core migration добавлены chronology indexes `ix_position_changes_position_occurred_at_sequence` и `ix_recommendations_position_created_at_id`; F-07 остаётся следующим шагом. |
 | 2026-09-21 | 3.24 | Issue #128 завершает F-05: добавлены user-scoped GET/POST evaluation, latest assessment query, evaluation-time portfolio freshness, typed configuration с risk limits `20/200/50`, explicit v1 read model и stable `position_not_evaluable` error. Следующий шаг — F-06: timeline позиции. |

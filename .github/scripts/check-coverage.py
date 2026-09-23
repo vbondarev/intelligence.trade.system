@@ -38,7 +38,20 @@ def normalize_source_filename(source: str, filename: str) -> str:
     return filename.casefold()
 
 
-def collect_lines(results_directory: Path) -> tuple[int, int, int]:
+def is_quality_source(normalized_filename: str) -> bool:
+    path = normalized_filename.casefold()
+    segments = path.split("/")
+    filename = segments[-1]
+    return (
+        "obj" not in segments
+        and "Migrations".casefold() not in segments
+        and not filename.endswith((".g.cs", ".g.i.cs", ".generated.cs"))
+    )
+
+
+def collect_line_statistics(
+    results_directory: Path,
+) -> tuple[dict[tuple[str, str, str], int], int]:
     reports = sorted(results_directory.rglob("coverage.cobertura.xml"))
     if not reports:
         raise SystemExit(f"No Cobertura reports found under {results_directory}.")
@@ -73,6 +86,9 @@ def collect_lines(results_directory: Path) -> tuple[int, int, int]:
                     raise SystemExit(f"Invalid class entry in {report}.")
 
                 normalized_filename = normalize_source_filename(source, filename)
+                if not is_quality_source(normalized_filename):
+                    continue
+
                 for line_element in class_element.findall("./lines/line"):
                     line_number = line_element.attrib.get("number")
                     hits = line_element.attrib.get("hits")
@@ -89,8 +105,33 @@ def collect_lines(results_directory: Path) -> tuple[int, int, int]:
                     key = (package_name, normalized_filename, line_number)
                     lines[key] = max(lines.get(key, 0), hit_count)
 
+
+    return lines, len(reports)
+
+
+def collect_lines(results_directory: Path) -> tuple[int, int, int]:
+    lines, report_count = collect_line_statistics(results_directory)
     covered = sum(hits > 0 for hits in lines.values())
-    return covered, len(lines), len(reports)
+    return covered, len(lines), report_count
+
+
+def calculate_assembly_statistics(
+    lines: dict[tuple[str, str, str], int],
+) -> dict[str, tuple[int, int, float]]:
+    assemblies: dict[str, list[int]] = {}
+    for (assembly, _, _), hits in lines.items():
+        assemblies.setdefault(assembly, []).append(hits)
+
+    return {
+        assembly: (
+            sum(hits > 0 for hits in hits_by_assembly),
+            len(hits_by_assembly),
+            sum(hits > 0 for hits in hits_by_assembly)
+            / len(hits_by_assembly)
+            * 100,
+        )
+        for assembly, hits_by_assembly in sorted(assemblies.items())
+    }
 
 
 def main() -> int:
@@ -98,11 +139,22 @@ def main() -> int:
     if args.minimum_line_coverage < 0 or args.minimum_line_coverage > 100:
         raise SystemExit("The minimum line coverage must be between 0 and 100.")
 
-    covered, total, report_count = collect_lines(args.results_directory)
+    lines, report_count = collect_line_statistics(args.results_directory)
+    covered = sum(hits > 0 for hits in lines.values())
+    total = len(lines)
     if total == 0:
         raise SystemExit("Cobertura reports contain no executable lines.")
 
     actual = covered / total * 100
+    print("Coverage by production assembly:")
+    for assembly, (assembly_covered, assembly_total, assembly_actual) in (
+        calculate_assembly_statistics(lines).items()
+    ):
+        print(
+            f"- {assembly}: {assembly_covered}/{assembly_total} = "
+            f"{assembly_actual:.2f}%"
+        )
+
     print(
         f"Coverage: {covered}/{total} lines = {actual:.2f}%; "
         f"minimum = {args.minimum_line_coverage:.2f}%; reports = {report_count}."
