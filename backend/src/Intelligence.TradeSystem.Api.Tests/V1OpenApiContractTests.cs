@@ -52,6 +52,13 @@ public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory
             ["getPositionTimeline"] = ["200", "400", "401", "403", "404"],
         };
 
+    private static readonly HashSet<string> BusinessForbiddenOperationIds =
+    [
+        "createExchangeAccount",
+        "verifyExchangeAccount",
+        "rotateExchangeAccountCredentials",
+    ];
+
     private readonly WebApplicationFactory<Program> _factory;
 
     public V1OpenApiContractTests(WebApplicationFactory<Program> factory) => _factory = factory;
@@ -105,26 +112,30 @@ public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory
         using var document = await GetDocumentAsync();
         var paths = document.RootElement.GetProperty("paths");
 
-        var authOnlyOperation = paths
-            .GetProperty("/api/v1/exchange-accounts")
-            .GetProperty("get");
-        foreach (var statusCode in new[] { "401", "403" })
+        foreach (var expected in ExpectedOperations)
         {
-            authOnlyOperation.GetProperty("responses").GetProperty(statusCode)
+            var parts = expected.Key.Split(' ', 2);
+            var operation = paths.GetProperty(parts[1]).GetProperty(parts[0].ToLowerInvariant());
+            operation.GetProperty("responses").GetProperty("401")
                 .TryGetProperty("content", out _)
                 .Should().BeFalse();
-        }
 
-        var businessErrorOperation = paths
-            .GetProperty("/api/v1/exchange-accounts/{id}/verify")
-            .GetProperty("post");
-        businessErrorOperation.GetProperty("responses").GetProperty("403")
-            .GetProperty("content")
-            .GetProperty("application/problem+json")
-            .GetProperty("schema")
-            .GetProperty("$ref")
-            .GetString()
-            .Should().Be("#/components/schemas/ProblemDetails");
+            var forbidden = operation.GetProperty("responses").GetProperty("403");
+            if (BusinessForbiddenOperationIds.Contains(expected.Value))
+            {
+                forbidden.GetProperty("content")
+                    .GetProperty("application/problem+json")
+                    .GetProperty("schema")
+                    .GetProperty("$ref")
+                    .GetString()
+                    .Should().Be("#/components/schemas/ProblemDetails");
+            }
+            else
+            {
+                forbidden.TryGetProperty("content", out _)
+                    .Should().BeFalse();
+            }
+        }
     }
 
     [Fact]
