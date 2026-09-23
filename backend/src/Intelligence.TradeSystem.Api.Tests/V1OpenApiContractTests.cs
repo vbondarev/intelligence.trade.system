@@ -77,6 +77,21 @@ public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory
 
         actual.Should().BeEquivalentTo(ExpectedOperations.Keys);
 
+        var actualOperationIds = ExpectedOperations.Keys
+            .Select(expected =>
+            {
+                var parts = expected.Split(' ', 2);
+                return paths.GetProperty(parts[1])
+                    .GetProperty(parts[0].ToLowerInvariant())
+                    .GetProperty("operationId")
+                    .GetString();
+            })
+            .ToArray();
+        actualOperationIds.Should().HaveCount(ExpectedOperations.Count);
+        actualOperationIds.Should().OnlyContain(id => !string.IsNullOrWhiteSpace(id));
+        actualOperationIds.Should().OnlyHaveUniqueItems();
+        ExpectedOperations.Values.Should().OnlyHaveUniqueItems();
+
         foreach (var expected in ExpectedOperations)
         {
             var parts = expected.Key.Split(' ', 2);
