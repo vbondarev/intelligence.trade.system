@@ -8,9 +8,12 @@ import runpy
 from tempfile import TemporaryDirectory
 
 
-collect_lines = runpy.run_path(
+coverage_module = runpy.run_path(
     str(Path(__file__).with_name("check-coverage.py"))
-)["collect_lines"]
+)
+collect_lines = coverage_module["collect_lines"]
+collect_line_statistics = coverage_module["collect_line_statistics"]
+calculate_assembly_statistics = coverage_module["calculate_assembly_statistics"]
 
 
 def write_report(
@@ -98,8 +101,15 @@ def test_per_assembly_statistics_are_aggregated_independently() -> None:
             0,
         )
 
-        covered, total, _ = collect_lines(directory)
-        assert (covered, total) == (1, 2)
+        lines, _ = collect_line_statistics(directory)
+        statistics = calculate_assembly_statistics(lines)
+
+        assert statistics == {
+            "AssemblyA": (1, 1, 100.0),
+            "AssemblyB": (0, 1, 0.0),
+        }
+        assert (sum(value[0] for value in statistics.values()),
+                sum(value[1] for value in statistics.values())) == (1, 2)
 
 
 def test_same_assembly_different_filename_forms() -> None:

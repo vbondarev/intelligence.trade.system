@@ -116,6 +116,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
     [InlineData(BybitPositionSide.Buy, DomainPositionSide.Long)]
     [InlineData(BybitPositionSide.Sell, DomainPositionSide.Short)]
     [InlineData(null, DomainPositionSide.Unknown)]
+    [InlineData((BybitPositionSide)999, DomainPositionSide.Unknown)]
     public void Maps_position_side(BybitPositionSide? source, DomainPositionSide expected) =>
         new BybitPosition { Side = source }.MapOpenPosition(MarketCategory.Linear).Side.Should().Be(expected);
 
@@ -125,6 +126,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
     [InlineData(BybitPositionStatus.AutoDeleverage, Intelligence.TradeSystem.Domain.PositionStatus.AutoDeleverage)]
     [InlineData(BybitPositionStatus.Inactive, Intelligence.TradeSystem.Domain.PositionStatus.Inactive)]
     [InlineData(null, Intelligence.TradeSystem.Domain.PositionStatus.Normal)]
+    [InlineData((BybitPositionStatus)999, Intelligence.TradeSystem.Domain.PositionStatus.Normal)]
     public void Maps_position_status(BybitPositionStatus? source, Intelligence.TradeSystem.Domain.PositionStatus expected) =>
         new BybitPosition { PositionStatus = source }.MapOpenPosition(MarketCategory.Linear).Status.Should().Be(expected);
 
@@ -135,6 +137,19 @@ public sealed class ToDomainTypeMapperExtensionsTests
             .MapOpenPosition(MarketCategory.Linear);
 
         mapped.PositionIdx.Should().Be(2);
+    }
+
+    [Fact]
+    public void Maps_null_position_timestamps_to_null_domain_timestamps()
+    {
+        var mapped = new BybitPosition
+        {
+            CreateTime = null,
+            UpdateTime = null,
+        }.MapOpenPosition(MarketCategory.Linear);
+
+        mapped.CreatedTime.Should().BeNull();
+        mapped.UpdatedTime.Should().BeNull();
     }
 
     [Fact]
@@ -204,7 +219,26 @@ public sealed class ToDomainTypeMapperExtensionsTests
     }
 
     [Fact]
-    public void Maps_linear_ticker_and_kline()
+    public void Maps_null_spot_quotes_to_zero()
+    {
+        var ticker = new BybitSpotTicker
+        {
+            BestBidPrice = null,
+            BestBidQuantity = null,
+            BestAskPrice = null,
+            BestAskQuantity = null,
+        }.MapSpotTicker("BTCUSDT");
+
+        ticker.BidPrice.Should().Be(0m);
+        ticker.BidSize.Should().Be(0m);
+        ticker.AskPrice.Should().Be(0m);
+        ticker.AskSize.Should().Be(0m);
+    }
+
+    [Theory]
+    [InlineData(MarketCategory.Linear)]
+    [InlineData(MarketCategory.Inverse)]
+    public void Maps_linear_inverse_ticker_and_kline(MarketCategory category)
     {
         var nextFunding = DateTime.UtcNow.AddHours(1);
         var ticker = new BybitLinearInverseTicker
@@ -225,8 +259,12 @@ public sealed class ToDomainTypeMapperExtensionsTests
             NextFundingTime = nextFunding,
             OpenInterest = 50m,
             OpenInterestValue = 5000m,
-        }.MapLinearInverseTicker("BTCUSDT", MarketCategory.Linear);
+        }.MapLinearInverseTicker("BTCUSDT", category);
 
+        ticker.Category.Should().Be(category);
+        ticker.LastPrice.Should().Be(100m);
+        ticker.BidPrice.Should().Be(98m);
+        ticker.AskSize.Should().Be(3m);
         ticker.FundingRate.Should().Be(0.001m);
         ticker.NextFundingTimeUtc.Should().Be(new DateTimeOffset(nextFunding));
         ticker.OpenInterest.Should().Be(50m);
@@ -241,10 +279,29 @@ public sealed class ToDomainTypeMapperExtensionsTests
             ClosePrice = 105m,
             Volume = 20m,
             QuoteVolume = 2000m,
-        }.MapKline("BTCUSDT", MarketCategory.Linear, KlineInterval.OneHour);
+        }.MapKline("BTCUSDT", category, KlineInterval.OneHour);
 
         kline.Should().BeEquivalentTo(new Kline(
-            "BTCUSDT", MarketCategory.Linear, KlineInterval.OneHour, nextFunding,
+            "BTCUSDT", category, KlineInterval.OneHour, nextFunding,
             100m, 110m, 90m, 105m, 20m, 2000m));
+    }
+
+    [Fact]
+    public void Maps_null_derivative_quotes_and_next_funding_time()
+    {
+        var ticker = new BybitLinearInverseTicker
+        {
+            BestBidPrice = null,
+            BestBidQuantity = null,
+            BestAskPrice = null,
+            BestAskQuantity = null,
+            NextFundingTime = null,
+        }.MapLinearInverseTicker("BTCUSDT", MarketCategory.Linear);
+
+        ticker.BidPrice.Should().Be(0m);
+        ticker.BidSize.Should().Be(0m);
+        ticker.AskPrice.Should().Be(0m);
+        ticker.AskSize.Should().Be(0m);
+        ticker.NextFundingTimeUtc.Should().BeNull();
     }
 }

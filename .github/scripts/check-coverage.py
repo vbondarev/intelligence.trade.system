@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 import sys
 import xml.etree.ElementTree as ET
-from collections import defaultdict
 
 
 WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:/")
@@ -116,6 +115,25 @@ def collect_lines(results_directory: Path) -> tuple[int, int, int]:
     return covered, len(lines), report_count
 
 
+def calculate_assembly_statistics(
+    lines: dict[tuple[str, str, str], int],
+) -> dict[str, tuple[int, int, float]]:
+    assemblies: dict[str, list[int]] = {}
+    for (assembly, _, _), hits in lines.items():
+        assemblies.setdefault(assembly, []).append(hits)
+
+    return {
+        assembly: (
+            sum(hits > 0 for hits in hits_by_assembly),
+            len(hits_by_assembly),
+            sum(hits > 0 for hits in hits_by_assembly)
+            / len(hits_by_assembly)
+            * 100,
+        )
+        for assembly, hits_by_assembly in sorted(assemblies.items())
+    }
+
+
 def main() -> int:
     args = parse_args()
     if args.minimum_line_coverage < 0 or args.minimum_line_coverage > 100:
@@ -128,16 +146,10 @@ def main() -> int:
         raise SystemExit("Cobertura reports contain no executable lines.")
 
     actual = covered / total * 100
-    assembly_lines: dict[str, list[int]] = defaultdict(list)
-    for (assembly, _, _), hits in lines.items():
-        assembly_lines[assembly].append(hits)
-
     print("Coverage by production assembly:")
-    for assembly in sorted(assembly_lines):
-        assembly_hits = assembly_lines[assembly]
-        assembly_covered = sum(hits > 0 for hits in assembly_hits)
-        assembly_total = len(assembly_hits)
-        assembly_actual = assembly_covered / assembly_total * 100
+    for assembly, (assembly_covered, assembly_total, assembly_actual) in (
+        calculate_assembly_statistics(lines).items()
+    ):
         print(
             f"- {assembly}: {assembly_covered}/{assembly_total} = "
             f"{assembly_actual:.2f}%"
