@@ -30,7 +30,7 @@ public sealed class PositionTimelineSwaggerTests : IClassFixture<WebApplicationF
 
         timeline.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         timeline.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401", "404"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403", "404"]);
 
         var parameters = timeline.GetProperty("parameters");
         var pageSize = parameters.EnumerateArray()

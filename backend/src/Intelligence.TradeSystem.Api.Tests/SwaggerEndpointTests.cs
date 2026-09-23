@@ -283,11 +283,11 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         foreach (var operation in f03Operations)
             operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         f03Operations[0].GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403"]);
         f03Operations[1].GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401", "404"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403", "404"]);
         f03Operations[2].GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "403", "404"]);
 
         var positionsList = f03Operations[0];
         var positionParameters = positionsList.GetProperty("parameters");
@@ -366,9 +366,9 @@ public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<P
         get.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         post.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         get.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "204", "400", "401", "404"]);
+            .Should().BeEquivalentTo(["200", "204", "400", "401", "403", "404"]);
         post.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401", "404", "409", "503"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403", "404", "409", "503"]);
 
         var schemas = root.GetProperty("components").GetProperty("schemas");
         var evaluation = schemas.GetProperty("PositionEvaluationResponse");

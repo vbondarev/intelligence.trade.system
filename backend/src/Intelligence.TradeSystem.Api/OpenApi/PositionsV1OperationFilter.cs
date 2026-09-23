@@ -59,6 +59,24 @@ internal sealed class PositionsV1OperationFilter : IOperationFilter
         pageSizeSchema.Minimum = "1";
         pageSizeSchema.Maximum = "100";
         pageSizeSchema.Default = JsonValue.Create(50);
+
+        var cursor = operation.Parameters?
+            .SingleOrDefault(parameter =>
+                string.Equals(parameter.Name, "cursor", StringComparison.Ordinal));
+        if (cursor is OpenApiParameter cursorParameter)
+        {
+            cursorParameter.Description = "Opaque cursor returned by a preceding positions page.";
+        }
+
+        var trackingState = operation.Parameters?
+            .SingleOrDefault(parameter =>
+                string.Equals(parameter.Name, "trackingState", StringComparison.Ordinal));
+        if (trackingState is OpenApiParameter trackingStateParameter)
+        {
+            trackingStateParameter.Description =
+                "Without this filter, returns active, unknown, and stale positions. "
+                + "Use closed explicitly for historical positions.";
+        }
     }
 
     private static void ApplyCandles(OpenApiOperation operation)

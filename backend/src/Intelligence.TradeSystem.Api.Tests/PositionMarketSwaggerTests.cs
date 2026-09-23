@@ -32,9 +32,9 @@ public sealed class PositionMarketSwaggerTests : IClassFixture<WebApplicationFac
         market.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         candles.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         market.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401", "404", "503"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403", "404", "503"]);
         candles.GetProperty("responses").EnumerateObject().Select(x => x.Name)
-            .Should().BeEquivalentTo(["200", "400", "401", "404", "503"]);
+            .Should().BeEquivalentTo(["200", "400", "401", "403", "404", "503"]);
 
         var parameters = candles.GetProperty("parameters");
         var interval = parameters.EnumerateArray()

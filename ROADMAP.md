@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.26
-Дата актуализации: 22 сентября 2026 года
-Проверенная база: реализация Issue #136 / PR #137 в `develop`
-Последняя учтённая задача: Issue #136 «F-07. Реализовать SignalR и user-scoped события инвалидации»
-Текущий этап: **F — пользовательский REST API и SignalR**
+Версия документа: 3.27
+Дата актуализации: 23 сентября 2026 года
+Проверенная база: реализация Issue #140
+Последняя учтённая задача: Issue #140 «F-08. Финализировать OpenAPI и контрактные проверки пользовательского API»
+Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -260,7 +260,7 @@
 
 ### Этап F. Создать пользовательский API и обновления в реальном времени
 
-Статус этапа: 🚧 Текущий этап.
+Статус этапа: ✅ Завершён.
 
 Цель: опубликовать уже реализованные возможности backend через стабильный client-agnostic API, ориентированный на реальные пользовательские сценарии, а не на прямое отображение внутренних доменных агрегатов.
 
@@ -324,7 +324,7 @@ GET    /api/v1/auth/me
 | F-05 | Реализовать единый evaluation workflow и read model | ✅ | `GET evaluation` возвращает согласованные assessment + nullable current recommendation и явные `evaluatedAt`/`validUntil`/input version-or-identity metadata; `POST evaluation` запускает расчёт без неявного private sync и сохраняет safety semantics stale/partial/uncertain данных; OpenAPI/API tests обновлены |
 | F-06 | Реализовать timeline позиции, cursor pagination и фильтры | ✅ | История позиции, assessments/evaluations и recommendation changes доступны единым пользовательским timeline без загрузки всей истории; market monitoring events не требуются до H-04; OpenAPI/API tests обновлены |
 | F-07 | Реализовать SignalR и user-scoped группы/события инвалидации | ✅ | Пользователь не может подписаться на данные другого пользователя; native/token clients используют Bearer; browser token не раскрывается JavaScript и будущая browser-интеграция оставлена за BFF в G; после события или reconnect клиент может восстановить актуальное состояние через REST; имена client-facing событий и сериализованные payload contracts покрыты serialization/approval tests, а несовместимое изменение wire contract требует новой версии |
-| F-08 | Финализировать OpenAPI и контрактные проверки пользовательского API | ⬜ | OpenAPI полностью описывает auth, ProblemDetails, pagination, filters, enums и v1 endpoints; проверена согласованность REST и realtime контрактов F-02 — F-07 и пригодность для последующей генерации типов/клиента React |
+| F-08 | Финализировать OpenAPI и контрактные проверки пользовательского API | ✅ | OpenAPI полностью описывает auth, ProblemDetails, pagination, filters, enums и v1 endpoints; проверена согласованность REST и realtime контрактов F-02 — F-07 и пригодность для последующей генерации типов/клиента React |
 
 Результат этапа: backend предоставляет стабильный пользовательский API для управления read-only биржевыми подключениями, чтения позиции и account-scoped портфеля, получения рынка/свечей, явного evaluation и timeline; SignalR безопасно сообщает об изменениях, а REST остаётся источником актуального состояния. Контракты сопровождаются OpenAPI/tests по мере появления, а browser authentication boundary не нарушает BFF-модель.
 
