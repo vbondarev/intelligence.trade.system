@@ -4,6 +4,29 @@
 Изменения внутри v1 допускаются только аддитивные; несовместимое изменение
 контракта требует новой версии маршрута.
 
+## Стабильные operationId
+
+`operationId` является частью machine-readable v1 contract и не зависит от
+имён controller/action:
+
+| Method | Route | operationId |
+|---|---|---|
+| GET | `/api/v1/auth/me` | `getCurrentUser` |
+| GET | `/api/v1/exchange-accounts` | `listExchangeAccounts` |
+| POST | `/api/v1/exchange-accounts` | `createExchangeAccount` |
+| POST | `/api/v1/exchange-accounts/{id}/verify` | `verifyExchangeAccount` |
+| PUT | `/api/v1/exchange-accounts/{id}/credentials` | `rotateExchangeAccountCredentials` |
+| POST | `/api/v1/exchange-accounts/{id}/sync` | `syncExchangeAccount` |
+| DELETE | `/api/v1/exchange-accounts/{id}` | `disconnectExchangeAccount` |
+| GET | `/api/v1/exchange-accounts/{id}/portfolio` | `getExchangeAccountPortfolio` |
+| GET | `/api/v1/positions` | `listPositions` |
+| GET | `/api/v1/positions/{id}` | `getPosition` |
+| GET | `/api/v1/positions/{id}/market` | `getPositionMarket` |
+| GET | `/api/v1/positions/{id}/candles` | `getPositionCandles` |
+| GET | `/api/v1/positions/{id}/evaluation` | `getPositionEvaluation` |
+| POST | `/api/v1/positions/{id}/evaluation` | `evaluatePosition` |
+| GET | `/api/v1/positions/{id}/timeline` | `getPositionTimeline` |
+
 Realtime wire contract `/hubs/v1/updates` описан отдельно в
 [`realtime-v1-contract.md`](realtime-v1-contract.md). SignalR используется
 только для user-scoped invalidation, а актуальное состояние перечитывается
@@ -38,6 +61,12 @@ runtime wire values.
 Ошибки используют существующий pipeline ASP.NET Core `ProblemDetails`.
 Стабильными полями являются `type`, `title`, `status`, `detail`, `instance`,
 `code` и `traceId`; существующие коды ошибок остаются неизменными.
+OpenAPI описывает `code` и `traceId` как расширения `ProblemDetails`. Поле
+`errors` может присутствовать в validation response, но не является
+обязательной частью стабильного ядра. Для каждой user-owned v1 operation
+OpenAPI фиксирует Bearer security requirement и статусы `401`/`403`.
+`401`/`403`, сформированные auth middleware, не обязаны иметь тот же body,
+что и application-level `ProblemDetails`; F-08 не вводит новый error protocol.
 
 Endpoints для пользовательских данных используют проверенный user principal и
 аутентификацию Bearer/OIDC. Отсутствующий ресурс и ресурс, принадлежащий
@@ -54,7 +83,11 @@ Endpoints для пользовательских данных использу�
 умолчанию для конкретных endpoints определяются соответствующим API slice.
 Неизвестные значения enum и некорректные GUID являются validation errors.
 Отсутствующий optional-фильтр не применяется; пустое значение фильтра не
-имеет неявной семантики wildcard.
+имеет неявной семантики wildcard. Для `GET /api/v1/positions` отсутствие
+`trackingState` означает рабочий список `active`, `unknown` и `stale`.
+Исторические `closed` позиции выбираются только явным фильтром. `cursor` и
+`nextCursor` являются opaque-значениями, которые клиент передаёт без
+интерпретации.
 
 ### Position timeline
 

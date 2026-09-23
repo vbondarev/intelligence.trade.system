@@ -26,5 +26,40 @@ internal sealed class TradeUserAuthorizationOperationFilter : IOperationFilter
         {
             [new OpenApiSecuritySchemeReference("Bearer", context.Document)] = [],
         });
+
+        NormalizeUnauthorizedResponse(
+            operation,
+            StatusCodes.Status401Unauthorized);
+        AddResponse(
+            operation,
+            StatusCodes.Status403Forbidden,
+            "The authenticated principal is not a TradeUser.");
+    }
+
+    private static void NormalizeUnauthorizedResponse(
+        OpenApiOperation operation,
+        int statusCode)
+    {
+        var key = statusCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (operation.Responses?.TryGetValue(key, out var response) == true)
+        {
+            response.Content?.Clear();
+            return;
+        }
+
+        AddResponse(operation, statusCode, "Authentication is required.");
+    }
+
+    private static void AddResponse(
+        OpenApiOperation operation,
+        int statusCode,
+        string description)
+    {
+        var key = statusCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        operation.Responses ??= [];
+        operation.Responses.TryAdd(key, new OpenApiResponse
+        {
+            Description = description,
+        });
     }
 }

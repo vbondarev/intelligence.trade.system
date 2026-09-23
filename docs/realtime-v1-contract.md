@@ -49,6 +49,19 @@ SignalR является каналом invalidation. После каждого 
 | `position.updated` | `eventId`, `occurredAt`, `positionId` |
 | `evaluation.updated` | `eventId`, `occurredAt`, `positionId` |
 
+После получения invalidation клиент восстанавливает состояние через REST:
+
+| SignalR event | REST recovery resource |
+|---|---|
+| `exchangeAccount.updated` | `GET /api/v1/exchange-accounts` |
+| `portfolio.updated` | `GET /api/v1/exchange-accounts/{id}/portfolio` |
+| `position.updated` | `GET /api/v1/positions/{id}` |
+| `evaluation.updated` | `GET /api/v1/positions/{id}/evaluation` |
+
+Для account event отдельного `GET /api/v1/exchange-accounts/{id}` нет:
+клиент перечитывает список и использует `exchangeAccountId` как invalidation
+hint. REST остаётся source of truth.
+
 Пример:
 
 ```json

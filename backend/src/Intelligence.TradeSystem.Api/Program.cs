@@ -108,6 +108,7 @@ public partial class Program
                 BearerFormat = "JWT",
                 Description = "OAuth 2.0 / OpenID Connect bearer access token.",
             });
+            options.OperationFilter<V1OperationIdOperationFilter>();
             options.OperationFilter<TradeUserAuthorizationOperationFilter>();
             options.OperationFilter<PositionsV1OperationFilter>();
             var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
@@ -119,6 +120,7 @@ public partial class Program
             }
 
             options.SchemaFilter<V1EnumSchemaFilter>();
+            options.SchemaFilter<ApiProblemDetailsSchemaFilter>();
             options.SchemaFilter<PositionMarketSchemaFilter>();
             options.SchemaFilter<PositionEvaluationSchemaFilter>();
             options.SchemaFilter<PositionTimelineSchemaFilter>();
