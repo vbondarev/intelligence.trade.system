@@ -29,19 +29,16 @@ internal sealed class TradeUserAuthorizationOperationFilter : IOperationFilter
 
         AddResponse(
             operation,
-            context.Document,
             StatusCodes.Status401Unauthorized,
             "Authentication is required.");
         AddResponse(
             operation,
-            context.Document,
             StatusCodes.Status403Forbidden,
             "The authenticated principal is not a TradeUser.");
     }
 
     private static void AddResponse(
         OpenApiOperation operation,
-        OpenApiDocument document,
         int statusCode,
         string description)
     {
@@ -50,13 +47,6 @@ internal sealed class TradeUserAuthorizationOperationFilter : IOperationFilter
         operation.Responses.TryAdd(key, new OpenApiResponse
         {
             Description = description,
-            Content = new Dictionary<string, OpenApiMediaType>
-            {
-                ["application/problem+json"] = new OpenApiMediaType
-                {
-                    Schema = new OpenApiSchemaReference("ProblemDetails", document),
-                },
-            },
         });
     }
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Intelligence.TradeSystem.Api.Realtime.V1;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -15,13 +16,21 @@ public sealed class RealtimeRestContractConsistencyTests : IClassFixture<WebAppl
     [Fact]
     public async Task Realtime_events_have_an_explicit_rest_recovery_resource()
     {
-        var mappings = new Dictionary<string, string>(StringComparer.Ordinal)
+        var recoveryResources = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["exchangeAccount.updated"] = "GET /api/v1/exchange-accounts",
-            ["portfolio.updated"] = "GET /api/v1/exchange-accounts/{id}/portfolio",
-            ["position.updated"] = "GET /api/v1/positions/{id}",
-            ["evaluation.updated"] = "GET /api/v1/positions/{id}/evaluation",
+            [RealtimeEventNames.ExchangeAccountUpdated] = "GET /api/v1/exchange-accounts",
+            [RealtimeEventNames.PortfolioUpdated] = "GET /api/v1/exchange-accounts/{id}/portfolio",
+            [RealtimeEventNames.PositionUpdated] = "GET /api/v1/positions/{id}",
+            [RealtimeEventNames.EvaluationUpdated] = "GET /api/v1/positions/{id}/evaluation",
         };
+
+        recoveryResources.Keys
+            .Should()
+            .Equal(
+                "exchangeAccount.updated",
+                "portfolio.updated",
+                "position.updated",
+                "evaluation.updated");
 
         using var client = _factory
             .WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Development))
@@ -32,10 +41,10 @@ public sealed class RealtimeRestContractConsistencyTests : IClassFixture<WebAppl
         var paths = document.RootElement.GetProperty("paths");
         paths.TryGetProperty("/hubs/v1/updates", out _).Should().BeFalse();
 
-        mappings.Values.Select(mapping =>
+        recoveryResources.Select(mapping =>
         {
-            var parts = mapping.Split(' ', 2);
+            var parts = mapping.Value.Split(' ', 2);
             return paths.GetProperty(parts[1]).GetProperty(parts[0].ToLowerInvariant());
-        }).Should().HaveCount(mappings.Count);
+        }).Should().HaveCount(recoveryResources.Count);
     }
 }

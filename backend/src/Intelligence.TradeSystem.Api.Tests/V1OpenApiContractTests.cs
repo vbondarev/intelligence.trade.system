@@ -75,17 +75,56 @@ public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory
             var parts = expected.Key.Split(' ', 2);
             var operation = paths.GetProperty(parts[1]).GetProperty(parts[0].ToLowerInvariant());
             operation.GetProperty("operationId").GetString().Should().Be(expected.Value);
-            operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+            operation.GetProperty("security").EnumerateArray()
+                .Any(requirement =>
+                    requirement.ValueKind == JsonValueKind.Object
+                    && requirement.TryGetProperty("Bearer", out _))
+                .Should().BeTrue();
             operation.GetProperty("responses").EnumerateObject()
                 .Select(response => response.Name)
                 .Should().BeEquivalentTo(ExpectedResponses[expected.Value]);
         }
 
         paths.TryGetProperty("/hubs/v1/updates", out _).Should().BeFalse();
-        paths.GetProperty("/api/market-analysis/snapshot")
-            .GetProperty("post")
-            .TryGetProperty("security", out _)
-            .Should().BeFalse();
+        foreach (var marketOperation in new[]
+        {
+            ("/api/market-analysis/snapshot", "post"),
+            ("/api/market-analysis/{symbol}/llm-payload", "get"),
+        })
+        {
+            paths.GetProperty(marketOperation.Item1)
+                .GetProperty(marketOperation.Item2)
+                .TryGetProperty("security", out _)
+                .Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public async Task Middleware_auth_responses_do_not_promise_problem_details_bodies()
+    {
+        using var document = await GetDocumentAsync();
+        var paths = document.RootElement.GetProperty("paths");
+
+        var authOnlyOperation = paths
+            .GetProperty("/api/v1/exchange-accounts")
+            .GetProperty("get");
+        foreach (var statusCode in new[] { "401", "403" })
+        {
+            authOnlyOperation.GetProperty("responses").GetProperty(statusCode)
+                .TryGetProperty("content", out _)
+                .Should().BeFalse();
+        }
+
+        var businessErrorOperation = paths
+            .GetProperty("/api/v1/exchange-accounts/{id}/verify")
+            .GetProperty("post");
+        businessErrorOperation.GetProperty("responses").GetProperty("403")
+            .GetProperty("content")
+            .GetProperty("application/problem+json")
+            .GetProperty("schema")
+            .GetProperty("$ref")
+            .GetString()
+            .Should().Be("#/components/schemas/ProblemDetails");
     }
 
     [Fact]
