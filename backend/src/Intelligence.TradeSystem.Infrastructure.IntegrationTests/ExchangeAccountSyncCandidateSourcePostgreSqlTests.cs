@@ -38,7 +38,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
             ExchangeAccountProviderIdentity.From("provider-unknown"),
             ExchangeAccountConnectionStatus.Unknown);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             var repository = new ExchangeAccountRepository(setupContext);
             foreach (var account in activeAccounts.Append(disabled).Append(unknown))
@@ -86,7 +86,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
     private async Task<IReadOnlyList<ExchangeAccountSyncCandidate>> ReadAllCandidatesAsync(
         int batchSize)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var source = new ExchangeAccountSyncCandidateSource(context);
         var all = new List<ExchangeAccountSyncCandidate>();
         ExchangeAccountId? after = null;
@@ -104,6 +104,4 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
         }
     }
 
-    private Task<TradeSystemDbContext> CreateMigratedContext() =>
-        Task.FromResult(fixture.CreateContext());
 }

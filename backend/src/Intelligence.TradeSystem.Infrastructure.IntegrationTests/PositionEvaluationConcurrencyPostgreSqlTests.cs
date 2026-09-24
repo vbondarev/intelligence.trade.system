@@ -46,7 +46,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -74,7 +74,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             results,
             result => Assert.Equal(PositionEvaluationOutcome.Succeeded, result.Outcome));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         Assert.Equal(
             2,
             await verification.PositionAssessments.CountAsync(
@@ -129,7 +129,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -164,7 +164,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             async () => await earlier.WaitAsync(TimeSpan.FromSeconds(30)));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var assessments = await verification.PositionAssessments
             .Where(assessment =>
                 assessment.PositionId == position.Id.Value &&
@@ -213,7 +213,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -236,7 +236,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         {
             await coordinator.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-            await using (var mutationContext = await CreateMigratedContext())
+            await using (var mutationContext = fixture.CreateContext())
             {
                 var currentPosition = await new PositionRepository(mutationContext)
                     .GetByIdAsync(userId, position.Id);
@@ -256,7 +256,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             coordinator.Continue.TrySetResult(null);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         Assert.Empty(await verification.PositionAssessments
             .Where(assessment =>
                 assessment.PositionId == position.Id.Value &&
@@ -288,7 +288,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -311,7 +311,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         {
             await coordinator.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-            await using (var mutationContext = await CreateMigratedContext())
+            await using (var mutationContext = fixture.CreateContext())
             {
                 var changedPortfolio = PortfolioState.Create(
                     account.Id,
@@ -333,7 +333,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             coordinator.Continue.TrySetResult(null);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var latestPortfolio = await new PortfolioStateRepository(verification)
             .GetLatestAsync(userId, account.Id);
         Assert.NotNull(latestPortfolio);
@@ -382,7 +382,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -421,7 +421,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             syncCoordinator);
         await syncCoordinator.LockAttempted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-        await using (var beforeEvaluationCommit = await CreateMigratedContext())
+        await using (var beforeEvaluationCommit = fixture.CreateContext())
         {
             var visiblePortfolio = await new PortfolioStateRepository(beforeEvaluationCommit)
                 .GetLatestAsync(userId, account.Id);
@@ -436,7 +436,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         Assert.Equal(PositionEvaluationOutcome.Succeeded, evaluationResult.Outcome);
         Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, syncResult.Outcome);
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var persistedPosition = await new PositionRepository(verification)
             .GetByIdAsync(userId, position.Id);
         Assert.NotNull(persistedPosition);
@@ -513,7 +513,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             TimeSpan.FromMinutes(10),
             positionsFullyReconciled: true);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -562,7 +562,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             coordinator.Continue.TrySetResult(null);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var latestPortfolio = await new PortfolioStateRepository(verification)
             .GetLatestAsync(userId, account.Id);
         Assert.NotNull(latestPortfolio);
@@ -599,7 +599,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         var userId = UserId.New();
         var account = CreateAccount(userId);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setup)
                 .SaveAsync(userId, account, expectedVersion: null);
@@ -633,7 +633,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, freshSync.Outcome);
 
         PositionId insertedPositionId;
-        await using (var insertedPositionLookup = await CreateMigratedContext())
+        await using (var insertedPositionLookup = fixture.CreateContext())
         {
             var insertedPosition = Assert.Single(
                 await new PositionRepository(insertedPositionLookup)
@@ -660,7 +660,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
         Assert.Equal(ExchangeAccountSyncOutcome.AlreadyApplied, staleSyncResult.Outcome);
         Assert.Equal(PositionEvaluationOutcome.Succeeded, evaluationResult.Outcome);
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         Assert.Single(
             await verification.PortfolioStates
                 .Where(state => state.ExchangeAccountId == account.Id.Value)
@@ -785,13 +785,6 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             new FixedTimeProvider(synchronizedAt));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static ExchangeAccount CreateAccount(UserId userId) =>

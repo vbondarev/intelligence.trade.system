@@ -79,5 +79,5 @@ public sealed class PostgreSqlMigrationFixture : IAsyncLifetime
     }
 }
 
-[CollectionDefinition("PostgreSql-Migrations")]
+[CollectionDefinition("PostgreSql-Migrations", DisableParallelization = true)]
 public sealed class PostgreSqlMigrationTestGroup : ICollectionFixture<PostgreSqlMigrationFixture>;

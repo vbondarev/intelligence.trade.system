@@ -30,7 +30,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     [Fact]
     public async Task DbContext_connects_to_the_PostgreSql_container()
     {
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.True(await dbContext.Database.CanConnectAsync());
@@ -42,13 +42,13 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
         }
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             var transaction = new ExchangeAccountSyncTransaction(dbContext);
 
@@ -66,7 +66,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                     }));
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.False(await verificationContext.Positions.AnyAsync(
             row => row.Id == position.Id.Value));
         Assert.False(await verificationContext.PositionChanges.AnyAsync(
@@ -86,7 +86,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0,
             TimeSpan.FromMinutes(5));
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -96,7 +96,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, initialPortfolio);
         }
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             var accounts = new ExchangeAccountRepository(dbContext);
             var positions = new PositionRepository(dbContext);
@@ -151,7 +151,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 });
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedAccount = await new ExchangeAccountRepository(verificationContext)
             .GetByIdAsync(account.UserId, account.Id);
         var persistedPosition = await new PositionRepository(verificationContext)
@@ -189,7 +189,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0,
             TimeSpan.FromMinutes(5));
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -199,7 +199,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, initialPortfolio);
         }
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => new ExchangeAccountSyncTransaction(dbContext).ExecuteAsync(
@@ -236,7 +236,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                     }));
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedAccount = await new ExchangeAccountRepository(verificationContext)
             .GetByIdAsync(account.UserId, account.Id);
         var persistedPosition = await new PositionRepository(verificationContext)
@@ -271,14 +271,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             ExchangeAccountObservationResource.Positions,
             T0);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             var repository = new ExchangeAccountRepository(dbContext);
             var version = await repository.SaveAsync(account.UserId, account, expectedVersion: null);
             Assert.Equal(ConcurrencyVersion.Initial, version);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new ExchangeAccountRepository(reloadedContext).GetByIdAsync(account.UserId, account.Id);
 
         Assert.NotNull(reloaded);
@@ -305,7 +305,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             var repository = new PositionRepository(dbContext);
@@ -333,7 +333,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             Assert.Equal(v1.Next(), v2);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(account.UserId, position.Id);
 
         Assert.NotNull(reloaded);
@@ -374,7 +374,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var position = CreatePosition(account.Id);
         var historyCount = position.Changes.Count;
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             var repository = new PositionRepository(dbContext);
@@ -403,7 +403,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             Assert.Equal(v1.Next(), v2);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(account.UserId, position.Id);
 
         Assert.NotNull(reloaded);
@@ -426,7 +426,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
         var repository = new PositionRepository(dbContext);
 
@@ -469,7 +469,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             averageEntryPrice: 100m,
             leverage: 2m);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             var repository = new PositionRepository(dbContext);
@@ -492,7 +492,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             Assert.Equal(CanonicalTimestamp(observedAt), persistedHistory[1].OccurredAt);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new PositionRepository(reloadedContext).GetByIdAsync(account.UserId, position.Id);
 
         Assert.NotNull(reloaded);
@@ -510,13 +510,13 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var first = CreatePosition(account.Id);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, first, expectedVersion: null);
         }
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             var repository = new PositionRepository(dbContext);
             var loaded = await repository.GetByIdAsync(account.UserId, first.Id);
@@ -533,12 +533,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0.AddMinutes(2),
             averageEntryPrice: 110m,
             leverage: 2m);
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new PositionRepository(dbContext).SaveAsync(account.UserId, second, expectedVersion: null);
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.Equal(
             2,
             await verificationContext.Positions.CountAsync(position =>
@@ -552,7 +552,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var first = CreatePosition(account.Id);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, first, expectedVersion: null);
@@ -564,14 +564,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             3m,
             T0.AddMinutes(1),
             T0.AddMinutes(1));
-        await using (var duplicateContext = await CreateMigratedContext())
+        await using (var duplicateContext = fixture.CreateContext())
         {
             var exception = await Assert.ThrowsAsync<DbUpdateException>(
                 () => new PositionRepository(duplicateContext).SaveAsync(account.UserId, duplicate, expectedVersion: null));
             Assert.NotNull(exception);
         }
 
-        await using (var closeContext = await CreateMigratedContext())
+        await using (var closeContext = fixture.CreateContext())
         {
             var repository = new PositionRepository(closeContext);
             var loaded = await repository.GetByIdAsync(account.UserId, first.Id);
@@ -586,7 +586,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             4m,
             T0.AddMinutes(3),
             T0.AddMinutes(3));
-        await using var reopenContext = await CreateMigratedContext();
+        await using var reopenContext = fixture.CreateContext();
         await new PositionRepository(reopenContext).SaveAsync(account.UserId, reopened, expectedVersion: null);
     }
 
@@ -596,7 +596,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
         await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
         var repository = new PortfolioStateRepository(dbContext);
@@ -621,7 +621,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             state.ExchangeAccountId == account.Id.Value);
         Assert.Equal(2, stateCount);
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var latest = await new PortfolioStateRepository(reloadedContext).GetLatestAsync(account.UserId, account.Id);
 
         Assert.NotNull(latest);
@@ -666,14 +666,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0.AddMinutes(6),
             T0.AddHours(1));
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
             await new PositionAssessmentRepository(dbContext).SaveAsync(account.UserId, assessment);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new PositionAssessmentRepository(reloadedContext).GetByIdAsync(account.UserId, assessment.Id);
 
         Assert.NotNull(reloaded);
@@ -722,14 +722,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             PositionAssessmentRules.Default);
         var assessment = new PositionAssessmentService().Assess(input);
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
             await new PositionAssessmentRepository(dbContext).SaveAsync(account.UserId, assessment);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var persistedJson = await reloadedContext.PositionAssessments
             .Where(entity => entity.Id == assessment.Id.Value)
             .Select(entity => entity.ResultJson)
@@ -807,7 +807,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             null);
         recommendation.Acknowledge(T0.AddMinutes(5));
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -815,7 +815,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             await new RecommendationRepository(dbContext).SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new RecommendationRepository(reloadedContext).GetByIdAsync(account.UserId, recommendation.Id);
 
         Assert.NotNull(reloaded);
@@ -848,7 +848,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var recommendation = Recommendation.Create(assessment, evaluation);
         recommendation.Acknowledge(T0.AddMinutes(5));
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(dbContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -857,7 +857,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var reloaded = await new RecommendationRepository(reloadedContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
 
@@ -888,7 +888,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             .Evaluate(assessment, policy, T0.AddMinutes(4));
         var recommendation = Recommendation.Create(assessment, evaluation);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -897,20 +897,20 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var loaded = await new RecommendationRepository(readerContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(loaded);
         loaded!.Value.Acknowledge(T0.AddMinutes(5));
 
-        await using (var writerContext = await CreateMigratedContext())
+        await using (var writerContext = fixture.CreateContext())
         {
             var nextVersion = await new RecommendationRepository(writerContext)
                 .SaveAsync(account.UserId, loaded.Value, loaded.Version);
             Assert.Equal(loaded.Version.Next(), nextVersion);
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var verified = await new RecommendationRepository(verificationContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(verified);
@@ -949,7 +949,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             .Evaluate(assessment, policy, evaluationAsOf);
         var recommendation = Recommendation.Create(assessment, evaluation);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -958,7 +958,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var loaded = await new RecommendationRepository(readerContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(loaded);
@@ -974,13 +974,13 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             initialPlan.NextEvaluationAt);
 
         loaded.Value.Acknowledge(loaded.Value.CreatedAt.AddMinutes(1));
-        await using (var writerContext = await CreateMigratedContext())
+        await using (var writerContext = fixture.CreateContext())
         {
             await new RecommendationRepository(writerContext)
                 .SaveAsync(account.UserId, loaded.Value, loaded.Version);
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var verified = await new RecommendationRepository(verificationContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(verified);
@@ -1005,7 +1005,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var recommendation = Recommendation.Create(assessment, evaluation);
         var replacementHash = new string('A', 64);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -1014,7 +1014,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using (var mutationContext = await CreateMigratedContext())
+        await using (var mutationContext = fixture.CreateContext())
         {
             var entity = await mutationContext.Recommendations
                 .SingleAsync(row => row.Id == recommendation.Id.Value);
@@ -1050,7 +1050,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             await mutationContext.SaveChangesAsync();
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var exception = await Assert.ThrowsAsync<ArgumentException>(
             () => new RecommendationRepository(readerContext)
                 .GetByIdAsync(account.UserId, recommendation.Id));
@@ -1068,7 +1068,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             .Evaluate(assessment, policy, T0.AddMinutes(4));
         var recommendation = Recommendation.Create(assessment, evaluation);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -1077,7 +1077,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using (var mutationContext = await CreateMigratedContext())
+        await using (var mutationContext = fixture.CreateContext())
         {
             var entity = await mutationContext.Recommendations
                 .SingleAsync(row => row.Id == recommendation.Id.Value);
@@ -1100,7 +1100,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             await mutationContext.SaveChangesAsync();
         }
 
-        await using var writerContext = await CreateMigratedContext();
+        await using var writerContext = fixture.CreateContext();
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new RecommendationRepository(writerContext)
                 .SaveAsync(account.UserId, recommendation, ConcurrencyVersion.Initial));
@@ -1109,7 +1109,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     [Fact]
     public async Task Critical_columns_use_relational_postgresql_types()
     {
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
 
         Assert.Equal("uuid", await ReadColumnType(dbContext, "positions", "position_id"));
         Assert.Equal("uuid", await ReadColumnType(dbContext, "positions", "exchange_account_id"));
@@ -1131,7 +1131,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     {
         var account = CreateAccount();
         var orphan = CreatePosition(ExchangeAccountId.New());
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
 
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(dbContext).SaveAsync(account.UserId, orphan, expectedVersion: null));
@@ -1141,7 +1141,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task Version_check_constraint_rejects_non_positive_values()
     {
         var account = CreateAccount();
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
 
         var connection = dbContext.Database.GetDbConnection();
@@ -1167,12 +1167,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task Saving_a_new_row_with_a_null_expected_version_conflicts_when_the_row_already_exists()
     {
         var account = CreateAccount();
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
 
         // Re-inserting with expectedVersion: null (a "blind" insert) must be treated as a
         // conflict, not a silent overwrite, once the row already exists.
-        await using var otherContext = await CreateMigratedContext();
+        await using var otherContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new ExchangeAccountRepository(otherContext).SaveAsync(account.UserId, account, expectedVersion: null));
     }
@@ -1183,17 +1183,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var existing = await new PositionRepository(readerContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(existing);
 
-        await using var insertContext = await CreateMigratedContext();
+        await using var insertContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(insertContext)
                 .SaveAsync(account.UserId, existing!.Value, expectedVersion: null));
@@ -1221,7 +1221,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             null,
             null);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -1230,12 +1230,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var existing = await new RecommendationRepository(readerContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(existing);
 
-        await using var insertContext = await CreateMigratedContext();
+        await using var insertContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new RecommendationRepository(insertContext)
                 .SaveAsync(account.UserId, existing!.Value, expectedVersion: null));
@@ -1245,7 +1245,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task Concurrent_insert_writers_produce_exactly_one_winner_and_one_conflict()
     {
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             Assert.True(await setupContext.Database.CanConnectAsync());
         }
@@ -1265,7 +1265,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.All(outcomes, outcome => Assert.True(
             outcome is ConcurrencyVersion or ConcurrencyConflictException));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persisted = await verificationContext.ExchangeAccounts
             .SingleAsync(item => item.Id == account.Id.Value);
         Assert.Equal(1L, persisted.Version);
@@ -1278,14 +1278,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task Concurrent_writers_racing_on_the_same_version_produce_exactly_one_winner()
     {
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
         }
 
-        await using var readerAContext = await CreateMigratedContext();
+        await using var readerAContext = fixture.CreateContext();
         var readerA = await new ExchangeAccountRepository(readerAContext).GetByIdAsync(account.UserId, account.Id);
-        await using var readerBContext = await CreateMigratedContext();
+        await using var readerBContext = fixture.CreateContext();
         var readerB = await new ExchangeAccountRepository(readerBContext).GetByIdAsync(account.UserId, account.Id);
 
         Assert.NotNull(readerA);
@@ -1311,16 +1311,16 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0,
             "writer B");
 
-        await using var writerAContext = await CreateMigratedContext();
+        await using var writerAContext = fixture.CreateContext();
         var versionAfterA = await new ExchangeAccountRepository(writerAContext)
             .SaveAsync(account.UserId, updatedByA, readerA.Version);
         Assert.Equal(readerA.Version.Next(), versionAfterA);
 
-        await using var writerBContext = await CreateMigratedContext();
+        await using var writerBContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new ExchangeAccountRepository(writerBContext).SaveAsync(account.UserId, updatedByB, readerB.Version));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new ExchangeAccountRepository(verificationContext).GetByIdAsync(account.UserId, account.Id);
         Assert.NotNull(current);
         Assert.Equal(versionAfterA, current!.Version);
@@ -1331,7 +1331,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     public async Task Sequential_saves_increment_the_version_by_one_each_time()
     {
         var account = CreateAccount();
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         var repository = new ExchangeAccountRepository(dbContext);
         var version = await repository.SaveAsync(account.UserId, account, expectedVersion: null);
         Assert.Equal(new ConcurrencyVersion(1), version);
@@ -1368,15 +1368,15 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
         }
 
-        await using var readerAContext = await CreateMigratedContext();
+        await using var readerAContext = fixture.CreateContext();
         var readerA = await new PositionRepository(readerAContext).GetByIdAsync(account.UserId, position.Id);
-        await using var readerBContext = await CreateMigratedContext();
+        await using var readerBContext = fixture.CreateContext();
         var readerB = await new PositionRepository(readerBContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(readerA);
         Assert.NotNull(readerB);
@@ -1400,14 +1400,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             leverage: positionB.Leverage);
         Assert.Equal(positionA.Changes.Count, positionB.Changes.Count);
 
-        await using var writerAContext = await CreateMigratedContext();
+        await using var writerAContext = fixture.CreateContext();
         var versionAfterA = await new PositionRepository(writerAContext).SaveAsync(account.UserId, positionA, readerA.Version);
         Assert.Equal(readerA.Version.Next(), versionAfterA);
 
         var historyAfterA = await CountPositionChanges(position.Id);
         Assert.Equal(positionA.Changes.Count, historyAfterA);
 
-        await using var writerBContext = await CreateMigratedContext();
+        await using var writerBContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(writerBContext).SaveAsync(account.UserId, positionB, readerB.Version));
 
@@ -1416,7 +1416,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var historyAfterFailedWriterB = await CountPositionChanges(position.Id);
         Assert.Equal(historyAfterA, historyAfterFailedWriterB);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new PositionRepository(verificationContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(current);
         Assert.Equal(versionAfterA, current!.Version);
@@ -1447,15 +1447,15 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
         }
 
-        await using var readerAContext = await CreateMigratedContext();
+        await using var readerAContext = fixture.CreateContext();
         var readerA = await new PositionRepository(readerAContext).GetByIdAsync(account.UserId, position.Id);
-        await using var readerBContext = await CreateMigratedContext();
+        await using var readerBContext = fixture.CreateContext();
         var readerB = await new PositionRepository(readerBContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(readerA);
         Assert.NotNull(readerB);
@@ -1482,7 +1482,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             .SaveAsync(account.UserId, positionB, readerB.Version);
         await pause.PositionLookupReached.WaitAsync(TimeSpan.FromSeconds(30));
 
-        await using var writerAContext = await CreateMigratedContext();
+        await using var writerAContext = fixture.CreateContext();
         var versionAfterA = await new PositionRepository(writerAContext)
             .SaveAsync(account.UserId, positionA, readerA.Version);
         Assert.Equal(new ConcurrencyVersion(2), versionAfterA);
@@ -1491,7 +1491,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => writerBTask);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new PositionRepository(verificationContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(current);
         Assert.Equal(new ConcurrencyVersion(2), current!.Version);
@@ -1519,13 +1519,13 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
         }
 
-        await using var readerContext = await CreateMigratedContext();
+        await using var readerContext = fixture.CreateContext();
         var loaded = await new PositionRepository(readerContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(loaded);
 
@@ -1554,12 +1554,12 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             loaded.Value.StopLoss,
             loaded.Value.TrailingStop);
 
-        await using var writerContext = await CreateMigratedContext();
+        await using var writerContext = fixture.CreateContext();
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new PositionRepository(writerContext)
                 .SaveAsync(account.UserId, invalidPosition, loaded.Version));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new PositionRepository(verificationContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(current);
         Assert.Equal(ConcurrencyVersion.Initial, current!.Version);
@@ -1581,15 +1581,15 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
         }
 
-        await using var readerAContext = await CreateMigratedContext();
+        await using var readerAContext = fixture.CreateContext();
         var readerA = await new PositionRepository(readerAContext).GetByIdAsync(account.UserId, position.Id);
-        await using var readerBContext = await CreateMigratedContext();
+        await using var readerBContext = fixture.CreateContext();
         var readerB = await new PositionRepository(readerBContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(readerA);
         Assert.NotNull(readerB);
@@ -1624,16 +1624,16 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Null(dynamicChangeA);
         Assert.Null(dynamicChangeB);
 
-        await using var writerAContext = await CreateMigratedContext();
+        await using var writerAContext = fixture.CreateContext();
         var versionAfterA = await new PositionRepository(writerAContext)
             .SaveAsync(account.UserId, readerA.Value, readerA.Version);
         Assert.Equal(readerA.Version.Next(), versionAfterA);
 
-        await using var writerBContext = await CreateMigratedContext();
+        await using var writerBContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(writerBContext).SaveAsync(account.UserId, readerB.Value, readerB.Version));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new PositionRepository(verificationContext).GetByIdAsync(account.UserId, position.Id);
         Assert.NotNull(current);
         Assert.Equal(versionAfterA, current!.Version);
@@ -1668,7 +1668,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             null,
             null);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
             await new PositionRepository(setupContext).SaveAsync(account.UserId, position, expectedVersion: null);
@@ -1677,10 +1677,10 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 .SaveAsync(account.UserId, recommendation, expectedVersion: null);
         }
 
-        await using var readerAContext = await CreateMigratedContext();
+        await using var readerAContext = fixture.CreateContext();
         var readerA = await new RecommendationRepository(readerAContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
-        await using var readerBContext = await CreateMigratedContext();
+        await using var readerBContext = fixture.CreateContext();
         var readerB = await new RecommendationRepository(readerBContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(readerA);
@@ -1689,17 +1689,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         readerA!.Value.Acknowledge(T0.AddMinutes(5));
         readerB!.Value.Dismiss(T0.AddMinutes(5));
 
-        await using var writerAContext = await CreateMigratedContext();
+        await using var writerAContext = fixture.CreateContext();
         var versionAfterA = await new RecommendationRepository(writerAContext)
             .SaveAsync(account.UserId, readerA.Value, readerA.Version);
         Assert.Equal(readerA.Version.Next(), versionAfterA);
 
-        await using var writerBContext = await CreateMigratedContext();
+        await using var writerBContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new RecommendationRepository(writerBContext)
                 .SaveAsync(account.UserId, readerB.Value, readerB.Version));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var current = await new RecommendationRepository(verificationContext)
             .GetByIdAsync(account.UserId, recommendation.Id);
         Assert.NotNull(current);
@@ -1715,19 +1715,19 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount();
         Versioned<ExchangeAccount>? readAccount;
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext).SaveAsync(account.UserId, account, expectedVersion: null);
         }
 
-        await using (var readerContext = await CreateMigratedContext())
+        await using (var readerContext = fixture.CreateContext())
         {
             readAccount = await new ExchangeAccountRepository(readerContext).GetByIdAsync(account.UserId, account.Id);
         }
 
         Assert.NotNull(readAccount);
 
-        await using (var deleteContext = await CreateMigratedContext())
+        await using (var deleteContext = fixture.CreateContext())
         {
             var entity = await deleteContext.ExchangeAccounts
                 .SingleAsync(a => a.Id == account.Id.Value);
@@ -1745,17 +1745,17 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             T0,
             "should not resurrect the row");
 
-        await using var writerContext = await CreateMigratedContext();
+        await using var writerContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new ExchangeAccountRepository(writerContext).SaveAsync(account.UserId, updated, readAccount!.Version));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.False(await verificationContext.ExchangeAccounts.AnyAsync(a => a.Id == account.Id.Value));
     }
 
     private async Task<int> CountPositionChanges(PositionId id)
     {
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         return await dbContext.PositionChanges.CountAsync(change => change.PositionId == id.Value);
     }
 
@@ -1767,9 +1767,6 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                     typeof(TradeSystemDbContext).Assembly.GetName().Name))
             .AddInterceptors(interceptor)
             .Options);
-
-    private Task<TradeSystemDbContext> CreateMigratedContext() =>
-        Task.FromResult(fixture.CreateContext());
 
     private static ExchangeAccount CreateAccount() =>
         ExchangeAccount.Create(

@@ -97,7 +97,7 @@
 
 - **Tech-G01** ✅ (Issue #142): coverage quality gate учитывает только hand-written production code, исключает build-generated и EF migration artifacts, показывает breakdown по production assemblies; публичный Bybit adapter усилен contract tests для mapping и provider boundary.
 - **Tech-G02** ✅ (Issue #144): API имеет единый DB-backed runtime; обязательная persistence configuration приводит к startup failure при ошибке, PostgreSQL outage отражается через readiness, а `/alive` сохраняет liveness-семантику.
-- **Tech-G03** ✅ (Issue #146): PostgreSQL integration tests сохраняют реальное Testcontainers coverage, но переносят обычную миграцию во fixture lifecycle, разделяют обычные сценарии на независимые группы A/B и держат migration-specific проверки на свежих per-scenario БД; после оптимизации median suite time снижен с ~47s до ~29.5s (≈37% improvement) без сокращения coverage.
+- **Tech-G03** ✅ (Issue #146): PostgreSQL integration tests сохраняют реальное Testcontainers coverage, но переносят обычную миграцию во fixture lifecycle, разделяют обычные сценарии на независимые группы A/B и держат migration-specific проверки на свежих per-scenario БД; по аудируемому benchmark median suite time снижен с 50.52s до 32.58s (35.5% improvement) без сокращения coverage.
 
 ## 4. Подтверждённое состояние проекта
 
