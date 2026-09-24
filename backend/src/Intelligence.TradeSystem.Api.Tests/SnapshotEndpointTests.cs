@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -13,11 +13,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class SnapshotEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class SnapshotEndpointTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public SnapshotEndpointTests(WebApplicationFactory<Program> factory)
+    public SnapshotEndpointTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

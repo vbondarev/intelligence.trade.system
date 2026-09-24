@@ -1,20 +1,30 @@
-﻿using Bybit.Net.Interfaces.Clients;
+using Bybit.Net.Interfaces.Clients;
 using Intelligence.TradeSystem.Application.Accounts.Access;
+using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Assessments;
+using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Events;
+using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Application.Portfolio.Read;
+using Intelligence.TradeSystem.Application.Portfolio.Timeline;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
+using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Security;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public CompositionRootSmokeTests(WebApplicationFactory<Program> factory)
+    public CompositionRootSmokeTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }
@@ -36,7 +46,24 @@ public sealed class CompositionRootSmokeTests : IClassFixture<WebApplicationFact
             .BeOfType<CachedMarketSnapshotService>();
         serviceProvider.GetRequiredService<IRecommendationPolicyDefinitionProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<RecommendationStabilityPolicy>().Should().NotBeNull();
-        serviceProvider.GetService<RecommendationService>().Should().BeNull();
+        serviceProvider.GetRequiredService<TradeSystemDbContext>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IExchangeCredentialProtector>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IExchangeAccountCredentialStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IExchangeAccountRepository>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionRepository>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionReadStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionTimelineReadStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPortfolioReadStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionAssessmentRepository>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IRecommendationRepository>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IRecommendationPublicationTransaction>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IApplicationEventOutbox>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IOutboxMessageStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<RecommendationService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<PositionReadService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<PortfolioReadService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<PositionTimelineService>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<PositionEvaluationService>().Should().NotBeNull();
         var definition = await serviceProvider
             .GetRequiredService<IRecommendationPolicyDefinitionProvider>()
             .GetAsync();

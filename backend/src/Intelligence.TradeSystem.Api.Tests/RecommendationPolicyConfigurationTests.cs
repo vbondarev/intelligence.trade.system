@@ -46,18 +46,72 @@ public sealed class RecommendationPolicyConfigurationTests
     }
 
     [Fact]
-    public void Missing_connection_string_does_not_register_recommendation_service()
+    public void Missing_connection_string_fails_fast()
     {
         var services = new ServiceCollection();
-        services.AddInfrastructure(CreateConfiguration());
+        var configuration = CreateConfiguration();
+        configuration["ConnectionStrings:TradeSystem"] = null;
 
-        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
-        {
-            ValidateScopes = true,
-            ValidateOnBuild = true,
-        });
+        var act = () => services.AddInfrastructure(configuration);
 
-        provider.GetService<RecommendationService>().Should().BeNull();
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ConnectionStrings:TradeSystem*");
+    }
+
+    [Fact]
+    public void Blank_connection_string_fails_fast()
+    {
+        var services = new ServiceCollection();
+        var configuration = CreateConfiguration();
+        configuration["ConnectionStrings:TradeSystem"] = " ";
+
+        var act = () => services.AddInfrastructure(configuration);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ConnectionStrings:TradeSystem*");
+    }
+
+    [Fact]
+    public void Missing_credential_protection_active_key_fails_fast()
+    {
+        var values = CreateConfiguration();
+        values["CredentialProtection:ActiveKeyId"] = null;
+
+        var act = () => new ServiceCollection().AddInfrastructure(values);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*CredentialProtection:ActiveKeyId*");
+    }
+
+    [Fact]
+    public void Missing_credential_protection_keys_fails_fast()
+    {
+        var values = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+                CreateConfiguration()
+                    .AsEnumerable()
+                    .Where(pair =>
+                        !pair.Key.StartsWith(
+                            "CredentialProtection:Keys:",
+                            StringComparison.OrdinalIgnoreCase)))
+            .Build();
+
+        var act = () => new ServiceCollection().AddInfrastructure(values);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*CredentialProtection:Keys*");
+    }
+
+    [Fact]
+    public void Invalid_credential_protection_key_fails_fast()
+    {
+        var values = CreateConfiguration();
+        values["CredentialProtection:Keys:test"] = "not-base64";
+
+        var act = () => new ServiceCollection().AddInfrastructure(values);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*not valid Base64*");
     }
 
     [Fact]
@@ -69,7 +123,7 @@ public sealed class RecommendationPolicyConfigurationTests
         services.AddSingleton<RecommendationStabilityPolicy>();
 
         services.AddInfrastructure(
-            CreateConfiguration(includePersistence: true));
+            CreateConfiguration());
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -96,13 +150,13 @@ public sealed class RecommendationPolicyConfigurationTests
         var services = new ServiceCollection();
         services.AddApplication();
 
-        services.AddInfrastructure(CreateConfiguration(includePersistence: true));
+        services.AddInfrastructure(CreateConfiguration());
 
         services.Should().ContainSingle(
             descriptor => descriptor.ServiceType == typeof(PositionEvaluationService));
     }
 
-    private static IConfiguration CreateConfiguration(bool includePersistence = false)
+    private static IConfiguration CreateConfiguration()
     {
         var values = new List<KeyValuePair<string, string?>>
         {
@@ -122,14 +176,11 @@ public sealed class RecommendationPolicyConfigurationTests
             new("PositionEvaluationPolicy:PortfolioRisk:MaximumPositionConcentrationPercent", "50"),
         };
 
-        if (includePersistence)
-        {
-            values.Add(new("ConnectionStrings:TradeSystem", "Host=localhost;Database=tradesystem"));
-            values.Add(new("CredentialProtection:ActiveKeyId", "test"));
-            values.Add(new(
-                "CredentialProtection:Keys:test",
-                Convert.ToBase64String(new byte[32])));
-        }
+        values.Add(new("ConnectionStrings:TradeSystem", "Host=localhost;Database=tradesystem"));
+        values.Add(new("CredentialProtection:ActiveKeyId", "test"));
+        values.Add(new(
+            "CredentialProtection:Keys:test",
+            Convert.ToBase64String(new byte[32])));
 
         return new ConfigurationBuilder()
             .AddInMemoryCollection(values)

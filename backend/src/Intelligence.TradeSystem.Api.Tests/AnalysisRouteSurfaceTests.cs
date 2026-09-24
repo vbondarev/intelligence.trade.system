@@ -3,11 +3,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class AnalysisRouteSurfaceTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class AnalysisRouteSurfaceTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
 
-    public AnalysisRouteSurfaceTests(WebApplicationFactory<Program> factory)
+    public AnalysisRouteSurfaceTests(ApiWebApplicationFactory factory)
     {
         _client = factory.CreateClient();
     }

@@ -97,6 +97,14 @@ for _ in {1..30}; do
   fi
   sleep 2
 done
+curl --fail --silent --show-error "$api_url/alive" >/dev/null
+for _ in {1..30}; do
+  if curl --fail --silent --show-error "$api_url/healthz" >/dev/null; then
+    break
+  fi
+  sleep 2
+done
+curl --fail --silent --show-error "$api_url/healthz" >/dev/null
 unauthenticated_status="$(curl --silent --show-error -o /dev/null -w '%{http_code}' "$api_url/api/v1/auth/me")"
 [[ "$unauthenticated_status" == "401" ]]
 

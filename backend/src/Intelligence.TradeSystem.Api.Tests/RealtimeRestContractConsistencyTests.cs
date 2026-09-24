@@ -7,11 +7,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class RealtimeRestContractConsistencyTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class RealtimeRestContractConsistencyTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public RealtimeRestContractConsistencyTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public RealtimeRestContractConsistencyTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Realtime_events_have_an_explicit_rest_recovery_resource()

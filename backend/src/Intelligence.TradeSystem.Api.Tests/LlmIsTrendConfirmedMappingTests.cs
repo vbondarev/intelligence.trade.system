@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
@@ -16,13 +16,13 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// - Bearish  : emaBearishAlignment == true &amp;&amp; isAboveEma200 == false
 /// - Sideways / Unknown : всегда false
 /// </summary>
-public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplicationFactory>
 {
     private const string Url = "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmIsTrendConfirmedMappingTests(WebApplicationFactory<Program> factory)
+    public LlmIsTrendConfirmedMappingTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

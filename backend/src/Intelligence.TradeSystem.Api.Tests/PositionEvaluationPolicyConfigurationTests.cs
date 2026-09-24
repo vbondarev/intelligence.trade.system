@@ -99,10 +99,7 @@ public sealed class PositionEvaluationPolicyConfigurationTests
     public void Production_api_configuration_registers_approved_immutable_settings()
     {
         var services = new ServiceCollection();
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: false)
-            .Build();
+        var configuration = BuildConfiguration(CreateValues());
         services.AddInfrastructure(configuration);
 
         using var provider = services.BuildServiceProvider();
@@ -184,6 +181,9 @@ public sealed class PositionEvaluationPolicyConfigurationTests
             ["PositionEvaluationPolicy:PortfolioRisk:MinimumFreeCapitalPercent"] = "20",
             ["PositionEvaluationPolicy:PortfolioRisk:MaximumGrossExposureToEquityPercent"] = "200",
             ["PositionEvaluationPolicy:PortfolioRisk:MaximumPositionConcentrationPercent"] = "50",
+            ["ConnectionStrings:TradeSystem"] = "Host=localhost;Database=tradesystem",
+            ["CredentialProtection:ActiveKeyId"] = "test",
+            ["CredentialProtection:Keys:test"] = Convert.ToBase64String(new byte[32]),
         };
 
     private static void RemoveSection(

@@ -15,12 +15,12 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class V1ApiContractTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
-    public V1ApiContractTests(WebApplicationFactory<Program> factory)
+    public V1ApiContractTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();

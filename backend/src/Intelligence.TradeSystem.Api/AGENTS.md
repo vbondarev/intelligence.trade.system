@@ -52,6 +52,7 @@ API не вычисляет повторно:
 ## DI и Program.cs
 
 - Сохраняй `AddServiceDefaults()` и существующую модульную регистрацию через `AddXyz(...)` extensions.
+- `Intelligence.TradeSystem.Api` имеет только полноценный DB-backed composition root; не вводи conditional persistence/DB-less mode. Отсутствующая обязательная infrastructure configuration должна fail-fast, а runtime availability внешних зависимостей отражается через readiness. API не применяет migrations автоматически.
 - Не создавай service locator внутри controllers.
 - Проверяй lifetime при singleton/scoped взаимодействии; shared background/cache операции не должны захватывать request-scoped dependencies без явного ownership.
 - При изменении composition root запускай соответствующие API/architecture tests и полный CI, если затронуты authentication, Docker или инфраструктурные зависимости.

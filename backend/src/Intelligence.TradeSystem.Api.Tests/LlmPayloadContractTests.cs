@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
@@ -8,11 +8,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class LlmPayloadContractTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmPayloadContractTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmPayloadContractTests(WebApplicationFactory<Program> factory)
+    public LlmPayloadContractTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

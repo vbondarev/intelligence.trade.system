@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
@@ -14,14 +14,14 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// но <c>warnings</c> при этом не пустой, когда в данных есть ограничения интерпретации.
 /// </summary>
 public sealed class SnapshotHealthInterpretationWarningsTests
-    : IClassFixture<WebApplicationFactory<Program>>
+    : IClassFixture<ApiWebApplicationFactory>
 {
     private const string Url =
         "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public SnapshotHealthInterpretationWarningsTests(WebApplicationFactory<Program> factory)
+    public SnapshotHealthInterpretationWarningsTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
@@ -9,11 +9,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class LlmPayloadEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmPayloadEndpointTests(WebApplicationFactory<Program> factory)
+    public LlmPayloadEndpointTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

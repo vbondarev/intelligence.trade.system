@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
@@ -14,11 +14,11 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// Проверяет, что <c>trendCode</c> и <c>trend</c> в LLM payload всегда консистентны
 /// и соответствуют контракту: Unknown=0, Bullish=1, Bearish=2, Sideways=3.
 /// </summary>
-public sealed class LlmTrendCodeMappingTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmTrendCodeMappingTests(WebApplicationFactory<Program> factory)
+    public LlmTrendCodeMappingTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

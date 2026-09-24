@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.28
-Дата актуализации: 23 сентября 2026 года
-Проверенная база: реализация Issue #142
-Последняя учтённая задача: Issue #142 «Tech-G01. Исправить coverage quality gate и усилить тесты публичного Bybit-адаптера»
+Версия документа: 3.29
+Дата актуализации: 24 сентября 2026 года
+Проверенная база: реализация Issue #144
+Последняя учтённая задача: Issue #144 «Tech-G02. Сделать PostgreSQL обязательной зависимостью API и разделить liveness и readiness»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -96,6 +96,7 @@
 ### Техническая подготовка перед этапом G
 
 - **Tech-G01** ✅ (Issue #142): coverage quality gate учитывает только hand-written production code, исключает build-generated и EF migration artifacts, показывает breakdown по production assemblies; публичный Bybit adapter усилен contract tests для mapping и provider boundary.
+- **Tech-G02** ✅ (Issue #144): API имеет единый DB-backed runtime; обязательная persistence configuration приводит к startup failure при ошибке, PostgreSQL outage отражается через readiness, а `/alive` сохраняет liveness-семантику.
 
 ## 4. Подтверждённое состояние проекта
 

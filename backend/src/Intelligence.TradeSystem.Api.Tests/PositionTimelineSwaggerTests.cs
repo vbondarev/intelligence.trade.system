@@ -6,11 +6,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionTimelineSwaggerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionTimelineSwaggerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public PositionTimelineSwaggerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public PositionTimelineSwaggerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Swagger_describes_the_protected_position_timeline_contract()

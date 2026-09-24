@@ -27,11 +27,11 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// services with strict mocks so real routing, model binding, authorization, and the central
 /// <c>ApiExceptionHandler</c> are all exercised for every documented outcome mapping.
 /// </summary>
-public sealed class ExchangeAccountsControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public ExchangeAccountsControllerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public ExchangeAccountsControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task List_returns_only_the_current_users_accounts_in_an_items_envelope()

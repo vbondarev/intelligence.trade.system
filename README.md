@@ -97,6 +97,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 - отдельный модуль `Intelligence.TradeSystem.MarketIntelligence`;
 - отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
 - `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
+- `Intelligence.TradeSystem.Api` требует PostgreSQL и запускается только в полноценном DB-backed runtime-режиме: обязательная конфигурация проверяется при startup, `/alive` отражает liveness процесса, а `/healthz` — readiness зависимостей, включая PostgreSQL;
 - integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - сопоставление user-delegated OIDC `sub` со стабильным Domain `UserId` и явная маркировка user principal;
 - user-scoped Application repository contracts для аккаунтов, позиций, портфелей, оценок и рекомендаций;
@@ -481,6 +482,7 @@ dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release
 Для прямого запуска API задайте application configuration keys (здесь `TRADE_CREDENTIAL_KEY` не используется):
 
 ```bash
+export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
 export CredentialProtection__ActiveKeyId=local_v1
 export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
 ```
@@ -488,6 +490,7 @@ export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
 В PowerShell после генерации ключа задайте те же application keys:
 
 ```powershell
+$env:ConnectionStrings__TradeSystem = 'Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
 $env:CredentialProtection__ActiveKeyId = 'local_v1'
 $env:CredentialProtection__Keys__local_v1 = $env:TRADE_CREDENTIAL_KEY
 ```
@@ -597,7 +600,7 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
-CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. После тестов workflow собирает Docker-образы API, Identity и migration runner, запускает Compose auth stack и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness и настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke.
+CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. После тестов workflow собирает Docker-образы API, Identity и migration runner, запускает Compose auth stack и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness, API readiness и настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke.
 
 Release-сборка настроена с `TreatWarningsAsErrors=true` для проектных предупреждений; известные SDK/tooling warnings оцениваются отдельно и не скрываются отключением анализаторов.
 

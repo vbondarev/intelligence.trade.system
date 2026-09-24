@@ -7,11 +7,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionMarketSwaggerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionMarketSwaggerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public PositionMarketSwaggerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public PositionMarketSwaggerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Swagger_describes_position_market_and_candles_contracts()

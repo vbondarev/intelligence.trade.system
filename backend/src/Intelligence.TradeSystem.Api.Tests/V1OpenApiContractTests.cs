@@ -10,7 +10,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFactory>
 {
     private static readonly IReadOnlyDictionary<string, string> ExpectedOperations =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -59,9 +59,9 @@ public sealed class V1OpenApiContractTests : IClassFixture<WebApplicationFactory
         "rotateExchangeAccountCredentials",
     ];
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public V1OpenApiContractTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public V1OpenApiContractTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task V1_openapi_has_the_approved_surface_and_stable_operation_ids()
