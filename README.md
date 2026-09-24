@@ -482,6 +482,7 @@ dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release
 Для прямого запуска API задайте application configuration keys (здесь `TRADE_CREDENTIAL_KEY` не используется):
 
 ```bash
+export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
 export CredentialProtection__ActiveKeyId=local_v1
 export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
 ```
@@ -489,6 +490,7 @@ export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
 В PowerShell после генерации ключа задайте те же application keys:
 
 ```powershell
+$env:ConnectionStrings__TradeSystem = 'Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
 $env:CredentialProtection__ActiveKeyId = 'local_v1'
 $env:CredentialProtection__Keys__local_v1 = $env:TRADE_CREDENTIAL_KEY
 ```

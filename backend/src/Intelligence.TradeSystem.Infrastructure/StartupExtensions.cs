@@ -22,6 +22,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace Intelligence.TradeSystem.Infrastructure;
 
@@ -178,12 +179,28 @@ public static class StartupExtensions
         return services;
     }
 
-    private static string GetRequiredConnectionString(IConfiguration configuration) =>
-        configuration.GetConnectionString(ConnectionStringName) is { Length: > 0 } connectionString
-        && !string.IsNullOrWhiteSpace(connectionString)
-            ? connectionString
-            : throw new InvalidOperationException(
+    private static string GetRequiredConnectionString(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString(ConnectionStringName);
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
                 $"ConnectionStrings:{ConnectionStringName} configuration is required.");
+        }
+
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{ConnectionStringName} configuration is malformed.",
+                exception);
+        }
+
+        return connectionString;
+    }
 
     private static CredentialProtectionOptions ReadCredentialProtectionOptions(
         IConfiguration configuration)
