@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture fixture)
 {
     [Fact]

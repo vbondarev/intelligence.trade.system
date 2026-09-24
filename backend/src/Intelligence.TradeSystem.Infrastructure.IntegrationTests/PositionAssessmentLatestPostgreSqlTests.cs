@@ -18,7 +18,7 @@ using Xunit.Abstractions;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class PositionAssessmentLatestPostgreSqlTests(
     PostgreSqlFixture fixture,
     ITestOutputHelper output)

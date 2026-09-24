@@ -18,7 +18,7 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 /// user-scoped active-account list query and the atomicity of the credential-rotation
 /// lifecycle transaction (<see cref="ExchangeAccountLifecycleTransaction"/>).
 /// </summary>
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fixture)
 {
     [Fact]

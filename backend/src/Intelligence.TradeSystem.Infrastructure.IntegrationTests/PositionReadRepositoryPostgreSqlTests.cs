@@ -12,7 +12,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 =
@@ -321,12 +321,8 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         }
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private async Task<TradeSystemDbContext> CreateCapturedContext(
         CommandCaptureInterceptor capture)

@@ -18,7 +18,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 15, 10, 0, 0, TimeSpan.Zero);
@@ -1335,12 +1335,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             T0.AddHours(1));
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private static RecommendationService CreateRecommendationService(
         TradeSystemDbContext context) =>

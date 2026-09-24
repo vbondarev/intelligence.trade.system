@@ -22,7 +22,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
@@ -1768,12 +1768,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             .AddInterceptors(interceptor)
             .Options);
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private static ExchangeAccount CreateAccount() =>
         ExchangeAccount.Create(

@@ -17,7 +17,7 @@ using Xunit.Abstractions;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class PositionTimelineReadPostgreSqlTests(
     PostgreSqlFixture fixture,
     ITestOutputHelper output)
@@ -345,7 +345,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
                 recommendation => recommendation.PositionId == positionId.Value));
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext(
+    private Task<TradeSystemDbContext> CreateMigratedContext(
         DbCommandInterceptor? interceptor = null)
     {
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
@@ -356,9 +356,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
         if (interceptor is not null)
             options.AddInterceptors(interceptor);
 
-        var context = new TradeSystemDbContext(options.Options);
-        await context.Database.MigrateAsync();
-        return context;
+        return Task.FromResult(new TradeSystemDbContext(options.Options));
     }
 
     private static PositionTimelineQuery CreateQuery(

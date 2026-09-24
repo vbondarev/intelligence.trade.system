@@ -12,7 +12,8 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
+[Collection("PostgreSql-Migrations")]
+public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixture fixture)
 {
     private const string C06Migration = "20260907131212_AddUserIsolationIndexes";
     private const string D04Migration = "20260909092129_AddExchangeAccountSyncWatermark";
@@ -27,27 +28,35 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     private const string TimelineReadIndexesMigration =
         "20260921211621_AddPositionTimelineReadIndexes";
 
-    private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine")
-        .WithDatabase("tradesystem_migrations")
-        .WithUsername("tradesystem")
-        .WithPassword("tradesystem")
-        .Build();
+    private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
+    {
+        var databaseName = $"tradesystem_migration_{Guid.NewGuid():N}";
+        await fixture.CreateDatabaseAsync(databaseName);
+        return new MigrationDatabaseScope(fixture, databaseName);
+    }
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    private sealed class MigrationDatabaseScope(
+        PostgreSqlMigrationFixture fixture,
+        string databaseName) : IAsyncDisposable
+    {
+        public string ConnectionString => fixture.BuildDatabaseConnectionString(databaseName);
 
-    public async Task DisposeAsync() => await postgres.DisposeAsync();
+        public TradeSystemDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<TradeSystemDbContext>()
+                .UseNpgsql(
+                    ConnectionString,
+                    npgsqlOptions => npgsqlOptions.MigrationsAssembly(
+                        typeof(TradeSystemDbContext).Assembly.GetName().Name))
+                .Options);
+
+        public async ValueTask DisposeAsync() => await fixture.DropDatabaseAsync(databaseName);
+    }
 
     [Fact]
     public async Task Migrations_apply_to_an_empty_database_without_pending_migrations()
     {
-        var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
-            .UseNpgsql(
-                postgres.GetConnectionString(),
-                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
-                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
-            .Options;
-
-        await using var dbContext = new TradeSystemDbContext(options);
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
 
         Assert.Empty(await dbContext.Database.GetAppliedMigrationsAsync());
         await dbContext.Database.MigrateAsync();
@@ -145,7 +154,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task Stability_migration_rejects_legacy_duplicate_current_rows_without_mutation()
     {
-        await using var dbContext = CreateMigrationContext();
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
         await dbContext.Database.MigrateAsync(BeforeRecommendationStabilityMigration);
         await SeedLegacyRecommendationsAsync(dbContext, duplicateCurrentRows: true);
 
@@ -178,7 +188,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task Stability_migration_accepts_legacy_data_with_one_current_row()
     {
-        await using var dbContext = CreateMigrationContext();
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
         await dbContext.Database.MigrateAsync(BeforeRecommendationStabilityMigration);
         await SeedLegacyRecommendationsAsync(dbContext, duplicateCurrentRows: false);
 
@@ -207,7 +218,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task Timeline_read_indexes_migration_upgrades_from_immediately_preceding_schema()
     {
-        await using var dbContext = CreateMigrationContext();
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
 
         await dbContext.Database.MigrateAsync(LatestAssessmentIndexMigration);
 
@@ -227,14 +239,6 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
         await AssertTimelineReadIndexesAsync(dbContext);
         AssertTimelineReadIndexSnapshotIsCoherent(dbContext);
     }
-
-    private TradeSystemDbContext CreateMigrationContext() =>
-        new(new DbContextOptionsBuilder<TradeSystemDbContext>()
-            .UseNpgsql(
-                postgres.GetConnectionString(),
-                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
-                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
-            .Options);
 
     private static async Task AssertTimelineReadIndexesAsync(TradeSystemDbContext dbContext)
     {
@@ -395,14 +399,9 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task AddConcurrencyVersion_migration_backfills_pre_existing_rows_to_version_one()
     {
-        var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
-            .UseNpgsql(
-                postgres.GetConnectionString(),
-                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
-                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
-            .Options;
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync("20260904132342_InitialDomainPersistence");
 
@@ -422,7 +421,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
             await insertCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
@@ -444,14 +443,9 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task Credential_migration_preserves_existing_account_data()
     {
-        var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
-            .UseNpgsql(
-                postgres.GetConnectionString(),
-                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
-                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
-            .Options;
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync(C06Migration);
 
@@ -472,7 +466,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
             await insertCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 
@@ -533,14 +527,9 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
     [Fact]
     public async Task Independent_watermarks_preserve_the_legacy_observation_lower_bound()
     {
-        var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
-            .UseNpgsql(
-                postgres.GetConnectionString(),
-                npgsqlOptions => npgsqlOptions.MigrationsAssembly(
-                    typeof(TradeSystemDbContext).Assembly.GetName().Name))
-            .Options;
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync(D04Migration);
 
@@ -562,7 +551,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests : IAsyncLifetime
             await insertCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var dbContext = new TradeSystemDbContext(options))
+        await using (var dbContext = migrationDatabase.CreateContext())
         {
             await dbContext.Database.MigrateAsync(BeforeProviderIdentityMigration);
 

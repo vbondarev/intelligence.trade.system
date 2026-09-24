@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 =
@@ -556,12 +556,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         return await service.SynchronizeAsync(account.UserId, account.Id);
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private static ExchangeAccount CreateAccount() =>
         ExchangeAccount.Create(

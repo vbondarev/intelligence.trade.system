@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset CreatedAt =
@@ -95,12 +95,8 @@ public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Contains("positions_partial", persisted.Payload, StringComparison.Ordinal);
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

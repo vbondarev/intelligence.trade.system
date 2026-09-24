@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 7, 10, 0, 0, TimeSpan.Zero);
@@ -429,12 +429,8 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             .SaveAsync(userId, values.Recommendation, expectedVersion: null);
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
+    private Task<TradeSystemDbContext> CreateMigratedContext() =>
+        Task.FromResult(fixture.CreateContext());
 
     private static AggregateSet CreateAggregateSet(string instrument)
     {

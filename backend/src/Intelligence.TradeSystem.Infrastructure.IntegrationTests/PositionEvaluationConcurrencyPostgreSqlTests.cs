@@ -25,7 +25,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
     PostgreSqlFixture fixture)
 {
