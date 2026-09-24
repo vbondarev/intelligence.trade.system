@@ -20,7 +20,7 @@
 
 - Модели в `Models/Payloads` и request/response DTO считай contract-sensitive.
 - Предпочитай аддитивное развитие: добавление полей/новых endpoints вместо скрытого переименования, удаления или переосмысления существующих полей.
-- JSON enum values сохраняй строковыми согласно общей настройке `Program.cs`; не вводи integer serialization точечно.
+- JSON enum values сохраняй строковыми согласно общей конфигурации API serialization; не вводи integer serialization точечно.
 - `GET /api/market-analysis/{symbol}/llm-payload` остаётся публичным market-only контрактом со схемой `1.0`, пока версия не меняется отдельным решением.
 - Legacy `POST /api/market-analysis/snapshot` сохраняет существующую wire-совместимость до отдельной задачи миграции.
 - Не добавляй user/private state в публичные рыночные payloads.

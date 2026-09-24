@@ -14,6 +14,7 @@ using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Security;
+using Intelligence.TradeSystem.Api.Realtime.V1;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -75,22 +76,28 @@ public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationF
     {
         using var scope = _factory.Services.CreateScope();
         var serviceProvider = scope.ServiceProvider;
+        var handler = serviceProvider.GetRequiredService<UserUpdatesApplicationEventHandler>();
 
-        AssertHandler<PositionOpenedEventV1>(serviceProvider);
-        AssertHandler<PositionChangedEventV1>(serviceProvider);
-        AssertHandler<PositionClosedEventV1>(serviceProvider);
-        AssertHandler<ExchangeAccountSyncDegradedEventV1>(serviceProvider);
-        AssertHandler<ExchangeAccountUpdatedEventV1>(serviceProvider);
-        AssertHandler<PortfolioUpdatedEventV1>(serviceProvider);
-        AssertHandler<PositionEvaluationUpdatedEventV1>(serviceProvider);
+        AssertHandler<PositionOpenedEventV1>(serviceProvider, handler);
+        AssertHandler<PositionChangedEventV1>(serviceProvider, handler);
+        AssertHandler<PositionClosedEventV1>(serviceProvider, handler);
+        AssertHandler<ExchangeAccountSyncDegradedEventV1>(serviceProvider, handler);
+        AssertHandler<ExchangeAccountUpdatedEventV1>(serviceProvider, handler);
+        AssertHandler<PortfolioUpdatedEventV1>(serviceProvider, handler);
+        AssertHandler<PositionEvaluationUpdatedEventV1>(serviceProvider, handler);
     }
 
-    private static void AssertHandler<TEvent>(IServiceProvider serviceProvider)
+    private static void AssertHandler<TEvent>(
+        IServiceProvider serviceProvider,
+        UserUpdatesApplicationEventHandler handler)
         where TEvent : IApplicationEvent
     {
         serviceProvider
             .GetServices<IApplicationEventHandler<TEvent>>()
             .Should()
-            .ContainSingle();
+            .ContainSingle()
+            .Which
+            .Should()
+            .BeSameAs(handler);
     }
 }
