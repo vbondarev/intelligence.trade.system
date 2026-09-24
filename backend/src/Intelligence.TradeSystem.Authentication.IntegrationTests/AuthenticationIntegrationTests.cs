@@ -40,21 +40,21 @@ namespace Intelligence.TradeSystem.Authentication.IntegrationTests;
 public sealed class AuthenticationIntegrationTests(
     AuthenticationIntegrationFixture fixture) : IAsyncLifetime, IDisposable, IClassFixture<AuthenticationIntegrationFixture>
 {
-    private const string Issuer = "http://public-identity.test/";
-    private const string ConfiguredIssuer = "http://public-identity.test";
-    private const string MetadataAddress = "http://identity-internal.test/.well-known/openid-configuration";
-    private const string BackchannelBaseAddress = "http://identity-internal.test";
-    private const string Audience = "intelligence-trade-api";
-    private const string ClientId = "c05a-public-client";
-    private const string RedirectUri = "http://client.test/callback";
-    private const string Username = "integration-user";
-    private const string Password = "Integration-password-123";
-    private const string SecondUsername = "integration-user-b";
-    private const string SecondPassword = "Integration-password-456";
-    private const string CertificatePassword = "integration-certificate-password";
     private const string PrincipalTypeClaim = "trade_principal_type";
     private const string UserPrincipalType = "user";
     private AuthenticationIntegrationFixture Fixture => fixture;
+    private static string Issuer => AuthenticationIntegrationFixture.Issuer;
+    private static string ConfiguredIssuer => AuthenticationIntegrationFixture.ConfiguredIssuer;
+    private static string MetadataAddress => AuthenticationIntegrationFixture.MetadataAddress;
+    private static string BackchannelBaseAddress => AuthenticationIntegrationFixture.BackchannelBaseAddress;
+    private static string Audience => AuthenticationIntegrationFixture.Audience;
+    private static string ClientId => AuthenticationIntegrationFixture.ClientId;
+    private static string RedirectUri => AuthenticationIntegrationFixture.RedirectUri;
+    private static string Username => AuthenticationIntegrationFixture.Username;
+    private static string Password => AuthenticationIntegrationFixture.Password;
+    private static string SecondUsername => AuthenticationIntegrationFixture.SecondUsername;
+    private static string SecondPassword => AuthenticationIntegrationFixture.SecondPassword;
+    private static string CertificatePassword => AuthenticationIntegrationFixture.CertificatePassword;
     private AuthenticationIntegrationFixture.IdentityWebApplicationFactory identityFactory => Fixture.IdentityFactory;
     private AuthenticationIntegrationFixture.ApiWebApplicationFactory apiFactory => Fixture.ApiFactory;
     private string oldCertificatePath => Fixture.OldCertificatePath;
@@ -810,8 +810,8 @@ public sealed class AuthenticationIntegrationTests(
     }
 
     private async Task<(string AccessToken, string CodeVerifier)> IssueAccessTokenAsync(
-        string username = Username,
-        string password = Password)
+        string username = AuthenticationIntegrationFixture.Username,
+        string password = AuthenticationIntegrationFixture.Password)
     {
         var authorization = await IssueAuthorizationCodeAsync(username, password);
         using var client = CreateIdentityClient();
@@ -834,8 +834,8 @@ public sealed class AuthenticationIntegrationTests(
     }
 
     private async Task<(string Code, string CodeVerifier)> IssueAuthorizationCodeAsync(
-        string username = Username,
-        string password = Password)
+        string username = AuthenticationIntegrationFixture.Username,
+        string password = AuthenticationIntegrationFixture.Password)
     {
         using var client = CreateIdentityClient();
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -1128,25 +1128,6 @@ public sealed class AuthenticationIntegrationTests(
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
-
-    private string CreateSigningCertificate(
-        string name,
-        DateTimeOffset notBefore,
-        DateTimeOffset notAfter)
-    {
-        using var rsa = RSA.Create(2048);
-        var request = new CertificateRequest(
-            "CN=Identity Integration Test",
-            rsa,
-            HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
-        using var certificate = request.CreateSelfSigned(
-            notBefore,
-            notAfter);
-        var path = Path.Combine(Path.GetTempPath(), $"identity-c05a-{name}-{Guid.NewGuid():N}.pfx");
-        File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, CertificatePassword));
-        return path;
-    }
 
     private static async Task<string[]> ReadTableNamesAsync(IdentityDbContext context)
     {
