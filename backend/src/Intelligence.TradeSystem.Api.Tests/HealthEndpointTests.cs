@@ -5,19 +5,17 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class HealthEndpointTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public HealthEndpointTests(WebApplicationFactory<Program> factory)
+    public HealthEndpointTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }
 
-    [Theory]
-    [InlineData("/healthz")]
-    [InlineData("/alive")]
-    public async Task Health_Endpoints_Are_Available_By_Default_In_Production(string path)
+    [Fact]
+    public async Task Alive_Endpoint_Remains_Healthy_When_PostgreSql_Is_Unavailable()
     {
         using var client = _factory
             .WithWebHostBuilder(builder =>
@@ -28,8 +26,27 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
             })
             .CreateClient();
 
-        using var response = await client.GetAsync(path);
+        using var response = await client.GetAsync("/alive");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Health_Endpoint_Reports_Unavailable_PostgreSql_As_Not_Ready()
+    {
+        using var client = _factory
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(Environments.Production);
+                builder.UseSetting("Authentication:Issuer", "https://identity.test");
+                builder.UseSetting(
+                    "Authentication:MetadataAddress",
+                    "https://identity.test/.well-known/openid-configuration");
+            })
+            .CreateClient();
+
+        using var response = await client.GetAsync("/healthz");
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
 }

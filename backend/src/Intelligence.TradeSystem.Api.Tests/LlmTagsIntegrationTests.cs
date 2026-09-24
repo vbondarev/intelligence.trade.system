@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
@@ -13,7 +13,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// Проверяют, что теги детерминированы, не противоречат друг другу,
 /// не превышают лимит и идут в стабильном порядке.
 /// </summary>
-public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFactory>
 {
     private const string Url =
         "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
@@ -67,9 +67,9 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<WebApplicationFactor
         MarketTagConstants.TrendConfirmedEntryFiltered,
     ];
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmTagsIntegrationTests(WebApplicationFactory<Program> factory)
+    public LlmTagsIntegrationTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

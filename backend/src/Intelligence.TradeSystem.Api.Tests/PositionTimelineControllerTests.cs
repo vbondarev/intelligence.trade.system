@@ -20,11 +20,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionTimelineControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionTimelineControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public PositionTimelineControllerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public PositionTimelineControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Get_maps_repeatable_type_filter_and_returns_an_opaque_cursor_page()

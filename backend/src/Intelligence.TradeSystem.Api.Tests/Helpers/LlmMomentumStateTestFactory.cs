@@ -1,5 +1,4 @@
 ﻿using Intelligence.TradeSystem.Application;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -10,17 +9,20 @@ namespace Intelligence.TradeSystem.Api.Tests.Helpers;
 /// Регистрирует <see cref="ConfigurableMarketSnapshotService"/> один раз при старте хоста,
 /// что позволяет переиспользовать единственный тестовый хост для всего тест-класса.
 /// </summary>
-public sealed class LlmMomentumStateTestFactory : WebApplicationFactory<Program>
+public sealed class LlmMomentumStateTestFactory : ApiWebApplicationFactory
 {
     /// <summary>
     /// Сервис с заменяемым снапшотом. Тест конфигурирует его перед каждым HTTP-запросом.
     /// </summary>
     public ConfigurableMarketSnapshotService MarketService { get; } = new();
 
-    protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder) =>
+    protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IMarketSnapshotService>();
             services.AddSingleton<IMarketSnapshotService>(MarketService);
         });
+    }
 }

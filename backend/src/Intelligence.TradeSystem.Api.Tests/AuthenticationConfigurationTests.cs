@@ -5,11 +5,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class AuthenticationConfigurationTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class AuthenticationConfigurationTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> factory;
+    private readonly ApiWebApplicationFactory factory;
 
-    public AuthenticationConfigurationTests(WebApplicationFactory<Program> factory)
+    public AuthenticationConfigurationTests(ApiWebApplicationFactory factory)
     {
         this.factory = factory;
     }

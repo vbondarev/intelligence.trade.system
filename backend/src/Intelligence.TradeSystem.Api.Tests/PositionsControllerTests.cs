@@ -20,11 +20,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionsControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public PositionsControllerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public PositionsControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task List_maps_typed_query_and_returns_cursor_page()

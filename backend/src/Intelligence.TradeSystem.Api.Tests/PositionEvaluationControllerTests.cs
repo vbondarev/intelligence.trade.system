@@ -30,12 +30,12 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionEvaluationControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 21, 12, 0, 0, TimeSpan.Zero);
-    private readonly WebApplicationFactory<Program> factory;
+    private readonly ApiWebApplicationFactory factory;
 
-    public PositionEvaluationControllerTests(WebApplicationFactory<Program> factory) =>
+    public PositionEvaluationControllerTests(ApiWebApplicationFactory factory) =>
         this.factory = factory;
 
     [Fact]

@@ -4,11 +4,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class RootEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class RootEndpointTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
 
-    public RootEndpointTests(WebApplicationFactory<Program> factory)
+    public RootEndpointTests(ApiWebApplicationFactory factory)
     {
         _client = factory.CreateClient();
     }

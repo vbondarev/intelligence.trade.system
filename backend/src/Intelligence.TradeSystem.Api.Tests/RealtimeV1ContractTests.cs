@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace Intelligence.TradeSystem.Api.Tests;
 
 public sealed class RealtimeV1ContractTests(
-    WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+    ApiWebApplicationFactory factory) : IClassFixture<ApiWebApplicationFactory>
 {
     [Fact]
     public void Client_event_names_are_stable()

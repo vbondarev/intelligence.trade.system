@@ -8,11 +8,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class SwaggerEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public SwaggerEndpointTests(WebApplicationFactory<Program> factory)
+    public SwaggerEndpointTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

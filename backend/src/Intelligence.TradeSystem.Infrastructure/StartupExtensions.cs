@@ -56,11 +56,7 @@ public static class StartupExtensions
         RegisterRecommendationPolicy(services, configuration, contentRootPath);
         RegisterPositionEvaluationPolicy(services, configuration);
 
-        var connectionString = configuration.GetConnectionString(ConnectionStringName);
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return services;
-        }
+        var connectionString = GetRequiredConnectionString(configuration);
 
         var credentialProtection = ReadCredentialProtectionOptions(configuration);
         var keyRing = CredentialKeyRing.Create(credentialProtection);
@@ -161,11 +157,6 @@ public static class StartupExtensions
 
         services.TryAddSingleton<TimeProvider>(_ => TimeProvider.System);
 
-        if (string.IsNullOrWhiteSpace(configuration.GetConnectionString(ConnectionStringName)))
-        {
-            return services;
-        }
-
         services.AddSingleton<IExchangeAccountBackgroundSyncSweep, ExchangeAccountBackgroundSyncSweep>();
         services.AddHostedService<ExchangeAccountBackgroundSyncWorker>();
         return services;
@@ -183,14 +174,16 @@ public static class StartupExtensions
             .Bind(configuration.GetSection(ApplicationEventOutboxDispatcherOptions.SectionName))
             .ValidateOnStart();
 
-        if (string.IsNullOrWhiteSpace(configuration.GetConnectionString(ConnectionStringName)))
-        {
-            return services;
-        }
-
         services.AddHostedService<ApplicationEventOutboxDispatcherWorker>();
         return services;
     }
+
+    private static string GetRequiredConnectionString(IConfiguration configuration) =>
+        configuration.GetConnectionString(ConnectionStringName) is { Length: > 0 } connectionString
+        && !string.IsNullOrWhiteSpace(connectionString)
+            ? connectionString
+            : throw new InvalidOperationException(
+                $"ConnectionStrings:{ConnectionStringName} configuration is required.");
 
     private static CredentialProtectionOptions ReadCredentialProtectionOptions(
         IConfiguration configuration)

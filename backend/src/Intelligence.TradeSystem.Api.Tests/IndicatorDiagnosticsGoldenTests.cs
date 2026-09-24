@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
@@ -16,11 +16,11 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// - при полном наборе данных <c>indicatorDiagnostics</c> пустой;
 /// - JSON-контракт стабилен.
 /// </summary>
-public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public IndicatorDiagnosticsGoldenTests(WebApplicationFactory<Program> factory)
+    public IndicatorDiagnosticsGoldenTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

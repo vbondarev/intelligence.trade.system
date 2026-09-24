@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Models.Payloads;
@@ -20,13 +20,13 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// - Strength = 0.7 ∈ [0, 1]
 /// - DistancePct совпадает с distanceToSupport1Pct / distanceToResistance1Pct для уровней 1
 /// </summary>
-public sealed class LlmLevelMetaMappingTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class LlmLevelMetaMappingTests : IClassFixture<ApiWebApplicationFactory>
 {
     private const string Url = "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear";
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public LlmLevelMetaMappingTests(WebApplicationFactory<Program> factory)
+    public LlmLevelMetaMappingTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }

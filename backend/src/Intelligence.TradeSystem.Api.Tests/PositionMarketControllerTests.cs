@@ -20,11 +20,11 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
-public sealed class PositionMarketControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PositionMarketControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public PositionMarketControllerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public PositionMarketControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Market_returns_explicit_position_scoped_context_without_private_fields()
