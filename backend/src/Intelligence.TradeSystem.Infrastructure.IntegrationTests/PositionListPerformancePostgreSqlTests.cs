@@ -22,6 +22,42 @@ public sealed class PositionListPerformancePostgreSqlTests
     public PositionListPerformancePostgreSqlTests(ITestOutputHelper output) =>
         this.output = output;
 
+    [Theory]
+    [InlineData(123, 7, "hit=123,read=7")]
+    [InlineData(null, null, "unavailable")]
+    public void ParsePlan_formats_root_plan_buffer_counters(
+        int? sharedHitBlocks,
+        int? sharedReadBlocks,
+        string expectedBuffers)
+    {
+        var planProperties = """
+            "Node Type": "Limit",
+            "Actual Rows": 51,
+            "Actual Loops": 1
+            """;
+        var bufferProperties = sharedHitBlocks.HasValue
+            ? $"""
+                ,"Shared Hit Blocks": {sharedHitBlocks.Value},
+                "Shared Read Blocks": {sharedReadBlocks!.Value}
+                """
+            : string.Empty;
+        var json = $$"""
+            [
+              {
+                "Plan": {
+                  {{planProperties}}{{bufferProperties}}
+                },
+                "Planning Time": 0.1,
+                "Execution Time": 1.0
+              }
+            ]
+            """;
+
+        var summary = ParsePlan(json);
+
+        Assert.Equal(expectedBuffers, summary.Buffers);
+    }
+
     [PositionListPerformanceFact]
     public async Task Position_list_queries_have_runtime_postgresql_evidence()
     {
@@ -305,7 +341,7 @@ public sealed class PositionListPerformancePostgreSqlTests
             sorts,
             indexConditions,
             filters,
-            Buffers: FormatBuffers(root));
+            Buffers: FormatBuffers(plan));
 
         void Visit(JsonElement node)
         {
