@@ -275,7 +275,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         await Persist(owner, [position], portfolio);
 
         var capture = new CommandCaptureInterceptor();
-        await using var context = await CreateCapturedContext(capture);
+        await using var context = CreateCapturedContext(capture);
         var positionRepository = new PositionReadRepository(context);
         await positionRepository.ListAsync(
             owner.UserId,
@@ -321,7 +321,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         }
     }
 
-    private async Task<TradeSystemDbContext> CreateCapturedContext(
+    private TradeSystemDbContext CreateCapturedContext(
         CommandCaptureInterceptor capture)
     {
         var context = new TradeSystemDbContext(
