@@ -24,6 +24,7 @@ public sealed class PositionListPerformancePostgreSqlTests
 
     [Theory]
     [InlineData(123, 7, "hit=123,read=7")]
+    [InlineData(0, 0, "hit=0,read=0")]
     [InlineData(null, null, "unavailable")]
     public void ParsePlan_formats_root_plan_buffer_counters(
         int? sharedHitBlocks,
