@@ -305,7 +305,7 @@ public sealed class PositionListPerformancePostgreSqlTests
             sorts,
             indexConditions,
             filters,
-            Buffers: $"hit={GetInt(root, "Shared Hit Blocks")},read={GetInt(root, "Shared Read Blocks")}");
+            Buffers: FormatBuffers(root));
 
         void Visit(JsonElement node)
         {
@@ -351,8 +351,11 @@ public sealed class PositionListPerformancePostgreSqlTests
         static double GetDouble(JsonElement node, string propertyName, double fallback = 0) =>
             node.TryGetProperty(propertyName, out var value) ? value.GetDouble() : fallback;
 
-        static int GetInt(JsonElement node, string propertyName) =>
-            node.TryGetProperty(propertyName, out var value) ? value.GetInt32() : 0;
+        static string FormatBuffers(JsonElement node) =>
+            node.TryGetProperty("Shared Hit Blocks", out var hit) &&
+            node.TryGetProperty("Shared Read Blocks", out var read)
+                ? $"hit={hit.GetInt32()},read={read.GetInt32()}"
+                : "unavailable";
     }
 
     private static async Task WriteDatasetCharacteristicsAsync(

@@ -93,10 +93,11 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         var positions = new[]
         {
             CreatePosition(accountA.Id, "BTCUSDT", T0),
-            CreatePosition(accountB.Id, "ETHUSDT", T0.AddMinutes(-1)),
+            CreatePosition(accountA.Id, "ETHUSDT", T0.AddMinutes(-1)),
+            CreatePosition(accountB.Id, "SOLUSDT", T0.AddMinutes(-2)),
         };
-        await Persist(accountA, [positions[0]]);
-        await Persist(accountB, [positions[1]]);
+        await Persist(accountA, positions[..2]);
+        await Persist(accountB, [positions[2]]);
 
         var capture = new CommandCaptureInterceptor();
         await using var context = CreateCapturedContext(capture);
@@ -117,6 +118,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
             PositionReadQuery.Create(accountA.Id, null, null, null, 1, null));
         Assert.Single(capture.Commands);
         AssertPositionQuery(capture.Commands[0]);
+        Assert.NotNull(explicitFirst.NextCursor);
 
         capture.Commands.Clear();
         await repository.ListAsync(
