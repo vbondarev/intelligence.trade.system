@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.33
-Дата актуализации: 24 сентября 2026 года
-Проверенная база: реализация Issue #150
-Последняя учтённая задача: Issue #150 «Tech-G05. Подтвердить производительность PostgreSQL списка позиций»
+Версия документа: 3.34
+Дата актуализации: 25 сентября 2026 года
+Проверенная база: реализация Issue #152
+Последняя учтённая задача: Issue #152 «Tech-G06. Нормализовать composition root и Program.cs executable-проектов»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -100,6 +100,7 @@
 - **Tech-G03** ✅ (Issue #146): PostgreSQL integration tests сохраняют реальное Testcontainers coverage, но переносят обычную миграцию во fixture lifecycle, разделяют обычные сценарии на независимые группы A/B и держат migration-specific проверки на свежих per-scenario БД; по аудируемому benchmark median suite time снижен с 50.52s до 32.58s (35.5% improvement) без сокращения coverage.
 - **Tech-G04** ✅ (Issue #148): `Authentication.IntegrationTests` используют один PostgreSQL Testcontainer с отдельными `TradeSystem` и `TradeSystemIdentity` databases; migrations, hosts, certificates и базовый Identity/OpenIddict seed выполняются на fixture lifecycle, а mutable state явно очищается между сценариями. Сохранены реальные OAuth/OIDC, JwtBearer, PostgreSQL и SignalR проверки. В сопоставимом Release/no-build benchmark с одной warm-up итерацией и пятью успешными измерениями все прогоны дали 32/32: before median — 266.81s (267.39 / 266.25 / 266.65 / 266.81 / 266.94), after median — 28.30s (28.17 / 28.29 / 28.30 / 28.43 / 28.52), improvement — 89.4%. Инициализация `AuthenticationIntegrationFixture` — 9.16s; самый медленный оставшийся сценарий `Updates_hub_closes_an_authenticated_websocket_when_the_token_expires` — 9.02s.
 - **Tech-G05** ✅ (Issue #150): production EF Core read path списка позиций подтверждён opt-in PostgreSQL benchmark на `postgres:16-alpine` с deterministic seed из 250 000 positions, 8 users и 24 accounts. Финальный путь сохраняет single-query first page/explicit-account и использует bounded continuation: lookup owned accounts, один bounded query для одного account и bounded per-account fan-out для нескольких accounts с deterministic merge. Cursor predicate разделён на взаимоисключающие timestamp/UUID ranges, поэтому PostgreSQL использует seek conditions в deep continuation plans; Closed на 25/50/75/95% показал 90/92/90/92 removed rows. После исправления parser root `Plan` counters доступны: AFTER matrix зафиксировала `read=0` и фактические shared-hit counters для каждого query/depth. В AFTER-прогоне 3-account continuation выполнял 4 round trips и возвращал 153 bounded candidates; 12-account engineering probe — 13 round trips и 607 candidates. Mandatory first-page scenarios оставались representative (94–28 029 candidates), а `Rows Removed by Filter` агрегируется с учётом `Actual Loops`; total buffers не суммируются по дереву. Финальный набор indexes: `ix_positions_list_order`, `ix_positions_list_account_order`, partial `ix_positions_list_closed_order` по `(exchange_account_id, first_detected_at DESC, position_id DESC)` и SQL-managed `lower(instrument_id)` index. Benchmark не входит в обычный CI test loop и включается только через `ITS_RUN_POSITION_LIST_PERFORMANCE=1`.
+- **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -469,15 +470,14 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Финализировать OpenAPI и контрактные проверки v1 | F-08 |
-| 2 | Создать адаптивную React-панель | G-01 — G-08 |
-| 3 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Создать адаптивную React-панель | G-01 — G-08 |
+| 2 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
+| 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–E завершены и больше не входят в очередь ближайших PR. F-01 — F-07 завершены; следующим шагом является F-08. Этап F намеренно разбит на небольшие проверяемые PR: сначала фиксируются стабильные client-facing контракты и миграция pre-v1 routes, затем сценарии аккаунта, чтение позиции/портфеля, рыночный контекст, evaluation, timeline, realtime и только после этого итоговая контрактная фиксация OpenAPI. При этом OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests; F-08 проверяет полноту и стабильность всей v1-границы. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и технические задачи перед G завершены и больше не входят в очередь ближайших PR. Последовательность перехода к клиенту: Tech-G05 → Tech-G06 → G-01. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -558,6 +558,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-25 | 3.34 | Issue #152 завершает Tech-G06: API composition root разделён по concerns с явным HTTP pipeline в `Program.cs`, добавлены regression-проверка shared realtime singleton и Compose smoke для повторного seeding/password mismatch; `Authentication.TestSeeder` нормализован без изменения OAuth/OIDC semantics, `Api/AGENTS.md` синхронизирован. Следующим функциональным шагом остаётся G-01 — основной React-клиент. |
 | 2026-09-23 | 3.28 | Issue #142 завершает Tech-G01 перед этапом G: исправлен coverage quality gate для hand-written production code с диагностикой по assemblies, добавлены regression tests tooling и расширены contract tests публичного Bybit adapter без изменения runtime-поведения. |
 | 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Документ одновременно синхронизирован с уже merged Issue #136 / PR #137: F-07 отмечен завершённым, user-scoped SignalR `/hubs/v1/updates` и включённый outbox dispatcher отражены в текущем состоянии, следующим шагом назначен F-08. Долгосрочные Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
 | 2026-09-21 | 3.25 | Issue #134 завершает F-06: добавлен user-scoped `GET /api/v1/positions/{id}/timeline`, объединяющий persisted position changes, assessments/evaluations и recommendations с bounded PostgreSQL projections, deterministic newest-first ordering, versioned opaque cursor и repeatable type filter. Domain не изменялся; по PostgreSQL query-plan evidence через EF Core migration добавлены chronology indexes `ix_position_changes_position_occurred_at_sequence` и `ix_recommendations_position_created_at_id`; F-07 остаётся следующим шагом. |

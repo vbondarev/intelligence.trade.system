@@ -1,26 +1,10 @@
-using FluentValidation;
-using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Configuration;
-using Intelligence.TradeSystem.Api.Contracts;
-using Intelligence.TradeSystem.Api.Services;
-using Intelligence.TradeSystem.Api.Validation;
-using Intelligence.TradeSystem.Application.Users;
 using Microsoft.Extensions.Options;
 
-namespace Intelligence.TradeSystem.Api;
+namespace Intelligence.TradeSystem.Api.Services;
 
-public static class ApiValidationExtensions
+public static class SnapshotHealthServiceCollectionExtensions
 {
-    public static IServiceCollection AddApiValidation(this IServiceCollection services)
-    {
-        services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUserContext, ClaimsPrincipalCurrentUserContext>();
-        services.AddScoped<IValidator<SnapshotAnalysisRequest>, SnapshotAnalysisRequestValidator>();
-        services.AddScoped<IValidator<LlmPayloadRequest>, LlmPayloadRequestValidator>();
-
-        return services;
-    }
-
     public static IServiceCollection AddSnapshotHealthEvaluation(
         this IServiceCollection services,
         IConfiguration configuration)

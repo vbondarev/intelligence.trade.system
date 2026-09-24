@@ -1,15 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Intelligence.TradeSystem.Api.Realtime.V1;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Users;
 using Microsoft.AspNetCore.SignalR;
 
-namespace Intelligence.TradeSystem.Api;
+namespace Intelligence.TradeSystem.Api.Realtime.V1;
 
-public static class ApiRealtimeExtensions
+public static class RealtimeServiceCollectionExtensions
 {
-    public static IServiceCollection AddApiRealtime(this IServiceCollection services)
+    public static IServiceCollection AddRealtimeV1(this IServiceCollection services)
     {
         services
             .AddSignalR()

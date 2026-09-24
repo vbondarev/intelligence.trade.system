@@ -5,9 +5,11 @@ public static class Program
     public static async Task Main(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
-        builder.Services.AddAuthenticationTestSeeder(builder.Configuration);
+        builder.Services.AddAuthenticationTestSeeding(builder.Configuration);
 
         using var host = builder.Build();
-        await host.Services.SeedAuthenticationTestUserAsync();
+        using var scope = host.Services.CreateScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<AuthenticationTestSeeder>();
+        await seeder.SeedAsync();
     }
 }

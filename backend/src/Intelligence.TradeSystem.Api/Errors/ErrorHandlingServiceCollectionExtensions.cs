@@ -1,10 +1,9 @@
-using Intelligence.TradeSystem.Api.Errors;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Intelligence.TradeSystem.Api;
+namespace Intelligence.TradeSystem.Api.Errors;
 
-public static class ApiErrorHandlingExtensions
+public static class ErrorHandlingServiceCollectionExtensions
 {
     public static IServiceCollection AddApiErrorHandling(this IServiceCollection services)
     {
@@ -39,11 +38,5 @@ public static class ApiErrorHandlingExtensions
         });
 
         return services;
-    }
-
-    public static IApplicationBuilder UseApiExceptionHandling(this IApplicationBuilder app)
-    {
-        app.UseExceptionHandler();
-        return app;
     }
 }

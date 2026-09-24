@@ -1,14 +1,13 @@
-using Intelligence.TradeSystem.Api.Authentication;
 using Intelligence.TradeSystem.Api.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Intelligence.TradeSystem.Api;
+namespace Intelligence.TradeSystem.Api.Authentication;
 
-public static class ApiAuthenticationExtensions
+public static class AuthenticationServiceCollectionExtensions
 {
-    public static IServiceCollection AddApiAuthentication(
+    public static IServiceCollection AddTradeAuthentication(
         this IServiceCollection services,
         IConfiguration configuration,
         IHostEnvironment environment)

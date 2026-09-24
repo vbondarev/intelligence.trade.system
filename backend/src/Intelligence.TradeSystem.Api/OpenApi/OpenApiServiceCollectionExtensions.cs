@@ -1,25 +1,14 @@
 using System.Reflection;
-using System.Text.Json.Serialization;
 using Intelligence.TradeSystem.Api.OpenApi;
 using Intelligence.TradeSystem.Api.Serialization;
 using Microsoft.OpenApi;
 
 namespace Intelligence.TradeSystem.Api;
 
-public static class ApiPresentationExtensions
+public static class OpenApiServiceCollectionExtensions
 {
-    public static IServiceCollection AddApiPresentation(this IServiceCollection services)
+    public static IServiceCollection AddApiOpenApi(this IServiceCollection services)
     {
-        services
-            .AddControllers(options =>
-            {
-                options.OutputFormatters.Insert(0, new V1JsonOutputFormatter());
-            })
-            .AddJsonOptions(options =>
-            {
-                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
-            });
-
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
@@ -50,12 +39,5 @@ public static class ApiPresentationExtensions
         });
 
         return services;
-    }
-
-    public static IApplicationBuilder UseApiSwagger(this IApplicationBuilder app)
-    {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-        return app;
     }
 }

@@ -1,3 +1,8 @@
+using Intelligence.TradeSystem.Api.Authentication;
+using Intelligence.TradeSystem.Api.Errors;
+using Intelligence.TradeSystem.Api.Realtime.V1;
+using Intelligence.TradeSystem.Api.Services;
+using Intelligence.TradeSystem.Api.Validation;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Exchanges;
 using Intelligence.TradeSystem.Infrastructure;
@@ -25,24 +30,36 @@ public partial class Program
         }
 
         builder.Services.AddApiPresentation();
-        builder.Services.AddApiRealtime();
+        builder.Services.AddRealtimeV1();
         builder.Services.AddApiErrorHandling();
+        builder.Services.AddApiOpenApi();
         builder.Services.AddApiValidation();
+        builder.Services.AddCurrentUserContext();
         builder.Services.AddSnapshotHealthEvaluation(builder.Configuration);
-        builder.Services.AddApiAuthentication(builder.Configuration, builder.Environment);
+        builder.Services.AddTradeAuthentication(builder.Configuration, builder.Environment);
 
         var app = builder.Build();
 
-        app.UseApiExceptionHandling();
+        app.UseExceptionHandler();
 
         if (app.Environment.IsDevelopment())
         {
-            app.UseApiSwagger();
+            app.UseSwagger();
+            app.UseSwaggerUI();
         }
 
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapApiEndpoints();
+        app.MapGet("/", () => Results.Ok(new
+        {
+            Service = "Intelligence.TradeSystem.Api",
+            Status = "Started",
+        }));
+        app.MapControllers();
+        app.MapHub<UpdatesHub>(
+                "/hubs/v1/updates",
+                options => options.CloseOnAuthenticationExpiration = true)
+            .RequireAuthorization(TradeAuthorization.UserPolicy);
         app.MapDefaultEndpoints();
 
         app.Run();

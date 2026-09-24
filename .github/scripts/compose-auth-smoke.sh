@@ -36,6 +36,21 @@ done
 [[ -n "$seeder_id" ]]
 [[ "$(docker inspect -f '{{.State.Status}}' "$seeder_id")" == "exited" ]]
 
+if ! "${compose[@]}" run --rm auth-test-seeder >/dev/null; then
+  exit 1
+fi
+
+set +e
+"${compose[@]}" run --rm \
+  -e TestSeeder__Password=Wrong-compose-password-456 \
+  auth-test-seeder > "$tmp_dir/password-mismatch.log" 2>&1
+mismatch_exit_code=$?
+set -e
+[[ "$mismatch_exit_code" -ne 0 ]]
+if grep --fixed-strings --quiet 'Wrong-compose-password-456' "$tmp_dir/password-mismatch.log"; then
+  exit 1
+fi
+
 extract_location() {
   awk 'BEGIN { IGNORECASE = 1 } /^Location:/ {
     sub(/\r$/, "")
