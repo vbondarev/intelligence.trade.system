@@ -86,13 +86,20 @@ public sealed class RecommendationPolicyConfigurationTests
     [Fact]
     public void Missing_credential_protection_keys_fails_fast()
     {
-        var values = CreateConfiguration();
-        values["CredentialProtection:Keys:test"] = null;
+        var values = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+                CreateConfiguration()
+                    .AsEnumerable()
+                    .Where(pair =>
+                        !pair.Key.StartsWith(
+                            "CredentialProtection:Keys:",
+                            StringComparison.OrdinalIgnoreCase)))
+            .Build();
 
         var act = () => new ServiceCollection().AddInfrastructure(values);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*must decode to exactly 32 bytes*");
+            .WithMessage("*CredentialProtection:Keys*");
     }
 
     [Fact]

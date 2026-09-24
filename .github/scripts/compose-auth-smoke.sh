@@ -97,6 +97,7 @@ for _ in {1..30}; do
   fi
   sleep 2
 done
+curl --fail --silent --show-error "$api_url/alive" >/dev/null
 for _ in {1..30}; do
   if curl --fail --silent --show-error "$api_url/healthz" >/dev/null; then
     break

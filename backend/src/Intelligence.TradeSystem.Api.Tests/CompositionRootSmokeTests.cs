@@ -47,6 +47,7 @@ public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationF
         serviceProvider.GetRequiredService<IRecommendationPolicyDefinitionProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<RecommendationStabilityPolicy>().Should().NotBeNull();
         serviceProvider.GetRequiredService<TradeSystemDbContext>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IExchangeCredentialProtector>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IExchangeAccountCredentialStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IExchangeAccountRepository>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionRepository>().Should().NotBeNull();
