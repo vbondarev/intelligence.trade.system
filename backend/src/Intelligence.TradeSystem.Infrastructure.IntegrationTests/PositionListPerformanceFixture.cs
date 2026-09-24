@@ -105,22 +105,23 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
         {
             for (var index = 0; index < 250_000; index++)
             {
-                var account = accounts[index % accounts.Count];
-                var state = index % 10 == 0
+                var account = accounts[Mix(index, 17) % accounts.Count];
+                var stateBucket = Mix(index, 23) % 100;
+                var state = stateBucket < 4
                     ? "Active"
-                    : index % 10 == 1
+                    : stateBucket < 7
                         ? "Unknown"
-                        : index % 10 == 2
+                        : stateBucket < 10
                             ? "Stale"
                             : "Closed";
-                var detectedAt = anchor.AddMinutes(-(index % 100_000));
+                var detectedAt = anchor.AddMinutes(-(Mix(index, 31) % 100_000));
                 var positionId = DeterministicGuid(index);
 
                 importer.StartRow();
                 importer.Write(positionId, NpgsqlTypes.NpgsqlDbType.Uuid);
                 importer.Write(account.Id, NpgsqlTypes.NpgsqlDbType.Uuid);
-                importer.Write($"SYMBOL{index % 40:D2}", NpgsqlTypes.NpgsqlDbType.Varchar);
-                importer.Write(index % 2 == 0 ? "Long" : "Short", NpgsqlTypes.NpgsqlDbType.Varchar);
+                importer.Write($"SYMBOL{Mix(index, 47) % 40:D2}", NpgsqlTypes.NpgsqlDbType.Varchar);
+                importer.Write(Mix(index, 61) % 2 == 0 ? "Long" : "Short", NpgsqlTypes.NpgsqlDbType.Varchar);
                 importer.Write(index, NpgsqlTypes.NpgsqlDbType.Integer);
                 importer.Write("Linear", NpgsqlTypes.NpgsqlDbType.Varchar);
                 importer.Write(1m, NpgsqlTypes.NpgsqlDbType.Numeric);
@@ -163,5 +164,16 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
         BitConverter.TryWriteBytes(bytes.AsSpan(), index);
         BitConverter.TryWriteBytes(bytes.AsSpan(8), ~index);
         return new Guid(bytes);
+    }
+
+    private static int Mix(int value, int salt)
+    {
+        unchecked
+        {
+            var mixed = value * 1_664_525 + salt * 1_013_904_223;
+            mixed ^= mixed >> 16;
+            mixed *= unchecked((int)2_246_822_519u);
+            return mixed & int.MaxValue;
+        }
     }
 }

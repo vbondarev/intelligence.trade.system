@@ -29,12 +29,6 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20260921211621_AddPositionTimelineReadIndexes";
     private const string PositionListReadIndexesMigration =
         "20260924170832_AddPositionListReadIndexes";
-    private const string PositionListGlobalOrderMigration =
-        "20260924171017_AddPositionListGlobalOrderIndex";
-    private const string PositionListSymbolMigration =
-        "20260924171152_AddPositionListSymbolIndex";
-    private const string PositionListAccountSeekMigration =
-        "20260924171415_AddPositionListAccountSeekIndex";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -74,6 +68,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
         await AssertTimelineReadIndexesAsync(dbContext);
         AssertTimelineReadIndexSnapshotIsCoherent(dbContext);
+        await AssertPositionListIndexesAsync(dbContext);
         Assert.Equal(
             "timestamp with time zone",
             await dbContext.Database.SqlQueryRaw<string>(
@@ -209,9 +204,6 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 LatestAssessmentIndexMigration,
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
-                PositionListGlobalOrderMigration,
-                PositionListSymbolMigration,
-                PositionListAccountSeekMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -239,9 +231,6 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             [
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
-                PositionListGlobalOrderMigration,
-                PositionListSymbolMigration,
-                PositionListAccountSeekMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(
@@ -256,6 +245,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
         await AssertTimelineReadIndexesAsync(dbContext);
         AssertTimelineReadIndexSnapshotIsCoherent(dbContext);
+        await AssertPositionListIndexesAsync(dbContext);
     }
 
     private static async Task AssertTimelineReadIndexesAsync(TradeSystemDbContext dbContext)
@@ -275,6 +265,73 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             "position_id, created_at DESC, recommendation_id DESC",
             recommendationsIndex,
             StringComparison.Ordinal);
+    }
+
+    private static async Task AssertPositionListIndexesAsync(
+        TradeSystemDbContext dbContext)
+    {
+        var accountOrder = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_positions_list_account_order");
+        var globalOrder = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_positions_list_order");
+        var closedOrder = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_positions_list_closed_order");
+        var symbol = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ix_positions_instrument_lower");
+
+        Assert.Contains(
+            "exchange_account_id, first_detected_at DESC, position_id DESC",
+            accountOrder,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "first_detected_at DESC, position_id DESC, exchange_account_id",
+            globalOrder,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "exchange_account_id, tracking_state, first_detected_at DESC, position_id DESC",
+            closedOrder,
+            StringComparison.Ordinal);
+        Assert.Contains("tracking_state", closedOrder, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Closed", closedOrder, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("lower", symbol, StringComparison.OrdinalIgnoreCase);
+
+        var designTimeModel = dbContext.GetService<IDesignTimeModel>().Model;
+        var snapshot = dbContext.GetService<IMigrationsAssembly>().ModelSnapshot;
+        Assert.NotNull(snapshot);
+        AssertPositionListIndex(
+            designTimeModel,
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            [false, true, true],
+            "ix_positions_list_account_order");
+        AssertPositionListIndex(
+            designTimeModel,
+            [nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id), nameof(PositionEntity.ExchangeAccountId)],
+            [true, true, false],
+            "ix_positions_list_order");
+        AssertPositionListIndex(
+            designTimeModel,
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.TrackingState), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            [false, false, true, true],
+            "ix_positions_list_closed_order");
+        AssertPositionListIndex(
+            snapshot!.Model,
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            null,
+            "ix_positions_list_account_order");
+        AssertPositionListIndex(
+            snapshot.Model,
+            [nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id), nameof(PositionEntity.ExchangeAccountId)],
+            null,
+            "ix_positions_list_order");
+        AssertPositionListIndex(
+            snapshot.Model,
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.TrackingState), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            null,
+            "ix_positions_list_closed_order");
     }
 
     private static async Task<bool> IndexExistsAsync(
@@ -349,6 +406,24 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         Assert.Equal(propertyNames, index.Properties.Select(property => property.Name));
         if (assertDescending)
             Assert.Equal([false, true, true], index.IsDescending);
+    }
+
+    private static void AssertPositionListIndex(
+        IModel model,
+        IReadOnlyList<string> propertyNames,
+        IReadOnlyList<bool>? assertDescending,
+        string indexName)
+    {
+        var entity = model.FindEntityType(typeof(PositionEntity));
+        Assert.NotNull(entity);
+        var index = Assert.Single(
+            entity!.GetIndexes(),
+            candidate => candidate.GetDatabaseName() == indexName);
+        Assert.Equal(propertyNames, index.Properties.Select(property => property.Name));
+        if (assertDescending is not null)
+        {
+            Assert.Equal(assertDescending, index.IsDescending);
+        }
     }
 
     private static async Task SeedLegacyRecommendationsAsync(

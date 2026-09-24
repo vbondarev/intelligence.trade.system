@@ -17,95 +17,46 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
         EnsureUserId(userId);
         ArgumentNullException.ThrowIfNull(query);
 
-        var ownedAccountIds = await dbContext.ExchangeAccounts
-            .AsNoTracking()
-            .Where(account => account.UserId == userId.Value)
-            .Select(account => account.Id)
-            .ToArrayAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var positions = dbContext.Positions
-            .AsNoTracking()
-            .Where(position => ownedAccountIds.Contains(position.ExchangeAccountId))
-            .Where(position => query.TrackingStates.Contains(position.TrackingState));
-
-        if (query.ExchangeAccountId is { } exchangeAccountId)
-        {
-            positions = positions.Where(position =>
-                position.ExchangeAccountId == exchangeAccountId.Value);
-        }
-
-        if (query.Symbol is { } symbol)
-        {
-            var normalizedSymbol = symbol.ToLowerInvariant();
-#pragma warning disable CA1304, CA1311, CA1862
-            positions = positions.Where(position =>
-                position.InstrumentId.ToLower() == normalizedSymbol);
-#pragma warning restore CA1304, CA1311, CA1862
-        }
-
-        if (query.Side is { } side)
-        {
-            positions = positions.Where(position => position.PositionSide == side);
-        }
-
-        if (query.Cursor is { } cursor)
-        {
-            positions = positions.Where(position =>
-                position.FirstDetectedAt < cursor.FirstDetectedAt ||
-                (position.FirstDetectedAt == cursor.FirstDetectedAt &&
-                 position.Id.CompareTo(cursor.PositionId.Value) < 0));
-        }
-
-        var orderedPositions = positions
-            .OrderByDescending(position => position.FirstDetectedAt)
-            .ThenByDescending(position => position.Id);
-
         PositionReadRow[] rows;
-        if (query.Cursor is not null &&
-            query.ExchangeAccountId is null &&
-            ownedAccountIds.Length > 1)
+        if (query.Cursor is not null && query.ExchangeAccountId is null)
         {
+            var ownedAccountIds = await FindOwnedAccountIdsAsync(
+                    userId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (ownedAccountIds.Length == 0)
+            {
+                return EmptyPage();
+            }
+
             var accountRows = new List<PositionReadRow>(
                 ownedAccountIds.Length * (query.PageSize + 1));
-            foreach (var accountId in ownedAccountIds)
+            if (ownedAccountIds.Length > 1)
             {
-                var accountPositions = dbContext.Positions
-                    .AsNoTracking()
-                    .Where(position =>
-                        position.ExchangeAccountId == accountId &&
-                        dbContext.ExchangeAccounts.Any(account =>
-                            account.Id == position.ExchangeAccountId &&
-                            account.UserId == userId.Value))
-                    .Where(position => query.TrackingStates.Contains(position.TrackingState));
-
-                if (query.Symbol is { } accountSymbol)
+                foreach (var accountId in ownedAccountIds)
                 {
-                    var normalizedSymbol = accountSymbol.ToLowerInvariant();
-#pragma warning disable CA1304, CA1311, CA1862
-                    accountPositions = accountPositions.Where(position =>
-                        position.InstrumentId.ToLower() == normalizedSymbol);
-#pragma warning restore CA1304, CA1311, CA1862
+                    accountRows.AddRange(
+                        await SelectListRows(
+                                ApplyListFilters(
+                                        CreatePositionQuery(userId, query, accountId),
+                                        query)
+                                    .OrderByDescending(position => position.FirstDetectedAt)
+                                    .ThenByDescending(position => position.Id))
+                            .Take(query.PageSize + 1)
+                            .ToArrayAsync(cancellationToken)
+                            .ConfigureAwait(false));
                 }
-
-                if (query.Side is { } accountSide)
-                {
-                    accountPositions = accountPositions.Where(position =>
-                        position.PositionSide == accountSide);
-                }
-
-                if (query.Cursor is { } accountCursor)
-                {
-                    accountPositions = accountPositions.Where(position =>
-                        position.FirstDetectedAt < accountCursor.FirstDetectedAt ||
-                        (position.FirstDetectedAt == accountCursor.FirstDetectedAt &&
-                         position.Id.CompareTo(accountCursor.PositionId.Value) < 0));
-                }
-
+            }
+            else
+            {
                 accountRows.AddRange(
-                    await SelectListRows(accountPositions
-                            .OrderByDescending(position => position.FirstDetectedAt)
-                            .ThenByDescending(position => position.Id))
+                    await SelectListRows(
+                            ApplyListFilters(
+                                    CreatePositionQuery(userId, query, ownedAccountIds[0]),
+                                    query)
+                                .OrderByDescending(position => position.FirstDetectedAt)
+                                .ThenByDescending(position => position.Id))
                         .Take(query.PageSize + 1)
                         .ToArrayAsync(cancellationToken)
                         .ConfigureAwait(false));
@@ -119,7 +70,15 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
         }
         else
         {
-            rows = await SelectListRows(orderedPositions)
+            rows = await SelectListRows(
+                    ApplyListFilters(
+                            CreatePositionQuery(
+                                userId,
+                                query,
+                                query.ExchangeAccountId?.Value),
+                            query)
+                        .OrderByDescending(position => position.FirstDetectedAt)
+                        .ThenByDescending(position => position.Id))
                 .Take(query.PageSize + 1)
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -152,6 +111,63 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
 
         return new PositionReadPage(items, nextCursor, hasMore);
     }
+
+    private IQueryable<PositionEntity> CreatePositionQuery(
+        UserId userId,
+        PositionReadQuery query,
+        Guid? exchangeAccountId) =>
+        dbContext.Positions
+            .AsNoTracking()
+            .Where(position =>
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == position.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .Where(position => exchangeAccountId == null ||
+                position.ExchangeAccountId == exchangeAccountId.Value);
+
+    private static IQueryable<PositionEntity> ApplyListFilters(
+        IQueryable<PositionEntity> positions,
+        PositionReadQuery query)
+    {
+        positions = positions.Where(position =>
+            query.TrackingStates.Contains(position.TrackingState));
+
+        if (query.Symbol is { } symbol)
+        {
+            var normalizedSymbol = symbol.ToLowerInvariant();
+#pragma warning disable CA1304, CA1311, CA1862
+            positions = positions.Where(position =>
+                position.InstrumentId.ToLower() == normalizedSymbol);
+#pragma warning restore CA1304, CA1311, CA1862
+        }
+
+        if (query.Side is { } side)
+        {
+            positions = positions.Where(position => position.PositionSide == side);
+        }
+
+        if (query.Cursor is { } cursor)
+        {
+            positions = positions.Where(position =>
+                position.FirstDetectedAt < cursor.FirstDetectedAt ||
+                (position.FirstDetectedAt == cursor.FirstDetectedAt &&
+                 position.Id.CompareTo(cursor.PositionId.Value) < 0));
+        }
+
+        return positions;
+    }
+
+    private Task<Guid[]> FindOwnedAccountIdsAsync(
+        UserId userId,
+        CancellationToken cancellationToken) =>
+        dbContext.ExchangeAccounts
+            .AsNoTracking()
+            .Where(account => account.UserId == userId.Value)
+            .Select(account => account.Id)
+            .ToArrayAsync(cancellationToken);
+
+    private static PositionReadPage EmptyPage() =>
+        new([], null, false);
 
     public async Task<PositionReadDetail?> GetByIdAsync(
         UserId userId,

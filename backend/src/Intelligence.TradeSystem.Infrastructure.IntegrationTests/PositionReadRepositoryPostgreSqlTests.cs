@@ -85,6 +85,69 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task List_query_shape_matches_the_three_approved_pagination_modes()
+    {
+        var userId = UserId.New();
+        var accountA = CreateAccount(userId);
+        var accountB = CreateAccount(userId);
+        var positions = new[]
+        {
+            CreatePosition(accountA.Id, "BTCUSDT", T0),
+            CreatePosition(accountB.Id, "ETHUSDT", T0.AddMinutes(-1)),
+        };
+        await Persist(accountA, [positions[0]]);
+        await Persist(accountB, [positions[1]]);
+
+        var capture = new CommandCaptureInterceptor();
+        await using var context = CreateCapturedContext(capture);
+        var repository = new PositionReadRepository(context);
+
+        await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, null));
+        Assert.Single(capture.Commands);
+        Assert.Contains("user_id", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LIMIT", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("OFFSET", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("position_changes", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+
+        capture.Commands.Clear();
+        var explicitFirst = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(accountA.Id, null, null, null, 1, null));
+        Assert.Single(capture.Commands);
+        AssertPositionQuery(capture.Commands[0]);
+
+        capture.Commands.Clear();
+        await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(accountA.Id, null, null, null, 1, explicitFirst.NextCursor));
+        Assert.Single(capture.Commands);
+        AssertPositionQuery(capture.Commands[0]);
+
+        capture.Commands.Clear();
+        var multiFirst = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, null));
+        capture.Commands.Clear();
+        await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, multiFirst.NextCursor));
+        Assert.Equal(3, capture.Commands.Count);
+        Assert.Contains(capture.Commands, command =>
+            command.Contains("FROM exchange_accounts", StringComparison.OrdinalIgnoreCase) &&
+            command.Contains("user_id", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            2,
+            capture.Commands.Count(command =>
+                command.Contains("FROM positions", StringComparison.OrdinalIgnoreCase)));
+        Assert.All(
+            capture.Commands.Where(command =>
+                command.Contains("FROM positions", StringComparison.OrdinalIgnoreCase)),
+            command => AssertPositionQuery(command));
+    }
+
+    [Fact]
     public async Task List_composes_owned_account_symbol_side_and_tracking_state_filters()
     {
         var userId = UserId.New();
@@ -480,6 +543,15 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
                 .Options);
         capture.Commands.Clear();
         return context;
+    }
+
+    private static void AssertPositionQuery(string command)
+    {
+        Assert.Contains("user_id", command, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exchange_account_id", command, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LIMIT", command, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("OFFSET", command, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("position_changes", command, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ExchangeAccount CreateAccount(UserId userId) =>

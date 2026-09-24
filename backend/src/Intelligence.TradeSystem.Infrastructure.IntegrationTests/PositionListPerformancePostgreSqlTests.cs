@@ -7,6 +7,7 @@ using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
+using System.Diagnostics;
 using System.Data.Common;
 using System.Text.Json;
 using Xunit;
@@ -36,7 +37,7 @@ public sealed class PositionListPerformancePostgreSqlTests
         await fixture.StartAsync();
         var userId = UserId.FromGuid(await FindUserAsync(fixture.ConnectionString, 0));
         var accountId = ExchangeAccountId.FromGuid(await FindAccountAsync(fixture.ConnectionString, userId.Value));
-        await using var context = fixture.CreateContext();
+        await WriteDatasetCharacteristicsAsync(output, fixture.ConnectionString);
         var capture = new PositionListCommandCapture();
         await using var capturedContext = fixture.CreateContext(capture);
         var repository = new PositionReadRepository(capturedContext);
@@ -49,22 +50,25 @@ public sealed class PositionListPerformancePostgreSqlTests
             new Scenario("symbol-working", PositionReadQuery.Create(null, null, "symbol01", null, 50, null)),
             new Scenario("symbol-closed", PositionReadQuery.Create(null, PositionTrackingState.Closed, "SYMBOL01", null, 50, null)),
             new Scenario("explicit-state-side", PositionReadQuery.Create(null, PositionTrackingState.Active, null, PositionSide.Long, 50, null)),
-            new Scenario("composed", PositionReadQuery.Create(accountId, PositionTrackingState.Stale, "SyMbOl02", PositionSide.Short, 50, null)),
+            new Scenario("composed", PositionReadQuery.Create(null, null, "SyMbOl02", PositionSide.Short, 10, null)),
         };
 
         foreach (var scenario in scenarios)
         {
+            await AssertScenarioHasCandidatesAsync(
+                fixture.ConnectionString,
+                userId.Value,
+                scenario.Query,
+                scenario.Name);
             await MeasureScenarioAsync(output, repository, capturedContext, capture, userId, scenario);
         }
 
-        var defaultPage = await repository.ListAsync(
-            userId,
-            PositionReadQuery.Create(null, null, null, null, 50, null));
-        var deepCursor = await FindCursorAsync(
+        var defaultQuery = PositionReadQuery.Create(null, null, null, null, 50, null);
+        var deepCursor = await FindCursorAtPercentAsync(
             fixture.ConnectionString,
             userId.Value,
             null,
-            2_000,
+            0.75,
             "Active", "Unknown", "Stale");
         await MeasureScenarioAsync(
             output,
@@ -84,11 +88,11 @@ public sealed class PositionListPerformancePostgreSqlTests
             new Scenario("multi-account-deep-cursor",
                 PositionReadQuery.Create(null, null, null, null, 50, deepCursor)));
 
-        var accountCursor = await FindCursorAsync(
+        var accountCursor = await FindCursorAtPercentAsync(
             fixture.ConnectionString,
             userId.Value,
             accountId.Value,
-            500,
+            0.75,
             "Active", "Unknown", "Stale");
         await MeasureScenarioAsync(
             output,
@@ -99,11 +103,11 @@ public sealed class PositionListPerformancePostgreSqlTests
             new Scenario("account-deep-cursor",
                 PositionReadQuery.Create(accountId, null, null, null, 50, accountCursor)));
 
-        var closedCursor = await FindCursorAsync(
+        var closedCursor = await FindCursorAtPercentAsync(
             fixture.ConnectionString,
             userId.Value,
             null,
-            20_000,
+            0.75,
             "Closed");
         await MeasureScenarioAsync(
             output,
@@ -119,11 +123,11 @@ public sealed class PositionListPerformancePostgreSqlTests
         var probeUserId = UserId.FromGuid(await FindUserAsync(
             accountCountProbe.ConnectionString,
             0));
-        var probeCursor = await FindCursorAsync(
+        var probeCursor = await FindCursorAtPercentAsync(
             accountCountProbe.ConnectionString,
             probeUserId.Value,
             null,
-            2_000,
+            0.75,
             "Active", "Unknown", "Stale");
         await using var probeContext = accountCountProbe.CreateContext();
         var probeCapture = new PositionListCommandCapture();
@@ -137,7 +141,11 @@ public sealed class PositionListPerformancePostgreSqlTests
             new Scenario("account-count-probe-12",
                 PositionReadQuery.Create(null, null, null, null, 50, probeCursor)));
 
-        Assert.NotEmpty(defaultPage.Items);
+        await AssertScenarioHasCandidatesAsync(
+            fixture.ConnectionString,
+            userId.Value,
+            defaultQuery,
+            "default-first");
     }
 
     private static async Task MeasureScenarioAsync(
@@ -149,11 +157,29 @@ public sealed class PositionListPerformancePostgreSqlTests
         Scenario scenario)
     {
         capture.Commands.Clear();
-        await repository.ListAsync(userId, scenario.Query);
+        var warmupTimer = Stopwatch.StartNew();
+        var warmupPage = await repository.ListAsync(userId, scenario.Query);
+        warmupTimer.Stop();
         var commands = capture.Commands.ToArray();
         if (commands.Length == 0)
         {
             throw new InvalidOperationException($"No EF command captured for {scenario.Name}.");
+        }
+
+        var elapsed = new List<double>(3);
+        var pages = new List<PositionReadPage>(3);
+        for (var run = 0; run < 3; run++)
+        {
+            capture.Commands.Clear();
+            var timer = Stopwatch.StartNew();
+            pages.Add(await repository.ListAsync(userId, scenario.Query));
+            timer.Stop();
+            elapsed.Add(timer.Elapsed.TotalMilliseconds);
+            if (capture.Commands.Count != commands.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Scenario {scenario.Name} changed round-trip count between runs.");
+            }
         }
 
         var executions = new List<PlanSummary>[commands.Length];
@@ -173,21 +199,33 @@ public sealed class PositionListPerformancePostgreSqlTests
         var medians = executions
             .Select(items => items.OrderBy(item => item.ExecutionTimeMs).ElementAt(items.Count / 2))
             .ToArray();
-        var median = medians
-            .OrderBy(item => item.ExecutionTimeMs)
-            .ElementAt(medians.Length / 2);
+        var medianElapsed = elapsed.OrderBy(item => item).ElementAt(1);
+        var positionPlans = medians
+            .Where((_, index) =>
+                commands[index].CommandText.Contains("positions", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var totalCandidates = positionPlans.Sum(plan => plan.ActualRows);
+        var finalPage = pages[^1];
         output.WriteLine(
-            $"POSITION_LIST_BENCHMARK scenario={scenario.Name} round_trips={commands.Length} " +
-            $"planning_ms={median.PlanningTimeMs:F2} median_ms={median.ExecutionTimeMs:F2} rows={median.ActualRows} " +
-            $"removed={median.RowsRemovedByFilter} buffers={median.Buffers} " +
-            $"nodes={string.Join('|', median.Nodes)} indexes={string.Join('|', median.Indexes)} " +
-            $"sorts={string.Join('|', median.Sorts)}");
+            $"POSITION_LIST_BENCHMARK scenario={scenario.Name} " +
+            $"repository_elapsed_ms={medianElapsed:F2} warmup_ms={warmupTimer.Elapsed.TotalMilliseconds:F2} " +
+            $"repository_round_trips={commands.Length} candidate_rows={totalCandidates:F0} " +
+            $"final_merge_candidates={finalPage.Items.Count + (finalPage.HasMore ? 1 : 0)} " +
+            $"planning_ms={medians.Max(item => item.PlanningTimeMs):F2} " +
+            $"execution_ms={medians.Sum(item => item.ExecutionTimeMs):F2} " +
+            $"rows_removed={medians.Sum(item => item.RowsRemovedByFilter):F0} " +
+            $"buffers={string.Join('+', medians.Select(item => item.Buffers))} " +
+            $"nodes={string.Join('|', medians.SelectMany(item => item.Nodes).Distinct())} " +
+            $"indexes={string.Join('|', medians.SelectMany(item => item.Indexes).Distinct())} " +
+            $"sorts={string.Join('|', medians.SelectMany(item => item.Sorts).Distinct())}");
         for (var index = 0; index < commands.Length; index++)
         {
             output.WriteLine(
-                $"POSITION_LIST_ACCOUNT_PLAN scenario={scenario.Name} index={index} " +
+                $"POSITION_LIST_PLAN scenario={scenario.Name} index={index} " +
                 $"median_ms={medians[index].ExecutionTimeMs:F2} rows={medians[index].ActualRows} " +
-                $"buffers={medians[index].Buffers} indexes={string.Join('|', medians[index].Indexes)}");
+                $"loops={medians[index].ActualLoops:F0} removed={medians[index].RowsRemovedByFilter:F0} " +
+                $"buffers={medians[index].Buffers} indexes={string.Join('|', medians[index].Indexes)} " +
+                $"nodes={string.Join('|', medians[index].Nodes)} sorts={string.Join('|', medians[index].Sorts)}");
         }
     }
 
@@ -219,7 +257,12 @@ public sealed class PositionListPerformancePostgreSqlTests
         var nodes = new List<string>();
         var indexes = new List<string>();
         var sorts = new List<string>();
-        var actualRows = 0d;
+        var actualRows = plan.TryGetProperty("Actual Rows", out var rootRows)
+            ? rootRows.GetDouble()
+            : 0;
+        var actualLoops = plan.TryGetProperty("Actual Loops", out var rootLoops)
+            ? rootLoops.GetDouble()
+            : 0;
         var removed = 0d;
         var sharedHitBlocks = 0;
         var sharedReadBlocks = 0;
@@ -229,6 +272,7 @@ public sealed class PositionListPerformancePostgreSqlTests
             actualRows,
             removed,
             root.TryGetProperty("Planning Time", out var planning) ? planning.GetDouble() : 0,
+            actualLoops,
             nodes,
             indexes,
             sorts,
@@ -244,11 +288,6 @@ public sealed class PositionListPerformancePostgreSqlTests
             if (node.TryGetProperty("Index Name", out var indexName))
             {
                 indexes.Add(indexName.GetString() ?? "unknown");
-            }
-
-            if (node.TryGetProperty("Actual Rows", out var rows))
-            {
-                actualRows += rows.GetDouble();
             }
 
             if (node.TryGetProperty("Rows Removed by Filter", out var filtered))
@@ -290,6 +329,139 @@ public sealed class PositionListPerformancePostgreSqlTests
         command.Parameters.AddWithValue("offset", userIndex);
         return (Guid)(await command.ExecuteScalarAsync()
             ?? throw new InvalidOperationException("Seed user was not found."));
+    }
+
+    private static async Task WriteDatasetCharacteristicsAsync(
+        ITestOutputHelper output,
+        string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                count(*),
+                count(DISTINCT a.user_id),
+                count(DISTINCT p.exchange_account_id),
+                count(*) FILTER (WHERE p.tracking_state = 'Closed'),
+                count(*) FILTER (WHERE p.tracking_state = 'Active'),
+                count(*) FILTER (WHERE p.tracking_state = 'Unknown'),
+                count(*) FILTER (WHERE p.tracking_state = 'Stale'),
+                count(*) FILTER (WHERE p.position_side = 'Long'),
+                count(*) FILTER (WHERE p.position_side = 'Short'),
+                count(DISTINCT p.instrument_id)
+            FROM positions p
+            INNER JOIN exchange_accounts a ON a.exchange_account_id = p.exchange_account_id
+            """;
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            throw new InvalidOperationException("Dataset characteristics were not returned.");
+        }
+
+        var total = reader.GetInt64(0);
+        var closed = reader.GetInt64(3);
+        var closedPercentage = total == 0 ? 0 : closed * 100d / total;
+        if (total != 250_000 ||
+            reader.GetInt64(1) != 8 ||
+            reader.GetInt64(2) != 24 ||
+            closedPercentage is < 85 or > 95 ||
+            reader.GetInt64(9) < 40)
+        {
+            throw new InvalidOperationException("Benchmark dataset characteristics are outside the approved distribution.");
+        }
+
+        output.WriteLine(
+            $"POSITION_LIST_DATASET total={total} users={reader.GetInt64(1)} " +
+            $"accounts={reader.GetInt64(2)} closed={closed} closed_pct={closedPercentage:F2} " +
+            $"active={reader.GetInt64(4)} unknown={reader.GetInt64(5)} stale={reader.GetInt64(6)} " +
+            $"long={reader.GetInt64(7)} short={reader.GetInt64(8)} symbols={reader.GetInt64(9)}");
+        await reader.DisposeAsync();
+        await using var versionCommand = connection.CreateCommand();
+        versionCommand.CommandText = "SELECT version()";
+        var postgresVersion = (string)(await versionCommand.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("PostgreSQL version was not returned."));
+        output.WriteLine(
+            $"POSITION_LIST_ENV postgres=\"{postgresVersion}\" " +
+            $"dotnet=\"{Environment.Version}\" " +
+            $"efcore=\"{typeof(DbContext).Assembly.GetName().Version}\" " +
+            $"npgsql=\"{typeof(NpgsqlConnection).Assembly.GetName().Version}\"");
+    }
+
+    private static async Task AssertScenarioHasCandidatesAsync(
+        string connectionString,
+        Guid userId,
+        PositionReadQuery query,
+        string scenario)
+    {
+        var count = await CountMatchingAsync(connectionString, userId, query);
+        if (count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Benchmark scenario {scenario} has only {count} candidates.");
+        }
+    }
+
+    private static async Task<long> CountMatchingAsync(
+        string connectionString,
+        Guid userId,
+        PositionReadQuery query)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT count(*)
+            FROM positions p
+            INNER JOIN exchange_accounts a ON a.exchange_account_id = p.exchange_account_id
+            WHERE a.user_id = @user_id
+              AND (@account_id IS NULL OR p.exchange_account_id = @account_id)
+              AND p.tracking_state = ANY(@states)
+              AND (@symbol IS NULL OR lower(p.instrument_id) = lower(@symbol))
+              AND (@side IS NULL OR p.position_side = @side)
+            """;
+        command.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+        command.Parameters.AddWithValue(
+            "account_id",
+            NpgsqlTypes.NpgsqlDbType.Uuid,
+            query.ExchangeAccountId?.Value ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue(
+            "states",
+            NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
+            query.TrackingStates.Select(state => state.ToString()).ToArray());
+        command.Parameters.AddWithValue(
+            "symbol",
+            NpgsqlTypes.NpgsqlDbType.Text,
+            query.Symbol ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue(
+            "side",
+            NpgsqlTypes.NpgsqlDbType.Text,
+            query.Side?.ToString() ?? (object)DBNull.Value);
+        return (long)(await command.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("Scenario count was not returned."));
+    }
+
+    private static async Task<PositionReadCursor> FindCursorAtPercentAsync(
+        string connectionString,
+        Guid userId,
+        Guid? accountId,
+        double percentile,
+        params string[] states)
+    {
+        var count = await CountMatchingAsync(
+            connectionString,
+            userId,
+            PositionReadQuery.Create(
+                accountId is null ? null : ExchangeAccountId.FromGuid(accountId.Value),
+                states.Length == 1 && states[0] == "Closed"
+                    ? PositionTrackingState.Closed
+                    : null,
+                null,
+                null,
+                50,
+                null));
+        var offset = Math.Max(1, (int)Math.Floor((count - 1) * percentile));
+        return await FindCursorAsync(connectionString, userId, accountId, offset, states);
     }
 
     private static async Task<Guid> FindAccountAsync(string connectionString, Guid userId)
@@ -346,6 +518,7 @@ public sealed class PositionListPerformancePostgreSqlTests
         double ActualRows,
         double RowsRemovedByFilter,
         double PlanningTimeMs,
+        double ActualLoops,
         IReadOnlyList<string> Nodes,
         IReadOnlyList<string> Indexes,
         IReadOnlyList<string> Sorts,
@@ -361,12 +534,27 @@ public sealed class PositionListPerformancePostgreSqlTests
             InterceptionResult<DbDataReader> result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("positions", StringComparison.OrdinalIgnoreCase))
+            Capture(command);
+
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<object> result,
+            CancellationToken cancellationToken = default)
+        {
+            Capture(command);
+            return ValueTask.FromResult(result);
+        }
+
+        private void Capture(DbCommand command)
+        {
+            if (!command.CommandText.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
             {
                 Commands.Add(CapturedCommand.Create(command));
             }
-
-            return ValueTask.FromResult(result);
         }
     }
 
