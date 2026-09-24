@@ -88,6 +88,46 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<PositionEnt
         .IsUnique()
         .HasFilter("\"tracking_state\" <> 'Closed'")
         .HasDatabaseName("ux_positions_active_exchange_key");
+
+        builder.HasIndex(position => new
+        {
+            position.ExchangeAccountId,
+            position.TrackingState,
+            position.FirstDetectedAt,
+            position.Id,
+        })
+        .IsDescending(false, false, true, true)
+        .HasFilter("\"tracking_state\" <> 'Closed'")
+        .HasDatabaseName("ix_positions_list_active_order");
+
+        builder.HasIndex(position => new
+        {
+            position.ExchangeAccountId,
+            position.TrackingState,
+            position.FirstDetectedAt,
+            position.Id,
+        })
+        .IsDescending(false, false, true, true)
+        .HasFilter("\"tracking_state\" = 'Closed'")
+        .HasDatabaseName("ix_positions_list_closed_order");
+
+        builder.HasIndex(position => new
+        {
+            position.ExchangeAccountId,
+            position.FirstDetectedAt,
+            position.Id,
+        })
+        .IsDescending(false, true, true)
+        .HasDatabaseName("ix_positions_list_account_order");
+
+        builder.HasIndex(position => new
+        {
+            position.FirstDetectedAt,
+            position.Id,
+            position.ExchangeAccountId,
+        })
+        .IsDescending(true, true, false)
+        .HasDatabaseName("ix_positions_list_order");
     }
 
     private static PropertyBuilder<decimal> ConfigureDecimal(PropertyBuilder<decimal> property) =>

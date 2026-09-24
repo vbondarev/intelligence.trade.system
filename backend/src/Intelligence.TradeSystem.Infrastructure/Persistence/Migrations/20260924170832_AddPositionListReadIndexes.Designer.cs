@@ -3,6 +3,7 @@ using System;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TradeSystemDbContext))]
-    partial class TradeSystemDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924170832_AddPositionListReadIndexes")]
+    partial class AddPositionListReadIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -777,11 +780,8 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ExchangeAccountId", "FirstDetectedAt", "Id")
                         .IsDescending(false, true, true)
-                        .HasDatabaseName("ix_positions_list_account_order");
-
-                    b.HasIndex("FirstDetectedAt", "Id", "ExchangeAccountId")
-                        .IsDescending(true, true, false)
-                        .HasDatabaseName("ix_positions_list_order");
+                        .HasDatabaseName("ix_positions_list_closed_order")
+                        .HasFilter("\"tracking_state\" = 'Closed'");
 
                     b.HasIndex("ExchangeAccountId", "InstrumentId", "PositionSide", "PositionIdx")
                         .IsUnique()
@@ -790,8 +790,8 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ExchangeAccountId", "TrackingState", "FirstDetectedAt", "Id")
                         .IsDescending(false, false, true, true)
-                        .HasDatabaseName("ix_positions_list_closed_order")
-                        .HasFilter("\"tracking_state\" = 'Closed'");
+                        .HasDatabaseName("ix_positions_list_active_order")
+                        .HasFilter("\"tracking_state\" <> 'Closed'");
 
                     b.ToTable("positions", null, t =>
                         {

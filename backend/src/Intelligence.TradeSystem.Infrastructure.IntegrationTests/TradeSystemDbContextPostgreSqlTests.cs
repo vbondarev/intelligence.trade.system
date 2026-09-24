@@ -27,6 +27,14 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20260921170115_AddPositionAssessmentLatestIndex";
     private const string TimelineReadIndexesMigration =
         "20260921211621_AddPositionTimelineReadIndexes";
+    private const string PositionListReadIndexesMigration =
+        "20260924170832_AddPositionListReadIndexes";
+    private const string PositionListGlobalOrderMigration =
+        "20260924171017_AddPositionListGlobalOrderIndex";
+    private const string PositionListSymbolMigration =
+        "20260924171152_AddPositionListSymbolIndex";
+    private const string PositionListAccountSeekMigration =
+        "20260924171415_AddPositionListAccountSeekIndex";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -200,6 +208,10 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 ProviderIdentityMigration,
                 LatestAssessmentIndexMigration,
                 TimelineReadIndexesMigration,
+                PositionListReadIndexesMigration,
+                PositionListGlobalOrderMigration,
+                PositionListSymbolMigration,
+                PositionListAccountSeekMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -224,7 +236,13 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(LatestAssessmentIndexMigration);
 
         Assert.Equal(
-            [TimelineReadIndexesMigration],
+            [
+                TimelineReadIndexesMigration,
+                PositionListReadIndexesMigration,
+                PositionListGlobalOrderMigration,
+                PositionListSymbolMigration,
+                PositionListAccountSeekMigration,
+            ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(
             dbContext,

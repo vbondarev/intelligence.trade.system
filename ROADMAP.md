@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.31
+Версия документа: 3.32
 Дата актуализации: 24 сентября 2026 года
-Проверенная база: реализация Issue #148
-Последняя учтённая задача: Issue #148 «Tech-G04. Оптимизировать Authentication.IntegrationTests»
+Проверенная база: реализация Issue #150
+Последняя учтённая задача: Issue #150 «Tech-G05. Подтвердить производительность PostgreSQL списка позиций»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -99,6 +99,7 @@
 - **Tech-G02** ✅ (Issue #144): API имеет единый DB-backed runtime; обязательная persistence configuration приводит к startup failure при ошибке, PostgreSQL outage отражается через readiness, а `/alive` сохраняет liveness-семантику.
 - **Tech-G03** ✅ (Issue #146): PostgreSQL integration tests сохраняют реальное Testcontainers coverage, но переносят обычную миграцию во fixture lifecycle, разделяют обычные сценарии на независимые группы A/B и держат migration-specific проверки на свежих per-scenario БД; по аудируемому benchmark median suite time снижен с 50.52s до 32.58s (35.5% improvement) без сокращения coverage.
 - **Tech-G04** ✅ (Issue #148): `Authentication.IntegrationTests` используют один PostgreSQL Testcontainer с отдельными `TradeSystem` и `TradeSystemIdentity` databases; migrations, hosts, certificates и базовый Identity/OpenIddict seed выполняются на fixture lifecycle, а mutable state явно очищается между сценариями. Сохранены реальные OAuth/OIDC, JwtBearer, PostgreSQL и SignalR проверки. В сопоставимом Release/no-build benchmark с одной warm-up итерацией и пятью успешными измерениями все прогоны дали 32/32: before median — 266.81s (267.39 / 266.25 / 266.65 / 266.81 / 266.94), after median — 28.30s (28.17 / 28.29 / 28.30 / 28.43 / 28.52), improvement — 89.4%. Инициализация `AuthenticationIntegrationFixture` — 9.16s; самый медленный оставшийся сценарий `Updates_hub_closes_an_authenticated_websocket_when_the_token_expires` — 9.02s.
+- **Tech-G05** ✅ (Issue #150): production EF Core read path списка позиций получил opt-in PostgreSQL benchmark на отдельном `postgres:16-alpine` с 250 000 positions, 8 users и 24 accounts. На фактическом SQL с `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` выявлен multi-account deep-cursor bottleneck: single global continuation query заменён на bounded per-account strategy. Public cursor semantics не изменены; каждый account query сохраняет user/account scope, SQL-side limit и projection-only path, а merge ограничен `accounts × (pageSize + 1)`. Подтверждены и устранены scan/sort bottlenecks для default/account/closed pagination и exact case-insensitive `symbol`: добавлены `ix_positions_list_order`, account-seek/closed partial indexes и functional `lower(instrument_id)` index. Benchmark также выполняет engineering probe для 12 accounts и фиксирует round-trips, candidate rows и per-account plans; в обычный CI test loop не входит и включается только через `ITS_RUN_POSITION_LIST_PERFORMANCE=1`.
 
 ## 4. Подтверждённое состояние проекта
 

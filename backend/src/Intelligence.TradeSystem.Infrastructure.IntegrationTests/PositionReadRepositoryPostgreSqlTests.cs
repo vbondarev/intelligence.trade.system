@@ -135,6 +135,27 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Equal([accountAShort.Id], accountAShortPage.Items.Select(item => item.Id));
         Assert.Equal([accountBPosition.Id], accountBPage.Items.Select(item => item.Id));
         Assert.DoesNotContain(foreignPosition.Id, accountALongPage.Items.Select(item => item.Id));
+
+        var firstMultiAccountPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, null));
+        var secondMultiAccountPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                null,
+                null,
+                null,
+                null,
+                1,
+                firstMultiAccountPage.NextCursor));
+        Assert.Equal(
+            new[] { accountALong, accountBPosition }
+                .OrderByDescending(position => position.FirstDetectedAt)
+                .ThenByDescending(position => position.Id.Value)
+                .Select(position => position.Id),
+            firstMultiAccountPage.Items
+                .Concat(secondMultiAccountPage.Items)
+                .Select(item => item.Id));
     }
 
     [Fact]
@@ -179,6 +200,128 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Equal(
             expected[..tiedPositions.Length],
             actual.Take(tiedPositions.Length).ToArray());
+    }
+
+    [Fact]
+    public async Task Multi_account_continuation_uses_bounded_owned_account_queries_and_preserves_global_order()
+    {
+        var userId = UserId.New();
+        ExchangeAccount[] accounts =
+            [CreateAccount(userId), CreateAccount(userId), CreateAccount(userId)];
+        var foreign = CreateAccount(UserId.New());
+        var positions = accounts
+            .SelectMany(account =>
+                Enumerable.Range(0, 3)
+                    .Select(index => CreatePosition(
+                        account.Id,
+                        index == 2 ? "ETHUSDT" : "BTCUSDT",
+                        T0.AddMinutes(-index),
+                        index == 1 ? PositionSide.Short : PositionSide.Long)))
+            .ToArray();
+        var closed = CreatePosition(accounts[0].Id, "CLOSED", T0.AddMinutes(-4));
+        closed.Close(T0.AddMinutes(1));
+        var foreignPosition = CreatePosition(foreign.Id, "FOREIGN", T0.AddMinutes(2));
+
+        foreach (var account in accounts)
+        {
+            var accountPositions = positions.Where(position =>
+                position.ExchangePositionKey.ExchangeAccountId == account.Id);
+            await Persist(account, account == accounts[0]
+                ? accountPositions.Append(closed).ToArray()
+                : accountPositions.ToArray());
+        }
+
+        await Persist(foreign, [foreignPosition]);
+
+        var expected = positions
+            .OrderByDescending(position => position.FirstDetectedAt)
+            .ThenByDescending(position => position.Id.Value)
+            .Select(position => position.Id)
+            .ToArray();
+
+        var capture = new CommandCaptureInterceptor();
+        await using var context = CreateCapturedContext(capture);
+        var repository = new PositionReadRepository(context);
+        var actual = new List<PositionId>();
+        PositionReadCursor? cursor = null;
+        PositionReadPage page;
+
+        do
+        {
+            capture.Commands.Clear();
+            page = await repository.ListAsync(
+                userId,
+                PositionReadQuery.Create(null, null, null, null, 1, cursor));
+            actual.AddRange(page.Items.Select(item => item.Id));
+
+            if (cursor is not null)
+            {
+                var positionCommands = capture.Commands
+                    .Where(command => command.Contains("positions", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                Assert.Equal(accounts.Length, positionCommands.Length);
+                Assert.All(positionCommands, command =>
+                {
+                    Assert.Contains("user_id", command, StringComparison.OrdinalIgnoreCase);
+                    Assert.Contains("exchange_account_id", command, StringComparison.OrdinalIgnoreCase);
+                    Assert.Contains("LIMIT", command, StringComparison.OrdinalIgnoreCase);
+                    Assert.DoesNotContain("OFFSET", command, StringComparison.OrdinalIgnoreCase);
+                    Assert.DoesNotContain("position_changes", command, StringComparison.OrdinalIgnoreCase);
+                });
+            }
+
+            cursor = page.NextCursor;
+        }
+        while (page.HasMore);
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(expected.Length, actual.Distinct().Count());
+        Assert.DoesNotContain(foreignPosition.Id, actual);
+
+        foreach (var pageSize in new[] { 50, 100 })
+        {
+            var first = await repository.ListAsync(
+                userId,
+                PositionReadQuery.Create(null, null, null, null, pageSize, null));
+            var continuation = await repository.ListAsync(
+                userId,
+                PositionReadQuery.Create(null, null, null, null, pageSize, first.NextCursor));
+            Assert.DoesNotContain(foreignPosition.Id, first.Items.Concat(continuation.Items)
+                .Select(item => item.Id));
+        }
+
+        var filtered = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                null,
+                PositionTrackingState.Closed,
+                "closed",
+                PositionSide.Long,
+                1,
+                null));
+        Assert.Equal([closed.Id], filtered.Items.Select(item => item.Id));
+
+        var filteredFirstPage = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                null,
+                PositionTrackingState.Active,
+                "btcusdt",
+                PositionSide.Short,
+                1,
+                null));
+        var filteredContinuation = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(
+                null,
+                PositionTrackingState.Active,
+                "btcusdt",
+                PositionSide.Short,
+                1,
+                filteredFirstPage.NextCursor));
+        Assert.All(
+            filteredFirstPage.Items.Concat(filteredContinuation.Items),
+            item => Assert.Equal(PositionSide.Short, item.Side));
     }
 
     [Fact]
@@ -289,15 +432,18 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.DoesNotContain(capture.Commands, command =>
             command.Contains("ILIKE", StringComparison.OrdinalIgnoreCase) ||
             command.Contains(" LIKE ", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(capture.Commands, command =>
+            command.Contains("OFFSET", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(capture.Commands, command =>
+            command.Contains("LIMIT", StringComparison.OrdinalIgnoreCase) &&
+            command.Contains("first_detected_at", StringComparison.OrdinalIgnoreCase) &&
+            command.Contains("position_id", StringComparison.OrdinalIgnoreCase));
 
         capture.Commands.Clear();
         var portfolioRepository = new PortfolioReadRepository(context);
         await portfolioRepository.GetLatestAsync(owner.UserId, owner.Id);
         Assert.DoesNotContain(capture.Commands, command =>
             command.Contains("portfolio_position_states", StringComparison.OrdinalIgnoreCase));
-
-        var plans = await ExplainListQueriesAsync(context, owner.UserId, owner.Id);
-        Assert.NotEmpty(plans);
     }
 
     private async Task Persist(
@@ -334,59 +480,6 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
                 .Options);
         capture.Commands.Clear();
         return context;
-    }
-
-    private static async Task<string[]> ExplainListQueriesAsync(
-        TradeSystemDbContext context,
-        UserId userId,
-        ExchangeAccountId accountId)
-    {
-        var connection = context.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync();
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            EXPLAIN (FORMAT TEXT)
-            SELECT p.position_id
-            FROM positions AS p
-            INNER JOIN exchange_accounts AS a
-                ON a.exchange_account_id = p.exchange_account_id
-            WHERE a.user_id = @user_id
-              AND p.tracking_state IN ('Active', 'Unknown', 'Stale')
-            ORDER BY p.first_detected_at DESC, p.position_id DESC
-            LIMIT 51;
-
-            EXPLAIN (FORMAT TEXT)
-            SELECT p.position_id
-            FROM positions AS p
-            INNER JOIN exchange_accounts AS a
-                ON a.exchange_account_id = p.exchange_account_id
-            WHERE a.user_id = @user_id
-              AND p.exchange_account_id = @account_id
-              AND p.tracking_state IN ('Active', 'Unknown', 'Stale')
-            ORDER BY p.first_detected_at DESC, p.position_id DESC
-            LIMIT 51;
-            """;
-        var userParameter = command.CreateParameter();
-        userParameter.ParameterName = "user_id";
-        userParameter.Value = userId.Value;
-        command.Parameters.Add(userParameter);
-        var accountParameter = command.CreateParameter();
-        accountParameter.ParameterName = "account_id";
-        accountParameter.Value = accountId.Value;
-        command.Parameters.Add(accountParameter);
-
-        var plans = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            plans.Add(reader.GetString(0));
-        }
-
-        return plans.ToArray();
     }
 
     private static ExchangeAccount CreateAccount(UserId userId) =>
