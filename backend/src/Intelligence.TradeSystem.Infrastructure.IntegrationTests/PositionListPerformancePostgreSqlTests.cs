@@ -35,94 +35,102 @@ public sealed class PositionListPerformancePostgreSqlTests
 
         await using var fixture = new PositionListPerformanceFixture();
         await fixture.StartAsync();
-        var userId = UserId.FromGuid(await FindUserAsync(fixture.ConnectionString, 0));
-        var accountId = ExchangeAccountId.FromGuid(await FindAccountAsync(fixture.ConnectionString, userId.Value));
+        var userId = UserId.FromGuid(fixture.TargetUserId);
+        var accountId = ExchangeAccountId.FromGuid(fixture.TargetAccountIds[0]);
         await WriteDatasetCharacteristicsAsync(output, fixture.ConnectionString);
         var capture = new PositionListCommandCapture();
         await using var capturedContext = fixture.CreateContext(capture);
         var repository = new PositionReadRepository(capturedContext);
+        var composedQuery = await FindRepresentativeComposedQueryAsync(
+            fixture.ConnectionString,
+            userId.Value,
+            fixture.TargetAccountIds);
+        var workingSymbol = await FindRepresentativeSymbolAsync(
+            fixture.ConnectionString,
+            userId.Value,
+            null);
+        var closedSymbol = await FindRepresentativeSymbolAsync(
+            fixture.ConnectionString,
+            userId.Value,
+            PositionTrackingState.Closed);
 
         var scenarios = new[]
         {
             new Scenario("default-first", PositionReadQuery.Create(null, null, null, null, 50, null)),
             new Scenario("account-first", PositionReadQuery.Create(accountId, null, null, null, 50, null)),
             new Scenario("closed-first", PositionReadQuery.Create(null, PositionTrackingState.Closed, null, null, 50, null)),
-            new Scenario("symbol-working", PositionReadQuery.Create(null, null, "symbol01", null, 50, null)),
-            new Scenario("symbol-closed", PositionReadQuery.Create(null, PositionTrackingState.Closed, "SYMBOL01", null, 50, null)),
+            new Scenario("symbol-working", PositionReadQuery.Create(null, null, workingSymbol, null, 50, null)),
+            new Scenario("symbol-closed", PositionReadQuery.Create(null, PositionTrackingState.Closed, closedSymbol, null, 50, null)),
             new Scenario("explicit-state-side", PositionReadQuery.Create(null, PositionTrackingState.Active, null, PositionSide.Long, 50, null)),
-            new Scenario("composed", PositionReadQuery.Create(null, null, "SyMbOl02", PositionSide.Short, 10, null)),
+            new Scenario("composed", composedQuery),
         };
 
         foreach (var scenario in scenarios)
         {
-            await AssertScenarioHasCandidatesAsync(
+            await AssertScenarioIsRepresentativeAsync(
+                output,
                 fixture.ConnectionString,
                 userId.Value,
                 scenario.Query,
-                scenario.Name);
+                scenario.Name,
+                scenario.Query.PageSize + 1);
             await MeasureScenarioAsync(output, repository, capturedContext, capture, userId, scenario);
         }
 
-        var defaultQuery = PositionReadQuery.Create(null, null, null, null, 50, null);
-        var deepCursor = await FindCursorAtPercentAsync(
-            fixture.ConnectionString,
-            userId.Value,
-            null,
-            0.75,
-            "Active", "Unknown", "Stale");
-        await MeasureScenarioAsync(
-            output,
-            repository,
-            capturedContext,
-            capture,
-            userId,
-            new Scenario("default-deep-cursor",
-                PositionReadQuery.Create(null, null, null, null, 50, deepCursor)));
+        foreach (var percentile in new[] { 0.25, 0.50, 0.75, 0.95 })
+        {
+            var defaultCursor = await FindCursorAtPercentAsync(
+                fixture.ConnectionString,
+                userId.Value,
+                null,
+                percentile,
+                "Active", "Unknown", "Stale");
+            await MeasureScenarioAsync(
+                output,
+                repository,
+                capturedContext,
+                capture,
+                userId,
+                new Scenario(
+                    $"default-deep-cursor-{percentile:P0}",
+                    PositionReadQuery.Create(null, null, null, null, 50, defaultCursor)));
 
-        await MeasureScenarioAsync(
-            output,
-            repository,
-            capturedContext,
-            capture,
-            userId,
-            new Scenario("multi-account-deep-cursor",
-                PositionReadQuery.Create(null, null, null, null, 50, deepCursor)));
+            var accountCursor = await FindCursorAtPercentAsync(
+                fixture.ConnectionString,
+                userId.Value,
+                accountId.Value,
+                percentile,
+                "Active", "Unknown", "Stale");
+            await MeasureScenarioAsync(
+                output,
+                repository,
+                capturedContext,
+                capture,
+                userId,
+                new Scenario(
+                    $"account-deep-cursor-{percentile:P0}",
+                    PositionReadQuery.Create(accountId, null, null, null, 50, accountCursor)));
 
-        var accountCursor = await FindCursorAtPercentAsync(
-            fixture.ConnectionString,
-            userId.Value,
-            accountId.Value,
-            0.75,
-            "Active", "Unknown", "Stale");
-        await MeasureScenarioAsync(
-            output,
-            repository,
-            capturedContext,
-            capture,
-            userId,
-            new Scenario("account-deep-cursor",
-                PositionReadQuery.Create(accountId, null, null, null, 50, accountCursor)));
-
-        var closedCursor = await FindCursorAtPercentAsync(
-            fixture.ConnectionString,
-            userId.Value,
-            null,
-            0.75,
-            "Closed");
-        await MeasureScenarioAsync(
-            output,
-            repository,
-            capturedContext,
-            capture,
-            userId,
-            new Scenario("closed-deep-cursor",
-                PositionReadQuery.Create(null, PositionTrackingState.Closed, null, null, 50, closedCursor)));
+            var closedCursor = await FindCursorAtPercentAsync(
+                fixture.ConnectionString,
+                userId.Value,
+                null,
+                percentile,
+                "Closed");
+            await MeasureScenarioAsync(
+                output,
+                repository,
+                capturedContext,
+                capture,
+                userId,
+                new Scenario(
+                    $"closed-deep-cursor-{percentile:P0}",
+                    PositionReadQuery.Create(null, PositionTrackingState.Closed, null, null, 50, closedCursor)));
+        }
 
         await using var accountCountProbe = new PositionListPerformanceFixture();
         await accountCountProbe.StartAsync(accountsPerUser: 12);
-        var probeUserId = UserId.FromGuid(await FindUserAsync(
-            accountCountProbe.ConnectionString,
-            0));
+        var probeUserId = UserId.FromGuid(accountCountProbe.TargetUserId);
         var probeCursor = await FindCursorAtPercentAsync(
             accountCountProbe.ConnectionString,
             probeUserId.Value,
@@ -141,11 +149,26 @@ public sealed class PositionListPerformancePostgreSqlTests
             new Scenario("account-count-probe-12",
                 PositionReadQuery.Create(null, null, null, null, 50, probeCursor)));
 
-        await AssertScenarioHasCandidatesAsync(
-            fixture.ConnectionString,
-            userId.Value,
-            defaultQuery,
-            "default-first");
+        await using var singleAccountFixture = new PositionListPerformanceFixture();
+        await singleAccountFixture.StartAsync(accountsPerUser: 1);
+        var singleAccountUser = UserId.FromGuid(singleAccountFixture.TargetUserId);
+        var singleAccountCursor = await FindCursorAtPercentAsync(
+            singleAccountFixture.ConnectionString,
+            singleAccountUser.Value,
+            null,
+            0.75,
+            "Active", "Unknown", "Stale");
+        var singleAccountCapture = new PositionListCommandCapture();
+        await using var singleAccountContext = singleAccountFixture.CreateContext(singleAccountCapture);
+        await MeasureScenarioAsync(
+            output,
+            new PositionReadRepository(singleAccountContext),
+            singleAccountContext,
+            singleAccountCapture,
+            singleAccountUser,
+            new Scenario(
+                "single-account-deep-cursor-75%",
+                PositionReadQuery.Create(null, null, null, null, 50, singleAccountCursor)));
     }
 
     private static async Task MeasureScenarioAsync(
@@ -217,7 +240,9 @@ public sealed class PositionListPerformancePostgreSqlTests
             $"buffers={string.Join('+', medians.Select(item => item.Buffers))} " +
             $"nodes={string.Join('|', medians.SelectMany(item => item.Nodes).Distinct())} " +
             $"indexes={string.Join('|', medians.SelectMany(item => item.Indexes).Distinct())} " +
-            $"sorts={string.Join('|', medians.SelectMany(item => item.Sorts).Distinct())}");
+            $"sorts={string.Join('|', medians.SelectMany(item => item.Sorts).Distinct())} " +
+            $"index_conds={string.Join('|', medians.SelectMany(item => item.IndexConditions).Distinct())} " +
+            $"filters={string.Join('|', medians.SelectMany(item => item.Filters).Distinct())}");
         for (var index = 0; index < commands.Length; index++)
         {
             output.WriteLine(
@@ -225,7 +250,9 @@ public sealed class PositionListPerformancePostgreSqlTests
                 $"median_ms={medians[index].ExecutionTimeMs:F2} rows={medians[index].ActualRows} " +
                 $"loops={medians[index].ActualLoops:F0} removed={medians[index].RowsRemovedByFilter:F0} " +
                 $"buffers={medians[index].Buffers} indexes={string.Join('|', medians[index].Indexes)} " +
-                $"nodes={string.Join('|', medians[index].Nodes)} sorts={string.Join('|', medians[index].Sorts)}");
+                $"nodes={string.Join('|', medians[index].Nodes)} sorts={string.Join('|', medians[index].Sorts)} " +
+                $"index_conds={string.Join('|', medians[index].IndexConditions)} " +
+                $"filters={string.Join('|', medians[index].Filters)}");
         }
     }
 
@@ -257,6 +284,8 @@ public sealed class PositionListPerformancePostgreSqlTests
         var nodes = new List<string>();
         var indexes = new List<string>();
         var sorts = new List<string>();
+        var indexConditions = new List<string>();
+        var filters = new List<string>();
         var actualRows = plan.TryGetProperty("Actual Rows", out var rootRows)
             ? rootRows.GetDouble()
             : 0;
@@ -264,8 +293,6 @@ public sealed class PositionListPerformancePostgreSqlTests
             ? rootLoops.GetDouble()
             : 0;
         var removed = 0d;
-        var sharedHitBlocks = 0;
-        var sharedReadBlocks = 0;
         Visit(plan);
         return new(
             root.GetProperty("Execution Time").GetDouble(),
@@ -276,7 +303,9 @@ public sealed class PositionListPerformancePostgreSqlTests
             nodes,
             indexes,
             sorts,
-            Buffers: $"hit={sharedHitBlocks},read={sharedReadBlocks}");
+            indexConditions,
+            filters,
+            Buffers: $"hit={GetInt(root, "Shared Hit Blocks")},read={GetInt(root, "Shared Read Blocks")}");
 
         void Visit(JsonElement node)
         {
@@ -292,22 +321,22 @@ public sealed class PositionListPerformancePostgreSqlTests
 
             if (node.TryGetProperty("Rows Removed by Filter", out var filtered))
             {
-                removed += filtered.GetDouble();
+                removed += filtered.GetDouble() * GetDouble(node, "Actual Loops", 1);
+            }
+
+            if (node.TryGetProperty("Index Cond", out var indexCondition))
+            {
+                indexConditions.Add(indexCondition.GetString() ?? "unknown");
+            }
+
+            if (node.TryGetProperty("Filter", out var filter))
+            {
+                filters.Add(filter.GetString() ?? "unknown");
             }
 
             if (node.TryGetProperty("Sort Method", out var sortMethod))
             {
                 sorts.Add(sortMethod.GetString() ?? "unknown");
-            }
-
-            if (node.TryGetProperty("Shared Hit Blocks", out var hitBlocks))
-            {
-                sharedHitBlocks += hitBlocks.GetInt32();
-            }
-
-            if (node.TryGetProperty("Shared Read Blocks", out var readBlocks))
-            {
-                sharedReadBlocks += readBlocks.GetInt32();
             }
 
             if (node.TryGetProperty("Plans", out var children))
@@ -318,17 +347,12 @@ public sealed class PositionListPerformancePostgreSqlTests
                 }
             }
         }
-    }
 
-    private static async Task<Guid> FindUserAsync(string connectionString, int userIndex)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT DISTINCT user_id FROM exchange_accounts ORDER BY user_id LIMIT 1 OFFSET @offset";
-        command.Parameters.AddWithValue("offset", userIndex);
-        return (Guid)(await command.ExecuteScalarAsync()
-            ?? throw new InvalidOperationException("Seed user was not found."));
+        static double GetDouble(JsonElement node, string propertyName, double fallback = 0) =>
+            node.TryGetProperty(propertyName, out var value) ? value.GetDouble() : fallback;
+
+        static int GetInt(JsonElement node, string propertyName) =>
+            node.TryGetProperty(propertyName, out var value) ? value.GetInt32() : 0;
     }
 
     private static async Task WriteDatasetCharacteristicsAsync(
@@ -388,18 +412,85 @@ public sealed class PositionListPerformancePostgreSqlTests
             $"npgsql=\"{typeof(NpgsqlConnection).Assembly.GetName().Version}\"");
     }
 
-    private static async Task AssertScenarioHasCandidatesAsync(
+    private static async Task AssertScenarioIsRepresentativeAsync(
+        ITestOutputHelper output,
         string connectionString,
         Guid userId,
         PositionReadQuery query,
-        string scenario)
+        string scenario,
+        long minimumCandidateCount)
     {
         var count = await CountMatchingAsync(connectionString, userId, query);
-        if (count == 0)
+        output.WriteLine(
+            $"POSITION_LIST_SCENARIO scenario={scenario} candidate_count={count} page_size={query.PageSize}");
+        if (count < minimumCandidateCount)
         {
             throw new InvalidOperationException(
-                $"Benchmark scenario {scenario} has only {count} candidates.");
+                $"Benchmark scenario {scenario} has {count} candidates; expected at least {minimumCandidateCount}.");
         }
+    }
+
+    private static async Task<PositionReadQuery> FindRepresentativeComposedQueryAsync(
+        string connectionString,
+        Guid userId,
+        IReadOnlyList<Guid> accountIds)
+    {
+        foreach (var accountId in accountIds)
+        {
+            foreach (var state in new[]
+                     {
+                         PositionTrackingState.Active,
+                         PositionTrackingState.Unknown,
+                         PositionTrackingState.Stale,
+                         PositionTrackingState.Closed,
+                     })
+            {
+                foreach (var symbolIndex in Enumerable.Range(0, 40))
+                {
+                    foreach (var side in new[] { PositionSide.Long, PositionSide.Short })
+                    {
+                        var query = PositionReadQuery.Create(
+                            ExchangeAccountId.FromGuid(accountId),
+                            state,
+                            $"SYMBOL{symbolIndex:D2}",
+                            side,
+                            50,
+                            null);
+                        if (await CountMatchingAsync(connectionString, userId, query) > query.PageSize)
+                        {
+                            return query;
+                        }
+                    }
+                }
+            }
+        }
+
+        throw new InvalidOperationException(
+            "No representative composed benchmark combination has more than one page.");
+    }
+
+    private static async Task<string> FindRepresentativeSymbolAsync(
+        string connectionString,
+        Guid userId,
+        PositionTrackingState? state)
+    {
+        foreach (var symbolIndex in Enumerable.Range(0, 40))
+        {
+            var query = PositionReadQuery.Create(
+                null,
+                state,
+                $"SYMBOL{symbolIndex:D2}",
+                null,
+                50,
+                null);
+            if (await CountMatchingAsync(connectionString, userId, query) > query.PageSize)
+            {
+                return query.Symbol!;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"No representative {(state is null ? "working" : "closed")} symbol benchmark combination exists.");
     }
 
     private static async Task<long> CountMatchingAsync(
@@ -464,17 +555,6 @@ public sealed class PositionListPerformancePostgreSqlTests
         return await FindCursorAsync(connectionString, userId, accountId, offset, states);
     }
 
-    private static async Task<Guid> FindAccountAsync(string connectionString, Guid userId)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT exchange_account_id FROM exchange_accounts WHERE user_id = @user_id ORDER BY exchange_account_id LIMIT 1";
-        command.Parameters.AddWithValue("user_id", userId);
-        return (Guid)(await command.ExecuteScalarAsync()
-            ?? throw new InvalidOperationException("Seed account was not found."));
-    }
-
     private static async Task<PositionReadCursor> FindCursorAsync(
         string connectionString,
         Guid userId,
@@ -522,6 +602,8 @@ public sealed class PositionListPerformancePostgreSqlTests
         IReadOnlyList<string> Nodes,
         IReadOnlyList<string> Indexes,
         IReadOnlyList<string> Sorts,
+        IReadOnlyList<string> IndexConditions,
+        IReadOnlyList<string> Filters,
         string Buffers);
 
     private sealed class PositionListCommandCapture : DbCommandInterceptor

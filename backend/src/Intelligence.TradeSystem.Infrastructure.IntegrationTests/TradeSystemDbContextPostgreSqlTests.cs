@@ -155,6 +155,27 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
     }
 
     [Fact]
+    public async Task Position_list_migration_applies_cleanly_from_immediately_previous_migration()
+    {
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
+
+        await dbContext.Database.MigrateAsync(TimelineReadIndexesMigration);
+        Assert.Equal(
+            [PositionListReadIndexesMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
+        Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_order"));
+        Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_account_order"));
+        Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_closed_order"));
+        Assert.False(await IndexExistsAsync(dbContext, "ix_positions_instrument_lower"));
+
+        await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        await AssertPositionListIndexesAsync(dbContext);
+    }
+
+    [Fact]
     public async Task Stability_migration_rejects_legacy_duplicate_current_rows_without_mutation()
     {
         await using var migrationDatabase = await CreateMigrationDatabaseAsync();
@@ -292,7 +313,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             globalOrder,
             StringComparison.Ordinal);
         Assert.Contains(
-            "exchange_account_id, tracking_state, first_detected_at DESC, position_id DESC",
+            "exchange_account_id, first_detected_at DESC, position_id DESC",
             closedOrder,
             StringComparison.Ordinal);
         Assert.Contains("tracking_state", closedOrder, StringComparison.OrdinalIgnoreCase);
@@ -314,8 +335,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             "ix_positions_list_order");
         AssertPositionListIndex(
             designTimeModel,
-            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.TrackingState), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
-            [false, false, true, true],
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            [false, true, true],
             "ix_positions_list_closed_order");
         AssertPositionListIndex(
             snapshot!.Model,
@@ -329,7 +350,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             "ix_positions_list_order");
         AssertPositionListIndex(
             snapshot.Model,
-            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.TrackingState), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
+            [nameof(PositionEntity.ExchangeAccountId), nameof(PositionEntity.FirstDetectedAt), nameof(PositionEntity.Id)],
             null,
             "ix_positions_list_closed_order");
     }

@@ -148,6 +148,41 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task Single_account_continuation_uses_lookup_and_one_bounded_position_query()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var positions = new[]
+        {
+            CreatePosition(account.Id, "BTCUSDT", T0),
+            CreatePosition(account.Id, "ETHUSDT", T0.AddMinutes(-1)),
+        };
+        await Persist(account, positions);
+
+        var capture = new CommandCaptureInterceptor();
+        await using var context = CreateCapturedContext(capture);
+        var repository = new PositionReadRepository(context);
+        var first = await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, null));
+
+        capture.Commands.Clear();
+        await repository.ListAsync(
+            userId,
+            PositionReadQuery.Create(null, null, null, null, 1, first.NextCursor));
+
+        Assert.Equal(2, capture.Commands.Count);
+        Assert.Contains(capture.Commands, command =>
+            command.Contains("FROM exchange_accounts", StringComparison.OrdinalIgnoreCase) &&
+            command.Contains("user_id", StringComparison.OrdinalIgnoreCase));
+        var positionCommands = capture.Commands
+            .Where(command => command.Contains("FROM positions", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.Single(positionCommands);
+        AssertPositionQuery(positionCommands[0]);
+    }
+
+    [Fact]
     public async Task List_composes_owned_account_symbol_side_and_tracking_state_filters()
     {
         var userId = UserId.New();
@@ -247,6 +282,18 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         var hasMore = true;
 
         await using var context = fixture.CreateContext();
+        var postgresOrder = await context.Database
+            .SqlQueryRaw<Guid>(
+                """
+                SELECT p.position_id AS "Value"
+                FROM positions AS p
+                INNER JOIN exchange_accounts AS a
+                    ON a.exchange_account_id = p.exchange_account_id
+                WHERE a.user_id = {0}
+                ORDER BY p.first_detected_at DESC, p.position_id DESC
+                """,
+                owner.UserId.Value)
+            .ToArrayAsync();
         var repository = new PositionReadRepository(context);
         while (hasMore)
         {
@@ -259,6 +306,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         }
 
         Assert.Equal(expected, actual);
+        Assert.Equal(expected.Select(id => id.Value), postgresOrder);
         Assert.Equal(expected.Length, actual.Distinct().Count());
         Assert.Equal(
             expected[..tiedPositions.Length],

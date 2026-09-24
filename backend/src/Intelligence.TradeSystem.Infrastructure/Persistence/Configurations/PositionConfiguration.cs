@@ -89,23 +89,26 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<PositionEnt
         .HasFilter("\"tracking_state\" <> 'Closed'")
         .HasDatabaseName("ux_positions_active_exchange_key");
 
-        builder.HasIndex(position => new
-        {
-            position.ExchangeAccountId,
-            position.TrackingState,
-            position.FirstDetectedAt,
-            position.Id,
-        })
-        .IsDescending(false, false, true, true)
+        builder.HasIndex(
+            position => new
+            {
+                position.ExchangeAccountId,
+                position.FirstDetectedAt,
+                position.Id,
+            },
+            "ix_positions_list_closed_order")
+        .IsDescending(false, true, true)
         .HasFilter("\"tracking_state\" = 'Closed'")
         .HasDatabaseName("ix_positions_list_closed_order");
 
-        builder.HasIndex(position => new
-        {
-            position.ExchangeAccountId,
-            position.FirstDetectedAt,
-            position.Id,
-        })
+        builder.HasIndex(
+            position => new
+            {
+                position.ExchangeAccountId,
+                position.FirstDetectedAt,
+                position.Id,
+            },
+            "ix_positions_list_account_order")
         .IsDescending(false, true, true)
         .HasDatabaseName("ix_positions_list_account_order");
 

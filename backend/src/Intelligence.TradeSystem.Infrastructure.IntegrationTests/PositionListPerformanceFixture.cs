@@ -16,6 +16,10 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
 
     public string ConnectionString => postgres.GetConnectionString();
 
+    public Guid TargetUserId { get; private set; }
+
+    public IReadOnlyList<Guid> TargetAccountIds { get; private set; } = [];
+
     public async Task StartAsync(int accountsPerUser = 3)
     {
         await postgres.StartAsync();
@@ -54,15 +58,23 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
         await using var connection = new NpgsqlConnection(ConnectionString);
         await connection.OpenAsync();
 
-        var users = Enumerable.Range(0, 8).Select(_ => Guid.NewGuid()).ToArray();
+        var users = Enumerable.Range(0, 8).Select(DeterministicUserGuid).ToArray();
         var accounts = new List<(Guid Id, Guid UserId)>();
         for (var userIndex = 0; userIndex < users.Length; userIndex++)
         {
             for (var accountIndex = 0; accountIndex < accountsPerUser; accountIndex++)
             {
-                accounts.Add((Guid.NewGuid(), users[userIndex]));
+                accounts.Add((
+                    DeterministicAccountGuid(userIndex, accountIndex),
+                    users[userIndex]));
             }
         }
+
+        TargetUserId = users[0];
+        TargetAccountIds = accounts
+            .Where(account => account.UserId == TargetUserId)
+            .Select(account => account.Id)
+            .ToArray();
 
         await using (var importer = connection.BeginBinaryImport(
             """
@@ -158,13 +170,14 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
         await analyze.ExecuteNonQueryAsync();
     }
 
-    private static Guid DeterministicGuid(int index)
-    {
-        var bytes = new byte[16];
-        BitConverter.TryWriteBytes(bytes.AsSpan(), index);
-        BitConverter.TryWriteBytes(bytes.AsSpan(8), ~index);
-        return new Guid(bytes);
-    }
+    private static Guid DeterministicUserGuid(int index) =>
+        Guid.Parse($"00000000-0000-0000-0001-{index:D12}");
+
+    private static Guid DeterministicAccountGuid(int userIndex, int accountIndex) =>
+        Guid.Parse($"00000000-0000-0000-0002-{userIndex * 1000 + accountIndex:D12}");
+
+    private static Guid DeterministicGuid(int index) =>
+        Guid.Parse($"00000000-0000-0000-0003-{index:D12}");
 
     private static int Mix(int value, int salt)
     {

@@ -778,7 +778,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExchangeAccountId", "FirstDetectedAt", "Id")
+                    b.HasIndex(new[] { "ExchangeAccountId", "FirstDetectedAt", "Id" }, "ix_positions_list_account_order")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("ix_positions_list_account_order");
 
@@ -791,8 +791,8 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_positions_active_exchange_key")
                         .HasFilter("\"tracking_state\" <> 'Closed'");
 
-                    b.HasIndex("ExchangeAccountId", "TrackingState", "FirstDetectedAt", "Id")
-                        .IsDescending(false, false, true, true)
+                    b.HasIndex(new[] { "ExchangeAccountId", "FirstDetectedAt", "Id" }, "ix_positions_list_closed_order")
+                        .IsDescending(false, true, true)
                         .HasDatabaseName("ix_positions_list_closed_order")
                         .HasFilter("\"tracking_state\" = 'Closed'");
 

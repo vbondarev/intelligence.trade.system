@@ -148,10 +148,12 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
 
         if (query.Cursor is { } cursor)
         {
-            positions = positions.Where(position =>
-                position.FirstDetectedAt < cursor.FirstDetectedAt ||
-                (position.FirstDetectedAt == cursor.FirstDetectedAt &&
-                 position.Id.CompareTo(cursor.PositionId.Value) < 0));
+            var beforeCursor = positions.Where(position =>
+                position.FirstDetectedAt < cursor.FirstDetectedAt);
+            var atCursorTimestamp = positions.Where(position =>
+                position.FirstDetectedAt == cursor.FirstDetectedAt &&
+                position.Id.CompareTo(cursor.PositionId.Value) < 0);
+            positions = beforeCursor.Concat(atCursorTimestamp);
         }
 
         return positions;
