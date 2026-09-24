@@ -11,7 +11,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 =
@@ -30,7 +30,7 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
         await Persist(owner, [active, closed]);
         await Persist(foreign, [foreignPosition]);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var repository = new PositionMarketIdentityRepository(context);
 
         var activeIdentity = await repository.GetAsync(owner.UserId, active.Id);
@@ -74,7 +74,6 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
                         typeof(TradeSystemDbContext).Assembly.GetName().Name))
                 .AddInterceptors(capture)
                 .Options);
-        await context.Database.MigrateAsync();
         capture.Commands.Clear();
 
         var repository = new PositionMarketIdentityRepository(context);
@@ -97,7 +96,7 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
         ExchangeAccount account,
         IReadOnlyCollection<Position> positions)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await new ExchangeAccountRepository(context)
             .SaveAsync(account.UserId, account, expectedVersion: null);
         foreach (var position in positions)
@@ -105,13 +104,6 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
             await new PositionRepository(context)
                 .SaveAsync(account.UserId, position, expectedVersion: null);
         }
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static ExchangeAccount CreateAccount(UserId userId) =>

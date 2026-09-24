@@ -12,7 +12,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 =
@@ -36,7 +36,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
             underscoreSymbol, underscoreWildcardCandidate]);
         await Persist(foreign, [foreignPosition]);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var repository = new PositionReadRepository(context);
 
         var defaultPage = await repository.ListAsync(
@@ -100,7 +100,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         await Persist(accountB, [accountBPosition]);
         await Persist(foreign, [foreignPosition]);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var repository = new PositionReadRepository(context);
 
         var accountALongPage = await repository.ListAsync(
@@ -162,7 +162,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         PositionReadCursor? cursor = null;
         var hasMore = true;
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var repository = new PositionReadRepository(context);
         while (hasMore)
         {
@@ -198,12 +198,12 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         await Persist(owner, [ownerPosition], portfolio);
         await Persist(foreign, [foreignPosition]);
 
-        await using var detailContext = await CreateMigratedContext();
+        await using var detailContext = fixture.CreateContext();
         var detailRepository = new PositionReadRepository(detailContext);
         Assert.NotNull(await detailRepository.GetByIdAsync(owner.UserId, ownerPosition.Id));
         Assert.Null(await detailRepository.GetByIdAsync(foreign.UserId, ownerPosition.Id));
 
-        await using var portfolioContext = await CreateMigratedContext();
+        await using var portfolioContext = fixture.CreateContext();
         var portfolioRepository = new PortfolioReadRepository(portfolioContext);
         var summary = await portfolioRepository.GetLatestAsync(owner.UserId, owner.Id);
         var foreignSummary = await portfolioRepository.GetLatestAsync(foreign.UserId, owner.Id);
@@ -239,13 +239,13 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
             TimeSpan.FromMinutes(5));
         await Persist(owner, [position], older);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await new PortfolioStateRepository(context)
                 .SaveAsync(owner.UserId, newer);
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var repository = new PortfolioReadRepository(readContext);
         var withoutSnapshotResult = await repository.GetLatestAsync(
             withoutSnapshot.UserId,
@@ -275,7 +275,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         await Persist(owner, [position], portfolio);
 
         var capture = new CommandCaptureInterceptor();
-        await using var context = await CreateCapturedContext(capture);
+        await using var context = CreateCapturedContext(capture);
         var positionRepository = new PositionReadRepository(context);
         await positionRepository.ListAsync(
             owner.UserId,
@@ -305,7 +305,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         IReadOnlyCollection<Position> positions,
         PortfolioState? portfolio = null)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var accountRepository = new ExchangeAccountRepository(context);
         var positionRepository = new PositionRepository(context);
         await accountRepository.SaveAsync(account.UserId, account, null);
@@ -321,14 +321,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         }
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
-
-    private async Task<TradeSystemDbContext> CreateCapturedContext(
+    private TradeSystemDbContext CreateCapturedContext(
         CommandCaptureInterceptor capture)
     {
         var context = new TradeSystemDbContext(
@@ -339,7 +332,6 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
                         typeof(TradeSystemDbContext).Assembly.GetName().Name))
                 .AddInterceptors(capture)
                 .Options);
-        await context.Database.MigrateAsync();
         capture.Commands.Clear();
         return context;
     }

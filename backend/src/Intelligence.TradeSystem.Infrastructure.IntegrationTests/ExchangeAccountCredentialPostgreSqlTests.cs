@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture fixture)
 {
     [Fact]
@@ -25,7 +25,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         const string apiSecret = "test-api-secret-round-trip";
         var keys = CreateKeys("v1");
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             var version = await CreateStore(context, "v1", keys).CreateAsync(
@@ -35,7 +35,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             Assert.Equal(ConcurrencyVersion.Initial, version);
         }
 
-        await using var reloadedContext = await CreateMigratedContext();
+        await using var reloadedContext = fixture.CreateContext();
         var row = await reloadedContext.ExchangeAccountCredentials
             .SingleAsync(credential => credential.ExchangeAccountId == account.Id.Value);
         Assert.False(ContainsSequence(row.Ciphertext, apiKey));
@@ -112,7 +112,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var account = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             await CreateStore(context, "v1", keys).CreateAsync(
@@ -128,7 +128,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             await context.SaveChangesAsync();
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var store = CreateStore(readContext, "v1", keys);
         var metadata = await store.GetMetadataAsync(account.UserId, account.Id);
 
@@ -237,7 +237,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var second = CreateAccount(userId);
         var keys = CreateKeys("v1");
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, first);
             await SaveAccount(context, second);
@@ -263,7 +263,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             await context.SaveChangesAsync();
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var readStore = CreateStore(readContext, "v1", keys);
         await Assert.ThrowsAsync<ExchangeAccountCredentialsUnavailableException>(
             () => readStore.GetAsync(userId, second.Id));
@@ -275,7 +275,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var account = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             await CreateStore(context, "v1", keys).CreateAsync(
@@ -289,7 +289,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             await context.SaveChangesAsync();
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var store = CreateStore(readContext, "v1", keys);
         await Assert.ThrowsAsync<ExchangeAccountCredentialsUnavailableException>(
             () => store.GetAsync(account.UserId, account.Id));
@@ -308,7 +308,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var keys = CreateKeys("v1");
         byte[] oldNonce;
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             var store = CreateStore(context, "v1", keys);
@@ -336,7 +336,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
                         "test-api-secret-stale")));
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var rowAfterRotation = await readContext.ExchangeAccountCredentials
             .SingleAsync(row => row.ExchangeAccountId == account.Id.Value);
         Assert.Equal(2L, rowAfterRotation.Version);
@@ -361,7 +361,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var newKey = RandomNumberGenerator.GetBytes(32);
         var keys = CreateKeys(("old", oldKey), ("new", newKey));
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await SaveAccount(context, account);
         var store = CreateStore(context, "new", keys);
         await store.CreateAsync(
@@ -398,7 +398,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var rolloverKeys = CreateKeys(("old", oldKey), ("new", newKey));
         var newOnlyKeys = CreateKeys(("new", newKey));
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             await CreateStore(context, "old", oldOnlyKeys).CreateAsync(
@@ -409,7 +409,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
                     "test-api-secret-old"));
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await CreateStore(context, "new", rolloverKeys).RotateAsync(
                 account.UserId,
@@ -424,7 +424,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             Assert.Equal("new", row.EncryptionKeyId);
         }
 
-        await using var newOnlyContext = await CreateMigratedContext();
+        await using var newOnlyContext = fixture.CreateContext();
         var reloaded = await CreateStore(newOnlyContext, "new", newOnlyKeys)
             .GetAsync(account.UserId, account.Id);
         Assert.NotNull(reloaded);
@@ -441,7 +441,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var account = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await SaveAccount(context, account);
         var store = CreateStore(context, "v1", keys);
         await store.CreateAsync(
@@ -464,7 +464,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var account = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             var store = CreateStore(context, "v1", keys);
@@ -489,7 +489,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
                     ConcurrencyVersion.Initial));
         }
 
-        await using var readContext = await CreateMigratedContext();
+        await using var readContext = fixture.CreateContext();
         var row = await readContext.ExchangeAccountCredentials
             .SingleAsync(item => item.ExchangeAccountId == account.Id.Value);
         Assert.Equal(2L, row.Version);
@@ -514,7 +514,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var newOnlyKeys = CreateKeys(("new", newKey));
         byte[] oldNonce;
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await SaveAccount(context, account);
             var oldStore = CreateStore(context, "old", oldOnlyKeys);
@@ -528,7 +528,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
                 .SingleAsync(row => row.ExchangeAccountId == account.Id.Value)).Nonce;
         }
 
-        await using (var rolloverContext = await CreateMigratedContext())
+        await using (var rolloverContext = fixture.CreateContext())
         {
             var rolloverStore = CreateStore(rolloverContext, "new", rolloverKeys);
             var loaded = await rolloverStore.GetAsync(account.UserId, account.Id);
@@ -551,7 +551,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
             Assert.NotEqual(oldNonce, row.Nonce);
         }
 
-        await using var newOnlyContext = await CreateMigratedContext();
+        await using var newOnlyContext = fixture.CreateContext();
         var newOnlyStore = CreateStore(newOnlyContext, "new", newOnlyKeys);
         var reloaded = await newOnlyStore.GetAsync(account.UserId, account.Id);
         Assert.NotNull(reloaded);
@@ -569,7 +569,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var foreign = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await SaveAccount(context, owner);
         await SaveAccount(context, foreign);
         var store = CreateStore(context, "v1", keys);
@@ -611,7 +611,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         var account = CreateAccount();
         var keys = CreateKeys("v1");
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await SaveAccount(context, account);
         await CreateStore(context, "v1", keys).CreateAsync(
             account.UserId,
@@ -631,7 +631,7 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
     {
         var account = CreateAccount();
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await SaveAccount(context, account);
         context.ExchangeAccountCredentials.Add(new ExchangeAccountCredentialEntity
         {
@@ -646,13 +646,6 @@ public sealed class ExchangeAccountCredentialPostgreSqlTests(PostgreSqlFixture f
         });
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static async Task SaveAccount(

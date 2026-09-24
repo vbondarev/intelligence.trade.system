@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset CreatedAt =
@@ -24,12 +24,12 @@ public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixt
             "positions_partial",
             CreatedAt.AddMinutes(-1));
 
-        await using (var cleanupContext = await CreateMigratedContext())
+        await using (var cleanupContext = fixture.CreateContext())
         {
             await cleanupContext.OutboxMessages.ExecuteDeleteAsync();
         }
 
-        await using (var writeContext = await CreateMigratedContext())
+        await using (var writeContext = fixture.CreateContext())
         {
             await new ApplicationEventOutbox(writeContext, new FixedTimeProvider(CreatedAt))
                 .AddAsync(applicationEvent);
@@ -93,13 +93,6 @@ public sealed class ApplicationEventOutboxPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Null(persisted.ClaimedBy);
         Assert.Equal("exchange-account.sync-degraded", persisted.EventType);
         Assert.Contains("positions_partial", persisted.Payload, StringComparison.Ordinal);
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

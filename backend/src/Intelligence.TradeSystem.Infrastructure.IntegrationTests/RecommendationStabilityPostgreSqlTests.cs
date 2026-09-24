@@ -18,7 +18,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 15, 10, 0, 0, TimeSpan.Zero);
@@ -37,7 +37,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             aggregate.Recommendation.Id,
             pendingState);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var stateRepository = new RecommendationStabilityStateRepository(context);
             var savedVersion = await stateRepository.SaveAsync(
@@ -48,7 +48,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             Assert.Equal(ConcurrencyVersion.Initial, savedVersion);
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var recommendations = new RecommendationRepository(context);
             var states = new RecommendationStabilityStateRepository(context);
@@ -69,7 +69,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             Assert.Equal(snapshot.State, loaded.Value.State);
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var foreign = UserId.New();
             var recommendations = new RecommendationRepository(context);
@@ -99,7 +99,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 T0.AddMinutes(5),
                 1));
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await new RecommendationStabilityStateRepository(context)
                 .SaveAsync(
@@ -109,7 +109,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                     new RecommendationStabilityStateExpectation.Absent());
         }
 
-        await using var writer = await CreateMigratedContext();
+        await using var writer = fixture.CreateContext();
         var repository = new RecommendationStabilityStateRepository(writer);
         var loaded = await repository.GetAsync(aggregate.Account.UserId, aggregate.Position.Id);
         Assert.NotNull(loaded);
@@ -152,7 +152,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         RecommendationStabilityStateSnapshot delayed;
         ConcurrencyVersion delayedVersion;
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var repository = new RecommendationStabilityStateRepository(context);
             await repository.SaveAsync(
@@ -180,7 +180,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 new RecommendationStabilityStateExpectation.Absent());
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var verificationRepository = new RecommendationStabilityStateRepository(verification);
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => verificationRepository.DeleteExpectedAsync(
@@ -204,7 +204,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var aggregate = CreateAggregate(UserId.New());
         await PersistAsync(aggregate);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var repository = new RecommendationRepository(context);
             var current = await repository.GetCurrentForPositionAsync(
@@ -218,7 +218,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 current.Version);
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var repository = new RecommendationRepository(context);
             var acknowledged = await repository.GetCurrentForPositionAsync(
@@ -234,7 +234,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 acknowledged.Version);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         Assert.Null(await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id));
     }
@@ -260,7 +260,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             null,
             null);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new RecommendationRepository(context)
                 .SaveAsync(aggregate.Account.UserId, second, expectedVersion: null));
@@ -288,7 +288,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             null);
         aggregate.Recommendation.SupersedeBy(successor);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var transaction = new RecommendationPublicationTransaction(
                 context,
@@ -304,7 +304,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 new RecommendationStabilityStateExpectation.Absent());
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var repository = new RecommendationRepository(verification);
         var current = await repository.GetCurrentForPositionAsync(
             aggregate.Account.UserId,
@@ -326,7 +326,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var aggregate = CreateAggregate(UserId.New());
         await PersistAsync(aggregate);
         var pending = CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1);
-        await using (var pendingContext = await CreateMigratedContext())
+        await using (var pendingContext = fixture.CreateContext())
         {
             await new RecommendationStabilityStateRepository(pendingContext)
                 .SaveAsync(
@@ -338,7 +338,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         var successor = CreateSuccessor(aggregate);
         aggregate.Recommendation.SupersedeBy(successor);
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var transaction = new RecommendationPublicationTransaction(
             context,
             new RecommendationRepository(context),
@@ -354,7 +354,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                     ConcurrencyVersion.Initial),
                 new RecommendationStabilityStateExpectation.Absent()));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var current = await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
         var restoredPending = await new RecommendationStabilityStateRepository(verification)
@@ -371,7 +371,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAsync(aggregate);
         var successor = CreateSuccessor(aggregate);
         aggregate.Recommendation.SupersedeBy(successor);
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             await new RecommendationPublicationTransaction(
                 context,
@@ -387,7 +387,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                     new RecommendationStabilityStateExpectation.Absent());
         }
 
-        await using var staleContext = await CreateMigratedContext();
+        await using var staleContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new RecommendationPublicationTransaction(
                 staleContext,
@@ -407,7 +407,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
     {
         var aggregate = CreateAggregate(UserId.New());
         await PersistAsync(aggregate);
-        await using (var pendingContext = await CreateMigratedContext())
+        await using (var pendingContext = fixture.CreateContext())
         {
             await new RecommendationStabilityStateRepository(pendingContext)
                 .SaveAsync(
@@ -417,7 +417,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                     new RecommendationStabilityStateExpectation.Absent());
         }
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new RecommendationPublicationTransaction(
                 context,
@@ -438,7 +438,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var aggregate = CreateAggregate(UserId.New());
         await PersistAccountAndPositionAsync(aggregate);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var recommendationsBefore = await context.Recommendations.CountAsync();
         var statesBefore = await context.RecommendationStabilityStates.CountAsync();
         var service = CreateRecommendationService(context);
@@ -459,7 +459,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAsync(aggregate);
         var foreignUser = UserId.New();
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var recommendationsBefore = await context.Recommendations.CountAsync();
         var statesBefore = await context.RecommendationStabilityStates.CountAsync();
         var service = CreateRecommendationService(context);
@@ -490,7 +490,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         RecommendationApplicationResult? published = null;
         foreach (var asOf in observations)
         {
-            await using var context = await CreateMigratedContext();
+            await using var context = fixture.CreateContext();
             var result = await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidate, asOf);
 
@@ -502,7 +502,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             else
             {
                 Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
-                await using var stateContext = await CreateMigratedContext();
+                await using var stateContext = fixture.CreateContext();
                 var state = await new RecommendationStabilityStateRepository(stateContext)
                     .GetAsync(aggregate.Account.UserId, aggregate.Position.Id);
                 Assert.NotNull(state);
@@ -511,7 +511,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         }
 
         Assert.NotNull(published);
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var recommendations = new RecommendationRepository(verification);
         var current = await recommendations.GetCurrentForPositionAsync(
             aggregate.Account.UserId,
@@ -546,7 +546,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             TimeSpan.FromHours(3)).AddTicks(7);
         var canonicalAsOf = TimestampCanonicalizer.ToUtcMicroseconds(asOf);
 
-        await using (var firstContext = await CreateMigratedContext())
+        await using (var firstContext = fixture.CreateContext())
         {
             var result = await CreateRecommendationService(firstContext)
                 .CreateAsync(aggregate.Account.UserId, candidate, asOf);
@@ -554,20 +554,20 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         }
 
         Versioned<RecommendationStabilityStateSnapshot> first;
-        await using (var readContext = await CreateMigratedContext())
+        await using (var readContext = fixture.CreateContext())
         {
             first = (await new RecommendationStabilityStateRepository(readContext)
                 .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
         }
 
-        await using (var replayContext = await CreateMigratedContext())
+        await using (var replayContext = fixture.CreateContext())
         {
             var result = await CreateRecommendationService(replayContext)
                 .CreateAsync(aggregate.Account.UserId, candidate, asOf);
             Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var second = (await new RecommendationStabilityStateRepository(verification)
             .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
         Assert.Equal(first.Value.StateId, second.Value.StateId);
@@ -587,7 +587,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAssessmentAsync(candidate, aggregate.Account.UserId);
         var asOf = aggregate.Recommendation.CreatedAt.AddTicks(7);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await Assert.ThrowsAsync<ArgumentException>(
             () => CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidate, asOf)
@@ -670,8 +670,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAsync(aggregate);
         var pending = CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1);
 
-        await using var lifecycleContext = await CreateMigratedContext();
-        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleContext = fixture.CreateContext();
+        await using var stabilityContext = fixture.CreateContext();
         await using var lifecycleTransaction =
             await lifecycleContext.Database.BeginTransactionAsync();
         await RecommendationPositionLock.LockAsync(
@@ -707,7 +707,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => stabilityTask);
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var persisted = await new RecommendationRepository(verification)
             .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id);
         Assert.NotNull(persisted);
@@ -722,8 +722,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var aggregate = CreateAggregate(UserId.New());
         await PersistAsync(aggregate);
 
-        await using var lifecycleContext = await CreateMigratedContext();
-        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleContext = fixture.CreateContext();
+        await using var stabilityContext = fixture.CreateContext();
         await using var lifecycleTransaction =
             await lifecycleContext.Database.BeginTransactionAsync();
         await RecommendationPositionLock.LockAsync(
@@ -767,8 +767,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAsync(aggregate);
         var successor = CreateSuccessor(aggregate);
 
-        await using var lifecycleContext = await CreateMigratedContext();
-        await using var stabilityContext = await CreateMigratedContext();
+        await using var lifecycleContext = fixture.CreateContext();
+        await using var stabilityContext = fixture.CreateContext();
         await using var lifecycleTransaction =
             await lifecycleContext.Database.BeginTransactionAsync();
         await RecommendationPositionLock.LockAsync(
@@ -804,7 +804,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => stabilityTask);
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         Assert.Equal(
             1,
             await verification.Recommendations.CountAsync(
@@ -823,15 +823,15 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         await PersistAssessmentAsync(candidateB, aggregate.Account.UserId);
         await PersistAssessmentAsync(candidateC, aggregate.Account.UserId);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidateB, T0.AddMinutes(5));
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidateB, T0.AddMinutes(6));
 
         Versioned<RecommendationStabilityStateSnapshot> beforeChange;
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             beforeChange = (await new RecommendationStabilityStateRepository(context)
                 .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
@@ -842,14 +842,14 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             beforeChange.Value.State.SemanticState,
             RecommendationSemanticState.From(candidateCEvaluation));
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var result = await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidateC, T0.AddMinutes(7));
             Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var afterChange = (await new RecommendationStabilityStateRepository(verification)
             .GetAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
         Assert.Equal(beforeChange.Value.StateId, afterChange.Value.StateId);
@@ -872,12 +872,12 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         foreach (var asOf in new[] { T0.AddMinutes(5), T0.AddMinutes(6), T0.AddMinutes(8) })
         {
-            await using var context = await CreateMigratedContext();
+            await using var context = fixture.CreateContext();
             await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidateB, asOf);
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var currentAfterPublication = await new RecommendationRepository(context)
                 .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
@@ -891,14 +891,14 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 .GetAsync(aggregate.Account.UserId, aggregate.Position.Id));
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var result = await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidateC, T0.AddMinutes(9));
             Assert.Equal(RecommendationApplicationResultKind.PendingConfirmation, result.Kind);
         }
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var current = (await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id))!;
         var pending = (await new RecommendationStabilityStateRepository(verification)
@@ -935,7 +935,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             persisted.Result,
             persisted.ReasonCodes);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var result = await CreateRecommendationService(context)
             .CreateAsync(aggregate.Account.UserId, tampered, T0.AddMinutes(5));
 
@@ -959,13 +959,13 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
 
         foreach (var asOf in new[] { T0.AddMinutes(5), T0.AddMinutes(6) })
         {
-            await using var context = await CreateMigratedContext();
+            await using var context = fixture.CreateContext();
             await CreateRecommendationService(context)
                 .CreateAsync(aggregate.Account.UserId, candidate, asOf);
         }
 
-        await using var firstContext = await CreateMigratedContext();
-        await using var secondContext = await CreateMigratedContext();
+        await using var firstContext = fixture.CreateContext();
+        await using var secondContext = fixture.CreateContext();
         var first = RunServiceAsync(firstContext, aggregate.Account.UserId, candidate);
         var second = RunServiceAsync(secondContext, aggregate.Account.UserId, candidate);
         var outcomes = await Task.WhenAll(first, second);
@@ -978,7 +978,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                 outcome.Error is ConcurrencyConflictException,
                 outcome.Error?.ToString()));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var recommendations = verification.Recommendations
             .Where(row => row.PositionId == aggregate.Position.Id.Value)
             .ToArray();
@@ -1012,7 +1012,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var aggregate = CreateAggregate(UserId.New());
         await PersistAsync(aggregate);
         var pending = CreatePendingSnapshot(aggregate, T0.AddMinutes(5), 1);
-        await using (var pendingContext = await CreateMigratedContext())
+        await using (var pendingContext = fixture.CreateContext())
         {
             await new RecommendationStabilityStateRepository(pendingContext)
                 .SaveAsync(
@@ -1045,7 +1045,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             null);
         aggregate.Recommendation.SupersedeBy(successor);
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var transaction = new RecommendationPublicationTransaction(
             context,
             new RecommendationRepository(context),
@@ -1063,7 +1063,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
                     pending.BaselineRecommendationId,
                     ConcurrencyVersion.Initial)));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var current = await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
         Assert.NotNull(current);
@@ -1083,8 +1083,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var successorA = CreateSuccessor(aggregate);
         var successorB = CreateSuccessor(aggregate);
 
-        await using var firstContext = await CreateMigratedContext();
-        await using var secondContext = await CreateMigratedContext();
+        await using var firstContext = fixture.CreateContext();
+        await using var secondContext = fixture.CreateContext();
         var firstCurrent = await new RecommendationRepository(firstContext)
             .GetByIdAsync(aggregate.Account.UserId, aggregate.Recommendation.Id);
         var secondCurrent = await new RecommendationRepository(secondContext)
@@ -1109,7 +1109,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         Assert.Equal(1, failures.Count(failure => failure is null));
         Assert.Equal(1, failures.Count(failure => failure is ConcurrencyConflictException));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var current = await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
         Assert.NotNull(current);
@@ -1132,8 +1132,8 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         var candidateA = Recommendation.Create(aggregate.Assessment, evaluation);
         var candidateB = Recommendation.Create(aggregate.Assessment, evaluation);
 
-        await using var firstContext = await CreateMigratedContext();
-        await using var secondContext = await CreateMigratedContext();
+        await using var firstContext = fixture.CreateContext();
+        await using var secondContext = fixture.CreateContext();
         var firstAttempt = PublishAsync(
             firstContext,
             aggregate.Account.UserId,
@@ -1147,7 +1147,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         Assert.Equal(1, failures.Count(failure => failure is null));
         Assert.Equal(1, failures.Count(failure => failure is ConcurrencyConflictException));
 
-        await using var verification = await CreateMigratedContext();
+        await using var verification = fixture.CreateContext();
         var current = await new RecommendationRepository(verification)
             .GetCurrentForPositionAsync(aggregate.Account.UserId, aggregate.Position.Id);
         Assert.NotNull(current);
@@ -1161,14 +1161,14 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
     private async Task PersistAsync(Aggregate aggregate)
     {
         await PersistWithoutRecommendationAsync(aggregate);
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await new RecommendationRepository(context)
             .SaveAsync(aggregate.Account.UserId, aggregate.Recommendation, expectedVersion: null);
     }
 
     private async Task PersistAccountAndPositionAsync(Aggregate aggregate)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await new ExchangeAccountRepository(context)
             .SaveAsync(aggregate.Account.UserId, aggregate.Account, expectedVersion: null);
         await new PositionRepository(context)
@@ -1179,13 +1179,13 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
         PositionAssessment assessment,
         UserId userId)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await new PositionAssessmentRepository(context).SaveAsync(userId, assessment);
     }
 
     private async Task PersistWithoutRecommendationAsync(Aggregate aggregate)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         await new ExchangeAccountRepository(context)
             .SaveAsync(aggregate.Account.UserId, aggregate.Account, expectedVersion: null);
         await new PositionRepository(context)
@@ -1333,13 +1333,6 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             ],
             T0.AddMinutes(3),
             T0.AddHours(1));
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static RecommendationService CreateRecommendationService(

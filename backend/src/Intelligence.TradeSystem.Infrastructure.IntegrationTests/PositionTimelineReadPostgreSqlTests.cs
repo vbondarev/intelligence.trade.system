@@ -17,7 +17,7 @@ using Xunit.Abstractions;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class PositionTimelineReadPostgreSqlTests(
     PostgreSqlFixture fixture,
     ITestOutputHelper output)
@@ -33,13 +33,13 @@ public sealed class PositionTimelineReadPostgreSqlTests(
         var owner = UserId.New();
         var foreign = UserId.New();
         var positionId = PositionId.New();
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SeedAsync(setup, owner, foreign, positionId);
         }
 
         var interceptor = new CommandCaptureInterceptor();
-        await using var context = await CreateMigratedContext(interceptor);
+        await using var context = CreateContext(interceptor);
         var repository = new PositionTimelineReadRepository(context);
         var query = CreateQuery(positionId, 1);
 
@@ -113,14 +113,14 @@ public sealed class PositionTimelineReadPostgreSqlTests(
         var cursorAssessmentId = Guid.Parse("10000000-0000-0000-0000-000000000010");
         var cursorRecommendationId = Guid.Parse("20000000-0000-0000-0000-000000000010");
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SeedRepresentativeDatasetAsync(setup, owner, positionId);
             await AnalyzeTimelineTablesAsync(setup);
         }
 
         var interceptor = new CommandCaptureInterceptor();
-        await using var context = await CreateMigratedContext(interceptor);
+        await using var context = CreateContext(interceptor);
         var repository = new PositionTimelineReadRepository(context);
         const int pageSize = 2;
 
@@ -258,13 +258,13 @@ public sealed class PositionTimelineReadPostgreSqlTests(
         var owner = UserId.New();
         var positionId = PositionId.New();
         var ids = TimelineIds.Create();
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SeedTraversalDatasetAsync(setup, owner, positionId, ids);
         }
 
         var interceptor = new CommandCaptureInterceptor();
-        await using var context = await CreateMigratedContext(interceptor);
+        await using var context = CreateContext(interceptor);
         var service = new PositionTimelineService(new PositionTimelineReadRepository(context));
         var pages = await ReadAllPagesAsync(service, owner, positionId, pageSize);
         var actual = pages.SelectMany(page => page.Items).Select(GetStableIdentity).ToArray();
@@ -312,7 +312,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
             Guid.NewGuid(),
             Guid.NewGuid());
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             var accountId = ExchangeAccountId.New();
             setup.ExchangeAccounts.Add(CreateAccount(accountId, owner, "anti-chatter"));
@@ -328,7 +328,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
             await setup.SaveChangesAsync();
         }
 
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var page = await new PositionTimelineService(new PositionTimelineReadRepository(context))
             .GetAsync(owner, CreateQuery(positionId, 10));
 
@@ -345,7 +345,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
                 recommendation => recommendation.PositionId == positionId.Value));
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext(
+    private TradeSystemDbContext CreateContext(
         DbCommandInterceptor? interceptor = null)
     {
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
@@ -356,9 +356,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
         if (interceptor is not null)
             options.AddInterceptors(interceptor);
 
-        var context = new TradeSystemDbContext(options.Options);
-        await context.Database.MigrateAsync();
-        return context;
+        return new TradeSystemDbContext(options.Options);
     }
 
     private static PositionTimelineQuery CreateQuery(

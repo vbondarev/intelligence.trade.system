@@ -3,12 +3,11 @@ using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
-using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSqlFixture fixture)
 {
     [Fact]
@@ -39,7 +38,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
             ExchangeAccountProviderIdentity.From("provider-unknown"),
             ExchangeAccountConnectionStatus.Unknown);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             var repository = new ExchangeAccountRepository(setupContext);
             foreach (var account in activeAccounts.Append(disabled).Append(unknown))
@@ -87,7 +86,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
     private async Task<IReadOnlyList<ExchangeAccountSyncCandidate>> ReadAllCandidatesAsync(
         int batchSize)
     {
-        await using var context = await CreateMigratedContext();
+        await using var context = fixture.CreateContext();
         var source = new ExchangeAccountSyncCandidateSource(context);
         var all = new List<ExchangeAccountSyncCandidate>();
         ExchangeAccountId? after = null;
@@ -105,10 +104,4 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
         }
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
-    }
 }

@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 = new(2026, 9, 7, 10, 0, 0, TimeSpan.Zero);
@@ -28,7 +28,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         await Persist(first);
         await Persist(second);
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         var accounts = new ExchangeAccountRepository(dbContext);
         var positions = new PositionRepository(dbContext);
         var portfolios = new PortfolioStateRepository(dbContext);
@@ -64,7 +64,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         var secondPosition = CreatePosition(secondAccount.Id, "ETHUSDT");
         var foreignUserId = UserId.New();
 
-        await using (var dbContext = await CreateMigratedContext())
+        await using (var dbContext = fixture.CreateContext())
         {
             var accountRepository = new ExchangeAccountRepository(dbContext);
             var positionRepository = new PositionRepository(dbContext);
@@ -74,7 +74,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             await positionRepository.SaveAsync(userId, secondPosition, expectedVersion: null);
         }
 
-        await using var queryContext = await CreateMigratedContext();
+        await using var queryContext = fixture.CreateContext();
         var queryRepository = new PositionRepository(queryContext);
         var firstResult = await queryRepository.GetByExchangeAccountAsync(userId, firstAccount.Id);
 
@@ -111,20 +111,20 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             leverage: 2m);
         owner.Recommendation.Acknowledge(T0.AddMinutes(5));
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await AssertForeignWriteRejected(
                 () => new ExchangeAccountRepository(context)
                     .SaveAsync(foreignUserId, changedAccount, ConcurrencyVersion.Initial));
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await AssertForeignWriteRejected(
                 () => new PositionRepository(context)
                     .SaveAsync(foreignUserId, owner.Position, ConcurrencyVersion.Initial));
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await AssertForeignWriteRejected(
                 () => new RecommendationRepository(context)
                     .SaveAsync(foreignUserId, owner.Recommendation, ConcurrencyVersion.Initial));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var accountRow = await verificationContext.ExchangeAccounts
             .SingleAsync(row => row.Id == owner.Account.Id.Value);
         var positionRow = await verificationContext.Positions
@@ -170,14 +170,14 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             owner.Assessment.PortfolioRiskDecision,
             owner.Assessment.ReasonCodes);
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await AssertForeignWriteRejected(
                 () => new PortfolioStateRepository(context).SaveAsync(foreignUserId, foreignPortfolio));
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
             await AssertForeignWriteRejected(
                 () => new PositionAssessmentRepository(context).SaveAsync(foreignUserId, foreignAssessment));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.Single(await verificationContext.PortfolioStates
             .Where(row => row.ExchangeAccountId == owner.Account.Id.Value)
             .ToArrayAsync());
@@ -197,7 +197,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         var owner = CreateAggregateSet("BTCUSDT");
         var foreign = CreateAggregateSet("ETHUSDT");
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext)
             .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
         await new ExchangeAccountRepository(dbContext)
@@ -231,7 +231,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
     {
         var owner = CreateAggregateSet("BTCUSDT");
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext)
             .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
         await new PositionRepository(dbContext)
@@ -259,7 +259,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         var owner = CreateAggregateSet("BTCUSDT");
         var foreign = CreateAggregateSet("ETHUSDT");
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext)
             .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
         await new ExchangeAccountRepository(dbContext)
@@ -293,7 +293,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         await AssertForeignWriteRejected(
             () => repository.SaveAsync(foreign.Account.UserId, crafted));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persisted = await verificationContext.PositionAssessments
             .SingleAsync(assessment => assessment.Id == owner.Assessment.Id.Value);
         Assert.Equal(owner.Assessment.PositionId.Value, persisted.PositionId);
@@ -326,7 +326,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             markPrice: 100m,
             unrealizedPnl: 0m);
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext)
             .SaveAsync(owner.Account.UserId, owner.Account, expectedVersion: null);
         await new PositionRepository(dbContext)
@@ -355,7 +355,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         await AssertForeignWriteRejected(
             () => repository.SaveAsync(owner.Account.UserId, crafted));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persisted = await verificationContext.PositionAssessments
             .SingleAsync(assessment => assessment.Id == owner.Assessment.Id.Value);
         Assert.Equal(owner.Assessment.PositionId.Value, persisted.PositionId);
@@ -374,7 +374,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         var account = CreateAccount(UserId.New());
         var foreignUserId = UserId.New();
 
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         await AssertForeignWriteRejected(
             () => new ExchangeAccountRepository(dbContext)
                 .SaveAsync(foreignUserId, account, expectedVersion: null));
@@ -385,7 +385,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
     [Fact]
     public async Task Exchange_account_user_id_is_required_and_indexed_in_model_and_database()
     {
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         var entityType = dbContext.Model.FindEntityType(typeof(ExchangeAccountEntity));
         Assert.NotNull(entityType);
         var userId = entityType!.FindProperty(nameof(ExchangeAccountEntity.UserId));
@@ -417,7 +417,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
 
     private async Task Persist(AggregateSet values)
     {
-        await using var dbContext = await CreateMigratedContext();
+        await using var dbContext = fixture.CreateContext();
         var userId = values.Account.UserId;
         await new ExchangeAccountRepository(dbContext)
             .SaveAsync(userId, values.Account, expectedVersion: null);
@@ -427,13 +427,6 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
         await new PositionAssessmentRepository(dbContext).SaveAsync(userId, values.Assessment);
         await new RecommendationRepository(dbContext)
             .SaveAsync(userId, values.Recommendation, expectedVersion: null);
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static AggregateSet CreateAggregateSet(string instrument)

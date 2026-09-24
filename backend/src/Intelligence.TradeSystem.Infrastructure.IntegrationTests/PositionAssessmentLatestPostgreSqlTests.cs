@@ -18,7 +18,7 @@ using Xunit.Abstractions;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-B")]
 public sealed class PositionAssessmentLatestPostgreSqlTests(
     PostgreSqlFixture fixture,
     ITestOutputHelper output)
@@ -34,7 +34,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         var second = CreateAssessment(account, position, T0.AddMinutes(2));
         var tied = CreateAssessment(account, position, T0.AddMinutes(2));
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAccountAndPosition(setup, account, position);
             var repository = new PositionAssessmentRepository(setup);
@@ -43,7 +43,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             await repository.SaveAsync(account.UserId, tied);
         }
 
-        await using var queryContext = await CreateMigratedContext();
+        await using var queryContext = fixture.CreateContext();
         var queryRepository = new PositionAssessmentRepository(queryContext);
         var latest = await queryRepository.GetLatestForPositionAsync(
             account.UserId,
@@ -67,13 +67,13 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         var owner = CreateAggregate(UserId.New(), "BTCUSDT");
         var foreign = CreateAggregate(UserId.New(), "ETHUSDT");
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAggregate(setup, owner);
             await SaveAggregate(setup, foreign);
         }
 
-        await using var queryContext = await CreateMigratedContext();
+        await using var queryContext = fixture.CreateContext();
         var repository = new PositionAssessmentRepository(queryContext);
 
         Assert.NotNull(await repository.GetLatestForPositionAsync(
@@ -92,14 +92,14 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         position.Close(T0.AddMinutes(1));
         var assessment = CreateAssessment(account, position, T0.AddMinutes(2));
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAccountAndPosition(setup, account, position);
             await new PositionAssessmentRepository(setup)
                 .SaveAsync(account.UserId, assessment);
         }
 
-        await using var queryContext = await CreateMigratedContext();
+        await using var queryContext = fixture.CreateContext();
         var latest = await new PositionAssessmentRepository(queryContext)
             .GetLatestForPositionAsync(account.UserId, position.Id);
 
@@ -123,7 +123,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             T0.AddMinutes(3),
             T0.AddMinutes(4));
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAccountAndPosition(setup, account, position);
             var assessments = new PositionAssessmentRepository(setup);
@@ -133,7 +133,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
                 .SaveAsync(account.UserId, recommendationR1, expectedVersion: null);
         }
 
-        await using var queryContext = await CreateMigratedContext();
+        await using var queryContext = fixture.CreateContext();
         var latest = await new PositionAssessmentRepository(queryContext)
             .GetLatestForPositionAsync(account.UserId, position.Id);
         var current = await new RecommendationRepository(queryContext)
@@ -161,17 +161,17 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             T0.AddMinutes(2),
             T0.AddMinutes(3));
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAccountAndPosition(setup, account, position);
         }
         int baselineOutboxCount;
-        await using (var baselineContext = await CreateMigratedContext())
+        await using (var baselineContext = fixture.CreateContext())
         {
             baselineOutboxCount = await baselineContext.OutboxMessages.CountAsync();
         }
 
-        await using (var context = await CreateMigratedContext())
+        await using (var context = fixture.CreateContext())
         {
             var assessments = new PositionAssessmentRepository(context);
             var recommendations = new RecommendationRepository(context);
@@ -204,7 +204,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
                 }));
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.Null(await new PositionAssessmentRepository(verificationContext)
             .GetLatestForPositionAsync(account.UserId, position.Id));
         Assert.Null(await new RecommendationRepository(verificationContext)
@@ -218,7 +218,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         var account = CreateAccount(UserId.New());
         var position = CreatePosition(account.Id);
 
-        await using (var setup = await CreateMigratedContext())
+        await using (var setup = fixture.CreateContext())
         {
             await SaveAccountAndPosition(setup, account, position);
         }
@@ -237,7 +237,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
 
         await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.Equal(
             2,
             await verificationContext.PositionAssessments.CountAsync(
@@ -260,7 +260,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         var position = CreatePosition(account.Id);
         var interceptor = new CommandCaptureInterceptor();
 
-        await using (var setup = await CreateMigratedContext(interceptor))
+        await using (var setup = CreateContext(interceptor))
         {
             await SaveAccountAndPosition(setup, account, position);
             var assessments = new PositionAssessmentRepository(setup);
@@ -273,7 +273,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         }
 
         interceptor.Commands.Clear();
-        await using var queryContext = await CreateMigratedContext(interceptor);
+        await using var queryContext = CreateContext(interceptor);
         var latest = await new PositionAssessmentRepository(queryContext)
             .GetLatestForPositionAsync(account.UserId, position.Id);
         var generatedSql = interceptor.Commands
@@ -309,7 +309,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
         Assert.DoesNotContain("\"Node Type\": \"Sort\"", explain);
     }
 
-    private async Task<TradeSystemDbContext> CreateMigratedContext(
+    private TradeSystemDbContext CreateContext(
         DbCommandInterceptor? interceptor = null)
     {
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
@@ -321,7 +321,6 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             options.AddInterceptors(interceptor);
 
         var context = new TradeSystemDbContext(options.Options);
-        await context.Database.MigrateAsync();
         return context;
     }
 

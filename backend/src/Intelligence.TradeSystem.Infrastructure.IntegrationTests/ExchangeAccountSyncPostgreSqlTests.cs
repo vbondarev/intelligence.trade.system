@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
-[Collection("PostgreSql")]
+[Collection("PostgreSql-A")]
 public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T0 =
@@ -31,7 +31,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     public async Task Concurrent_same_observation_converges_to_one_position_history_and_portfolio()
     {
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -52,7 +52,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Contains(results, result => result.Outcome == ExchangeAccountSyncOutcome.Synchronized);
         Assert.Contains(results, result => result.Outcome == ExchangeAccountSyncOutcome.AlreadyApplied);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedAccount = await new ExchangeAccountRepository(verificationContext)
             .GetByIdAsync(account.UserId, account.Id);
         var persistedPositions = await new PositionRepository(verificationContext)
@@ -111,7 +111,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         // of which of the two overlapping attempts happens to commit first, while the
         // account/position row locks are still genuinely contended via the fetch barrier.
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -141,7 +141,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 or ExchangeAccountSyncOutcome.Superseded,
             $"Unexpected outcome for the older attempt: {results[0].Outcome}.");
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedPositions = await new PositionRepository(verificationContext)
             .GetByExchangeAccountAsync(account.UserId, account.Id);
         Assert.Equal(2, persistedPositions.Count);
@@ -177,7 +177,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     {
         var owner = CreateAccount();
         var otherUser = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             var accountRepository = new ExchangeAccountRepository(setupContext);
             await accountRepository.SaveAsync(owner.UserId, owner, expectedVersion: null);
@@ -187,7 +187,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Position btc;
         Position eth;
         Position foreign;
-        await using (var seedContext = await CreateMigratedContext())
+        await using (var seedContext = fixture.CreateContext())
         {
             var positions = new PositionRepository(seedContext);
             btc = Position.Create(
@@ -225,7 +225,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             await positions.SaveAsync(otherUser.UserId, foreign, expectedVersion: null);
         }
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var repository = new PositionRepository(verificationContext);
         var watermark = await repository.GetVersionWatermarkByExchangeAccountAsync(owner.UserId, owner.Id);
         var full = await repository.GetByExchangeAccountAsync(owner.UserId, owner.Id);
@@ -265,7 +265,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             markPrice: 100m,
             unrealizedPnl: 0m);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -305,7 +305,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Equal(1, olderProvider.BalanceCalls);
         Assert.Equal(1, newerProvider.BalanceCalls);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedAccount = await new ExchangeAccountRepository(verificationContext)
             .GetByIdAsync(account.UserId, account.Id);
         var persistedPosition = await new PositionRepository(verificationContext)
@@ -376,7 +376,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             markPrice: 100m,
             unrealizedPnl: 0m);
 
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -389,7 +389,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             new TestPrivateProvider(CreateObservation(T1, 1m)),
             T1);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedPosition = await new PositionRepository(verificationContext)
             .GetByIdAsync(account.UserId, initialPosition.Id);
         Assert.NotNull(persistedPosition);
@@ -416,7 +416,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     public async Task Newer_commit_first_supersedes_older_response_without_closing_position()
     {
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
@@ -454,7 +454,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Equal(1, olderProvider.BalanceCalls);
         Assert.Equal(1, newerProvider.BalanceCalls);
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         var persistedAccount = await new ExchangeAccountRepository(verificationContext)
             .GetByIdAsync(account.UserId, account.Id);
         var persistedPositions = await new PositionRepository(verificationContext)
@@ -493,14 +493,14 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     public async Task Failed_persistence_rolls_back_business_state_and_outbox()
     {
         var account = CreateAccount();
-        await using (var setupContext = await CreateMigratedContext())
+        await using (var setupContext = fixture.CreateContext())
         {
             await new ExchangeAccountRepository(setupContext)
                 .SaveAsync(account.UserId, account, expectedVersion: null);
         }
         int baselinePositionChangeCount;
         int baselineOutboxCount;
-        await using (var baselineContext = await CreateMigratedContext())
+        await using (var baselineContext = fixture.CreateContext())
         {
             baselinePositionChangeCount = await baselineContext.PositionChanges.CountAsync();
             baselineOutboxCount = await baselineContext.OutboxMessages.CountAsync();
@@ -513,7 +513,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 T1,
                 throwAfterOperation: true));
 
-        await using var verificationContext = await CreateMigratedContext();
+        await using var verificationContext = fixture.CreateContext();
         Assert.Empty(await new PositionRepository(verificationContext)
             .GetByExchangeAccountAsync(account.UserId, account.Id));
         Assert.Equal(baselinePositionChangeCount, await verificationContext.PositionChanges.CountAsync());
@@ -554,13 +554,6 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             new FixedTimeProvider(calculatedAt.AddMinutes(1)));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);
-    }
-
-    private async Task<TradeSystemDbContext> CreateMigratedContext()
-    {
-        var context = fixture.CreateContext();
-        await context.Database.MigrateAsync();
-        return context;
     }
 
     private static ExchangeAccount CreateAccount() =>
