@@ -102,7 +102,7 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 2. Высокая доля нарушений — больше KlineHighViolationRateThreshold входных klines не прошли validation.
+        // 2. Высокая доля нарушений — доля входных klines, не прошедших validation, превышает KlineHighViolationRateThreshold.
         if (violations.Count > 0 &&
             violations.Count / (decimal)klines.Count > AnalysisThresholds.KlineHighViolationRateThreshold)
         {

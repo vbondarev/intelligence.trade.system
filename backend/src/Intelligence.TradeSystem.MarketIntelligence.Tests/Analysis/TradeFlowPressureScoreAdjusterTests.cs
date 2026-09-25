@@ -95,7 +95,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
     public void Conflict_With_OrderBook_Caps_Score_At_0_50()
     {
         var now = DateTimeOffset.UtcNow;
-        // Long direction, большой объём, свежие данные > применяется conflict cap
+        // Long window, большой объём, свежие данные → применяется только conflict cap
         var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300, buyVolume: 50m, sellVolume: 50m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(

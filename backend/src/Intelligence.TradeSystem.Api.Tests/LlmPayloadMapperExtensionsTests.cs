@@ -242,7 +242,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     {
         // Сценарий BTCUSDT для H4:
         // - Медвежий bias, но цена выше EMA (конфликт EMA)
-        // - очень низкое значение window (0.0184)
+        // - очень низкий объём (VolumeRatio = 0.0184)
         // - нейтральный режим
         var h4 = new TimeframeAnalysisSnapshot
         {
