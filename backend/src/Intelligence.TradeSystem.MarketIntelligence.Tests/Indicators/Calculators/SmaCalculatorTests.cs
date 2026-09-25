@@ -67,7 +67,7 @@ public sealed class SmaCalculatorTests
     [Fact]
     public void Returns_Available_Average_Of_Last_N_Values_When_Count_Greater_Than_Period()
     {
-        // last 3: [3m, 10m, 20m] → average = 11m
+        // последние 3: [3m, 10m, 20m] → среднее = 11m
         var result = SmaCalculator.Compute([1m, 2m, 3m, 10m, 20m], period: 3);
 
         result.Value.Should().Be(11m);
@@ -125,7 +125,7 @@ public sealed class SmaCalculatorTests
     [MemberData(nameof(FlatSeriesCases))]
     public void Returns_Available_Constant_For_Flat_Series(double constantD, int count, int period)
     {
-        // SMA flat series: каждое скользящее окно состоит из одного и того же значения,
+        // Постоянный ряд SMA: каждое скользящее окно состоит из одного и того же значения,
         // поэтому результат обязан точно совпадать с константой, а не быть приближённым.
         var constant = (decimal)constantD;
         var values = Enumerable.Repeat(constant, count).ToArray();

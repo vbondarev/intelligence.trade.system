@@ -507,7 +507,7 @@ public sealed class TimeframeSummaryBuilderTests
     public void Build_AtrFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
     {
         // Все критические индикаторы доступны, ATR рассчитан по partial window (fallback).
-        // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → cap на уровне Fair.
+        // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → ограничение на уровне Fair.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, rsi14IsReliable: true,

@@ -103,7 +103,7 @@ public static class SentimentSnapshotAssembler
             orderBook.ImbalanceTop20 * ImbalanceWeightTop20,
             4);
 
-        // 5. TradeFlowPressureScore — нормализованная delta + минимальный уровень aggressive pressure + quality caps
+        // 5. TradeFlowPressureScore — нормализованная delta + минимальный уровень агрессивного давления + ограничения качества
         var tradeFlowPressureScore = ComputeTradeFlowPressureScore(
             tradeFlow,
             orderBookPressureScore,
@@ -172,7 +172,7 @@ public static class SentimentSnapshotAssembler
             score = -AggressivePressureFloor;
         }
 
-        // Применяем quality caps (freshness / длительность окна / volume / конфликт с orderBook)
+        // Применяем ограничения качества (актуальность / длительность окна / объём / конфликт с orderBook)
         score = TradeFlowPressureScoreAdjuster.ApplyCaps(
             score,
             tradeFlow,

@@ -328,7 +328,7 @@ public static class TimeframeSummaryBuilder
             AddVolumeThresholdFlags(s.VolumeRatio, Add);
         }
 
-        // ── Flags конфликтов EMA ─────────────────────────────────────────────
+        // ── Флаги конфликтов EMA ──────────────────────────────────────────────
         if (!s.EmaIsReliable)
         {
             Add("EmaDataUnavailable");
@@ -338,7 +338,7 @@ public static class TimeframeSummaryBuilder
             AddEmaRiskFlags(s, bias, Add);
         }
 
-        // ── Близость opposite level ────────────────────────────────────────────
+        // ── Близость противоположного уровня ──────────────────────────────────
         if (oppDistancePct is >= 0m and < EntryQualityEvaluator.NearOppositeThreshold)
         {
             if (bias == TimeframeBias.Bullish)
@@ -357,7 +357,7 @@ public static class TimeframeSummaryBuilder
                 Add("NearSupport");
         }
 
-        // ── Entry level: отсутствует или слабый ───────────────────────────────
+        // ── Уровень входа: отсутствует или слабый ─────────────────────────────
         AddEntryLevelRiskFlags(s, bias, entryLevelStrength, Add);
 
         // ── Режим рынка ──────────────────────────────────────────────────────
@@ -430,7 +430,7 @@ public static class TimeframeSummaryBuilder
             return;
         }
 
-        // При Neutral bias не добавляем directional EMA flags, но отмечаем смешанный/структурный conflict.
+        // При Neutral bias не добавляем направленные EMA-флаги, но отмечаем смешанный/структурный конфликт.
         if (s.Trend == MarketTrend.Bullish || s.Trend == MarketTrend.Bearish)
             add("EmaConflict");
 
@@ -503,7 +503,7 @@ public static class TimeframeSummaryBuilder
         && s.DistanceToSupport1Pct is >= 0m and < RangeLevelDistanceThreshold
         && s.DistanceToResistance1Pct is >= 0m and < RangeLevelDistanceThreshold;
 
-    // ─── Разрешение entry level / opposite level ───────────────────────────────
+    // ─── Разрешение уровня входа / противоположного уровня ───────────────────
 
     /// <summary>
     /// Возвращает нормализованную силу уровня входа для данного bias.
@@ -595,7 +595,7 @@ public static class TimeframeSummaryBuilder
         return (distancePct, strength, isHigherTf);
     }
 
-    // ─── Вспомогательные методы market regime ───────────────────────────────
+    // ─── Вспомогательные методы режима рынка ─────────────────────────────────
 
     private static string? NormalizeMarketRegime(string? marketRegime) =>
         string.IsNullOrWhiteSpace(marketRegime) ? null : marketRegime.Trim();

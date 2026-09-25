@@ -74,7 +74,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_ZeroDistance_Confirmed_ReturnsGood()
     {
-        // dist == 0 означает, что цена находится точно на support level (retest).
+        // dist == 0 означает, что цена находится точно на уровне поддержки (ретест).
         // Это корректный сигнал входа, а не отсутствие данных.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0m);
 
@@ -118,7 +118,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_ZeroDistance_Confirmed_ReturnsGood()
     {
-        // dist == 0 означает, что цена находится точно на resistance level (retest).
+        // dist == 0 означает, что цена находится точно на уровне сопротивления (ретест).
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0m);
 
         result.Should().Be(EntryQuality.Good,
@@ -881,7 +881,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void ZeroDistance_Unconfirmed_ReturnsFair()
     {
-        // Retest без подтверждения тренда → Fair (не Good и не Poor)
+        // Ретест без подтверждения тренда → Fair (не Good и не Poor)
         var result = EvaluateBullish(confirmed: false, support1: 99m, distS: 0m);
 
         result.Should().Be(EntryQuality.Fair,
@@ -891,7 +891,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void NegativeDistance_DoesNotReturnPoor_FromLevelQuality()
     {
-        // Negative dist < 0 означает, что level находится на wrong side относительно цены.
+        // Отрицательный dist < 0 означает, что level находится на неверной стороне относительно цены.
         // EvaluateLevelBasedQuality возвращает Poor при dist < 0.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: -0.5m);
 
@@ -944,7 +944,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma20: true, isAboveEma50: true,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
-        // entryLevelStrength не передан → null → cap Fair
+        // entryLevelStrength не передан → null → ограничение Fair
 
         result.Should().NotBe(EntryQuality.Good,
             because: "omitted entryLevelStrength defaults to null → unknown strength → cap Fair");
@@ -967,7 +967,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_UnknownEma20_Null_CapsAtFair()
     {
-        // isAboveEma20 = null означает, что данные EMA20 недоступны → считаем это conflict.
+        // isAboveEma20 = null означает, что данные EMA20 недоступны → считаем это конфликтом.
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -1065,7 +1065,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void MarketRegime_Null_CapsAtFair()
     {
-        // Null regime: значение неизвестно → консервативный cap Fair.
+        // Режим null: значение неизвестно → консервативное ограничение Fair.
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -1106,7 +1106,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void OppDistancePct_Negative_IsIgnoredAsObstacle_Bullish()
     {
-        // Отрицательная дистанция означает, что level ниже цены (wrong side для bullish).
+        // Отрицательная дистанция означает, что level ниже цены (неверная сторона для bullish).
         // Качество не должно ухудшаться — это не препятствие.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: -0.10m, oppStrength: 0.85m);

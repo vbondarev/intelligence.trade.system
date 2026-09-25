@@ -52,7 +52,7 @@ public sealed class TrendClassifierTests
         score.Should().Be(0.49m);
     }
 
-    // ── Strength score: направленные тренды ─────────────────────────────────
+    // ── Оценка силы: направленные тренды ─────────────────────────────────────
 
     [Fact]
     public void StrengthScore_Is_0_8_For_Full_Bullish_Alignment_Without_Volume_Boost()
@@ -114,7 +114,7 @@ public sealed class TrendClassifierTests
         score.Should().BeLessThanOrEqualTo(1m);
     }
 
-    // ── Strength score: контракты для sideways ─────────────────────────────────
+    // ── Оценка силы: контракты для бокового рынка ───────────────────────────────
 
     [Fact]
     public void Sideways_StrengthScore_Is_Not_Greater_Than_0_49()

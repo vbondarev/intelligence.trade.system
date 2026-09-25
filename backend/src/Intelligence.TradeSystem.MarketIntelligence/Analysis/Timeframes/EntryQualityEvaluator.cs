@@ -167,7 +167,7 @@ internal static class EntryQualityEvaluator
 
         if (bias == TimeframeBias.Bullish)
         {
-            // null = положение неизвестно → консервативно считаем, что нахождение выше EMA не подтверждено → conflict
+            // null = положение неизвестно → консервативно считаем, что нахождение выше EMA не подтверждено → конфликт
             int conflictCount = (isAboveEma20 == true ? 0 : 1) + (isAboveEma50 == true ? 0 : 1);
             return conflictCount switch
             {
@@ -178,7 +178,7 @@ internal static class EntryQualityEvaluator
         }
 
         // Bearish: конфликт — когда цена выше EMA.
-        // null = положение неизвестно → консервативно считаем, что нахождение ниже EMA не подтверждено → conflict.
+        // null = положение неизвестно → консервативно считаем, что нахождение ниже EMA не подтверждено → конфликт.
         {
             int conflictCount = (isAboveEma20 == false ? 0 : 1) + (isAboveEma50 == false ? 0 : 1);
             return conflictCount switch
@@ -212,7 +212,7 @@ internal static class EntryQualityEvaluator
     internal static EntryQuality ApplyMarketRegimeRule(
         EntryQuality quality, string? marketRegime, decimal? volumeRatio, bool hasEmaConflict)
     {
-        // Неизвестный regime: применяем консервативный cap — Good запрещён, максимум Fair.
+        // Неизвестный режим: применяем консервативное ограничение — Good запрещён, максимум Fair.
         if (string.IsNullOrWhiteSpace(marketRegime))
             return CapAt(quality, EntryQuality.Fair);
 
@@ -247,7 +247,7 @@ internal static class EntryQualityEvaluator
 
         var dist = oppDistancePct.Value;
 
-        // Отрицательная дистанция: level находится позади направления сделки, по другую сторону текущей цены, и не является препятствием.
+        // Отрицательная дистанция: уровень находится позади направления сделки, по другую сторону текущей цены, и не является препятствием.
         if (dist < 0m) return quality;
 
         if (dist >= NearOppositeThreshold) return quality;
@@ -275,7 +275,7 @@ internal static class EntryQualityEvaluator
     {
         if (level is null) return EntryQuality.Poor;
         if (rsiExtreme) return EntryQuality.Poor;
-        // null → данных нет; отрицательное значение → wrong side. Ноль допустим (retest непосредственно на level).
+        // null → данных нет; отрицательное значение → неверная сторона. Ноль допустим (ретест непосредственно на уровне).
         if (distancePct is not { } dist || dist < 0m) return EntryQuality.Poor;
         if (dist > FairMaxDistance) return EntryQuality.Poor;
 

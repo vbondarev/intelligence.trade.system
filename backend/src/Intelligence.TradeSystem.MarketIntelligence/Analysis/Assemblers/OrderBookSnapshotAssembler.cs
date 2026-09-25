@@ -55,7 +55,7 @@ public static class OrderBookSnapshotAssembler
         var imbalanceTop10 = Imbalance(bidTop10, askTop10);
         var imbalanceTop20 = Imbalance(bidTop20, askTop20);
 
-        // 3. Top levels (до 20)
+        // 3. Лучшие уровни (до 20)
         var topBids = orderBook.Bids.Take(20)
             .Select(e => new OrderBookLevel { Price = e.Price, Size = e.Size })
             .ToList();

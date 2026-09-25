@@ -359,7 +359,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Should().BeNull();
     }
 
-    // ── Determinism ──────────────────────────────────────────────────────────
+    // ── Детерминированность ──────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Deterministic_Result_For_Same_Input()

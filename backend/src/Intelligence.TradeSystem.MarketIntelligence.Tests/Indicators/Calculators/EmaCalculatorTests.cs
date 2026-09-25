@@ -179,7 +179,7 @@ public sealed class EmaCalculatorTests
         result.IsAvailable.Should().BeTrue();
     }
 
-    // ── Инвариант flat series ───────────────────────────────────────────────
+    // ── Инвариант постоянного ряда ───────────────────────────────────────────
 
     [Theory]
     [InlineData(50, 30, 10)]  // 30 значений × 50m,  period=10
@@ -187,7 +187,7 @@ public sealed class EmaCalculatorTests
     [InlineData(100, 15, 5)]  // 15 значений × 100m, period=5
     public void Returns_Available_Constant_For_Flat_Series(decimal constant, int count, int period)
     {
-        // Для flat-серии EMA инициализируется через SMA константы и остаётся константой на всех шагах.
+        // Для постоянного ряда EMA инициализируется через SMA константы и остаётся константой на всех шагах.
         var values = Enumerable.Repeat(constant, count).ToArray();
 
         var result = EmaCalculator.Compute(values, period);

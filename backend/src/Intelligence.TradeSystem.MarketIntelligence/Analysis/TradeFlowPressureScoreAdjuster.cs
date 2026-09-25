@@ -115,7 +115,7 @@ internal static class TradeFlowPressureScoreAdjuster
         // 1. Ограничение актуальности (только при наличии reference time)
         cap = Math.Min(cap, ComputeFreshnessCap(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs));
 
-        // 2. Cap по длительности окна
+        // 2. Ограничение по длительности окна
         var windowSeconds = (tradeFlow.WindowEndUtc - tradeFlow.WindowStartUtc).TotalSeconds;
         cap = Math.Min(cap, ComputeWindowCap(windowSeconds));
 
@@ -131,7 +131,7 @@ internal static class TradeFlowPressureScoreAdjuster
             cap = Math.Min(cap, conflictCap);
         }
 
-        // Применяем cap с сохранением знака
+        // Применяем ограничение с сохранением знака
         return ApplyCapToScore(rawScore, cap);
     }
 

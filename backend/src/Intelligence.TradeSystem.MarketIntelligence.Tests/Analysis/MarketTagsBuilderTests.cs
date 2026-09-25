@@ -386,7 +386,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().Contain(MarketTagsBuilder.TagNear24hHigh);
     }
 
-    // ─── Сценарий 3: volatile market regime ──────────────────────────────────
+    // ─── Сценарий 3: волатильный рыночный режим ────────────────────────────────
 
     [Fact]
     public void MarketRegime_Volatile_Adds_VolatileRegime_Tag()
@@ -400,7 +400,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagBearishRegime);
     }
 
-    // ─── Сценарий 4: declining OI ────────────────────────────────────────────
+    // ─── Сценарий 4: снижение OI ───────────────────────────────────────────────
 
     [Fact]
     public void Derivatives_DecliningOI_Adds_OiDeclining_Tag()
@@ -417,7 +417,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagOiRising);
     }
 
-    // ─── Сценарий 5: possible long unwinding ─────────────────────────────────
+    // ─── Сценарий 5: возможное закрытие лонгов ─────────────────────────────────
 
     [Fact]
     public void AggressiveSelling_With_DecliningOI_Adds_PossibleLongUnwinding_Tag()
@@ -438,7 +438,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagPossibleShortCovering);
     }
 
-    // ─── Сценарий 6: низкий объём на primary timeframe ─────────────────────────
+    // ─── Сценарий 6: низкий объём на основном таймфрейме ────────────────────────
 
     [Fact]
     public void PrimaryTimeframe_LowVolumeRatio_Adds_LowVolume_Tag()
