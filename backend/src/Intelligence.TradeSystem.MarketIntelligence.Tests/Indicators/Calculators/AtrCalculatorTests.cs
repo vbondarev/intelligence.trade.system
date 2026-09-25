@@ -212,7 +212,7 @@ public sealed class AtrCalculatorTests
     [Fact]
     public void Returns_Fallback_Average_When_TrueRanges_Count_Less_Than_Period()
     {
-        // 3 свечи → 2 True Range, period = 14 → partial
+        // 3 свечи → 2 True Range, period = 14 → неполное окно
         // TR[0] = max(|110-100|=10, |110-95|=15, |100-95|=5) = 15
         // TR[1] = max(|120-110|=10, |120-105|=15, |110-105|=5) = 15
         // Average = 15

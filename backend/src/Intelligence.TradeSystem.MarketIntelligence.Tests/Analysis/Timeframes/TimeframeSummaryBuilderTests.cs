@@ -313,7 +313,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
     }
 
-    // ─── 13.2: RSI unavailable — неполное окно не становится oversold ────────
+    // ─── 13.2: RSI unavailable — не должен становиться oversold ───────────────
 
     [Fact]
     public void Build_RsiUnavailable_NoOversoldOrOverboughtFlags_EntryQualityNotGood()
@@ -804,7 +804,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ───  2: m15, нейтральный режим, низкий объём, близко сопротивление ──────
+    // ─── Сценарий 2: m15, нейтральный режим, низкий объём, близко сопротивление ─
 
     [Fact]
     public void RiskFlags_Scenario2_M15NeutralLowVolumeNearResistance()

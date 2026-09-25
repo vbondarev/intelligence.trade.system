@@ -133,7 +133,7 @@ public sealed class IndicatorPipelineIntegrationTests
         s.IsAboveEma200.Should().Be(expectedAbove200);
     }
 
-    // ─── 6: недоступный RSI не создаёт ложный oversold ───────────────
+    // ─── Сценарий 6: недоступный RSI не создаёт ложный oversold ────────
 
     [Fact]
     public void Pipeline_Does_Not_Mark_RsiOversold_When_Rsi_Is_Unavailable()
@@ -176,7 +176,7 @@ public sealed class IndicatorPipelineIntegrationTests
         s.VolumeRatioIsReliable.Should().BeTrue();
     }
 
-    // ─── 8: стабильный порядок diagnostics ──────────────────────────
+    // ─── Сценарий 8: стабильный порядок diagnostics ───────────────────
 
     [Fact]
     public void Pipeline_Diagnostics_Are_In_Stable_Indicator_Order_Within_Timeframe()
@@ -199,7 +199,7 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "indicator diagnostics must be emitted in the canonical stable order");
     }
 
-    // ─── 8b: diagnostic volumeRatio идёт после volumeSma20 ───────────
+    // ─── Сценарий 8b: diagnostic volumeRatio идёт после volumeSma20 ────
 
     [Fact]
     public void Pipeline_VolumeRatio_Diagnostic_Comes_After_VolumeSma20_In_Stable_Order()
@@ -228,7 +228,7 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "volumeRatio must be the last diagnostic in stable order");
     }
 
-    // ─── 9: количество diagnostics assembler по нескольким таймфреймам ─
+    // ─── Сценарий 9: количество diagnostics assembler по нескольким таймфреймам ─
 
     [Fact]
     public void MarketSnapshotAssembler_Aggregates_Diagnostics_From_All_Timeframes()

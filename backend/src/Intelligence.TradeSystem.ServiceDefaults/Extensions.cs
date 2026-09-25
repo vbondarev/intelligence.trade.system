@@ -120,7 +120,7 @@ public static class Extensions
     {
         builder.Services
             .AddHealthChecks()
-            // Добавить стандартную проверку доступности, чтобы убедиться в готовности приложения отвечать
+            // Добавить стандартную проверку работоспособности (liveness), чтобы убедиться, что приложение отвечает
             .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
 
         return builder;
