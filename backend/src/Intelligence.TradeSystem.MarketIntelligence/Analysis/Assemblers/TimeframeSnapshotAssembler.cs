@@ -84,7 +84,7 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // Degradation policy: добавляем дополнительные diagnostics для структурно значимых проблем качества данных.
+        // Политика деградации: добавляем дополнительные diagnostics для структурно значимых проблем качества данных.
 
         // 1. Последняя по времени свеча отфильтрована — самые свежие рыночные данные отсутствуют.
         var originalLatest = klines.Max(k => k.StartTime);
@@ -160,7 +160,7 @@ public static class TimeframeSnapshotAssembler
             : null;
 
         // Диагностика volumeRatio — добавляем её, если ratio для окна вычислить нельзя.
-        // Two cases:
+        // Два случая:
         //   InvalidInput     — SMA доступна, но равна 0 (все объёмы нулевые); существующие diagnostics этот случай не покрывают.
         //   InsufficientData — сама SMA недоступна (diagnostic для volumeSma20 уже существует, но
         //                      производный индикатор всё равно указываем явно для ясности потребителя).
@@ -207,7 +207,7 @@ public static class TimeframeSnapshotAssembler
                 volumeRatio ?? 0m);   // TrendClassifier ожидает decimal; null → 0 (без volume boost)
         }
 
-        // 6. Derived signals
+        // 6. Производные сигналы
         var lastKline = sorted[^1];
 
         var candleRangePct = lastKline.Close > 0m

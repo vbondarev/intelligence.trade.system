@@ -39,7 +39,7 @@ public static class OrderBookSnapshotAssembler
             throw new ArgumentException("Order book must contain at least one bid and one ask level.", nameof(orderBook));
         }
 
-        // 1. Mid price
+        // 1. Средняя цена (mid price)
         var midPrice = (orderBook.Bids[0].Price + orderBook.Asks[0].Price) / 2m;
 
         // 2. Агрегируем объёмы для top 5 / 10 / 20

@@ -52,15 +52,15 @@ public static class FundingRateSnapshotAssembler
         var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
-        // 3. Averages
+        // 3. Средние значения
         var avg24h = sorted.Take(Periods24h).Average(e => e.FundingRate);
         var avg7d = sorted.Take(Periods7d).Average(e => e.FundingRate);
 
-        // 4. Max / Min
+        // 4. Максимум / минимум
         var max = sorted.Max(e => e.FundingRate);
         var min = sorted.Min(e => e.FundingRate);
 
-        // 5. Flags
+        // 5. Флаги
         var isPositive = current.FundingRate > 0m;
         var isExtremeBullish = current.FundingRate > ExtremeFundingThreshold;
         var isExtremeBearish = current.FundingRate < -ExtremeFundingThreshold;

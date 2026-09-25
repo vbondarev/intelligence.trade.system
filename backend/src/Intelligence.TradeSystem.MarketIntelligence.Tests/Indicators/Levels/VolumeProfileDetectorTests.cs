@@ -615,7 +615,7 @@ public sealed class VolumeProfileDetectorTests
             because: "две раздельные HVN-зоны не должны быть склеены в один кластер");
     }
 
-    // ── VolumeProfileOptions integration ─────────────────────────────────────
+    // ── Интеграция VolumeProfileOptions ──────────────────────────────────────
 
     [Fact]
     public void Null_Options_Uses_Default_And_Produces_Same_Result_As_Explicit_Default()
@@ -729,7 +729,7 @@ public sealed class VolumeProfileDetectorTests
         }
     }
 
-    // ── Signal vs noise ───────────────────────────────────────────────────────
+    // ── Сигнал и шум ─────────────────────────────────────────────────────────
 
     [Fact]
     public void Selects_Strong_Zone_Over_Noisy_Background()

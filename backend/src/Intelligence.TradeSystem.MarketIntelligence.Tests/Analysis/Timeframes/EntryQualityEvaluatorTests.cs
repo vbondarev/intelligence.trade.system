@@ -258,7 +258,7 @@ public sealed class EntryQualityEvaluatorTests
                 because: $"Bearish: dist={dist} > FairMaxDistance → Poor, Fair impossible");
     }
 
-    // ─── Volume rule ─────────────────────────────────────────────────────────
+    // ─── Правило объёма ───────────────────────────────────────────────────────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish)]
@@ -291,7 +291,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "null volumeRatio → conservative cap at Fair");
     }
 
-    // ─── EMA rule ─────────────────────────────────────────────────────────────
+    // ─── Правило EMA ──────────────────────────────────────────────────────────
 
     [Fact]
     public void Bullish_BothEmaConflicts_Returns_Poor()
@@ -381,7 +381,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "marketRegime=Neutral + low volume → Poor");
     }
 
-    // ─── CapAt helper ─────────────────────────────────────────────────────────
+    // ─── Вспомогательный метод CapAt ───────────────────────────────────────────
 
     [Fact]
     public void BtcUsdt_M15_Like_Snapshot_Returns_Poor()
@@ -549,13 +549,13 @@ public sealed class EntryQualityEvaluatorTests
             because: "null opposite level → no constraint applied → Good if other conditions OK");
     }
 
-    // ─── CapAt theory ─────────────────────────────────────────────────────────
+    // ─── Теория для CapAt ──────────────────────────────────────────────────────
 
     [Fact]
     public void BtcUsdt_M15_Like_WithHigherTfResistance_Returns_Poor()
     {
         // Bullish, низкий объём, ниже EMA, stale, нейтральный режим,
-        // higher TF resistance at 0.05% (≈ 77437 → 77480)
+        // сопротивление higher TF на расстоянии 0.05% (≈ 77437 → 77480)
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -790,8 +790,8 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: false,
             snapshotIsFresh: false,
             marketRegime: MarketRegimes.Neutral,
-            entryLevelStrength: 0.50m,   // Moderate support
-            oppDistancePct: 0.05m,        // h4 resistance at ~77480 (≈0.05% from 77437)
+            entryLevelStrength: 0.50m,   // умеренная поддержка
+            oppDistancePct: 0.05m,        // сопротивление H4 около 77480 (≈0.05% от 77437)
             oppStrength: 0.80m);
 
         result.Should().Be(EntryQuality.Poor,
@@ -832,7 +832,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: true,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending,
-            entryLevelStrength: 0.80m,   // Strong support
+            entryLevelStrength: 0.80m,   // сильная поддержка
             oppDistancePct: null,
             oppStrength: null);
 
@@ -853,7 +853,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: false,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending,
-            entryLevelStrength: 0.80m,   // Strong resistance
+            entryLevelStrength: 0.80m,   // сильное сопротивление
             oppDistancePct: null,
             oppStrength: null);
 
@@ -861,7 +861,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "clean bearish: confirmed + strong resistance + volume OK + EMA OK + fresh + Trending → Good");
     }
 
-    // ─── CapAt theory ─────────────────────────────────────────────────────────
+    // ─── Теория для CapAt ──────────────────────────────────────────────────────
     [Theory]
     [InlineData(EntryQuality.Good, EntryQuality.Fair, EntryQuality.Fair)]
     [InlineData(EntryQuality.Good, EntryQuality.Poor, EntryQuality.Poor)]
@@ -876,7 +876,7 @@ public sealed class EntryQualityEvaluatorTests
                 because: $"CapAt({quality}, {max}) should return {expected}");
     }
 
-    // ─── Regression: distance == 0 ───────────────────────────────────────────
+    // ─── Регрессия: distance == 0 ──────────────────────────────────────────────
 
     [Fact]
     public void ZeroDistance_Unconfirmed_ReturnsFair()
@@ -906,7 +906,7 @@ public sealed class EntryQualityEvaluatorTests
     {
         // Resistance ниже текущей цены находится позади направления сделки, а не впереди.
         // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
-        // При передаче null evaluator не должен штрафовать сделку за окно.
+        // При передаче null evaluator не должен ухудшать качество сделки из-за opposite level.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -1047,7 +1047,7 @@ public sealed class EntryQualityEvaluatorTests
     [Theory]
     [InlineData("neutral")]           // lowercase
     [InlineData("NEUTRAL")]           // uppercase
-    [InlineData(" Neutral ")]         // trimming needed
+    [InlineData(" Neutral ")]         // требуется trimming
     [InlineData("  neutral  ")]       // лишние пробелы + lowercase
     public void MarketRegime_CaseAndWhitespacVariants_AreTreatedAsNeutral_CapsAtFair(string regime)
     {
@@ -1101,7 +1101,7 @@ public sealed class EntryQualityEvaluatorTests
             because: $"empty/whitespace marketRegime → unknown → conservative cap Fair");
     }
 
-    // ─── New: oppDistancePct < 0 ──────────────────────────────────────────────
+    // ─── Новый сценарий: oppDistancePct < 0 ───────────────────────────────────
 
     [Fact]
     public void OppDistancePct_Negative_IsIgnoredAsObstacle_Bullish()

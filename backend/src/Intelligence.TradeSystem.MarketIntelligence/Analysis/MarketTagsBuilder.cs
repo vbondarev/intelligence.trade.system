@@ -68,7 +68,7 @@ internal static class MarketTagsBuilder
     public const string TagOrderBookTradeFlowConflict = MarketTagConstants.OrderBookTradeFlowConflict;
     public const string TagWeakTradeFlowConfirmation = MarketTagConstants.WeakTradeFlowConfirmation;
 
-    // ─── V2 whitelist — orderBook ──────────────────────────────────────────────
+    // ─── Список допустимых тегов V2 — orderBook ────────────────────────────────
 
     public const string TagStrongOrderBookImbalance = MarketTagConstants.StrongOrderBookImbalance;
     public const string TagUpperLiquidityHeavy = MarketTagConstants.UpperLiquidityHeavy;
@@ -181,7 +181,7 @@ internal static class MarketTagsBuilder
             capturedAtUtc);
         AddAll(all, qualityTags);
 
-        // 2. OI direction
+        // 2. Направление OI
         AddOiTags(derivatives, all);
 
         // 3. Режим (volatile — самый высокий приоритет в группе)
@@ -274,7 +274,7 @@ internal static class MarketTagsBuilder
         hasBuyPressure ? TagAggressiveBuying :
         hasSellPressure ? TagAggressiveSelling : null;
 
-    // ─── Внутренние реализации групп тегов ─────────────────────────────────
+    // ─── Приватные реализации групп тегов ───────────────────────────────────
 
     /// <summary>V2 расширенный маппинг режима.</summary>
     private static void AddRegimeTags(string? marketRegime, List<string> target)

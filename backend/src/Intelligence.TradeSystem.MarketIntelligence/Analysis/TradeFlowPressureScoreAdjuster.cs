@@ -12,7 +12,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 /// </summary>
 internal static class TradeFlowPressureScoreAdjuster
 {
-    // -- Freshness caps -------------------------------------------------------
+    // -- Ограничения актуальности -----------------------------------------------
 
     /// <summary>
     /// Значение по умолчанию для maxTradeFlowAgeMs.
@@ -112,18 +112,18 @@ internal static class TradeFlowPressureScoreAdjuster
 
         var cap = 1.0m; // без cap по умолчанию
 
-        // 1. Freshness cap (только при наличии reference time)
+        // 1. Ограничение актуальности (только при наличии reference time)
         cap = Math.Min(cap, ComputeFreshnessCap(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs));
 
         // 2. Cap по длительности окна
         var windowSeconds = (tradeFlow.WindowEndUtc - tradeFlow.WindowStartUtc).TotalSeconds;
         cap = Math.Min(cap, ComputeWindowCap(windowSeconds));
 
-        // 3. Volume cap
+        // 3. Ограничение по объёму
         var totalVolume = tradeFlow.BuyVolume + tradeFlow.SellVolume;
         cap = Math.Min(cap, ComputeVolumeCap(totalVolume));
 
-        // 4. Conflict cap
+        // 4. Ограничение при конфликте
         if (HasOrderBookConflict(rawScore, orderBookPressureScore))
         {
             var isWeak = IsStaleOrShortWindow(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs, windowSeconds);
@@ -162,14 +162,14 @@ internal static class TradeFlowPressureScoreAdjuster
         if (rawScore != 0m && HasOrderBookConflict(rawScore, orderBookPressureScore))
             tags.Add(MarketTagConstants.OrderBookTradeFlowConflict);
 
-        // Сводный предупредительный тег: хотя бы один factors сработал
+        // Сводный предупредительный тег: хотя бы один фактор сработал
         if (tags.Count > 0)
             tags.Add(MarketTagConstants.WeakTradeFlowConfirmation);
 
         return tags;
     }
 
-    // -- Внутренние помощники ------------------------------------------------
+    // -- Вспомогательные методы -------------------------------------------------
 
     /// <summary>
     /// Вычисляет ограничение актуальности. Возвращает 1.0 (нет ограничения), если capturedAtUtc == null.

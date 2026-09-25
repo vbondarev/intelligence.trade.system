@@ -28,7 +28,7 @@ public sealed class IndicatorPipelineIntegrationTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
         var s = result.Snapshot;
 
-        // Null, not 0.
+        // Null, а не 0.
         s.Rsi14.Should().BeNull(because: "rsi14 must be null when data is insufficient, not 0");
         s.Rsi14IsReliable.Should().BeFalse();
         s.RsiOverbought.Should().BeFalse(because: "unavailable RSI must not trigger overbought");

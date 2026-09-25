@@ -97,13 +97,13 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_WhenIsTrendConfirmedTrue_BiasIsNotNeutral()
     {
-        // Bullish confirmed
+        // Bullish подтверждён
         var bullish = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true);
         var rb = BuildForTest(bullish);
         if (rb.IsTrendConfirmed)
             rb.Bias.Should().NotBe(TimeframeBias.Neutral);
 
-        // Bearish confirmed
+        // Bearish подтверждён
         var bearish = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false);
         var rr = BuildForTest(bearish);
         if (rr.IsTrendConfirmed)
@@ -678,7 +678,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
     }
 
-    // ─── 14.5: risk flag WeakEntryLevel ────────────────────────────────────
+    // ─── 14.5: risk-флаг WeakEntryLevel ────────────────────────────────────
 
     [Fact]
     public void Build_Bullish_WeakSupport_AddsWeakEntryLevelFlag()
@@ -1086,7 +1086,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("VeryLowVolume");
     }
 
-    // ─── StaleSnapshot flag ────────────────────────────────────────────────────
+    // ─── Флаг StaleSnapshot ───────────────────────────────────────────────────
 
     [Theory]
     [InlineData(false)]
@@ -1102,7 +1102,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: "StaleSnapshot flag is present iff snapshotIsFresh=false");
     }
 
-    // ─── RsiAgainstBias flags ──────────────────────────────────────────────────
+    // ─── Флаги RsiAgainstBias ─────────────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_Bullish_Rsi_Below50_AddsRsiAgainstBullishBias()
@@ -1152,7 +1152,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("TrendConfirmedButEntryFiltered");
     }
 
-    // ─── MissingEntryLevel flag ────────────────────────────────────────────────
+    // ─── Флаг MissingEntryLevel ───────────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_Bullish_NullSupport_AddsMissingEntryLevelFlag()

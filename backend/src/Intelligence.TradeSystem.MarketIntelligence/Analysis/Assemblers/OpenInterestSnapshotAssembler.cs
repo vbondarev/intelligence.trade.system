@@ -56,11 +56,11 @@ public static class OpenInterestSnapshotAssembler
         var change1hPct = ComputeChangePct(sorted, current, TimeSpan.FromHours(1));
         var change4hPct = ComputeChangePct(sorted, current, TimeSpan.FromHours(4));
 
-        // 4. Peak / Trough
+        // 4. Пик / минимум
         var peak = sorted.Max(e => e.OpenInterest);
         var trough = sorted.Min(e => e.OpenInterest);
 
-        // 5. Trend flags
+        // 5. Флаги тренда
         var isAccumulating = change1hPct > TrendThresholdPct;
         var isDistributing = change1hPct < -TrendThresholdPct;
 

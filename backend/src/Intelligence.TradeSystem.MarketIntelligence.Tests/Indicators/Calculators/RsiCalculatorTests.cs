@@ -65,7 +65,7 @@ public sealed class RsiCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
     }
 
-    // ── Formula cases ─────────────────────────────────────────────────────────
+    // ── Сценарии формулы ──────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_100_When_Only_Gains()
@@ -171,7 +171,7 @@ public sealed class RsiCalculatorTests
             because: "RSI is mathematically bounded to [0, 100] by definition");
     }
 
-    // ── Formula regression ───────────────────────────────────────────────────
+    // ── Регрессия формулы ────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_When_Count_Equals_Period_Plus_One()

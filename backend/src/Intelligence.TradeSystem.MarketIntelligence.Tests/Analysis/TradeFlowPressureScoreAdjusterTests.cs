@@ -107,7 +107,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.50m);
     }
 
-    // --- 9. Conflict + short window < 30 s -----------------------------------
+    // --- 9. Конфликт + короткое окно < 30 s ----------------------------------
 
     [Fact]
     public void Conflict_And_Short_Window_Caps_Score_At_0_25()
@@ -274,8 +274,8 @@ public sealed class TradeFlowPressureScoreAdjusterTests
     [Theory]
     [InlineData(1, -0.1, true)]   // tf положительный, ob отрицательный → conflict
     [InlineData(-1, 0.1, true)]   // tf отрицательный, ob положительный → conflict
-    [InlineData(1, 0.1, false)]   // same sign
-    [InlineData(-1, -0.1, false)] // same sign
+    [InlineData(1, 0.1, false)]   // одинаковый знак
+    [InlineData(-1, -0.1, false)] // одинаковый знак
     [InlineData(0, -0.5, false)]  // tf = 0 → conflict отсутствует
     [InlineData(1, 0, false)]     // ob = 0 → conflict отсутствует
     public void HasOrderBookConflict_Detects_Conflict(decimal tfScore, decimal obScore, bool expected)
@@ -345,7 +345,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
     // --- Вспомогательные методы ------------------------------------------------
 
     /// <summary>
-    /// Создаёт TradeFlowSnapshot, свежий (WindowEnd == capturedAtUtc),
+    /// Создаёт TradeFlowSnapshot, свежий (windowEnd == capturedAtUtc),
     /// с заданными длиной окна и объёмами.
     /// </summary>
     private static TradeFlowSnapshot CreateFreshTradeFlow(

@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis;
 /// </summary>
 public sealed class MarketTagsBuilderTests
 {
-    // ─── 4.1 Regime tags ─────────────────────────────────────────────────────
+    // ─── 4.1 Теги режима ──────────────────────────────────────────────────────
 
     [Fact]
     public void Trending_Regime_Produces_Trending_Tag()
@@ -60,7 +60,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetRegimeTag("MeanReversion").Should().BeNull();
     }
 
-    // ─── MeanReversion regime ─────────────────────────────────────────────────
+    // ─── Режим MeanReversion ──────────────────────────────────────────────────
 
     [Fact]
     public void MeanReversion_Regime_Produces_MeanReversionRegime_Tag()
@@ -127,7 +127,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
     }
 
-    // ─── 4.2 Funding tags ────────────────────────────────────────────────────
+    // ─── 4.2 Funding-теги ─────────────────────────────────────────────────────
 
     [Fact]
     public void Positive_FundingRate_Produces_PositiveFunding_Tag()
@@ -163,7 +163,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetFundingTag(0m).Should().BeNull();
     }
 
-    // ─── 4.3 Pressure tags ───────────────────────────────────────────────────
+    // ─── 4.3 Теги давления ────────────────────────────────────────────────────
 
     [Fact]
     public void BidDominant_ImbalanceTop5_Produces_BidPressure_Tag()
@@ -204,7 +204,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetPressureTag(-MarketTagsBuilder.OrderBookPressureThreshold).Should().BeNull();
     }
 
-    // ─── 4.4 Aggression tags ───────────────────────────────────────────────
+    // ─── 4.4 Теги агрессии ─────────────────────────────────────────────────
 
     [Fact]
     public void AggressiveBuy_Flag_Produces_AggressiveBuying_Tag()

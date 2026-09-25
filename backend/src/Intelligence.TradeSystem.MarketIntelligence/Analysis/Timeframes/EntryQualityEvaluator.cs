@@ -140,7 +140,7 @@ internal static class EntryQualityEvaluator
         return quality;
     }
 
-    // ─── Downgrade rules ─────────────────────────────────────────────────────
+    // ─── Правила понижения качества ─────────────────────────────────────────
 
     /// <summary>
     /// Понижает качество при низком объёме.<br/>
@@ -247,7 +247,7 @@ internal static class EntryQualityEvaluator
 
         var dist = oppDistancePct.Value;
 
-        // Отрицательная дистанция: level находится позади направления сделки (wrong side of price) и не является препятствием.
+        // Отрицательная дистанция: level находится позади направления сделки, по другую сторону текущей цены, и не является препятствием.
         if (dist < 0m) return quality;
 
         if (dist >= NearOppositeThreshold) return quality;
@@ -308,7 +308,7 @@ internal static class EntryQualityEvaluator
             _ => LevelStrengthCategory.Strong,
         };
 
-    // ─── Cap helper ──────────────────────────────────────────────────────────
+    // ─── Вспомогательный метод ограничения ─────────────────────────────────
 
     /// <summary>
     /// Ограничивает качество сверху: возвращает <paramref name="quality"/> если оно не выше

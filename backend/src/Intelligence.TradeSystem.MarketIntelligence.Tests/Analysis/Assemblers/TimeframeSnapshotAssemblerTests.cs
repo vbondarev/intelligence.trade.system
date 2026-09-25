@@ -242,7 +242,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.VolumeRatio.Should().NotBeNull().And.BeGreaterThan(0m);
     }
 
-    // ── Diagnostics scenarios ─────────────────────────────────────────────────
+    // ── Сценарии diagnostics ───────────────────────────────────────────────────
 
     [Fact]
     public void Diagnostics_Are_Empty_With_Sufficient_Data()
@@ -380,7 +380,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.RsiOversold.Should().BeFalse(because: "null RSI must not trigger oversold");
     }
 
-    // ───── KlineValidator integration ─────
+    // ───── Интеграция KlineValidator ─────
 
     [Fact]
     public void Invalid_Kline_Is_Excluded_And_Diagnostic_Is_Emitted()
@@ -447,7 +447,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_LastKlineFiltered_When_Newest_Candle_Is_Invalid()
     {
-        // Arrange: 5 valid свечей + 1 invalid свеча с самым поздним StartTime.
+        // Подготовка: 5 valid свечей + 1 invalid свеча с самым поздним StartTime.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 5).ToList();
         // Добавить некорректную свечу (High < Low) с StartTime позже всех корректных свечей.

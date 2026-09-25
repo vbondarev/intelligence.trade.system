@@ -91,7 +91,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Message.Should().Contain("InvalidInput");
     }
 
-    // ── Message format ────────────────────────────────────────────────────────
+    // ── Формат сообщения ─────────────────────────────────────────────────────
 
     [Fact]
     public void Create_Fallback_Message_Follows_Expected_Format()

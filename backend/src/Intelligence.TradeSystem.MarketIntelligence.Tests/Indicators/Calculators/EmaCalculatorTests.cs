@@ -88,7 +88,7 @@ public sealed class EmaCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
-    // ── Smoothing formula ────────────────────────────────────────────────────
+    // ── Формула сглаживания ─────────────────────────────────────────────────
 
     [Fact]
     public void Uses_Classic_Smoothing_Formula_For_Known_Series()

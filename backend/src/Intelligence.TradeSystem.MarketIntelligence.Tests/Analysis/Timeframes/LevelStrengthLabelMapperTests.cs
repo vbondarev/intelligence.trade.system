@@ -17,7 +17,7 @@ public sealed class LevelStrengthLabelMapperTests
                 because: "null strength → источник не поддерживает оценку → Unavailable");
     }
 
-    // ─── Threshold coverage ──────────────────────────────────────────────────
+    // ─── Покрытие порогов ─────────────────────────────────────────────────────
 
     [Fact]
     public void Strength_1_0_Returns_Strong()
@@ -67,7 +67,7 @@ public sealed class LevelStrengthLabelMapperTests
                 because: "strength = 0 → минимально возможная сила → Weak");
     }
 
-    // ─── Semantic scenarios ──────────────────────────────────────────────────
+    // ─── Семантические сценарии ───────────────────────────────────────────────
 
     [Fact]
     public void Dominant_Level_Returns_Strong()

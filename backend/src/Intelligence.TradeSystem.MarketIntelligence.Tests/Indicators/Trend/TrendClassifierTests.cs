@@ -226,6 +226,6 @@ public sealed class TrendClassifierTests
         [100m, 150m, 200m,  90m, 2.0m],  // Bearish, высокий объём
         [150m, 100m, 130m, 140m, 1.0m],  // Sideways
         [150m, 100m, 130m, 140m, -5.0m], // Sideways, некорректный отрицательный объём
-        [100m, 100m, 100m, 100m, 1.0m],  // All equal
+        [100m, 100m, 100m, 100m, 1.0m],  // Все значения равны
     ];
 }

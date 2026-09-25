@@ -129,12 +129,12 @@ public static class TimeframeSummaryBuilder
         return Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
     }
 
-    // ─── Step 1: TrendStrengthLabel ──────────────────────────────────────────
+    // ─── Шаг 1: TrendStrengthLabel ────────────────────────────────────────────
 
     private static TrendStrengthLabel ComputeTrendStrengthLabel(MarketTrend trend, decimal score) =>
         TrendStrengthLabelMapper.Map(trend, score);
 
-    // ─── Step 2: Bias ────────────────────────────────────────────────────────
+    // ─── Шаг 2: Bias ──────────────────────────────────────────────────────────
 
     /// <summary>
     /// Bullish: trend == Bullish &amp;&amp; emaBullish.
@@ -155,7 +155,7 @@ public static class TimeframeSummaryBuilder
         return TimeframeBias.Neutral;
     }
 
-    // ─── Step 3: IsTrendConfirmed ────────────────────────────────────────────
+    // ─── Шаг 3: IsTrendConfirmed ──────────────────────────────────────────────
 
     /// <summary>
     /// Структурное подтверждение:
@@ -175,7 +175,7 @@ public static class TimeframeSummaryBuilder
             _ => false,
         };
 
-    // ─── Step 4: MomentumState ───────────────────────────────────────────────
+    // ─── Шаг 4: MomentumState ─────────────────────────────────────────────────
 
     private static MomentumState ComputeMomentumState(
         TimeframeBias bias,
@@ -207,7 +207,7 @@ public static class TimeframeSummaryBuilder
             _ => MomentumState.Neutral,
         };
 
-    // ─── Step 5: EntryQuality ────────────────────────────────────────────────
+    // ─── Шаг 5: EntryQuality ──────────────────────────────────────────────────
 
     private static EntryQuality ComputeEntryQuality(
         TimeframeBias bias,
@@ -258,7 +258,7 @@ public static class TimeframeSummaryBuilder
     private static EntryQuality CapAt(EntryQuality quality, EntryQuality maxQuality) =>
         quality < maxQuality ? maxQuality : quality;
 
-    // ─── Step 6: RiskFlags ───────────────────────────────────────────────────
+    // ─── Шаг 6: RiskFlags ─────────────────────────────────────────────────────
 
     private static List<string> ComputeRiskFlags(
         TimeframeAnalysisSnapshot s,
@@ -282,7 +282,7 @@ public static class TimeframeSummaryBuilder
 
         var isNeutralMarketRegime = IsNeutralMarketRegime(marketRegime);
 
-        // ── Stale snapshot ───────────────────────────────────────────────────
+        // ── Устаревший snapshot ───────────────────────────────────────────────
         if (!snapshotIsFresh)
             Add("StaleSnapshot");
 
@@ -360,7 +360,7 @@ public static class TimeframeSummaryBuilder
         // ── Entry level: отсутствует или слабый ───────────────────────────────
         AddEntryLevelRiskFlags(s, bias, entryLevelStrength, Add);
 
-        // ── Market regime ────────────────────────────────────────────────────
+        // ── Режим рынка ──────────────────────────────────────────────────────
         if (bias != TimeframeBias.Neutral && isNeutralMarketRegime)
         {
             Add("NeutralMarketRegime");
@@ -373,7 +373,7 @@ public static class TimeframeSummaryBuilder
         if (isTrendConfirmed && entryQuality != EntryQuality.Good)
             Add("TrendConfirmedButEntryFiltered");
 
-        // ── Range / structure ────────────────────────────────────────────────
+        // ── Диапазон / структура ─────────────────────────────────────────────
         if (bias == TimeframeBias.Neutral)
         {
             Add("NeutralBias");
@@ -390,7 +390,7 @@ public static class TimeframeSummaryBuilder
         if (s.EmaHasFallback || s.AtrIsFallback || s.VolumeRatioIsFallback)
             Add("IndicatorFallback");
 
-        // ── Weak trend ────────────────────────────────────────────────────────
+        // ── Слабый тренд ─────────────────────────────────────────────────────
         if (s.TrendStrengthScore < TrendStrengthLabelMapper.ModerateThreshold)
             Add("WeakTrend");
 

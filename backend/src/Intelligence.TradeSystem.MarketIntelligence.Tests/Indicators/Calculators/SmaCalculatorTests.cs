@@ -141,8 +141,8 @@ public sealed class SmaCalculatorTests
     [Fact]
     public void Uses_Only_Last_N_Values_In_Window()
     {
-        // Correct → last 3: (1 + 2 + 3) / 3 = 2
-        // Wrong   → first 3: (1000 + 1000 + 1) / 3 ≈ 667
+        // Верно → последние 3: (1 + 2 + 3) / 3 = 2
+        // Неверно → первые 3: (1000 + 1000 + 1) / 3 ≈ 667
         var result = SmaCalculator.Compute([1000m, 1000m, 1m, 2m, 3m], period: 3);
 
         result.Value.Should().BeApproximately(2m, precision: 0.0001m);
