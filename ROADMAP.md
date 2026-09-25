@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.34
-Дата актуализации: 25 сентября 2026 года
-Проверенная база: реализация Issue #152
-Последняя учтённая задача: Issue #152 «Tech-G06. Нормализовать composition root и Program.cs executable-проектов»
+Версия документа: 3.35
+Дата актуализации: 26 сентября 2026 года
+Проверенная база: `develop` после реализации Issue #152 (`94b90a688697dffe4fd425c6ec410a5a3b375cea`)
+Последняя учтённая задача: Issue #156 «Актуализировать ROADMAP по обработке ошибок и эксплуатационной наблюдаемости»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -101,6 +101,7 @@
 - **Tech-G04** ✅ (Issue #148): `Authentication.IntegrationTests` используют один PostgreSQL Testcontainer с отдельными `TradeSystem` и `TradeSystemIdentity` databases; migrations, hosts, certificates и базовый Identity/OpenIddict seed выполняются на fixture lifecycle, а mutable state явно очищается между сценариями. Сохранены реальные OAuth/OIDC, JwtBearer, PostgreSQL и SignalR проверки. В сопоставимом Release/no-build benchmark с одной warm-up итерацией и пятью успешными измерениями все прогоны дали 32/32: before median — 266.81s (267.39 / 266.25 / 266.65 / 266.81 / 266.94), after median — 28.30s (28.17 / 28.29 / 28.30 / 28.43 / 28.52), improvement — 89.4%. Инициализация `AuthenticationIntegrationFixture` — 9.16s; самый медленный оставшийся сценарий `Updates_hub_closes_an_authenticated_websocket_when_the_token_expires` — 9.02s.
 - **Tech-G05** ✅ (Issue #150): production EF Core read path списка позиций подтверждён opt-in PostgreSQL benchmark на `postgres:16-alpine` с deterministic seed из 250 000 positions, 8 users и 24 accounts. Финальный путь сохраняет single-query first page/explicit-account и использует bounded continuation: lookup owned accounts, один bounded query для одного account и bounded per-account fan-out для нескольких accounts с deterministic merge. Cursor predicate разделён на взаимоисключающие timestamp/UUID ranges, поэтому PostgreSQL использует seek conditions в deep continuation plans; Closed на 25/50/75/95% показал 90/92/90/92 removed rows. После исправления parser root `Plan` counters доступны: AFTER matrix зафиксировала `read=0` и фактические shared-hit counters для каждого query/depth. В AFTER-прогоне 3-account continuation выполнял 4 round trips и возвращал 153 bounded candidates; 12-account engineering probe — 13 round trips и 607 candidates. Mandatory first-page scenarios оставались representative (94–28 029 candidates), а `Rows Removed by Filter` агрегируется с учётом `Actual Loops`; total buffers не суммируются по дереву. Финальный набор indexes: `ix_positions_list_order`, `ix_positions_list_account_order`, partial `ix_positions_list_closed_order` по `(exchange_account_id, first_detected_at DESC, position_id DESC)` и SQL-managed `lower(instrument_id)` index. Benchmark не входит в обычный CI test loop и включается только через `ITS_RUN_POSITION_LIST_PERFORMANCE=1`.
 - **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
+- **Tech-G07** ⬜: нормализовать error contract пользовательского API до начала G-01: framework/programming exceptions не должны автоматически считаться validation failures; неожиданные внутренние ошибки сохраняют `500 internal_error` и diagnostics; реальные ошибки пользовательского ввода получают явную application/API classification; для authentication/authorization failures `/api/v1` определяется стабильная machine-readable semantics; `position_not_evaluable` сохраняет конкретную machine-readable причину; реализация синхронизирует OpenAPI, API contract tests и применимую contract documentation.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -350,7 +351,7 @@ GET    /api/v1/auth/me
 | G-05 | Реализовать timeline позиции | ⬜ | Видны увеличение, уменьшение и закрытие позиции, assessments/evaluations и изменения рекомендации через единый постраничный timeline; рыночные события сопровождения добавляются после появления H-04 и не блокируют завершение G |
 | G-06 | Подключить SignalR с восстановлением через REST через BFF-compatible browser integration | ⬜ | Browser подключается к realtime без выдачи access token в JavaScript; realtime-события инвалидируют соответствующее клиентское состояние; после разрыва соединения клиент перечитывает актуальные REST resources |
 | G-07 | Добавить адаптивность и базовую доступность | ⬜ | Основные сценарии работают на телефоне и компьютере |
-| G-08 | Зафиксировать базовую дизайн-систему и обработку ошибок | ⬜ | Одни и те же состояния риска, загрузки, stale и ошибок отображаются единообразно |
+| G-08 | Зафиксировать базовую дизайн-систему и обработку ошибок | ⬜ | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
 
 Результат этапов C, D, F и G: готова панель портфеля, работающая только с чтением биржевых данных.
 
@@ -368,6 +369,7 @@ GET    /api/v1/auth/me
 | H-04 | Публиковать события сопровождения и расширить timeline соответствующими событиями | ⬜ | Поддержаны изменение рекомендации, тренда, уровня, OI/funding, портфельного риска и приближение к ликвидации; значимые market-monitoring events становятся доступны в position timeline без изменения базового F-06 контракта |
 | H-05 | Публиковать события жизненного цикла позиции | ⬜ | Поддержаны увеличение, уменьшение и закрытие позиции |
 | H-06 | Обеспечить идемпотентность и наблюдаемость заданий | ⬜ | Повтор задания не создаёт дубликаты; видны задержка, длительность и ошибки |
+| H-07 | Обеспечить отказоустойчивость доставки application events | ⬜ | Retry ограничен; permanently failing/poison event получает явный terminal failure state; определены causal ordering, operational detection и recovery без отказа от at-least-once semantics |
 
 ### Этап I. Добавить уведомления и объяснения
 
@@ -425,13 +427,13 @@ GET    /api/v1/auth/me
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
-| L-01 | Добавить структурированные журналы с correlation/user/account/position ID | ⬜ | Полный сценарий можно проследить без утечки секретов |
-| L-02 | Добавить трассировку и метрики синхронизации, наблюдения и рекомендаций | ⬜ | Видны задержка заданий, ошибки синхронизации и устаревшие данные |
-| L-03 | Добавить проверки PostgreSQL, Bybit и фоновых заданий | ⬜ | Проверки отражают готовность зависимостей, а не только процесс API |
-| L-04 | Добавить rate limiting, retry и circuit breaker | ⬜ | Ограничения и временные ошибки не создают лавину повторов |
+| L-01 | Добавить сквозные структурированные журналы с correlation и business context | ⬜ | Ключевые пользовательские и фоновые workflow прослеживаются по `TraceId`/correlation и применимым `UserId`, `ExchangeAccountId`, `PositionId`, `AssessmentId`, `RecommendationId`, `EventId`; expected/unexpected failures различимы, unexpected exceptions сохраняют diagnostics/stack trace, секреты и credential/token material не попадают в журналы |
+| L-02 | Добавить сквозную трассировку, метрики и централизованный operational telemetry contour | ⬜ | Синхронизация, evaluation, recommendation и фоновые workflow имеют duration/count/failure/outcome metrics и end-to-end traces; logs/metrics/traces централизованно собираются, хранятся и ищутся, есть минимальные operational dashboards и определены sampling/retention policy без привязки ROADMAP к конкретному vendor |
+| L-03 | Расширить проверки состояния PostgreSQL, Bybit, background sync и outbox | ⬜ | Явно различимы liveness, readiness и degraded dependency state; определена operational semantics PostgreSQL, Bybit, freshness/worker state синхронизации и outbox backlog/oldest pending age без автоматического приравнивания временного Bybit outage к полной неготовности API |
+| L-04 | Добавить rate limiting, retry, circuit breaker и классификацию transient failures | ⬜ | Ограничения и временные infrastructure failures отличимы от programming/internal errors и не создают uncontrolled retry cascade |
 | L-05 | Описать резервное копирование, восстановление и ротацию секретов | ⬜ | Процедуры проверены на тестовом окружении |
 | L-06 | Выполнить нагрузочные и отказоустойчивые испытания | ⬜ | Проверены деградация Bybit, БД, SignalR, Telegram и ИИ |
-| L-07 | Добавить эксплуатационные оповещения | ⬜ | Критические ошибки и рост задержки обнаруживаются без ручной проверки |
+| L-07 | Добавить эксплуатационные оповещения | ⬜ | Автоматически обнаруживаются как минимум рост HTTP 5xx, p95/p99 latency, недоступность PostgreSQL, Bybit failures/rate limiting, stale/failed sync, scheduler lag, outbox backlog/delivery/terminal failures, evaluation failures и критически устаревшие данные без ручного просмотра журналов |
 | L-08 | Удалить оставшиеся временные проекты и контракты | ⬜ | Нет неиспользуемых AI-контрактов |
 
 ### Этап M. Расширить продукт
@@ -470,14 +472,15 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Создать адаптивную React-панель | G-01 — G-08 |
-| 2 | Добавить фоновые циклы наблюдения | H-01 — H-06 |
-| 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Нормализовать error contract пользовательского API перед React | Tech-G07 |
+| 2 | Создать адаптивную React-панель | G-01 — G-08 |
+| 3 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
+| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и технические задачи перед G завершены и больше не входят в очередь ближайших PR. Последовательность перехода к клиенту: Tech-G05 → Tech-G06 → G-01. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F завершены; Tech-G01 — Tech-G06 также завершены. Tech-G07 является обязательной технической подготовкой перед G-01. Последовательность перехода к клиенту: Tech-G05 → Tech-G06 → Tech-G07 → G-01. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -558,6 +561,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-26 | 3.35 | Issue #156 синхронизировал ROADMAP с аудитом обработки ошибок и эксплуатационной наблюдаемости: этап F сохранён завершённым, перед G-01 добавлен Tech-G07 для нормализации error contract, в H добавлена отдельная terminal failure/poison-event semantics для application events, а L-01/L-02/L-03/L-04/L-07 получили измеримые требования к structured logging, telemetry, health/degraded semantics, resilience и operational alerts. Runtime и contract documentation в этой задаче не изменены. |
 | 2026-09-25 | 3.34 | Issue #152 завершает Tech-G06: API composition root разделён по concerns с явным HTTP pipeline в `Program.cs`, добавлены regression-проверка shared realtime singleton и Compose smoke для повторного seeding/password mismatch; `Authentication.TestSeeder` нормализован без изменения OAuth/OIDC semantics, `Api/AGENTS.md` синхронизирован. Следующим функциональным шагом остаётся G-01 — основной React-клиент. |
 | 2026-09-23 | 3.28 | Issue #142 завершает Tech-G01 перед этапом G: исправлен coverage quality gate для hand-written production code с диагностикой по assemblies, добавлены regression tests tooling и расширены contract tests публичного Bybit adapter без изменения runtime-поведения. |
 | 2026-09-22 | 3.26 | Issue #138 сформировал отдельный продуктовый слой документации: Product Vision, Capability Map, Product Concepts и Product Scenarios отделены от текущего ROADMAP. Документ одновременно синхронизирован с уже merged Issue #136 / PR #137: F-07 отмечен завершённым, user-scoped SignalR `/hubs/v1/updates` и включённый outbox dispatcher отражены в текущем состоянии, следующим шагом назначен F-08. Долгосрочные Journal, Screener, AI, Social/Copy Trading и GinArea-направления зафиксированы без изменения порядка этапов F–N. |
