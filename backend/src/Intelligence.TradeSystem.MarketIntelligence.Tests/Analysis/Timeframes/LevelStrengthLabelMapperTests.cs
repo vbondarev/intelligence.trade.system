@@ -87,7 +87,7 @@ public sealed class LevelStrengthLabelMapperTests
                 because: "strength=0.35 < ModerateThreshold=0.40 → Weak");
     }
 
-    // ─── Boundary sweep ──────────────────────────────────────────────────────
+    // ─── Проверка граничных значений ─────────────────────────────────────────
 
     [Theory]
     [InlineData(0.70, "Strong")]

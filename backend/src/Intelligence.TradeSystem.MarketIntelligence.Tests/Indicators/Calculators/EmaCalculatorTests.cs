@@ -29,7 +29,7 @@ public sealed class EmaCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Граница и откат ──────────────────────────────────────────────────────
+    // ── Граничные случаи и fallback ─────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Array_Is_Empty()
@@ -56,7 +56,7 @@ public sealed class EmaCalculatorTests
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
     {
-        // values.Length(1) < period(10) → Fallback: среднее по доступным = само значение.
+        // .Length(1) < period(10) → Fallback: среднее по доступным = само значение.
         var result = EmaCalculator.Compute([42m], period: 10);
 
         result.Value.Should().BeApproximately(42m, precision: 0.0001m);

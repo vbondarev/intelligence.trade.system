@@ -5,7 +5,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Levels;
 
 public sealed class VolumeProfileOptionsTests
 {
-    // ── Default values ───────────────────────────────────────────────────────
+    // ── Default  ───────────────────────────────────────────────────────
 
     [Fact]
     public void Default_Has_BucketCount_100()
@@ -28,7 +28,7 @@ public sealed class VolumeProfileOptionsTests
         options.HvnThresholdRatio.Should().Be(VolumeProfileOptions.Default.HvnThresholdRatio);
     }
 
-    // ── Custom valid values ──────────────────────────────────────────────────
+    // ── Custom   ──────────────────────────────────────────────────
 
     [Fact]
     public void Constructor_Accepts_Custom_BucketCount()
@@ -75,7 +75,7 @@ public sealed class VolumeProfileOptionsTests
         act.Should().NotThrow();
     }
 
-    // ── BucketCount validation ───────────────────────────────────────────────
+    // ── BucketCount ation ───────────────────────────────────────────────
 
     [Theory]
     [InlineData(0)]
@@ -89,7 +89,7 @@ public sealed class VolumeProfileOptionsTests
             .WithParameterName(nameof(bucketCount));
     }
 
-    // ── HvnThresholdRatio validation ─────────────────────────────────────────
+    // ── HvnThresholdRatio ation ─────────────────────────────────────────
 
     [Theory]
     [InlineData(0.0)]   // нижняя граница — нулевой порог не имеет смысла

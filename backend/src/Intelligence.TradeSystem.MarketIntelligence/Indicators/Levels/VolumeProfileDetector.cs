@@ -165,7 +165,7 @@ public static class VolumeProfileDetector
 
         // Second pass: normalize strength by the largest cluster volume so that the
         // dominant cluster always receives Strength = 1.0 and all others are relative to it.
-        // This guarantees Strength ∈ [0, 1] regardless of how many buckets a cluster spans.
+        // Это гарантирует Strength ∈ [0, 1] независимо от числа bucket, охваченных кластером.
         var maxClusterVolume = raw.Max(c => c.ClusterVolume);
 
         var clusters = new List<LevelInfo>(raw.Count);

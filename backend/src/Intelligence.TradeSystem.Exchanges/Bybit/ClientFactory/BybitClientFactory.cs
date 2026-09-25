@@ -22,8 +22,9 @@ public static class BybitClientFactory
             options.ApiCredentials = new BybitNetCredentials(credentials.ApiKey, credentials.ApiSecret);
             options.RequestTimeout = BybitPrivateResiliencePolicy.RequestTimeout;
 
-            // CryptoExchange.Net retries server rate limits by default. Private read retries
-            // are owned by this boundary so timeout, network, and rate-limit attempts remain bounded.
+            // CryptoExchange.Net по умолчанию повторяет запросы после server rate limits.
+            // Retry приватного чтения принадлежит этой boundary, чтобы число попыток при timeout,
+            // network-ошибках и rate limits оставалось ограниченным.
             options.RateLimitingBehaviour = RateLimitingBehaviour.Fail;
         });
     }

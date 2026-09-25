@@ -18,7 +18,7 @@ public sealed class IndicatorValueTests
         result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
-    // ── Fallback ─────────────────────────────────────────────────────────────
+    // ── Fallback-значения ────────────────────────────────────────────────────
 
     [Fact]
     public void Fallback_Returns_Available_Fallback_Value_With_Reason()

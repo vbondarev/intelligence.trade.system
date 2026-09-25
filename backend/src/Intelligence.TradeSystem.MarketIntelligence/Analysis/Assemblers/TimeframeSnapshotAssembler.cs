@@ -71,7 +71,7 @@ public static class TimeframeSnapshotAssembler
         // 3a. Diagnostics — собираем в порядке индикаторов (стабильный порядок).
         var indicatorDiagnostics = new List<IndicatorDiagnostic>();
 
-        // Prepend kline-level violations so consumers see data quality issues first.
+        // Prepend kline-Strong violations so consumers see data quality issues first.
         foreach (var violation in violations)
         {
             indicatorDiagnostics.Add(new IndicatorDiagnostic
@@ -102,7 +102,7 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 2. High violation rate — more than KlineHighViolationRateThreshold of input klines were invalid.
+        // 2. High violation rate — more than KlineHighViolationRateThreshold of input klines were .
         if (violations.Count > 0 &&
             violations.Count / (decimal)klines.Count > AnalysisThresholds.KlineHighViolationRateThreshold)
         {
@@ -118,8 +118,8 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 3. Insufficient usable data — valid set is smaller than KlineMinimumUsableCount.
-        //    validKlines.Count == 0 already throws above; this handles the 1-candle edge case.
+        // 3. Insufficient usable data —  set is smaller than KlineMinimumUsableCount.
+        //     klines.Count == 0 already throws above; this handles the 1-candle edge case.
         if (validKlines.Count < AnalysisThresholds.KlineMinimumUsableCount)
         {
             indicatorDiagnostics.Add(new IndicatorDiagnostic
@@ -141,7 +141,7 @@ public static class TimeframeSnapshotAssembler
         indicatorDiagnostics.AddIfNeeded(timeframe, "atr14", atr14Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "volumeSma20", volSma20Value);
 
-        // Snapshot-модель теперь использует decimal? для EMA/ATR/VolumeSma20/VolumeRatio.
+        // Snapshot-модель теперь использует decimal для EMA/ATR/VolumeSma20/VolumeRatio.
         // Используем .OrNull() — null сигнализирует об отсутствии данных; fake-zero не подставляем.
         var ema20 = ema20Value.OrNull();
         var ema50 = ema50Value.OrNull();
@@ -149,7 +149,7 @@ public static class TimeframeSnapshotAssembler
         var atr14 = atr14Value.OrNull();
         var volSma20 = volSma20Value.OrNull();
 
-        // RSI — snapshot допускает decimal?, поэтому сохраняем null при unavailable.
+        // RSI — snapshot допускает decimal, поэтому сохраняем null при unavailable.
         var rsi14 = rsi14Value.OrNull();
 
         var lastVolume = volumes[^1];
@@ -159,9 +159,9 @@ public static class TimeframeSnapshotAssembler
             ? Math.Round(lastVolume / volSma20Value.RequireValue(), 4)
             : null;
 
-        // volumeRatio diagnostic — emit only when ratio could not be computed.
+        // volumeRatio diagnostic — emit window   ratio could not be computed.
         // Two cases:
-        //   InvalidInput     — SMA is available but == 0 (all volumes are zero); no existing diagnostic covers this.
+        //   InvalidInput     — SMA is  but == 0 (all volumes are zero); no existing diagnostic covers this.
         //   InsufficientData — SMA itself is unavailable (volumeSma20 diagnostic already exists, but we
         //                      still name the derived indicator explicitly for consumer clarity).
         if (volumeRatio is null)

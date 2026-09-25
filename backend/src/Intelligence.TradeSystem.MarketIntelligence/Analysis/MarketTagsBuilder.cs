@@ -19,7 +19,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 ///   Цена:       near-24h-high · near-24h-low
 ///   Таймфреймы: low-volume · rsi-overbought · rsi-oversold · weak-trend · range-bound
 ///               neutral-timeframes · near-resistance · near-support · overextended-momentum
-///               directional-trend-with-neutral-regime
+///               directional-trend--neutral-regime
 ///   Качество:   no-clean-entry · actionable-entry · weak-entry-confirmation
 ///               trend-confirmed-entry-filtered · stale-snapshot · stale-orderbook
 ///
@@ -170,9 +170,9 @@ internal static class MarketTagsBuilder
         var all = new List<string>(MaxTags * 2);
         var primaryTfs = GetNonNullTfs(m15, h1, h4);
 
-        // ── HIGH PRIORITY ──────────────────────────────────────────────────────
+        // ── ВЫСОКИЙ ПРИОРИТЕТ ────────────────────────────────────────────────
 
-        // 1. TradeFlow quality (short window, low volume, conflict, weak confirmation)
+        // 1. Качество TradeFlow (короткое окно, низкий volume, конфликт, слабое подтверждение)
         //    stale-tradeflow здесь не генерируется при capturedAtUtc=null — добавляется LlmTagEnricher.
         var qualityTags = TradeFlowPressureScoreAdjuster.ComputeQualityTags(
             sentiment.TradeFlowPressureScore,
@@ -199,7 +199,7 @@ internal static class MarketTagsBuilder
         if (primaryTfs.Count > 0)
             AddDirectionalNeutralRegimeTag(primaryTfs, sentiment.MarketRegime, all);
 
-        // ── MEDIUM PRIORITY ────────────────────────────────────────────────────
+        // ── СРЕДНИЙ ПРИОРИТЕТ ────────────────────────────────────────────────
 
         // 7. Давление в стакане
         AddOrderBookTags(orderBook, sentiment, all);
@@ -221,7 +221,7 @@ internal static class MarketTagsBuilder
         // 12. Кросс-сигналы (short covering / long unwinding)
         AddCrossSignalTags(all);
 
-        // ── LOW PRIORITY ───────────────────────────────────────────────────────
+        // ── НИЗКИЙ ПРИОРИТЕТ ─────────────────────────────────────────────────
 
         // 13. Близость к уровням
         if (primaryTfs.Count > 0)
@@ -274,7 +274,7 @@ internal static class MarketTagsBuilder
         hasBuyPressure ? TagAggressiveBuying :
         hasSellPressure ? TagAggressiveSelling : null;
 
-    // ─── Private tag-group implementations ───────────────────────────────────
+    // ─── Внутренние реализации групп тегов ─────────────────────────────────
 
     /// <summary>V2 расширенный маппинг режима.</summary>
     private static void AddRegimeTags(string? marketRegime, List<string> target)

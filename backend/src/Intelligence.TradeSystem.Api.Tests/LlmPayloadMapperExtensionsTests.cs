@@ -18,7 +18,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// </summary>
 public sealed class LlmPayloadMapperExtensionsTests
 {
-    // --- Shared health instances ---------------------------------------------
+    // ---    health ---------------------------------------------
 
     private static readonly LlmSnapshotHealthPayload _freshHealth = new()
     {
@@ -35,22 +35,22 @@ public sealed class LlmPayloadMapperExtensionsTests
     };
 
     // ===========================================================================
-    // Cross-TF level propagation: M15 considers H1/H4 opposite levels
+    // Передача уровней между TF: M15 учитывает противоположные уровни H1/H4
     // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasVeryCloseResistance_M15EntryQualityIsPoor()
     {
-        // Arrange: M15 bullish, good conditions, no local resistance.
-        // H4 has strong resistance very close (0.05%) > should force M15 to Poor.
+        // Подготовка: M15 bullish, хорошие условия, локального сопротивления нет.
+        // У H4 есть очень близкое сильное сопротивление (0.05%) → M15 должен получить Poor.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
-                distToResistance: null,       // no local m15 resistance
+                distToResistance: null,       // локального сопротивления M15 нет
                 resistanceStrength: null,
                 volumeRatio: 1.2m),
             h4: MakeBullishTf("4h",
-                distToResistance: 0.05m,      // very close h4 resistance
-                resistanceStrength: 0.85m),   // strong
+                distToResistance: 0.05m,      // очень близкое сопротивление H4
+                resistanceStrength: 0.85m),   // сильное
             regime: MarketRegimes.Trending);
 
         // Действие
@@ -66,7 +66,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasNearResistance_M15EntryQualityIsNotGood()
     {
-        // H4 resistance at 0.20% (< 0.30%) > Good forbidden for M15.
+        // Сопротивление H4 на 0.20% (< 0.30%) → Good запрещён для M15.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -87,7 +87,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4HasFarResistance_M15EntryQualityCanBeGood()
     {
-        // H4 resistance at 0.50% (>= 0.30%) > no constraint from higher TF.
+        // Сопротивление H4 на 0.50% (>= 0.30%) → ограничений от старшего TF нет.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
@@ -108,7 +108,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_H1Bullish_WhenD1HasNearResistance_H1EntryQualityIsNotGood()
     {
-        // D1 resistance at 0.20% for H1 > Good forbidden.
+        // Сопротивление D1 на 0.20% для H1 → Good запрещён.
         var snapshot = MakeSnapshot(
             h1: MakeBullishTf("1h",
                 distToResistance: null,
@@ -128,7 +128,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4HasVeryCloseSupport_M15EntryQualityIsPoor()
     {
-        // M15 bearish, H4 has strong support very close (0.05%) > Poor.
+        // M15 bearish, у H4 есть очень близкая сильная поддержка (0.05%) → Poor.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m",
                 distToSupport: null,
@@ -149,14 +149,14 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_HigherTfLevel_OnWrongSideOfPrice_IsIgnored()
     {
-        // If higher TF has support/resistance with null distance (level absent) > no constraint.
+        // Если у старшего TF расстояние до support/resistance равно null (уровень отсутствует) → ограничений нет.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToResistance: null,
                 resistanceStrength: null,
                 volumeRatio: 1.2m),
             h4: MakeBullishTf("4h",
-                // Simulate resistance below price: null (behind the trade)
+                // Смоделировать сопротивление ниже цены: null (позади сделки).
                 distToResistance: null,
                 resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
@@ -169,18 +169,18 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     // ===========================================================================
-    // BTCUSDT-like regression scenarios via full pipeline
+    // Регрессионные сценарии в стиле BTCUSDT через полный pipeline
     // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_BtcUsdtLike_M15Bullish_LowVolume_BelowEmas_NeutralRegime_NearH4Resistance_IsPoor()
     {
-        // BTCUSDT m15 scenario:
-        // - Bullish bias but below both EMAs
-        // - Low volume (0.1971)
-        // - Stale snapshot
-        // - Neutral market regime
-        // - H4 has strong resistance at 0.05% above price
+        // Сценарий BTCUSDT для M15:
+        // - Бычий bias, но цена ниже обеих EMA
+        // - Низкий объём (0.1971)
+        // - Устаревший snapshot
+        // - Нейтральный market regime
+        // - У H4 есть близкое сильное сопротивление на 0.05% выше цены
         var m15 = new TimeframeAnalysisSnapshot
         {
             Timeframe = "15m",
@@ -191,24 +191,24 @@ public sealed class LlmPayloadMapperExtensionsTests
                 Open = 77_400m, High = 77_500m, Low = 77_350m, Close = 77_437m,
                 Volume = 197m, Turnover = 15_260_000m,
             },
-            Ema20 = 77_600m,    // above close > isAboveEma20 = false
-            Ema50 = 77_550m,    // above close > isAboveEma50 = false
+            Ema20 = 77_600m,    // EMA выше close → isAboveEma20 = false
+            Ema50 = 77_550m,    // EMA выше close → isAboveEma50 = false
             Ema200 = 75_000m,
             Rsi14 = 45m,
             Rsi14IsReliable = true,
             Atr14 = 200m,
             VolumeSma20 = 1000m,
-            VolumeRatio = 0.1971m,             // very low volume
+            VolumeRatio = 0.1971m,             // очень низкий объём
             TrendStrengthScore = 0.6m,
             Trend = MarketTrend.Bullish,
             Support1 = 77_000m,
-            Support1Strength = 0.50m,           // Moderate support
+            Support1Strength = 0.50m,           // умеренная поддержка
             DistanceToSupport1Pct = 0.56m,
-            Resistance1 = null,                 // no m15 resistance
+            Resistance1 = null,                 // сопротивления M15 нет
             Resistance1Strength = null,
             DistanceToResistance1Pct = null,
-            IsAboveEma20 = false,               // EMA conflict
-            IsAboveEma50 = false,               // EMA conflict
+            IsAboveEma20 = false,               // конфликт EMA
+            IsAboveEma50 = false,               // конфликт EMA
             IsAboveEma200 = true,
             EmaBullishAlignment = true,
             EmaBearishAlignment = false,
@@ -219,7 +219,7 @@ public sealed class LlmPayloadMapperExtensionsTests
             CandleRangePct = 0.19m,
         };
 
-        // H4 has strong resistance at 0.05% above m15's current price
+        // У H4 есть близкое сильное сопротивление на 0.05% выше текущей цены m15
         var h4 = MakeBullishTf("4h",
             distToResistance: 0.05m,
             resistanceStrength: 0.80m,
@@ -231,7 +231,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
             because: "BTCUSDT m15: very low volume + EMA conflict + stale snapshot + " +
                      "neutral regime + very close H4 resistance > Poor");
-        // Verify raw fields are not altered
+        // Проверить, что исходные поля не изменены
         payload.M15.VolumeRatio.Should().Be(0.1971m);
         payload.M15.IsAboveEma20.Should().BeFalse();
         payload.M15.IsAboveEma50.Should().BeFalse();
@@ -240,10 +240,10 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_BtcUsdtLike_H4Bearish_VeryLowVolume_PriceAboveBothEmas_NeutralRegime_IsNotGood()
     {
-        // BTCUSDT h4 scenario:
-        // - Bearish bias but price above EMAs (EMA conflict)
-        // - Very low volume (0.0184)
-        // - Neutral regime
+        // Сценарий BTCUSDT для H4:
+        // - Медвежий bias, но цена выше EMA (конфликт EMA)
+        // - очень низкое значение window (0.0184)
+        // - нейтральный режим
         var h4 = new TimeframeAnalysisSnapshot
         {
             Timeframe = "4h",
@@ -254,24 +254,24 @@ public sealed class LlmPayloadMapperExtensionsTests
                 Open = 102_000m, High = 102_100m, Low = 101_800m, Close = 101_900m,
                 Volume = 18m, Turnover = 1_834_000m,
             },
-            Ema20 = 101_500m,   // below close > isAboveEma20 = true > EMA conflict for bearish
-            Ema50 = 101_400m,   // below close > isAboveEma50 = true > EMA conflict for bearish
+            Ema20 = 101_500m,   // EMA ниже close → isAboveEma20 = true → конфликт для bearish
+            Ema50 = 101_400m,   // EMA ниже close → isAboveEma50 = true → конфликт для bearish
             Ema200 = 103_000m,
             Rsi14 = 52m,
             Rsi14IsReliable = true,
             Atr14 = 500m,
             VolumeSma20 = 1000m,
-            VolumeRatio = 0.0184m,              // extremely low volume
+            VolumeRatio = 0.0184m,              // крайне низкий объём
             TrendStrengthScore = 0.7m,
             Trend = MarketTrend.Bearish,
             Resistance1 = 102_000m,
-            Resistance1Strength = 0.80m,        // Strong resistance
+            Resistance1Strength = 0.80m,        // сильное сопротивление
             DistanceToResistance1Pct = 0.3m,
             Support1 = 100_000m,
             Support1Strength = 0.60m,
             DistanceToSupport1Pct = 1.8m,
-            IsAboveEma20 = true,                // EMA conflict for bearish
-            IsAboveEma50 = true,                // EMA conflict for bearish
+            IsAboveEma20 = true,                // конфликт EMA для bearish
+            IsAboveEma50 = true,                // конфликт EMA для bearish
             IsAboveEma200 = false,
             EmaBullishAlignment = false,
             EmaBearishAlignment = true,
@@ -288,27 +288,27 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.H4.Summary.EntryQuality.Should().NotBe("Good",
             because: "H4 bearish: very low volume + price above both EMAs + neutral regime > never Good");
         payload.H4.Summary.EntryQuality.Should().BeOneOf("Poor", "Fair");
-        // Verify raw data unchanged
+        // Проверить, что исходные данные не изменены
         payload.H4.VolumeRatio.Should().Be(0.0184m);
         payload.H4.IsAboveEma20.Should().BeTrue();
         payload.H4.IsAboveEma50.Should().BeTrue();
     }
 
     // ===========================================================================
-    // Clean setups � Good must still be reachable
+    // Чистые сценарии — Good по-прежнему должен быть достижим
     // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_CleanBullishSetup_ReturnsGoodForM15()
     {
-        // Clean bullish:
-        // - Price above EMA20/EMA50, confirmed trend
-        // - Strong support nearby
-        // - No resistance on current TF or higher TFs
+        // Чистый bullish-сценарий:
+        // - Цена выше EMA20/EMA50, тренд подтверждён
+        // - Рядом находится сильная поддержка
+        // - На текущем и старших TF нет сопротивления
         // - Высокий объём, свежий снимок, трендовый режим
         var m15 = MakeBullishTf("15m",
             distToSupport: 0.5m,
-            supportStrength: 0.85m,     // Strong
+            supportStrength: 0.85m,     // сильная
             distToResistance: null,
             resistanceStrength: null,
             volumeRatio: 1.2m);
@@ -334,14 +334,14 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_CleanBearishSetup_ReturnsGoodForH4()
     {
-        // Clean bearish:
-        // - Price below EMA20/EMA50, confirmed trend
-        // - Strong resistance nearby
-        // - No support on current TF or higher TFs (D1)
+        // Чистый bearish-сценарий:
+        // - Цена ниже EMA20/EMA50, тренд подтверждён
+        // - Рядом находится сильное сопротивление
+        // - На текущем и старших TF нет поддержки (D1)
         // - Высокий объём, свежий снимок, трендовый режим
         var h4 = MakeBearishTf("4h",
             distToResistance: 0.4m,
-            resistanceStrength: 0.85m,   // Strong
+            resistanceStrength: 0.85m,   // сильное
             distToSupport: null,
             supportStrength: null,
             volumeRatio: 1.2m);
@@ -364,15 +364,15 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     // ===========================================================================
-    // ResolveHigherTfOppositeLevel � distance boundary conditions
-    // dist == 0 is valid (obstacle exactly at price); dist < 0 is wrong-side (ignored)
-    // TODO: mapper-level integration coverage for TrendConfirmedButEntryFiltered with dist==0
+    // ResolveHigherTfOppositeLevel — граничные условия расстояния
+    // dist == 0 допустим (препятствие точно на цене); dist < 0 означает неправильную сторону (игнорируется)
+    // TODO: интеграционное покрытие mapper для TrendConfirmedButEntryFiltered при dist==0
     // ===========================================================================
 
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsZero_ForcesEntryQualityToPoor()
     {
-        // H4 resistance exactly at price (distance=0) � the nearest possible obstacle.
+        // Сопротивление H4 точно на цене (distance=0) — ближайшее возможное препятствие.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h4: MakeBullishTf("4h", distToResistance: 0m, resistanceStrength: 0.85m),
@@ -389,7 +389,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsZero_ForcesEntryQualityToPoor()
     {
-        // H4 support exactly at price (distance=0) � the nearest possible obstacle for bearish.
+        // Поддержка H4 точно на цене (distance=0) — ближайшее возможное препятствие для bearish.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
             h4: MakeBearishTf("4h", distToSupport: 0m, supportStrength: 0.85m),
@@ -406,7 +406,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_WhenH4ResistanceDistanceIsNegative_IsIgnored()
     {
-        // H4 resistance with negative distance is behind the trade (wrong side) > must be ignored.
+        // Сопротивление H4 с отрицательным расстоянием находится позади сделки (неправильная сторона) → игнорируется.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h4: MakeBullishTf("4h", distToResistance: -0.1m, resistanceStrength: 0.85m),
@@ -422,7 +422,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bearish_WhenH4SupportDistanceIsNegative_IsIgnored()
     {
-        // H4 support with negative distance is behind the trade (wrong side) > must be ignored.
+        // Поддержка H4 с отрицательным расстоянием находится позади сделки (неправильная сторона) → игнорируется.
         var snapshot = MakeSnapshot(
             m15: MakeBearishTf("15m", distToSupport: null, supportStrength: null, volumeRatio: 1.2m),
             h4: MakeBearishTf("4h", distToSupport: -0.1m, supportStrength: 0.85m),
@@ -438,7 +438,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_ZeroAndPositive_SelectsZeroAsNearest()
     {
-        // H1: distance=0 (at price), H4: distance=0.25 � zero must win as the nearest obstacle.
+        // H1: distance=0 (на цене), H4: distance=0.25 — ноль должен победить как ближайшее препятствие.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h1: MakeBullishTf("1h", distToResistance: 0m, resistanceStrength: 0.80m),
@@ -455,7 +455,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_M15Bullish_MultipleHigherTfCandidates_NegativeAndPositive_SelectsPositiveCandidate()
     {
-        // H1: distance=-0.1 (wrong-side, ignored), H4: distance=0.25 � only positive is valid.
+        // H1: distance=-0.1 (неправильная сторона, игнорируется), H4: distance=0.25 — допустимо только положительное значение.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m", distToResistance: null, resistanceStrength: null, volumeRatio: 1.2m),
             h1: MakeBullishTf("1h", distToResistance: -0.1m, resistanceStrength: 0.80m),
@@ -471,7 +471,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     // ===========================================================================
-    // Pipeline integrity � raw market data must not be altered
+    // Целостность pipeline — исходные market data нельзя изменять
     // ===========================================================================
 
     [Fact]
@@ -480,7 +480,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
         var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
-        // Raw indicator fields must pass through unmodified
+        // Исходные поля индикаторов должны передаваться без изменений
         payload.M15.VolumeRatio.Should().Be(snapshot.M15.VolumeRatio);
         payload.M15.Rsi14.Should().Be(snapshot.M15.Rsi14);
         payload.M15.Ema20.Should().Be(snapshot.M15.Ema20);
@@ -494,7 +494,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.M15.DistanceToSupport1Pct.Should().Be(snapshot.M15.DistanceToSupport1Pct);
         payload.M15.DistanceToResistance1Pct.Should().Be(snapshot.M15.DistanceToResistance1Pct);
 
-        // Schema version and structure fields intact
+        // Версия schema и структурные поля сохраняются
         payload.SchemaVersion.Should().Be("1.0");
         payload.Symbol.Should().Be(snapshot.Symbol);
         payload.Exchange.Should().Be(snapshot.Exchange);
@@ -516,7 +516,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         payload.H4.Timeframe.Should().Be("4h");
         payload.D1.Timeframe.Should().Be("1d");
 
-        // Summary fields present in each timeframe
+        // Поля summary присутствуют в каждом timeframe
         foreach (var tf in new[] { payload.M15, payload.H1, payload.H4, payload.D1 })
         {
             tf.Summary.Should().NotBeNull();
@@ -529,7 +529,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     [Fact]
     public void ToLlmPayload_RiskFlags_AreConsistentWithEntryQuality()
     {
-        // When entryQuality == Good, the flags must not contradict it.
+        // При entryQuality == Good flags не должны ему противоречить.
         var snapshot = MakeSnapshot(
             m15: MakeBullishTf("15m",
                 distToSupport: 0.5m, supportStrength: 0.85m,
@@ -542,7 +542,7 @@ public sealed class LlmPayloadMapperExtensionsTests
 
         if (payload.M15.Summary.EntryQuality == "Good")
         {
-            // If Good is returned, confirming risk flags must NOT indicate blocking conditions:
+            // Если возвращён Good, подтверждающие risk flags НЕ должны указывать на блокирующие условия:
             payload.M15.Summary.RiskFlags.Should().NotContain("LowVolume",
                 because: "Good entryQuality is incompatible with LowVolume flag");
             payload.M15.Summary.RiskFlags.Should().NotContain("NearResistance",
@@ -555,7 +555,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     // ===========================================================================
-    // Helpers
+    // Strong
     // ===========================================================================
 
     /// <summary>
@@ -698,7 +698,7 @@ public sealed class LlmPayloadMapperExtensionsTests
             VolumeSma20 = 1000m, VolumeRatio = 1.0m,
             TrendStrengthScore = 0.3m,
             Trend = MarketTrend.Sideways,
-            // No levels � will not act as a higher-TF obstacle
+            // Уровней нет — они не должны выступать препятствием старшего TF
             Support1 = null, Support1Strength = null, DistanceToSupport1Pct = null,
             Resistance1 = null, Resistance1Strength = null, DistanceToResistance1Pct = null,
             IsAboveEma20 = true, IsAboveEma50 = true, IsAboveEma200 = true,

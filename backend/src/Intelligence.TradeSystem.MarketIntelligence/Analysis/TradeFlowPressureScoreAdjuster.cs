@@ -40,17 +40,17 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Нижняя граница короткого окна.</summary>
     internal const double WindowShortCapThresholdSeconds = 10.0;
 
-    /// <summary>Ограничение для windowDuration >= 60 s — на уровне window ограничение отсутствует.</summary>
+    /// <summary>Ограничение для WindowDuration >= 60 s — на уровне   ограничение отсутствует.</summary>
     /// <remarks>Значение 1 означает «нет ограничения».</remarks>
     internal const decimal WindowNoCap = 1.0m;
 
-    /// <summary>Ограничение для windowDuration в [30, 60).</summary>
+    /// <summary>Ограничение для WindowDuration в [30, 60).</summary>
     internal const decimal WindowLargeCap = 0.50m;
 
-    /// <summary>Ограничение для windowDuration в [10, 30).</summary>
+    /// <summary>Ограничение для WindowDuration в [10, 30).</summary>
     internal const decimal WindowMediumCap = 0.35m;
 
-    /// <summary>Ограничение для windowDuration &lt; 10 s.</summary>
+    /// <summary>Ограничение для WindowDuration &lt; 10 s.</summary>
     internal const decimal WindowShortCap = 0.25m;
 
     // -- Volume caps ----------------------------------------------------------
@@ -76,11 +76,11 @@ internal static class TradeFlowPressureScoreAdjuster
     internal const decimal ConflictCap = 0.50m;
 
     /// <summary>
-    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или window &lt; 30 s.
+    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или   &lt; 30 s.
     /// </summary>
     internal const decimal ConflictWithWeaknessCap = 0.25m;
 
-    // -- Public API -----------------------------------------------------------
+    // -- Публичный API --------------------------------------------------------
 
     /// <summary>
     /// Применяет все ограничения качества к <paramref name="rawScore"/> и возвращает скорректированный score.
@@ -131,7 +131,7 @@ internal static class TradeFlowPressureScoreAdjuster
             cap = Math.Min(cap, conflictCap);
         }
 
-        // Apply cap with sign preservation
+        // Apply cap  sign preservation
         return ApplyCapToScore(rawScore, cap);
     }
 
@@ -169,7 +169,7 @@ internal static class TradeFlowPressureScoreAdjuster
         return tags;
     }
 
-    // -- Private helpers ------------------------------------------------------
+    // -- Внутренние помощники ------------------------------------------------
 
     /// <summary>
     /// Вычисляет ограничение актуальности. Возвращает 1.0 (нет ограничения), если capturedAtUtc == null.
@@ -217,7 +217,7 @@ internal static class TradeFlowPressureScoreAdjuster
 
     /// <summary>
     /// Определяет, является ли tradeFlow слабым для применения ограничения конфликта:
-    /// устаревший снимок или window &lt; 30 s.
+    /// устаревший снимок или   &lt; 30 s.
     /// </summary>
     private static bool IsStaleOrShortWindow(
         TradeFlowSnapshot tradeFlow,

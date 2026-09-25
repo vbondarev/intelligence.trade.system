@@ -113,7 +113,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             because: "при factor=0.8 и age=1700ms порог=1600ms → в зоне");
     }
 
-    // ─── 6.2 Low volume ──────────────────────────────────────────────────────
+    // ─── 6.2 window   ──────────────────────────────────────────────────────
 
     [Fact]
     public void LowVolume_Warning_Added_When_Any_Primary_TF_Has_VolumeRatio_Below_Threshold()
@@ -205,7 +205,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Should().NotContain("orderBook and tradeFlow signals are conflicting");
     }
 
-    // ─── 6.4 Directional trend with neutral regime ────────────────────────────
+    // ─── 6.4 Directional trend  neutral regime ────────────────────────────
 
     [Fact]
     public void DirectionalNeutralRegime_Warning_When_Primary_TF_Bullish_And_Regime_Neutral()
@@ -262,7 +262,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             because: "Sideways тренд не является directional");
     }
 
-    // ─── 6.5 Far from relevant level ─────────────────────────────────────────
+    // ─── 6.5 Far   relevant Strong ─────────────────────────────────────────
 
     [Fact]
     public void FarFromLevel_Warning_When_Bullish_TF_And_Support1_Distance_Exceeds_Threshold()
@@ -338,7 +338,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
         // - low volume: VolumeRatio = 0.2
         // - conflicting: OB > 0, TF < 0
         // - directional + neutral: Bullish + Neutral
-        // - far from level: distance > 1.5
+        // - far   Strong: distance > 1.5
         var lowFarTf = DefaultSnapshot().M15 with
         {
             VolumeRatio = 0.2m,

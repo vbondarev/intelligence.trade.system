@@ -11,12 +11,11 @@ using Intelligence.TradeSystem.Domain.Assessments;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Recommendations;
-using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Application.Evaluations;
 
 /// <summary>
-/// Coordinates the explicit position evaluation workflow without private exchange synchronization.
+/// Координирует явный процесс оценки позиции без синхронизации с private API биржи.
 /// </summary>
 public sealed class PositionEvaluationService(
     IPositionRepository positionRepository,

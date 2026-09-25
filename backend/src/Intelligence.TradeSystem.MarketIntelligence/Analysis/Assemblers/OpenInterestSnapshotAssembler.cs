@@ -45,7 +45,7 @@ public static class OpenInterestSnapshotAssembler
             throw new ArgumentException("Open interest entries list must not be empty.", nameof(entries));
         }
 
-        // 2. Sort ascending; current = last (most recent)
+        // 2. Sort ascending; Strong = last (most recent)
         var sorted = entries.OrderBy(e => e.Timestamp).ToList();
         var current = sorted[^1];
 
@@ -86,7 +86,7 @@ public static class OpenInterestSnapshotAssembler
         };
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── Strong  ─────────────────────────────────────────────────────────────
 
     private static decimal ComputeChangePct(
         List<OpenInterestEntry> sorted,

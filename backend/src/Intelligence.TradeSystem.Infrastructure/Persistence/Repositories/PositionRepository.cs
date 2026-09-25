@@ -203,7 +203,7 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
         var newVersion = expectedVersion.Value.Next();
         try
         {
-            // Acquire the ownership and version CAS before reading or staging history rows.
+            // Сначала получить ownership и version CAS, затем читать или подготавливать строки изменений.
             var affected = await dbContext.Positions
                 .Where(entity =>
                     entity.Id == mapped.Id &&

@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Validatio
 
 public sealed class KlineValidatorTests
 {
-    // ───── Validate — valid cases ─────
+    // ───── Validate —  cases ─────
 
     [Fact]
     public void Valid_Kline_Returns_IsValid_True()
@@ -94,7 +94,7 @@ public sealed class KlineValidatorTests
 
         var result = KlineValidator.Validate(kline, 0);
 
-        // High < Low triggers first, but either way it must be invalid.
+        // High < Low проверяется первым, но в любом случае свеча должна быть некорректной.
         result.IsValid.Should().BeFalse();
     }
 
@@ -138,8 +138,8 @@ public sealed class KlineValidatorTests
     {
         var kline = KlineFactory.Create(open: 110m, high: 105m, low: 95m, close: 100m);
 
-        // High < Open but also High < Low boundary — detector catches High < Low first;
-        // either way the candle is invalid.
+        // High < Open, а также граничное High < Low — detector сначала обнаруживает High < Low;
+        // в любом случае свеча некорректна.
         var result = KlineValidator.Validate(kline, 0);
 
         result.IsValid.Should().BeFalse();
@@ -207,7 +207,7 @@ public sealed class KlineValidatorTests
     public void FilterValid_Removes_Invalid_Klines()
     {
         var klines = KlineFactory.CreateSeries(5).ToList();
-        // Inject one invalid candle (High < Low) at index 2.
+        // Добавить одну некорректную свечу (High < Low) с индексом 2.
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m);
 
         var valid = KlineValidator.FilterValid(klines, out var violations);

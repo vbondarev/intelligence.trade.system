@@ -4,7 +4,7 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 namespace Intelligence.TradeSystem.Application.Evaluations;
 
 /// <summary>
-/// Immutable production configuration for the position evaluation workflow.
+/// Неизменяемая production-конфигурация процесса оценки позиции.
 /// </summary>
 public sealed record PositionEvaluationPolicySettings
 {

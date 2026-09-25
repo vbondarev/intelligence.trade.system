@@ -42,8 +42,8 @@ public sealed class ExchangeAccountVerificationTests
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         var store = new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict);
         var verifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
-        // The repository is user-scoped: a foreign account query returns null exactly like a
-        // missing one, so the caller and Application layer cannot distinguish the two cases.
+        // Репозиторий ограничен пользователем: запрос чужого аккаунта возвращает null так же,
+        // как запрос отсутствующего, поэтому caller и Application layer не различают эти случаи.
         repository.Setup(value => value.GetByIdAsync(otherUser, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<ExchangeAccount>?)null);
         var service = new ExchangeAccountService(verifier.Object, repository.Object, store.Object, new InlineLifecycleTransaction(), new TestApplicationEventOutbox());
@@ -151,8 +151,8 @@ public sealed class ExchangeAccountVerificationTests
     [Fact]
     public async Task VerifyAsync_WhenAlreadyUnavailableAndVerificationFailsAgainWithTheSameReason_DoesNotEmitAnEvent()
     {
-        // The account already observes the exact failure state VerifyAsync would produce, so the
-        // observable-state guard must treat the repeated failure as a no-op: no save, no event.
+        // Аккаунт уже находится в том же состоянии ошибки, которое создал бы VerifyAsync,
+        // поэтому guard наблюдаемого состояния должен считать повторную ошибку no-op: без save и event.
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
@@ -175,7 +175,7 @@ public sealed class ExchangeAccountVerificationTests
         result.Outcome.Should().Be(ExchangeAccountVerificationOutcome.InvalidCredentials);
         result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
         outbox.Events.Should().BeEmpty();
-        // No SaveAsync setup on the strict repository mock: if it were invoked, the call itself would throw.
+        // Для strict repository mock нет настройки SaveAsync: при вызове сам вызов завершился бы исключением.
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public sealed class ExchangeAccountVerificationTests
         result.Account.Should().BeNull();
         repository.VerifyAll();
         store.VerifyAll();
-        // verifier is strict and has no setup: if it were invoked, VerifyAll/the call itself would throw.
+        // verifier strict и не настроен: при вызове VerifyAll сам вызов завершился бы исключением.
     }
 
     [Fact]
@@ -551,7 +551,7 @@ public sealed class ExchangeAccountVerificationTests
         result.Outcome.Should().Be(ExchangeAccountCredentialRotationOutcome.PermissionsRejected);
         result.Account.Should().BeNull();
         outbox.Events.Should().BeEmpty();
-        // No RotateAsync/SaveAsync setup on the strict mocks: this proves no persistence mutation happened.
+        // В strict mocks нет настройки RotateAsync/SaveAsync: это подтверждает отсутствие изменения persistence.
     }
 
     [Fact]
@@ -583,7 +583,7 @@ public sealed class ExchangeAccountVerificationTests
 
         await act.Should().ThrowAsync<ConcurrencyConflictException>();
         outbox.Events.Should().BeEmpty();
-        // No RotateAsync/SaveAsync setup on the strict mocks: this proves the write never happened.
+        // В strict mocks нет настройки RotateAsync/SaveAsync: это подтверждает, что запись не выполнялась.
     }
 
     [Fact]
@@ -648,7 +648,7 @@ public sealed class ExchangeAccountVerificationTests
 
         await act.Should().ThrowAsync<ConcurrencyConflictException>();
         outbox.Events.Should().BeEmpty();
-        // No RotateAsync/SaveAsync setup on the strict mocks: this proves the account was never reactivated.
+        // В strict mocks нет настройки RotateAsync/SaveAsync: это подтверждает, что аккаунт не активировался повторно.
     }
 
     private static async Task<VerifyRun> RunVerifyOutcomeAsync(

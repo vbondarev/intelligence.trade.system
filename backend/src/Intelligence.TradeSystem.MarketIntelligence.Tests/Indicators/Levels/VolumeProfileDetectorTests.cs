@@ -119,7 +119,7 @@ public sealed class VolumeProfileDetectorTests
             because: "высокообъёмная ценовая зона (45–55) должна быть определена как уровень поддержки");
     }
 
-    // ── Price-side invariants (strict, unconditional) ────────────────────────
+    // ── Инварианты стороны цены (строгие, безусловные) ───────────────────────
 
     /// <summary>
     /// Детерминированный сценарий: две HVN-зоны ниже текущей цены.
@@ -257,7 +257,7 @@ public sealed class VolumeProfileDetectorTests
             because: "Resistance2 обязан быть выше текущей цены");
     }
 
-    // ── Absent level is null, never zero ─────────────────────────────────────
+    // ── Отсутствующий уровень равен null, а не нулю ───────────────────────────
 
     [Fact]
     public void Absent_Support2_Is_Null_Not_Zero()
@@ -853,7 +853,7 @@ public sealed class VolumeProfileDetectorTests
         }
     }
 
-    // ── Source invariant ─────────────────────────────────────────────────────
+    // ── Инвариант источника ───────────────────────────────────────────────────
 
     [Fact]
     public void All_Detected_Levels_Have_Source_SimplifiedVolumeProfile()
@@ -922,7 +922,7 @@ public sealed class VolumeProfileDetectorTests
             because: "VolumeProfileDetector обязан устанавливать Source = SimplifiedVolumeProfile");
     }
 
-    // ── ClusterVolume invariant ───────────────────────────────────────────────
+    // ── Инвариант ClusterVolume ───────────────────────────────────────────────
 
     [Fact]
     public void All_Detected_Levels_Have_Positive_ClusterVolume()

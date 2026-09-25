@@ -144,7 +144,7 @@ internal static class ApiSnapshotTestData
         var isAboveEma200 = overrideIsAboveEma200 ?? (trend != MarketTrend.Bearish);
         var emaBullish = overrideEmaBullish ?? (trend == MarketTrend.Bullish);
         var emaBearish = overrideEmaBearish ?? (trend == MarketTrend.Bearish);
-        // overrideRsi14 = null explicitly means "RSI unavailable"; default 55m = available.
+        // overrideRsi14 = null явно означает «RSI недоступен»; значение по умолчанию 55m доступно.
         decimal? rsi14 = overrideRsi14;
         var rsiOverbought = overrideRsiOverbought ?? false;
         var rsiOversold = overrideRsiOversold ?? false;

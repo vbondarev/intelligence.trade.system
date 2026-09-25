@@ -99,17 +99,19 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     [Fact]
     public async Task Concurrent_syncs_discovering_different_new_positions_do_not_deadlock()
     {
-        // The account lock (FOR NO KEY UPDATE) must remain compatible with the implicit
-        // KEY SHARE FK lock a concurrent new-position INSERT holds on exchange_accounts;
-        // otherwise two overlapping syncs inserting different new positions on the same
-        // account would deadlock (PostgreSQL 40P01) instead of serializing/retrying.
+        // Блокировка (FOR NO KEY UPDATE) должна оставаться совместимой с неявной
+        // блокировкой KEY SHARE FK, которую удерживает параллельная вставка позиции в exchange_accounts;
+        // иначе две параллельные sync-операции, вставляющие разные новые позиции
+        // одного аккаунта, вызвали бы deadlock (PostgreSQL 40P01) вместо
+        // последовательной обработки или retry.
         //
-        // The "newer" observation (T2) is a strict superset of the "older" one (T1),
-        // mirroring the real world: a later poll of the same account/category always
-        // reports every position still open plus anything opened meanwhile. This keeps
-        // the expected final state deterministic (both positions persisted) regardless
-        // of which of the two overlapping attempts happens to commit first, while the
-        // account/position row locks are still genuinely contended via the fetch barrier.
+        // «Новое» наблюдение (T2) строго включает «старое» (T1),
+        // что соответствует реальности: более поздний опрос того же аккаунта/category
+        // всегда сообщает обо всех ещё открытых позициях и обо всём открытом за это время. Это сохраняет
+        // поэтому итоговое состояние детерминировано (сохраняются обе позиции)
+        // независимо от того, какая из двух параллельных попыток завершит commit первой.
+        // При этом блокировки строк account/position действительно конкурируют
+        // благодаря fetch barrier.
         var account = CreateAccount();
         await using (var setupContext = fixture.CreateContext())
         {
@@ -130,11 +132,11 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         var newer = RunSynchronization(account, providers[1], T2);
         var results = await Task.WhenAll(older, newer).WaitAsync(TimeSpan.FromSeconds(30));
 
-        // No deadlock: both attempts complete with a well-defined outcome instead of a
-        // PostgresException (40P01) propagating out of Task.WhenAll above. The strictly
-        // newer (T2) observation can never be legitimately superseded by the older one,
-        // so it is always the attempt that ultimately applies; the older attempt either
-        // wins the race (Synchronized) or safely no-ops once outrun (Superseded).
+        // Deadlock отсутствует: обе попытки завершаются определённым результатом, а не
+        // передают PostgresException (40P01) из показанного выше Task.WhenAll. Строго
+        // более новое наблюдение (T2) не может быть правомерно вытеснено старым,
+        // поэтому именно эта попытка в итоге применяется; старая либо выигрывает гонку
+        // (Synchronized), либо безопасно становится no-op после опережения (Superseded).
         Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, results[1].Outcome);
         Assert.True(
             results[0].Outcome is ExchangeAccountSyncOutcome.Synchronized
@@ -151,9 +153,9 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Contains(
             persistedPositions,
             position => position.Value.ExchangePositionKey.InstrumentId.Value == "ETHUSDT");
-        // Portfolio state history is append-only: it gains one row per attempt that
-        // actually applied a synchronized observation (one or two, depending on which
-        // of the two overlapping attempts won the account-lock race).
+        // История состояния портфеля ведётся в append-only режиме: она получает одну строку за попытку, которая
+        // фактически применила синхронизированное наблюдение (одну или две — в зависимости
+        // от того, какая попытка выиграла гонку за блокировку аккаунта).
         var expectedPortfolioStates = results.Count(
             result => result.Outcome == ExchangeAccountSyncOutcome.Synchronized);
         Assert.Equal(

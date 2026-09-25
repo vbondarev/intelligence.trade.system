@@ -110,8 +110,8 @@ public static class KlineValidator
 
         violations = (IReadOnlyList<KlineValidationResult>?)invalidList ?? [];
 
-        // No invalid klines — return original to avoid allocation.
-        // No valid klines — return empty.
+        // Некорректных klines нет — вернуть исходную коллекцию без выделения памяти.
+        // Корректных klines нет — вернуть пустую коллекцию.
         return valid is null
             ? (invalidList is null ? klines : Array.Empty<Kline>())
             : valid;

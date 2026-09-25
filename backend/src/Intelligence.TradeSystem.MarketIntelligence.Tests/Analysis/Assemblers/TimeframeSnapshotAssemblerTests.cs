@@ -149,7 +149,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void VolumeRatio_Is_Null_When_All_Volumes_Are_Zero()
     {
-        // When all candle volumes are zero, VolumeSma20 = 0 → VolumeRatio cannot be computed → null.
+        // Если объёмы всех свечей равны нулю, VolumeSma20 = 0 → VolumeRatio не вычисляется → null.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = Enumerable.Range(0, 25)
             .Select(i => KlineFactory.Create(volume: 0m, startTime: baseTime.AddHours(i)))
@@ -161,7 +161,7 @@ public sealed class TimeframeSnapshotAssemblerTests
             because: "VolumeSma20 = 0 → division impossible → VolumeRatio is null, not fake-zero");
         result.Snapshot.VolumeRatioIsReliable.Should().BeFalse();
 
-        // A diagnostic must explain why VolumeRatio is absent.
+        // Diagnostic должен объяснять, почему VolumeRatio отсутствует.
         var diag = result.Snapshot.IndicatorDiagnostics
             .Should().ContainSingle(d => d.Indicator == "volumeRatio").Subject;
         diag.Timeframe.Should().Be("1h");
@@ -207,7 +207,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // 1 свеча: EMA возвращает Fallback (PartialWindow), IsAvailable=true → HasUsableValue=true
         // → TrendClassifier вызывается. Но проверим, что assembler вообще не падает.
-        // На самом деле при 1 свече все EMA = Available/Fallback с value = сама цена.
+        // На самом деле при 1 свече все EMA = Available/Fallback с  = сама цена.
         // TrendClassifier с ema20==ema50==ema200==close → Sideways.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
@@ -335,7 +335,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         var klines = KlineFactory.CreateSeries(count: 50);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
 
-        // EMA200 имеет числовое значение (fallback по partial window).
+        // EMA200 имеет числовое значение (fallback по partial  ).
         result.Snapshot.Ema200.Should().NotBeNull(because: "EMA200 computes a fallback value with partial window");
         result.Snapshot.Ema200.Should().BeGreaterThan(0m);
 
@@ -350,7 +350,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     public void Boolean_EmaFlags_Are_False_When_Ema_Would_Be_Zero()
     {
         // 11.4: с одной свечой EMA = fallback (= цена), boolean flags должны отражать реальное сравнение.
-        // Даже при partial window EMA имеет значение — флаги корректны.
+        // Даже при partial   EMA имеет значение — флаги корректны.
         // Проверяем только, что флаги не основаны на fake-zero.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
@@ -385,7 +385,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Invalid_Kline_Is_Excluded_And_Diagnostic_Is_Emitted()
     {
-        // Prepare: 10 valid candles + 1 invalid (High < Low) at position 5.
+        // Подготовка: 10 корректных свечей + 1 некорректная (High < Low) на позиции 5.
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[5] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m);
 
@@ -447,10 +447,10 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_LastKlineFiltered_When_Newest_Candle_Is_Invalid()
     {
-        // Arrange: 5 valid candles + 1 invalid candle with the LATEST StartTime.
+        // : 5   + 1    the LATEST StartTime.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 5).ToList();
-        // Inject an invalid candle (High < Low) with StartTime beyond all valid candles.
+        // Добавить некорректную свечу (High < Low) с StartTime позже всех корректных свечей.
         klines.Add(KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
             startTime: baseTime.AddHours(100)));
 
@@ -481,7 +481,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void No_LastKlineFiltered_Diagnostic_When_Invalid_Candle_Is_Not_The_Most_Recent()
     {
-        // Invalid candle at position 2 (not the last by time — series goes 0h..9h, invalid at 2h).
+        // In  at position 2 (not the last by time — series goes 0h..9h,  2h).
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
@@ -497,7 +497,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_HighViolationRate_When_More_Than_20_Percent_Are_Invalid()
     {
-        // 10 candles, 3 invalid = 30% > 20% threshold.
+        // 10 candles, 3  = 30% > 20% threshold.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[1] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1));
@@ -518,7 +518,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void No_HighViolationRate_Diagnostic_When_Below_Threshold()
     {
-        // 10 candles, 1 invalid = 10% <= 20% threshold → no highViolationRate diagnostic.
+        // 10 candles, 1  = 10% <= 20% threshold → no highViolationRate diagnostic.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2));
@@ -533,7 +533,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_InsufficientData_When_Only_One_Valid_Kline_Remains()
     {
-        // 4 invalid + 1 valid = 1 usable candle < KlineMinimumUsableCount (2).
+        // 4  + 1  = 1 usable candle < KlineMinimumUsableCount (2).
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = new List<Intelligence.TradeSystem.Domain.Kline>
         {
@@ -605,7 +605,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Одна свеча — объёмный профиль не найдёт уровней из-за нехватки данных
         var klines = KlineFactory.CreateSeries(count: 1);
 
-        // Assembler выбрасывает исключение при validKlines < 2 — проверяем это отдельно;
+        // Assembler выбрасывает исключение при  klines < 2 — проверяем это отдельно;
         // здесь нас интересует поведение когда уровни не обнаружены.
         // Создаём минимально достаточный набор свечей с одинаковыми ценами — профиль не выдаст поддержку/сопротивление
         // относительно Close, поэтому проверяем консистентность: если Price == null, то Strength == null.

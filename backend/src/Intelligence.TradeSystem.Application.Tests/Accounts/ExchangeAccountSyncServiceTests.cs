@@ -102,9 +102,9 @@ public sealed class ExchangeAccountSyncServiceTests
     [Fact]
     public async Task SynchronizeAsync_UsesLightweightWatermarkForPreLockCheck_AndLoadsFullAggregateOnlyOnce()
     {
-        // The pre-lock race check must use the lightweight ID/version watermark projection,
-        // not a second full-aggregate (with history) load: GetByExchangeAccountAsync should
-        // only be called once, for the post-lock reconciliation read.
+        // Предварительная race-проверка до блокировки должна использовать лёгкую проекцию ID/version watermark,
+        // а не вторую загрузку полного aggregate (с историей): GetByExchangeAccountAsync должен
+        // вызываться только один раз — для reconciliation-чтения после блокировки.
         var fixture = CreateFixture();
         SetupSuccessfulObservation(fixture, ObservedAt);
         var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
@@ -145,10 +145,9 @@ public sealed class ExchangeAccountSyncServiceTests
     [Fact]
     public async Task SynchronizeAsync_WhenPositionSetChangesBetweenWatermarkAndLocks_ThrowsConcurrencyConflict()
     {
-        // A watermark mismatch (someone else's transaction changed the tracked position set
-        // between the pre-lock read and the account/position locks) must surface as a
-        // ConcurrencyConflictException so the caller can retry, instead of silently
-        // persisting against a stale set.
+        // Несовпадение watermark (транзакция другого процесса изменила отслеживаемый набор позиций
+        // между чтением до блокировки и блокировками аккаунта/позиций) должно проявляться как
+        // ConcurrencyConflictException, чтобы caller мог выполнить retry, а не сохранять устаревший набор.
         var fixture = CreateFixture();
         SetupSuccessfulObservation(fixture, ObservedAt);
         var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");

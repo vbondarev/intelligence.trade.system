@@ -29,7 +29,7 @@ public sealed class RsiCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary ─────────────────────────────────────────────────────────────
+    // ── Граничные значения ────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_EmptyInput_When_Array_Is_Empty()
@@ -140,7 +140,7 @@ public sealed class RsiCalculatorTests
         result.Value.Should().BeLessThan(30m);
     }
 
-    // ── Invariant: RSI always in [0, 100] when available ─────────────────────
+    // ── Инвариант: доступный RSI всегда находится в [0, 100] ─────────────────
 
     public static TheoryData<decimal[]> AvailableRsiSeries => new()
     {

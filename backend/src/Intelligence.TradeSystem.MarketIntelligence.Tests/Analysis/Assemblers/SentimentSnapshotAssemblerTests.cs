@@ -74,7 +74,8 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Uses_Average_Of_Current_And_Avg24h_FundingRates()
     {
-        // Current funding alone would saturate to -1, but averaging with the opposite 24h value must neutralize the signal.
+        // Одно только текущее funding дало бы насыщение до -1, но усреднение с противоположным 24h funding
+        // должно нейтрализовать сигнал.
         var derivatives = CreateDerivatives(fundingRate: 0.001m, fundingRateAvg24h: -0.001m);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
@@ -364,7 +365,7 @@ public sealed class SentimentSnapshotAssemblerTests
         result.MarketRegime.Should().Be("Trending");
     }
 
-    // --- Integration: BTCUSDT-like regression --------------------------------
+    // --- Integration: регрессия в стиле BTCUSDT ------------------------------
 
     /// <summary>
     /// Регрессионный тест: BTCUSDT-подобный снапшот с устаревшим tradeFlow,
@@ -374,7 +375,7 @@ public sealed class SentimentSnapshotAssemblerTests
     /// Исходные данные:
     ///   buyVolume = 0.872, sellVolume = 0.1
     ///   deltaPct ≈ 79 % → rawScore = 1.0 (clamp); HasAggressiveBuyPressure = true → floor 0.5 (raw уже выше)
-    ///   windowDuration = 8 s       → windowCap = 0.25
+    ///   WindowDuration = 8 s       →  Cap = 0.25
     ///   tradeFlowAge = 5 824 ms, maxAge = 5 000 ms → staleCap = 0.50
     ///   totalVolume = 0.972 BTC    → volumeCap = 0.35
     ///   конфликт orderBook + короткое окно → conflictWithWeaknessCap = 0.25
@@ -383,7 +384,7 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()
     {
-        // Arrange
+        //
         const long maxAgeMs = 5_000L; // Intraday threshold
         var now = DateTimeOffset.UtcNow;
         var windowEnd = now.AddMilliseconds(-5_824); // stale: age > maxAge
@@ -412,7 +413,7 @@ public sealed class SentimentSnapshotAssemblerTests
             HasAggressiveSellPressure = false,
         };
 
-        // orderBook dominates ask-side → negative pressure → conflict with bullish tradeFlow
+        // orderBook dominates ask-side → negative pressure → conflict  bullish tradeFlow
         var orderBook = CreateOrderBook(
             imbalanceTop5: -0.40m,
             imbalanceTop10: -0.20m,

@@ -201,8 +201,8 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
         paths.GetProperty("/api/market-analysis/snapshot").GetProperty("post")
             .TryGetProperty("security", out _).Should().BeFalse();
 
-        // Documented runtime status codes must match the outcomes ExchangeAccountsController
-        // actually produces (see ExchangeAccountsControllerTests for the corresponding runtime assertions).
+        // Задокументированные runtime-коды должны совпадать с результатами ExchangeAccountsController,
+        // фактически проверяемыми в ExchangeAccountsControllerTests.
         f02Operations[0].GetProperty("responses").TryGetProperty("200", out _).Should().BeTrue();
         f02Operations[2].GetProperty("responses").EnumerateObject().Select(x => x.Name)
             .Should().Contain(["200", "400", "403", "404", "409", "503"]);
@@ -222,8 +222,8 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
         lastSyncedAtSchema.TryGetProperty("nullable", out var nullable).Should().BeTrue();
         nullable.GetBoolean().Should().BeTrue();
 
-        // Response schemas (not request bodies, which legitimately accept apiKey/apiSecret to
-        // submit credentials) must never expose secrets or internal credential diagnostics.
+        // Response schemas (не request bodies, которые принимают apiKey/apiSecret для передачи
+        // credentials) никогда не должны раскрывать secrets или внутренние credential diagnostics.
         var responseSchemaNames = new[] { "ExchangeAccountResponse", "ExchangeAccountListResponse" };
         foreach (var schemaName in responseSchemaNames)
         {

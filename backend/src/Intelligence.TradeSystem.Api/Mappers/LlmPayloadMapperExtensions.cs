@@ -188,7 +188,7 @@ internal static class LlmPayloadMapperExtensions
             HasAggressiveSellPressure = s.HasAggressiveSellPressure,
         };
 
-    // ─── Timeframe ──────────────────────────────────────────────────────────
+    // ─── Таймфрейм ──────────────────────────────────────────────────────────
 
     private const string LevelSourceV1 = "volume-profile";
 

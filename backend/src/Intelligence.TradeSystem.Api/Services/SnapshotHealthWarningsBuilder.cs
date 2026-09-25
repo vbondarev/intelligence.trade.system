@@ -37,16 +37,16 @@ internal static class SnapshotHealthWarningsBuilder
         var dataQuality = new List<string>();
         var marketInterpretation = new List<string>();
 
-        // Priority 1: data-quality
+        // Приоритет 1: data-quality
         AddNearStalenessWarnings(ctx, dataQuality);
 
-        // Priority 2: market-interpretation
+        // Приоритет 2: market-interpretation
         AddLowVolumeWarning(snapshot, ctx.Mode, marketInterpretation);
         AddConflictingMicrostructureWarning(snapshot.Sentiment, marketInterpretation);
         AddDirectionalNeutralRegimeWarning(snapshot, ctx.Mode, marketInterpretation);
         AddFarFromLevelWarning(snapshot, ctx.Mode, marketInterpretation);
 
-        // Merge by priority, deduplicate and truncate
+        // Объединить по приоритету, удалить дубликаты и обрезать список.
         var result = new List<string>(MaxWarnings);
         foreach (var w in dataQuality.Concat(marketInterpretation))
         {
@@ -58,7 +58,7 @@ internal static class SnapshotHealthWarningsBuilder
         return result;
     }
 
-    // ─── Rule implementations ────────────────────────────────────────────────
+    // ─── Реализации правил ───────────────────────────────────────────────────
 
     /// <summary>
     /// Правило 6.1: секция OrderBook / TradeFlow / Derivatives достигла порога близости к устареванию,
@@ -171,7 +171,7 @@ internal static class SnapshotHealthWarningsBuilder
         }
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────────────────
 
     /// <summary>
     /// Возвращает <see cref="TimeframeAnalysisSnapshot"/> для первичных таймфреймов текущего режима.

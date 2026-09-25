@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Diagnostics;
 
 public sealed class IndicatorDiagnosticListExtensionsTests
 {
-    // ── Normal available value — no entry added ───────────────────────────────
+    // ── Normal   — no entry added ───────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Does_Not_Add_For_Normal_Available_Value()
@@ -20,7 +20,7 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         diagnostics.Should().BeEmpty();
     }
 
-    // ── Fallback value — one entry added ─────────────────────────────────────
+    // ── Fallback  — one entry added ─────────────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Adds_One_Entry_For_Fallback_Value()
@@ -35,7 +35,7 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         diagnostics[0].IsFallback.Should().BeTrue();
     }
 
-    // ── Unavailable value — one entry added ──────────────────────────────────
+    // ── Unavailable  — one entry added ──────────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Adds_One_Entry_For_Unavailable_Value()
@@ -96,7 +96,7 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    // ── Null value → ArgumentNullException ───────────────────────────────────
+    // ── Null  → ArgumentNullException ───────────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Throws_When_Value_Is_Null()

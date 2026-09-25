@@ -52,7 +52,7 @@ public sealed class TrendClassifierTests
         score.Should().Be(0.49m);
     }
 
-    // ── Strength score: directed trends ─────────────────────────────────────
+    // ── Strength score: направленные тренды ─────────────────────────────────
 
     [Fact]
     public void StrengthScore_Is_0_8_For_Full_Bullish_Alignment_Without_Volume_Boost()

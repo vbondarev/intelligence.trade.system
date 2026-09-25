@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Results;
 /// </summary>
 public sealed class IndicatorValueInvariantTests
 {
-    // ── Invariant: Unavailable always has Value = null ───────────────────────
+    // ── Инвариант: Unavailable всегда имеет Value = null ────────────────────
 
     public static TheoryData<IndicatorValueReason> NonNoneReasons => new()
     {
@@ -50,7 +50,7 @@ public sealed class IndicatorValueInvariantTests
             because: "an unavailable result is not a fallback — it has no value at all (reason: {0})", reason);
     }
 
-    // ── Invariant: Fallback always has IsAvailable = true ────────────────────
+    // ── Инвариант: Fallback всегда имеет IsAvailable = true ─────────────────
 
     [Theory]
     [MemberData(nameof(NonNoneReasons))]
@@ -82,7 +82,7 @@ public sealed class IndicatorValueInvariantTests
             because: "a fallback result carries a numeric estimate, Value must not be null (reason: {0})", reason);
     }
 
-    // ── Invariant: Reason.None only for Available non-Fallback ───────────────
+    // ── Инвариант: Reason.None только для Available без Fallback ─────────────
 
     [Fact]
     public void Available_Always_Has_Reason_None()
@@ -131,7 +131,7 @@ public sealed class IndicatorValueInvariantTests
             .WithParameterName("reason");
     }
 
-    // ── Invariant: IsAvailable = false implies Value = null ──────────────────
+    // ── Инвариант: IsAvailable = false означает Value = null ─────────────────
 
     [Theory]
     [MemberData(nameof(NonNoneReasons))]
@@ -147,7 +147,7 @@ public sealed class IndicatorValueInvariantTests
         }
     }
 
-    // ── Invariant: IsFallback = true implies IsAvailable = true ──────────────
+    // ── Инвариант: IsFallback = true означает IsAvailable = true ─────────────
 
     [Theory]
     [MemberData(nameof(NonNoneReasons))]

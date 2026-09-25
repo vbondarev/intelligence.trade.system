@@ -14,7 +14,7 @@ public static class SmaCalculator
     /// <summary>
     /// Вычисляет простую скользящую среднюю (SMA) и возвращает структурированный результат <see cref="IndicatorValue"/>.
     /// </summary>
-    /// <param name="values">Последовательность значений, например цен закрытия.</param>
+    /// <param name="">Последовательность значений, например цен закрытия.</param>
     /// <param name="period">Период расчёта SMA. Должен быть больше нуля.</param>
     /// <returns>
     /// <see cref="IndicatorValue.Unavailable"/> с причиной <see cref="IndicatorValueReason.EmptyInput"/>, если массив пуст.
@@ -22,7 +22,7 @@ public static class SmaCalculator
     /// <see cref="IndicatorValue.Available"/> при полноценном расчёте по <paramref name="period"/> значениям.
     /// </returns>
     /// <exception cref="ArgumentNullException">
-    /// Выбрасывается, если <paramref name="values"/> равен <see langword="null"/>.
+    /// Выбрасывается, если <paramref name=""/> равен <see langword="null"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// Выбрасывается, если <paramref name="period"/> меньше или равен нулю.

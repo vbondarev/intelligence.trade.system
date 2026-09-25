@@ -282,7 +282,7 @@ public static class TimeframeSummaryBuilder
 
         var isNeutralMarketRegime = IsNeutralMarketRegime(marketRegime);
 
-        // ── Stale snapshot ───────────────────────────────────────────────────
+        // ──  snapshot ───────────────────────────────────────────────────
         if (!snapshotIsFresh)
             Add("StaleSnapshot");
 
@@ -338,7 +338,7 @@ public static class TimeframeSummaryBuilder
             AddEmaRiskFlags(s, bias, Add);
         }
 
-        // ── Opposite level proximity ─────────────────────────────────────────
+        // ── Opposite Strong proximity ─────────────────────────────────────────
         if (oppDistancePct is >= 0m and < EntryQualityEvaluator.NearOppositeThreshold)
         {
             if (bias == TimeframeBias.Bullish)
@@ -357,7 +357,7 @@ public static class TimeframeSummaryBuilder
                 Add("NearSupport");
         }
 
-        // ── Entry level: missing or weak ─────────────────────────────────────
+        // ── Entry Strong: missing or weak ─────────────────────────────────────
         AddEntryLevelRiskFlags(s, bias, entryLevelStrength, Add);
 
         // ── Market regime ────────────────────────────────────────────────────
@@ -503,7 +503,7 @@ public static class TimeframeSummaryBuilder
         && s.DistanceToSupport1Pct is >= 0m and < RangeLevelDistanceThreshold
         && s.DistanceToResistance1Pct is >= 0m and < RangeLevelDistanceThreshold;
 
-    // ─── Entry level / opposite level resolution ─────────────────────────────
+    // ─── Entry Strong / opposite Strong resolution ─────────────────────────────
 
     /// <summary>
     /// Возвращает нормализованную силу уровня входа для данного bias.

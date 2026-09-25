@@ -307,7 +307,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<ApiWebApplicationFa
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var m15 = json.RootElement.GetProperty("m15");
 
-        // clusterVolume must not appear when the level itself is absent
+        // clusterVolume не должен появляться, если отсутствует сам уровень
         m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
             because: "support1==null → support1Meta (and its clusterVolume) must not appear in JSON");
     }

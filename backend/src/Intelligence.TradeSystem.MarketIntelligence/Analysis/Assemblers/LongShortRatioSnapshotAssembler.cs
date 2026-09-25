@@ -48,7 +48,7 @@ public static class LongShortRatioSnapshotAssembler
         var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
-        // 3. Averages over entire window
+        // 3. Averages over entire
         var avgBuyRatio = sorted.Average(e => e.BuyRatio);
         var avgSellRatio = sorted.Average(e => e.SellRatio);
 

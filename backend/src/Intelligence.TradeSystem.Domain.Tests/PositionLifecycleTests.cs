@@ -108,7 +108,7 @@ public sealed class PositionLifecycleTests
 
         first.Should().BeNull();
         second.Should().BeNull();
-        position.Changes.Should().ContainSingle(); // only the initial New
+        position.Changes.Should().ContainSingle(); // только исходное состояние New
     }
 
     [Fact]

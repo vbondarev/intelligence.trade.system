@@ -198,7 +198,7 @@ public sealed class RecommendationService(
             }
             catch (ConcurrencyConflictException) when (attempt < MaximumAttempts)
             {
-                // Re-read the current baseline and pending state before re-evaluating stability.
+                // Перед повторной оценкой стабильности перечитать текущие baseline и pending state.
             }
         }
 

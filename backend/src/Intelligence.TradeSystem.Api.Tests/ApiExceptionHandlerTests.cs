@@ -121,7 +121,7 @@ public sealed class ApiExceptionHandlerTests
         ApiExceptionHandler.ShouldSuppressDiagnostics(
             new InvalidOperationException("unexpected"),
             requestAborted: false).Should().BeFalse();
-#pragma warning disable CA2201 // The reserved exception type is intentional for classification coverage.
+#pragma warning disable CA2201 // Зарезервированный тип исключения нужен для покрытия классификации.
         ApiExceptionHandler.ShouldSuppressDiagnostics(
             new NullReferenceException("unexpected"),
             requestAborted: false).Should().BeFalse();

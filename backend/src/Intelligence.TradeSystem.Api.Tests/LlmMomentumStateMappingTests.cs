@@ -34,12 +34,12 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
 
     /// <summary>Подтверждённый тренд Bullish + RSI в здоровой зоне [55, 70] → Healthy.</summary>
     [Theory]
-    [InlineData(55)]   // lower boundary
-    [InlineData(60)]   // typical healthy RSI
-    [InlineData(70)]   // upper boundary
+    [InlineData(55)]   // нижняя граница
+    [InlineData(60)]   // типичное здоровое значение RSI
+    [InlineData(70)]   // верхняя граница
     public async Task MomentumState_Healthy_When_Bullish_Confirmed_And_Rsi_In_Zone(int rsi)
     {
-        // Bullish confirmed: emaBullish=true (default), isAboveEma200=true (default)
+        // Подтверждённый Bullish: emaBullish=true (по умолчанию), isAboveEma200=true (по умолчанию)
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bullish,
             overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null,
@@ -68,8 +68,8 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     }
 
     [Theory]
-    [InlineData(71)]   // just above threshold
-    [InlineData(80)]   // deeply overbought
+    [InlineData(71)]   // сразу выше порога
+    [InlineData(80)]   // сильная перекупленность
     public async Task MomentumState_Overextended_When_Bullish_And_Rsi_Above_70(int rsi)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
@@ -88,7 +88,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     [Fact]
     public async Task MomentumState_Weak_When_Bullish_Unconfirmed()
     {
-        // confirmed=false: emaBullish=true (bias stays Bullish) but isAboveEma200=false → isTrendConfirmed=false
+        // confirmed=false: emaBullish=true (bias остаётся Bullish), но isAboveEma200=false → isTrendConfirmed=false
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bullish,
             overrideIsAboveEma200: false, overrideEmaBullish: null, overrideEmaBearish: null,
@@ -101,8 +101,8 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     }
 
     [Theory]
-    [InlineData(40)]   // below 55
-    [InlineData(54)]   // just below boundary
+    [InlineData(40)]   // ниже 55
+    [InlineData(54)]   // сразу ниже границы
     public async Task MomentumState_Weak_When_Bullish_Confirmed_But_Rsi_Below_55(int rsi)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
@@ -119,12 +119,12 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     // ─── Bearish: Healthy ────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(30)]   // lower boundary
+    [InlineData(30)]   // нижняя граница
     [InlineData(38)]   // typical healthy bearish RSI
-    [InlineData(45)]   // upper boundary
+    [InlineData(45)]   // верхняя граница
     public async Task MomentumState_Healthy_When_Bearish_Confirmed_And_Rsi_In_Zone(int rsi)
     {
-        // Bearish confirmed: emaBearish=true (default), isAboveEma200=false (default)
+        // Подтверждённый Bearish: emaBearish=true (по умолчанию), isAboveEma200=false (по умолчанию)
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bearish,
             overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null,
@@ -153,8 +153,8 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     }
 
     [Theory]
-    [InlineData(29)]   // just below threshold
-    [InlineData(20)]   // deeply oversold
+    [InlineData(29)]   // сразу ниже порога
+    [InlineData(20)]   // сильная перепроданность
     public async Task MomentumState_Overextended_When_Bearish_And_Rsi_Below_30(int rsi)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
@@ -173,7 +173,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     [Fact]
     public async Task MomentumState_Weak_When_Bearish_Unconfirmed()
     {
-        // confirmed=false: emaBearish=true (bias stays Bearish) but isAboveEma200=true → isTrendConfirmed=false
+        // confirmed=false: emaBearish=true (bias остаётся Bearish), но isAboveEma200=true → isTrendConfirmed=false
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bearish,
             overrideIsAboveEma200: true, overrideEmaBullish: null, overrideEmaBearish: null,
@@ -186,8 +186,8 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
     }
 
     [Theory]
-    [InlineData(46)]   // just above 45
-    [InlineData(55)]   // clearly above bearish healthy zone
+    [InlineData(46)]   // сразу выше 45
+    [InlineData(55)]   // явно выше здоровой зоны Bearish
     public async Task MomentumState_Weak_When_Bearish_Confirmed_But_Rsi_Above_45(int rsi)
     {
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
@@ -201,7 +201,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
                 because: $"{tf.Timeframe}: Bearish confirmed but RSI {rsi} > 45 → Weak"));
     }
 
-    // ─── Neutral bias → always Neutral ──────────────────────────────────────
+    // ─── Нейтральное направление → всегда Neutral ────────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
@@ -216,7 +216,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
                 because: $"{tf.Timeframe}: {trend} bias is Neutral → Neutral momentumState"));
     }
 
-    // ─── Consistency: Healthy always implies confirmed bias ──────────────────
+    // ─── Согласованность: Healthy всегда означает подтверждённое направление ─
 
     [Theory]
     [InlineData(MarketTrend.Bullish)]

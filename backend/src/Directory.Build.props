@@ -1,50 +1,50 @@
 ﻿<Project>
 
-  <!-- ─── Targeting ─────────────────────────────────────────────────────── -->
+  <!-- ─── Целевые платформы ─────────────────────────────────────────────── -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14</LangVersion>
   </PropertyGroup>
 
-  <!-- ─── Language features ─────────────────────────────────────────────── -->
+  <!-- ─── Возможности языка ──────────────────────────────────────────────── -->
   <PropertyGroup>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- ─── Code quality ──────────────────────────────────────────────────── -->
+  <!-- ─── Качество кода ──────────────────────────────────────────────────── -->
   <PropertyGroup>
     <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 
-  <!-- ─── Deterministic builds ──────────────────────────────────────────── -->
+  <!-- ─── Детерминированные сборки ───────────────────────────────────────── -->
   <PropertyGroup>
     <Deterministic>true</Deterministic>
-    <!-- Set CI=true in pipeline env to get reproducible builds -->
+    <!-- Установите CI=true в окружении pipeline для воспроизводимых сборок -->
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <!-- ─── Assembly metadata ─────────────────────────────────────────────── -->
+  <!-- ─── Метаданные сборки ──────────────────────────────────────────────── -->
   <PropertyGroup>
     <Authors>Intelligence TradeSystem</Authors>
     <Product>Intelligence Trade System</Product>
     <Copyright>Copyright © Intelligence TradeSystem $([System.DateTime]::Now.Year)</Copyright>
   </PropertyGroup>
 
-  <!-- ─── Versioning ────────────────────────────────────────────────────── -->
+  <!-- ─── Версионирование ────────────────────────────────────────────────── -->
   <PropertyGroup>
     <VersionPrefix>0.1.0</VersionPrefix>
   </PropertyGroup>
 
-  <!-- ─── Debug ─────────────────────────────────────────────────────────── -->
+  <!-- ─── Отладка ────────────────────────────────────────────────────────── -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <Optimize>false</Optimize>
     <DebugType>full</DebugType>
     <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
 
-  <!-- ─── Release ───────────────────────────────────────────────────────── -->
+  <!-- ─── Release-сборка ─────────────────────────────────────────────────── -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <Optimize>true</Optimize>
     <DebugType>pdbonly</DebugType>
@@ -52,4 +52,3 @@
   </PropertyGroup>
 
 </Project>
-

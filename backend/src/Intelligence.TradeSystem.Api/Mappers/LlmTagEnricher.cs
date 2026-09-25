@@ -56,7 +56,7 @@ internal static class LlmTagEnricher
         return Deduplicate(all, MarketTagConstants.MaxTags);
     }
 
-    // ─── Internal helpers (testable) ─────────────────────────────────────────
+    // ─── Внутренние помощники (доступны для тестирования) ─────────────────────
 
     /// <summary>
     /// Проверяет, содержит ли список предупреждений сообщение об устаревании для указанной секции.

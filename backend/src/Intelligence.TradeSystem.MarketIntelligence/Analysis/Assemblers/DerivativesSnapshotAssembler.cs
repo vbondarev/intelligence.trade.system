@@ -49,25 +49,25 @@ public static class DerivativesSnapshotAssembler
         // 1. Проверка
         ArgumentNullException.ThrowIfNull(ticker);
 
-        // 2. Current values from ticker
+        // 2. Текущие значения из ticker
         var currentFundingRate = ticker.FundingRate ?? 0m;
         var currentOpenInterest = ticker.OpenInterest ?? 0m;
         var currentOpenInterestValue = ticker.OpenInterestValue ?? 0m;
 
         // 3. PremiumVsIndexPct = (MarkPrice − IndexPrice) / IndexPrice × 100
-        //    null when IndexPrice = 0 (spot market or data unavailable)
+        //    null при IndexPrice = 0 (spot market или данные недоступны)
         var premiumVsIndexPct = ticker.IndexPrice > 0m
             ? Math.Round((ticker.MarkPrice - ticker.IndexPrice) / ticker.IndexPrice * 100m, 4)
             : (decimal?)null;
 
-        // 4. FundingRateAvg24h — from history snapshot; fallback to current rate
+        // 4. FundingRateAvg24h — из FundingRate snapshot; fallback на текущую ставку
         var fundingRateAvg24h = fundingRate?.Avg24hRate ?? currentFundingRate;
 
-        // 5. OI changes — from snapshot; default 0 when unavailable
+        // 5. Изменения OI — из snapshot; при недоступности использовать 0
         var oiChange1hPct = openInterest?.Change1hPct ?? 0m;
         var oiChange4hPct = openInterest?.Change4hPct ?? 0m;
 
-        // 6. Long / Short ratios — from snapshot; default 0 when unavailable
+        // 6. Соотношения Long / Short — из snapshot; при недоступности использовать 0
         var longRatio = longShortRatio?.CurrentBuyRatio ?? 0m;
         var shortRatio = longShortRatio?.CurrentSellRatio ?? 0m;
 

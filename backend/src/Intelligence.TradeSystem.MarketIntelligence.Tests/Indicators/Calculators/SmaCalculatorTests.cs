@@ -29,7 +29,7 @@ public sealed class SmaCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Граница и откат ──────────────────────────────────────────────────────
+    // ── Граничные случаи и fallback ─────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Array_Is_Empty()
@@ -86,7 +86,7 @@ public sealed class SmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── Single-element & signed-value regressions ────────────────────────────
+    // ── Single-element & signed- regressions ────────────────────────────
 
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
@@ -111,7 +111,7 @@ public sealed class SmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── Invariant: flat series always equals the constant ────────────────────
+    // ── Инвариант: постоянный ряд всегда равен константе ─────────────────────
 
     public static TheoryData<double, int, int> FlatSeriesCases => new()
     {

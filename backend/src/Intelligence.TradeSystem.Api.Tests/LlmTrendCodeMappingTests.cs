@@ -23,7 +23,7 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
         _factory = factory;
     }
 
-    // ─── trendCode contract: value per enum ─────────────────────────────────
+    // ─── Контракт trendCode: значения для каждого enum ────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Unknown, 0, "Unknown")]
@@ -45,7 +45,7 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
         var result = await response.Content.ReadFromJsonAsync<LlmMarketAnalysisPayload>();
         result.Should().NotBeNull();
 
-        // All four timeframes must carry the same code and label.
+        // Все четыре timeframe должны содержать одинаковые code и label.
         foreach (var tf in new[] { result!.M15, result.H1, result.H4, result.D1 })
         {
             tf.Should().NotBeNull();
@@ -56,7 +56,7 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
         }
     }
 
-    // ─── trend / trendCode consistency ──────────────────────────────────────
+    // ─── Согласованность trend / trendCode ────────────────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Unknown)]
@@ -82,14 +82,14 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
             var label = tf.GetProperty("trend").GetString()!;
             var code = tf.GetProperty("trendCode").GetInt32();
 
-            // Roundtrip: parse the label back to enum and cast to int — must equal trendCode.
+            // Roundtrip: разобрать label обратно в enum и преобразовать в int — результат должен совпадать с trendCode.
             var parsedTrend = Enum.Parse<MarketTrend>(label);
             ((int)parsedTrend).Should().Be(code,
                 because: $"{timeframeProp}: (int)Enum.Parse(\"{label}\") should equal trendCode {code}");
         }
     }
 
-    // ─── regression: Sideways must not be 0 ─────────────────────────────────
+    // ─── регрессия: Sideways не должен быть 0 ────────────────────────────────
 
     [Fact]
     public async Task TrendCode_For_Sideways_Is_3_Not_0()
@@ -109,7 +109,7 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
         result.H1.Trend.Should().Be("Sideways");
     }
 
-    // ─── regression: Bearish must not be -1 ─────────────────────────────────
+    // ─── регрессия: Bearish не должен быть -1 ────────────────────────────────
 
     [Fact]
     public async Task TrendCode_For_Bearish_Is_2_Not_Minus1()

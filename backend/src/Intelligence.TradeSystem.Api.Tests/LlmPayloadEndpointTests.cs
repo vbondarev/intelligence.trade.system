@@ -166,12 +166,12 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
         service.Verify(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // ─── trendCode mapping ──────────────────────────────────────────────────
+    // ─── Сопоставление trendCode ─────────────────────────────────────────────
 
     [Fact]
     public async Task LlmPayload_Timeframe_TrendCode_Is_1_For_Bullish_Trend()
     {
-        var snapshot = ApiSnapshotTestData.CreateSnapshot(); // all timeframes are Bullish
+        var snapshot = ApiSnapshotTestData.CreateSnapshot(); // все таймфреймы имеют направление Bullish
         var service = MockService(snapshot);
 
         using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
@@ -186,7 +186,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
     [Fact]
     public async Task LlmPayload_TrendStrengthLabel_Is_Weak_When_Score_Below_0_5()
     {
-        // TrendStrengthScore = 0.4 in test data
+        // TrendStrengthScore = 0.4 в тестовых данных
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         var service = MockService(snapshot);
 
@@ -262,7 +262,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
             "market_data_unavailable");
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────────
+    // ─── 503 Service Unavailable ────────────────────────────────────────────
 
     private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {

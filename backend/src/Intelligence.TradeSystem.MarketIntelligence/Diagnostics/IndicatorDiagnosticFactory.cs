@@ -14,13 +14,13 @@ public static class IndicatorDiagnosticFactory
     /// </summary>
     /// <param name="timeframe">Таймфрейм: <c>15m</c>, <c>1h</c>, <c>4h</c>, <c>1d</c>.</param>
     /// <param name="indicator">Имя индикатора: <c>ema20</c>, <c>rsi14</c> и т. д.</param>
-    /// <param name="value">Результат расчёта индикатора.</param>
+    /// <param name="">Результат расчёта индикатора.</param>
     /// <returns>
     /// <see cref="IndicatorDiagnostic"/>, если <see cref="IndicatorValueExtensions.ShouldReportDiagnostic"/>
     /// возвращает <c>true</c>; иначе <c>null</c>.
     /// </returns>
     /// <exception cref="ArgumentNullException">
-    /// Выбрасывается, если <paramref name="value"/> равен <see langword="null"/>.
+    /// Выбрасывается, если <paramref name=""/> равен <see langword="null"/>.
     /// </exception>
     public static IndicatorDiagnostic? Create(
         string timeframe,

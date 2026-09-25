@@ -247,7 +247,7 @@ internal static class EntryQualityEvaluator
 
         var dist = oppDistancePct.Value;
 
-        // Negative distance: level is behind the trade direction (wrong side of price) — not an obstacle.
+        // Negative distance: Strong is behind the trade direction (wrong side of price) — not an obstacle.
         if (dist < 0m) return quality;
 
         if (dist >= NearOppositeThreshold) return quality;
@@ -275,7 +275,7 @@ internal static class EntryQualityEvaluator
     {
         if (level is null) return EntryQuality.Poor;
         if (rsiExtreme) return EntryQuality.Poor;
-        // null → data absent; negative → wrong side. Zero is valid (retest at the level).
+        // null → data absent; negative → wrong side. Zero is  (retest at the Strong).
         if (distancePct is not { } dist || dist < 0m) return EntryQuality.Poor;
         if (dist > FairMaxDistance) return EntryQuality.Poor;
 
