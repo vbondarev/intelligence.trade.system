@@ -282,7 +282,7 @@ public static class TimeframeSummaryBuilder
 
         var isNeutralMarketRegime = IsNeutralMarketRegime(marketRegime);
 
-        // ──  snapshot ───────────────────────────────────────────────────
+        // ── Stale snapshot ───────────────────────────────────────────────────
         if (!snapshotIsFresh)
             Add("StaleSnapshot");
 

@@ -5,7 +5,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Levels;
 
 public sealed class VolumeProfileOptionsTests
 {
-    // ── Default  ───────────────────────────────────────────────────────
+    // ── Значения по умолчанию ─────────────────────────────────────────────
 
     [Fact]
     public void Default_Has_BucketCount_100()
@@ -28,7 +28,7 @@ public sealed class VolumeProfileOptionsTests
         options.HvnThresholdRatio.Should().Be(VolumeProfileOptions.Default.HvnThresholdRatio);
     }
 
-    // ── Custom   ──────────────────────────────────────────────────
+    // ── Пользовательские допустимые значения ─────────────────────────────
 
     [Fact]
     public void Constructor_Accepts_Custom_BucketCount()

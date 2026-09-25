@@ -207,7 +207,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     {
         // 1 свеча: EMA возвращает Fallback (PartialWindow), IsAvailable=true → HasUsableValue=true
         // → TrendClassifier вызывается. Но проверим, что assembler вообще не падает.
-        // На самом деле при 1 свече все EMA = Available/Fallback с  = сама цена.
+        // На самом деле при 1 свече все EMA = Available/Fallback с value = сама цена.
         // TrendClassifier с ema20==ema50==ema200==close → Sideways.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
@@ -335,7 +335,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         var klines = KlineFactory.CreateSeries(count: 50);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
 
-        // EMA200 имеет числовое значение (fallback по partial  ).
+        // EMA200 имеет числовое значение (fallback по partial window).
         result.Snapshot.Ema200.Should().NotBeNull(because: "EMA200 computes a fallback value with partial window");
         result.Snapshot.Ema200.Should().BeGreaterThan(0m);
 
@@ -350,7 +350,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     public void Boolean_EmaFlags_Are_False_When_Ema_Would_Be_Zero()
     {
         // 11.4: с одной свечой EMA = fallback (= цена), boolean flags должны отражать реальное сравнение.
-        // Даже при partial   EMA имеет значение — флаги корректны.
+        // Даже при partial window EMA имеет значение — флаги корректны.
         // Проверяем только, что флаги не основаны на fake-zero.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
@@ -605,7 +605,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Одна свеча — объёмный профиль не найдёт уровней из-за нехватки данных
         var klines = KlineFactory.CreateSeries(count: 1);
 
-        // Assembler выбрасывает исключение при  klines < 2 — проверяем это отдельно;
+        // Assembler выбрасывает исключение при validKlines.Count < 2 — проверяем это отдельно;
         // здесь нас интересует поведение когда уровни не обнаружены.
         // Создаём минимально достаточный набор свечей с одинаковыми ценами — профиль не выдаст поддержку/сопротивление
         // относительно Close, поэтому проверяем консистентность: если Price == null, то Strength == null.

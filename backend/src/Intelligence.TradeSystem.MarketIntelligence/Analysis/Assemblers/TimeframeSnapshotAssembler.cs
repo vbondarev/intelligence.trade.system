@@ -119,7 +119,7 @@ public static class TimeframeSnapshotAssembler
         }
 
         // 3. Недостаточно пригодных данных — набор validKlines меньше KlineMinimumUsableCount.
-        //    klines.Count == 0 уже обрабатывается выше; здесь покрывается edge case с одной свечой.
+        //    validKlines.Count == 0 уже обрабатывается выше; здесь покрывается edge case с одной свечой.
         if (validKlines.Count < AnalysisThresholds.KlineMinimumUsableCount)
         {
             indicatorDiagnostics.Add(new IndicatorDiagnostic
@@ -141,7 +141,7 @@ public static class TimeframeSnapshotAssembler
         indicatorDiagnostics.AddIfNeeded(timeframe, "atr14", atr14Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "volumeSma20", volSma20Value);
 
-        // Snapshot-модель теперь использует decimal для EMA/ATR/VolumeSma20/VolumeRatio.
+        // Snapshot-модель использует decimal? для EMA/ATR/VolumeSma20/VolumeRatio.
         // Используем .OrNull() — null сигнализирует об отсутствии данных; fake-zero не подставляем.
         var ema20 = ema20Value.OrNull();
         var ema50 = ema50Value.OrNull();
@@ -149,7 +149,7 @@ public static class TimeframeSnapshotAssembler
         var atr14 = atr14Value.OrNull();
         var volSma20 = volSma20Value.OrNull();
 
-        // RSI — snapshot допускает decimal, поэтому сохраняем null при unavailable.
+        // RSI — snapshot допускает decimal?, поэтому сохраняем null при unavailable.
         var rsi14 = rsi14Value.OrNull();
 
         var lastVolume = volumes[^1];

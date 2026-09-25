@@ -724,7 +724,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_OppLevelNull_GoodAllowed()
     {
-        // Resistance ниже цены или отсутствует → caller передаёт null →
+        // Resistance ниже цены или отсутствует → caller передаёт null → ограничение по opposite level отсутствует.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -735,7 +735,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_OppLevelNull_GoodAllowed()
     {
-        // Support выше цены или отсутствует → caller передаёт null →
+        // Support выше цены или отсутствует → caller передаёт null → ограничение по opposite level отсутствует.
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
             oppDistancePct: null, oppStrength: null);
 
@@ -1128,7 +1128,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void OppDistancePct_Zero_ActsAsNearObstacle_CapsAtFair()
     {
-        // Нулевое расстояние: Strong точно на цене — максимальное препятствие (между 0 и порогом 0.15%).
+        // Нулевое расстояние: opposite level находится точно на текущей цене — максимальное препятствие (между 0 и порогом 0.15%).
         // Поскольку 0 < CloseOppositeThreshold(0.15) и strength = Moderate/Strong → Poor.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: 0m, oppStrength: 0.85m);   // Strong-сопротивление на текущей цене

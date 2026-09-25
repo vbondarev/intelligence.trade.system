@@ -18,7 +18,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// </summary>
 public sealed class LlmPayloadMapperExtensionsTests
 {
-    // ---    health ---------------------------------------------
+    // --- Общие экземпляры health -------------------------------------------
 
     private static readonly LlmSnapshotHealthPayload _freshHealth = new()
     {
@@ -555,7 +555,7 @@ public sealed class LlmPayloadMapperExtensionsTests
     }
 
     // ===========================================================================
-    // Strong
+    // Вспомогательные методы
     // ===========================================================================
 
     /// <summary>

@@ -479,7 +479,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_EmaFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
     {
-        // Все критические индикаторы доступны, но EMA рассчитаны по partial   (fallback).
+        // Все критические индикаторы доступны, но EMA рассчитаны по partial window (fallback).
         // ApplyIndicatorCap должен не допустить Good — только Fair.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
@@ -506,7 +506,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_AtrFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
     {
-        // Все критические индикаторы доступны, ATR рассчитан по partial   (fallback).
+        // Все критические индикаторы доступны, ATR рассчитан по partial window (fallback).
         // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → cap на уровне Fair.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
@@ -604,7 +604,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_Bullish_HigherTfResistanceVeryClose_Returns_Poor_And_Flag()
     {
-        // Для m15: у Strong TF есть Strong window, но сопротивление higher TF находится на 0.05%.
+        // Для m15 на текущем TF сопротивление отсутствует, но сопротивление higher TF находится на 0.05%.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
@@ -1214,7 +1214,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void RiskFlags_BetweenStrongSupportAndResistance_At_0_74Pct_AddsFlag()
     {
-        // Оба расстояния чуть меньше порога 0.75%; оба уровня Strongs Moderate/Strong.
+        // Оба расстояния чуть меньше порога 0.75%; оба уровня имеют strength Moderate/Strong.
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
             volumeRatio: 1.0m,

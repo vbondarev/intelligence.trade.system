@@ -40,7 +40,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Нижняя граница короткого окна.</summary>
     internal const double WindowShortCapThresholdSeconds = 10.0;
 
-    /// <summary>Ограничение для WindowDuration >= 60 s — на уровне   ограничение отсутствует.</summary>
+    /// <summary>Ограничение для WindowDuration >= 60 s — по длительности окна ограничение отсутствует.</summary>
     /// <remarks>Значение 1 означает «нет ограничения».</remarks>
     internal const decimal WindowNoCap = 1.0m;
 
@@ -76,7 +76,7 @@ internal static class TradeFlowPressureScoreAdjuster
     internal const decimal ConflictCap = 0.50m;
 
     /// <summary>
-    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или   &lt; 30 s.
+    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или WindowDuration &lt; 30 s.
     /// </summary>
     internal const decimal ConflictWithWeaknessCap = 0.25m;
 
@@ -217,7 +217,7 @@ internal static class TradeFlowPressureScoreAdjuster
 
     /// <summary>
     /// Определяет, является ли tradeFlow слабым для применения ограничения конфликта:
-    /// устаревший снимок или   &lt; 30 s.
+    /// устаревший снимок или WindowDuration &lt; 30 s.
     /// </summary>
     private static bool IsStaleOrShortWindow(
         TradeFlowSnapshot tradeFlow,

@@ -113,7 +113,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result!.Message.Should().Be("1d.atr14 unavailable: InsufficientData.");
     }
 
-    // ── Null  ────────────────────────────────────────────────────────────
+    // ── Null-значение ───────────────────────────────────────────────────────
 
     [Fact]
     public void Create_Throws_ArgumentNullException_When_Value_Is_Null()

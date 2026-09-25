@@ -262,7 +262,7 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
             "market_data_unavailable");
     }
 
-    // ─── 503 Service Unavailable ────────────────────────────────────────────
+    // ─── Вспомогательные методы ─────────────────────────────────────────────
 
     private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {

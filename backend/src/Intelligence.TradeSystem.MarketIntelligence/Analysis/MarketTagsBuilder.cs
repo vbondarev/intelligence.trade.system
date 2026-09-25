@@ -19,7 +19,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 ///   Цена:       near-24h-high · near-24h-low
 ///   Таймфреймы: low-volume · rsi-overbought · rsi-oversold · weak-trend · range-bound
 ///               neutral-timeframes · near-resistance · near-support · overextended-momentum
-///               directional-trend--neutral-regime
+///               directional-trend-with-neutral-regime
 ///   Качество:   no-clean-entry · actionable-entry · weak-entry-confirmation
 ///               trend-confirmed-entry-filtered · stale-snapshot · stale-orderbook
 ///

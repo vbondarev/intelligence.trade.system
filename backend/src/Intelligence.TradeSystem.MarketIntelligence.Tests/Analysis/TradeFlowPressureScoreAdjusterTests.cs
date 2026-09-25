@@ -107,7 +107,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.50m);
     }
 
-    // --- 9. Conflict + short   < 30 s -----------------------------------
+    // --- 9. Conflict + short window < 30 s -----------------------------------
 
     [Fact]
     public void Conflict_And_Short_Window_Caps_Score_At_0_25()
@@ -208,8 +208,8 @@ public sealed class TradeFlowPressureScoreAdjusterTests
     {
         // buyVolume = 0.872, sellVolume = 0.1
         // deltaPct ≈ 79% → raw = 1 (после clamp и floor AggressiveBuyPressure в assembler)
-        // WindowDuration  8 s
-        // tradeFlowAgeMs  5824, maxTradeFlowAgeMs = 5000
+        // WindowDuration = 8 s
+        // tradeFlowAgeMs = 5824, maxTradeFlowAgeMs = 5000
         // orderBookPressureScore < 0 (AskDominant)
         var maxAgeMs = 5_000L;
         var now = DateTimeOffset.UtcNow;
@@ -222,7 +222,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
 
         // Caps:
         //   freshness: ageMs=5824 > maxAge=5000 → cap=0.50
-        //    :    8 s < 10 s               > cap=0.25
+        //   window:    8 s < 10 s               → cap=0.25
         //   volume:    0.972 < 1 BTC             > cap=0.35
         //   conflict: obScore<0, окно<30s → conflictWithWeakness cap=0.25
         // Strictest: 0.25

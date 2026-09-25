@@ -18,7 +18,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Assemblers;
 /// </summary>
 public sealed class IndicatorPipelineIntegrationTests
 {
-    // ─── 1: недоступный RSI сериализуется как null ───────────────────
+    // ─── Сценарий 1: недоступный RSI сериализуется как null ──────────
 
     [Fact]
     public void Pipeline_Sets_Rsi14_To_Null_And_Adds_Diagnostic_When_Insufficient_Candles()
@@ -43,7 +43,7 @@ public sealed class IndicatorPipelineIntegrationTests
         diag.Message.Should().Contain("unavailable");
     }
 
-    // ─── 2: недоступный ATR сериализуется как null ───────────────────
+    // ─── Сценарий 2: недоступный ATR сериализуется как null ──────────
 
     [Fact]
     public void Pipeline_Sets_Atr14_To_Null_And_Adds_Diagnostic_When_Only_One_Candle()
@@ -191,7 +191,7 @@ public sealed class IndicatorPipelineIntegrationTests
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
         // Ожидаемый стабильный порядок: ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20 → volumeRatio.
-        // volumeRatio появляется, когда окно VolumeRatio равно null; в этом сценарии значение вычисляется → поле отсутствует.
+        // diagnostic volumeRatio появляется, когда значение VolumeRatio равно null; в этом сценарии ratio вычисляется → diagnostic отсутствует.
         var expectedOrder = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20", "volumeRatio" };
         var presentInOrder = expectedOrder.Where(indicatorOrder.Contains).ToList();
 
@@ -215,7 +215,7 @@ public sealed class IndicatorPipelineIntegrationTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
-        // Окно volumeRatio присутствует, поэтому поле должно появиться после всех предыдущих индикаторов.
+        // Diagnostic volumeRatio присутствует, поэтому должен идти после всех предыдущих индикаторов.
         indicatorOrder.Should().Contain("volumeRatio");
         indicatorOrder.Should().NotContain("volumeSma20",
             because: "VolumeSma20 = Available(0) → not a fallback → no volumeSma20 diagnostic");

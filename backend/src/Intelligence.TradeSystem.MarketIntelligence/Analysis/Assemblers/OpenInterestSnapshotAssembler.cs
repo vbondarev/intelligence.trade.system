@@ -86,7 +86,7 @@ public static class OpenInterestSnapshotAssembler
         };
     }
 
-    // ── Strong  ─────────────────────────────────────────────────────────────
+    // ── Вспомогательные методы ─────────────────────────────────────────────
 
     private static decimal ComputeChangePct(
         List<OpenInterestEntry> sorted,

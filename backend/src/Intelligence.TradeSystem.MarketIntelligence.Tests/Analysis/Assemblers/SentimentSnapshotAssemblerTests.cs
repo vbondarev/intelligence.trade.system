@@ -375,7 +375,7 @@ public sealed class SentimentSnapshotAssemblerTests
     /// Исходные данные:
     ///   buyVolume = 0.872, sellVolume = 0.1
     ///   deltaPct ≈ 79 % → rawScore = 1.0 (clamp); HasAggressiveBuyPressure = true → floor 0.5 (raw уже выше)
-    ///   WindowDuration = 8 s       →  Cap = 0.25
+    ///   WindowDuration = 8 s       → windowCap = 0.25
     ///   tradeFlowAge = 5 824 ms, maxAge = 5 000 ms → staleCap = 0.50
     ///   totalVolume = 0.972 BTC    → volumeCap = 0.35
     ///   конфликт orderBook + короткое окно → conflictWithWeaknessCap = 0.25
@@ -384,7 +384,7 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()
     {
-        //
+        // Подготовка данных.
         const long maxAgeMs = 5_000L; // Порог Intraday
         var now = DateTimeOffset.UtcNow;
         var windowEnd = now.AddMilliseconds(-5_824); // stale: age > maxAge

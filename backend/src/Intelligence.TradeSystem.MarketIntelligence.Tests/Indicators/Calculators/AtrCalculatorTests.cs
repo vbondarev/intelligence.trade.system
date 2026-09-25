@@ -38,7 +38,7 @@ public sealed class AtrCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── : ATR always >= 0    ─────────────────────────────
+    // ── Инвариант: ATR всегда >= 0 при available-значении ─────────────────
 
     public static TheoryData<decimal[], decimal[], decimal[], int> AvailableAtrCases => new()
     {

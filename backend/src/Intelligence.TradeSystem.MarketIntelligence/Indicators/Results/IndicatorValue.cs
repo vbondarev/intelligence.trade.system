@@ -46,7 +46,7 @@ public sealed record IndicatorValue
     /// <summary>
     /// Создаёт результат с полноценно рассчитанным значением.
     /// </summary>
-    /// <param name="">Числовое значение индикатора.</param>
+    /// <param name="value">Числовое значение индикатора.</param>
     /// <returns>
     /// <see cref="IndicatorValue"/> с <see cref="IsAvailable"/> = <see langword="true"/>,
     /// <see cref="IsFallback"/> = <see langword="false"/> и <see cref="Reason"/> = <see cref="IndicatorValueReason.None"/>.
@@ -62,7 +62,7 @@ public sealed record IndicatorValue
     /// <summary>
     /// Создаёт результат с fallback-значением, рассчитанным по нестандартной логике.
     /// </summary>
-    /// <param name="">Числовое значение индикатора.</param>
+    /// <param name="value">Числовое значение индикатора.</param>
     /// <param name="reason">
     /// Причина применения fallback. Не может быть <see cref="IndicatorValueReason.None"/>,
     /// так как fallback всегда имеет конкретную причину.

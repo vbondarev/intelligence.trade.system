@@ -356,7 +356,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
     [Fact]
     public async Task LlmPayload_Level_Meta_Contains_All_Fields_In_Json_When_Level_Found()
     {
-        // Проверить, что при обнаружении уровня полный объект meta (price/strength//clusterVolume)
+        // Проверить, что при обнаружении уровня полный объект meta (price/strength/source/clusterVolume)
         // присутствует в исходном JSON wire format, а не только в типизированном C#-объекте.
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
 
@@ -381,7 +381,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
             because: "support1Meta.strength must be a number in JSON");
         meta.GetProperty("strength").GetDecimal().Should().BeInRange(0m, 1m);
 
-        //  — строка volume-profile.
+        // source — строка volume-profile.
         meta.GetProperty("source").GetString().Should().Be("volume-profile",
             because: "only SimplifiedVolumeProfile detector is used in V1");
 

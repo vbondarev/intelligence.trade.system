@@ -96,7 +96,7 @@ public sealed class IndicatorDiagnosticListExtensionsTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    // ── Null  → ArgumentNullException ───────────────────────────────────
+    // ── Null-значение → ArgumentNullException ─────────────────────────────
 
     [Fact]
     public void AddIfNeeded_Throws_When_Value_Is_Null()
