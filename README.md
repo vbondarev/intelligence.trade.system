@@ -610,15 +610,15 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–E завершены**. Этап **F продолжается**, F-01 — F-07 завершены в `develop`. Текущий следующий шаг — F-08; актуальная последовательность определяется `ROADMAP.md`.
+Этапы **A–F завершены**. Технические задачи Tech-G01 — Tech-G06 также завершены. Текущий обязательный шаг перед началом React — Tech-G07: нормализация error contract пользовательского API; после него начинается G-01. Актуальная последовательность определяется `ROADMAP.md`.
 
-Этап F намеренно разбит на последовательные небольшие изменения: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery, а F-08 выполняет финальную проверку OpenAPI/contract tests. При этом OpenAPI/API tests обновляются в каждом PR, который добавляет или меняет публичный контракт. React/BFF начинается только после завершения этой backend-границы.
+Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 
 Основная ближайшая последовательность:
 
-1. F-08: финальная проверка OpenAPI и contract tests;
+1. Tech-G07: нормализация error contract пользовательского API перед React;
 2. React-панель и BFF;
-3. непрерывное наблюдение за активными позициями;
+3. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
 4. Telegram-уведомления и детерминированные объяснения;
 5. подготовка пилотной эксплуатации;
 6. измерение качества рекомендаций;
