@@ -120,7 +120,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
 
     [Theory]
     [InlineData(30)]   // нижняя граница
-    [InlineData(38)]   // typical healthy bearish RSI
+    [InlineData(38)]   // типичное здоровое значение RSI для bearish-сценария
     [InlineData(45)]   // верхняя граница
     public async Task MomentumState_Healthy_When_Bearish_Confirmed_And_Rsi_In_Zone(int rsi)
     {

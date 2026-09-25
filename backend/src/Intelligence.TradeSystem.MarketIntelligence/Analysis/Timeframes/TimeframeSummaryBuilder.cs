@@ -347,7 +347,7 @@ public static class TimeframeSummaryBuilder
                 Add(isOppFromHigherTf ? "NearHigherTimeframeSupport" : "NearSupport");
         }
 
-        // For Neutral bias: check both sides independently.
+        // Для Neutral bias проверяем обе стороны независимо.
         if (bias == TimeframeBias.Neutral)
         {
             if (s.DistanceToResistance1Pct is >= 0m and < EntryQualityEvaluator.NearOppositeThreshold)
@@ -430,7 +430,7 @@ public static class TimeframeSummaryBuilder
             return;
         }
 
-        // Neutral bias: do not add directional EMA flags, but mark mixed/structural conflict.
+        // При Neutral bias не добавляем directional EMA flags, но отмечаем mixed/structural conflict.
         if (s.Trend == MarketTrend.Bullish || s.Trend == MarketTrend.Bearish)
             add("EmaConflict");
 

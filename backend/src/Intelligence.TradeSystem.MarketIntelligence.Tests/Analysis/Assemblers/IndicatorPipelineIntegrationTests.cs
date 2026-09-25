@@ -191,7 +191,7 @@ public sealed class IndicatorPipelineIntegrationTests
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
         // Expected stable order: ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20 → volumeRatio.
-        // volumeRatio appears window   VolumeRatio is null; in this scenario it is computable → not present.
+        // volumeRatio появляется, когда окно VolumeRatio равно null; в этом сценарии значение вычисляется → поле отсутствует.
         var expectedOrder = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20", "volumeRatio" };
         var presentInOrder = expectedOrder.Where(indicatorOrder.Contains).ToList();
 
@@ -215,7 +215,7 @@ public sealed class IndicatorPipelineIntegrationTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
-        // volumeRatio window   present and must appear after any earlier indicators.
+        // Окно volumeRatio присутствует, поэтому поле должно появиться после всех предыдущих индикаторов.
         indicatorOrder.Should().Contain("volumeRatio");
         indicatorOrder.Should().NotContain("volumeSma20",
             because: "VolumeSma20 = Available(0) → not a fallback → no volumeSma20 diagnostic");

@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Validatio
 
 public sealed class KlineValidatorTests
 {
-    // ───── Validate —  cases ─────
+    // ───── Validate — базовые случаи ─────
 
     [Fact]
     public void Valid_Kline_Returns_IsValid_True()
@@ -74,7 +74,7 @@ public sealed class KlineValidatorTests
         result.ViolationReason.Should().Contain("High").And.Contain("Low");
     }
 
-    // ───── Validate — negative prices ─────
+    // ───── Validate — отрицательные цены ─────
 
     [Fact]
     public void Negative_Open_Is_Invalid()
@@ -131,7 +131,7 @@ public sealed class KlineValidatorTests
         result.ViolationReason.Should().Contain("Volume").And.Contain("negative");
     }
 
-    // ───── Validate — Open/Close outside [Low, High] ─────
+    // ───── Validate — Open/Close вне [Low, High] ─────
 
     [Fact]
     public void Open_Above_High_Is_Invalid()
@@ -178,7 +178,7 @@ public sealed class KlineValidatorTests
         result.ViolationReason.Should().Contain("Close").And.Contain("outside");
     }
 
-    // ───── Validate — index is preserved ─────
+    // ───── Validate — индекс сохраняется ─────
 
     [Fact]
     public void Validate_Preserves_Provided_Index()

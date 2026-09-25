@@ -75,7 +75,7 @@ public sealed class VolumeProfileOptionsTests
         act.Should().NotThrow();
     }
 
-    // ── BucketCount ation ───────────────────────────────────────────────
+    // ── Граничные значения BucketCount ──────────────────────────────────
 
     [Theory]
     [InlineData(0)]
@@ -89,7 +89,7 @@ public sealed class VolumeProfileOptionsTests
             .WithParameterName(nameof(bucketCount));
     }
 
-    // ── HvnThresholdRatio ation ─────────────────────────────────────────
+    // ── Граничные значения HvnThresholdRatio ────────────────────────────
 
     [Theory]
     [InlineData(0.0)]   // нижняя граница — нулевой порог не имеет смысла

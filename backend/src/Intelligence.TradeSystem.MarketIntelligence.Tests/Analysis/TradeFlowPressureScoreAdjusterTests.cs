@@ -188,7 +188,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         var now = DateTimeOffset.UtcNow;
         var tradeFlow = CreateTradeFlow(
             windowEnd: now.AddMilliseconds(-12_000),           // stale
-            windowStart: now.AddMilliseconds(-12_000 - 8_000), // window = 8 s
+            windowStart: now.AddMilliseconds(-12_000 - 8_000), // окно = 8 s
             buyVolume: 0.872m, sellVolume: 0.1m);              // total < 1 BTC
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(

@@ -212,7 +212,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
     [Fact]
     public async Task LlmPayload_GoldenJson_Contains_Null_Indicators_And_Diagnostics()
     {
-        // rsi14 = null (unavailable) + ema200 = fallback + atr14 = null.
+        // rsi14 = null (unavailable), ema200 использует fallback, atr14 = null.
         var snapshot = BuildSnapshotWithDiagnostics(
             [
                 new IndicatorDiagnosticSnapshot { Timeframe = "15m", Indicator = "ema200", Reason = "PartialWindow",    IsFallback = true,  Message = "15m.ema200 calculated using fallback: PartialWindow." },
@@ -369,7 +369,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var meta = json.RootElement.GetProperty("m15").GetProperty("support1Meta");
 
-        // price — numeric, matches flat support1.
+        // price — числовое значение, совпадающее с полем support1.
         meta.GetProperty("price").ValueKind.Should().Be(JsonValueKind.Number,
             because: "support1Meta.price must be a number in JSON");
         meta.GetProperty("price").GetDecimal().Should().Be(

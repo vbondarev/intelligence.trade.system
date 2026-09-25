@@ -125,7 +125,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "distancePct == 0 is a retest at the level; confirmed + strong setup → Good");
     }
 
-    // ─── Symmetry: Bullish/Bearish Poor conditions ───────────────────────────
+    // ─── Симметрия: условия Poor для Bullish/Bearish ─────────────────────────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish)]
@@ -554,7 +554,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void BtcUsdt_M15_Like_WithHigherTfResistance_Returns_Poor()
     {
-        // Bullish, low volume, below EMAs, stale, neutral regime,
+        // Bullish, низкий объём, ниже EMA, stale, нейтральный режим,
         // higher TF resistance at 0.05% (≈ 77437 → 77480)
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
@@ -906,7 +906,7 @@ public sealed class EntryQualityEvaluatorTests
     {
         // Resistance below Strong price is behind the trade, not ahead.
         // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
-        // Evaluator   window penalise the trade   null is provided.
+        // При передаче null evaluator не должен штрафовать сделку за окно.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -1054,7 +1054,7 @@ public sealed class EntryQualityEvaluatorTests
         // Все эти варианты должны обрабатываться так же, как "Neutral".
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             marketRegime: regime,
-            volumeRatio: 1.0m);   // not low volume → cap Fair (not Poor)
+            volumeRatio: 1.0m);   // не низкий объём → ограничение Fair (не Poor)
 
         result.Should().NotBe(EntryQuality.Good,
             because: $"marketRegime='{regime}' normalises to Neutral → Good forbidden");
@@ -1128,10 +1128,10 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void OppDistancePct_Zero_ActsAsNearObstacle_CapsAtFair()
     {
-        // Zero distance = Strong exactly at Strong price = maximum obstacle (between 0 and 0.15% threshold).
+        // Нулевое расстояние: Strong точно на цене — максимальное препятствие (между 0 и порогом 0.15%).
         // Since 0 < CloseOppositeThreshold(0.15)  Moderate/Strong strength → Poor.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            oppDistancePct: 0m, oppStrength: 0.85m);   // Strong resistance at current price
+            oppDistancePct: 0m, oppStrength: 0.85m);   // Strong-сопротивление на текущей цене
 
         result.Should().Be(EntryQuality.Poor,
             because: "oppDistancePct == 0 with Strong resistance at current price → immediate obstacle → Poor");

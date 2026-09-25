@@ -129,7 +129,7 @@ public sealed class TimeframeSummaryBuilderTests
     [InlineData(MarketTrend.Unknown)]
     public void Build_SidewaysOrUnknown_BiasIsNeutral(MarketTrend trend)
     {
-        // Even  EMA flags set to true, Sideways/Unknown must yield Neutral bias.
+        // Даже при EMA flags=true значения Sideways/Unknown должны давать Neutral bias.
         var s = MakeSnapshot(trend: trend, emaBullish: true, emaBearish: true, isAboveEma200: true);
         var r = BuildForTest(s);
 
@@ -313,7 +313,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
     }
 
-    // ─── 13.2: RSI unavailable —   window become oversold ────────────────────
+    // ─── 13.2: RSI unavailable — неполное окно не становится oversold ────────
 
     [Fact]
     public void Build_RsiUnavailable_NoOversoldOrOverboughtFlags_EntryQualityNotGood()
@@ -486,7 +486,7 @@ public sealed class TimeframeSummaryBuilderTests
             rsi14: 60m, rsi14IsReliable: true,
             trendStrengthScore: 0.85m,
             distanceToSupport: 0.5m,
-            emaIsReliable: true, emaHasFallback: true,   // EMA partial window
+            emaIsReliable: true, emaHasFallback: true,   // неполное окно EMA
             atrIsReliable: true, atrIsFallback: false,
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
@@ -514,7 +514,7 @@ public sealed class TimeframeSummaryBuilderTests
             trendStrengthScore: 0.85m,
             distanceToSupport: 0.5m,
             emaIsReliable: true, emaHasFallback: false,
-            atrIsReliable: true, atrIsFallback: true,    // ATR partial window
+            atrIsReliable: true, atrIsFallback: true,    // неполное окно ATR
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
 
@@ -711,7 +711,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("WeakEntryLevel");
     }
 
-    // ─── 14.6: Regression — Good still reachable   obstacles ───────────
+    // ─── 14.6: Regression — Good всё ещё достижимо при наличии препятствий ───
 
     [Fact]
     public void Build_Bullish_StrongSupport_NoOppLevel_Returns_Good()
@@ -804,7 +804,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ───  2: m15 neutral low volume near resistance ───────────────────
+    // ───  2: m15, нейтральный режим, низкий объём, близко сопротивление ──────
 
     [Fact]
     public void RiskFlags_Scenario2_M15NeutralLowVolumeNearResistance()
@@ -1062,7 +1062,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── VeryLowVolume threshold boundary ─────────────────────────────────────
+    // ─── Граница порога VeryLowVolume ─────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_VeryLowVolume_Below_0_25_AddsBothVeryLowVolumeAndLowVolume()
@@ -1209,12 +1209,12 @@ public sealed class TimeframeSummaryBuilderTests
             because: $"marketRegime='{paddedRegime}' should be recognized as Neutral after Trim()");
     }
 
-    // ─── BetweenStrongSupportAndResistance threshold 0.75% ───────────────────
+    // ─── Порог BetweenStrongSupportAndResistance 0.75% ───────────────────────
 
     [Fact]
     public void RiskFlags_BetweenStrongSupportAndResistance_At_0_74Pct_AddsFlag()
     {
-        // Both distances just inside the 0.75% threshold; both Strongs Moderate/Strong.
+        // Оба расстояния чуть меньше порога 0.75%; оба уровня Strongs Moderate/Strong.
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
             volumeRatio: 1.0m,
@@ -1231,7 +1231,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void RiskFlags_BetweenStrongSupportAndResistance_At_0_76Pct_DoesNotAddFlag()
     {
-        // Both distances just outside the 0.75% threshold.
+        // Оба расстояния чуть больше порога 0.75%.
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
             volumeRatio: 1.0m,

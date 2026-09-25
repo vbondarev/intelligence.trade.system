@@ -21,7 +21,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// При вызове из Application-слоя это значение используется как консервативный fallback;
     /// точный порог, зависящий от режима, передаётся из <c>SectionFreshnessOptions</c> в API-слое.
     /// </summary>
-    internal const long DefaultMaxTradeFlowAgeMs = 5_000L; // 5 s — Intraday threshold
+    internal const long DefaultMaxTradeFlowAgeMs = 5_000L; // 5 s — порог Intraday
 
     /// <summary>Ограничение для age > maxAge (устаревший снимок).</summary>
     internal const decimal StaleCap = 0.50m;
@@ -29,7 +29,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Ограничение для age > maxAge × 2 (сильно устаревший снимок).</summary>
     internal const decimal VeryStaleCap = 0.25m;
 
-    // -- Window duration caps -------------------------------------------------
+    // -- Ограничения по длительности окна -------------------------------------
 
     /// <summary>Нижняя граница большого окна; при большей длительности окна ограничение не применяется.</summary>
     internal const double WindowLargeCapThresholdSeconds = 60.0;
@@ -53,7 +53,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Ограничение для WindowDuration &lt; 10 s.</summary>
     internal const decimal WindowShortCap = 0.25m;
 
-    // -- Volume caps ----------------------------------------------------------
+    // -- Ограничения по объёму -------------------------------------------------
 
     // TODO: ввести symbol-specific пороги объёма (например, в единицах symbol > thresholds).
     // Текущие пороги калиброваны по BTCUSDT (единицы: base asset, например BTC).
@@ -70,7 +70,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Ограничение для totalVolume в [VolumeLowThreshold, VolumeMediumThreshold).</summary>
     internal const decimal VolumeMediumCap = 0.50m;
 
-    // -- Conflict caps --------------------------------------------------------
+    // -- Ограничения при конфликте ---------------------------------------------
 
     /// <summary>Ограничение при конфликте orderBook и tradeFlow.</summary>
     internal const decimal ConflictCap = 0.50m;
@@ -131,7 +131,7 @@ internal static class TradeFlowPressureScoreAdjuster
             cap = Math.Min(cap, conflictCap);
         }
 
-        // Apply cap  sign preservation
+        // Применяем cap с сохранением знака
         return ApplyCapToScore(rawScore, cap);
     }
 

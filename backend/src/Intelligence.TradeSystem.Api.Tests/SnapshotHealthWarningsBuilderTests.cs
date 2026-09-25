@@ -11,7 +11,7 @@ namespace Intelligence.TradeSystem.Api.Tests;
 /// </summary>
 public sealed class SnapshotHealthWarningsBuilderTests
 {
-    // ─── Intraday thresholds: OB=2s=2000ms, TF=5s=5000ms, Der=30s=30000ms ──
+    // ─── Intraday-пороги: OB=2s=2000ms, TF=5s=5000ms, Der=30s=30000ms ──────
     private static readonly SectionFreshnessOptions _intradayThresholds =
         SnapshotFreshnessOptions.Default.Intraday;
 
@@ -32,12 +32,12 @@ public sealed class SnapshotHealthWarningsBuilderTests
     private static MarketSnapshot DefaultSnapshot() =>
         ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
 
-    // ─── 6.1 Near-staleness warnings ─────────────────────────────────────────
+    // ─── 6.1 Предупреждения о приближении к stale-состоянию ───────────────────
 
     [Fact]
     public void OrderBook_NearStaleness_Warning_Added_When_Age_In_Proximity_Band()
     {
-        // OB threshold = 2000ms; 80% = 1600ms; age = 1800ms → в зоне [1600, 2000)
+        // Порог OB = 2000ms; 80% = 1600ms; age = 1800ms → в зоне [1600, 2000)
         var ctx = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1800 });
 
         var result = new List<string>();
@@ -61,7 +61,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void OrderBook_NearStaleness_Warning_Not_Added_When_Already_Stale()
     {
-        // age = 2100ms >= 2000ms → уже stale, не дублируем near-staleness
+        // age = 2100ms >= 2000ms → уже stale, не дублируем предупреждение near-staleness
         var ctx = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 2100 });
 
         var result = new List<string>();
@@ -73,7 +73,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void TradeFlow_NearStaleness_Warning_Added_When_Age_In_Proximity_Band()
     {
-        // TF threshold = 5000ms; 80% = 4000ms; age = 4500ms
+        // Порог TF = 5000ms; 80% = 4000ms; age = 4500ms
         var ctx = BuildCtx(sectionAgesMs: new() { ["tradeFlow"] = 4500 });
 
         var result = new List<string>();
@@ -85,7 +85,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void Derivatives_NearStaleness_Warning_Added_When_Age_In_Proximity_Band()
     {
-        // Der threshold = 30000ms; 80% = 24000ms; age = 27000ms
+        // Порог Der = 30000ms; 80% = 24000ms; age = 27000ms
         var ctx = BuildCtx(sectionAgesMs: new() { ["derivatives"] = 27000 });
 
         var result = new List<string>();
@@ -97,8 +97,8 @@ public sealed class SnapshotHealthWarningsBuilderTests
     [Fact]
     public void NearStaleness_ProximityFactor_09_Raises_Threshold()
     {
-        // При factor=0.9: порог = 1800ms; age=1700ms < 1800ms → НЕТ warning
-        // При factor=0.8: порог = 1600ms; age=1700ms >= 1600ms → ЕСТЬ warning
+        // При factor=0.9: порог = 1800ms; age=1700ms < 1800ms → предупреждения нет
+        // При factor=0.8: порог = 1600ms; age=1700ms >= 1600ms → предупреждение есть
         var ctxLoose = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1700 }, stalenessProximityFactor: 0.9m);
         var ctxNormal = BuildCtx(sectionAgesMs: new() { ["orderBook"] = 1700 }, stalenessProximityFactor: 0.8m);
 
@@ -113,7 +113,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             because: "при factor=0.8 и age=1700ms порог=1600ms → в зоне");
     }
 
-    // ─── 6.2 window   ──────────────────────────────────────────────────────
+    // ─── 6.2 Низкий объём ─────────────────────────────────────────────────
 
     [Fact]
     public void LowVolume_Warning_Added_When_Any_Primary_TF_Has_VolumeRatio_Below_Threshold()
@@ -158,7 +158,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Should().ContainSingle(w => w == "low volume on primary timeframes");
     }
 
-    // ─── 6.3 Conflicting microstructure ──────────────────────────────────────
+    // ─── 6.3 Конфликтующая микроструктура ──────────────────────────────────
 
     [Fact]
     public void ConflictingMicrostructure_Warning_When_OrderBook_Positive_TradeFlow_Negative()
@@ -205,7 +205,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Should().NotContain("orderBook and tradeFlow signals are conflicting");
     }
 
-    // ─── 6.4 Directional trend  neutral regime ────────────────────────────
+    // ─── 6.4 Направленный тренд при нейтральном режиме ─────────────────────
 
     [Fact]
     public void DirectionalNeutralRegime_Warning_When_Primary_TF_Bullish_And_Regime_Neutral()
@@ -262,7 +262,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
             because: "Sideways тренд не является directional");
     }
 
-    // ─── 6.5 Far   relevant Strong ─────────────────────────────────────────
+    // ─── 6.5 Далеко от значимого уровня ────────────────────────────────────
 
     [Fact]
     public void FarFromLevel_Warning_When_Bullish_TF_And_Support1_Distance_Exceeds_Threshold()
@@ -328,17 +328,17 @@ public sealed class SnapshotHealthWarningsBuilderTests
         result.Should().ContainSingle(w => w == "price is far from nearest relevant level");
     }
 
-    // ─── Truncation to MaxWarnings ───────────────────────────────────────────
+    // ─── Обрезка результата до MaxWarnings ───────────────────────────────────
 
     [Fact]
     public void Build_Truncates_Result_To_MaxWarnings_When_All_Rules_Fire()
     {
         // Настраиваем снапшот так, чтобы сработали все правила одновременно:
         // - near-staleness: OB, TF, Der = все в зоне близости
-        // - low volume: VolumeRatio = 0.2
-        // - conflicting: OB > 0, TF < 0
-        // - directional + neutral: Bullish + Neutral
-        // - far   Strong: distance > 1.5
+        // - низкий объём: VolumeRatio = 0.2
+        // - конфликт: OB > 0, TF < 0
+        // - направленный тренд при нейтральном режиме: Bullish + Neutral
+        // - далеко от уровня: расстояние больше 1.5
         var lowFarTf = DefaultSnapshot().M15 with
         {
             VolumeRatio = 0.2m,
@@ -376,7 +376,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     public void Build_Returns_Empty_When_No_Rules_Fire()
     {
         // Стандартный снапшот: volume = 1.1, MarketRegime = Trending,
-        // distance = 0.6154, scores = aligned
+        // distance = 0.6154, scores согласованы
         var snapshot = DefaultSnapshot();
         var ctx = BuildCtx(
             sectionAgesMs: new()

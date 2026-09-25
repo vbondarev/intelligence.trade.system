@@ -84,7 +84,7 @@ internal static class SnapshotHealthWarningsBuilder
         var maxAgeMs = (long)maxAge.TotalMilliseconds;
         var proximityMs = (long)(maxAgeMs * ctx.StalenessProximityFactor);
 
-        // Soft warning: возраст в зоне [proximity, maxAge). Уже устаревшие секции
+        // Мягкое предупреждение: возраст в зоне [proximity, maxAge). Уже устаревшие секции
         // попадают в жёсткие warnings (isFresh=false) и здесь не дублируются.
         if (ageMs >= proximityMs && ageMs < maxAgeMs)
             target.Add($"{sectionName} is near staleness threshold");

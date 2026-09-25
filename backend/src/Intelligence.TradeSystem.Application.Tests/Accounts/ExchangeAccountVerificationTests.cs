@@ -519,7 +519,7 @@ public sealed class ExchangeAccountVerificationTests
         result.Outcome.Should().Be(expectedOutcome);
         result.Account.Should().BeNull();
         outbox.Events.Should().BeEmpty();
-        // repository/store have no RotateAsync/SaveAsync setup: a strict mock throws if either is invoked.
+        // Для repository/store не настроены RotateAsync/SaveAsync: strict mock выбросит исключение при любом из этих вызовов.
     }
 
     [Fact]

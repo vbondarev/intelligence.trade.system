@@ -438,7 +438,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagPossibleShortCovering);
     }
 
-    // ─── Сценарий 6: primary timeframe low volume ─────────────────────────────
+    // ─── Сценарий 6: низкий объём на primary timeframe ─────────────────────────
 
     [Fact]
     public void PrimaryTimeframe_LowVolumeRatio_Adds_LowVolume_Tag()

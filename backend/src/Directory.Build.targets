@@ -1,8 +1,8 @@
 ﻿<Project>
 
-  <!-- ─── Сведения о сборке ───────────────────────────────────────────────── -->
+  <!-- ─── Build info ─────────────────────────────────────────────────────── -->
   <!--
-    Выводит сводную строку после сборки каждого проекта:
+    Prints a summary line after each project is built:
       ▶ Intelligence.TradeSystem.Domain → net10.0 [Debug]
   -->
   <Target Name="PrintBuildInfo" AfterTargets="Build">
@@ -10,16 +10,15 @@
              Importance="High" />
   </Target>
 
-  <!-- ─── Контроль structured logging ───────────────────────────────────── -->
+  <!-- ─── Enforce structured logging ───────────────────────────────────── -->
   <!--
-    Прерывает сборку, если любой файл .cs содержит вызовы Console.Write.
-    Весь вывод должен проходить через ILogger для единообразного structured logging.
+    Fails the build if any .cs file contains Console.Write calls.
+    All output must go through ILogger to keep structured logging consistent.
   -->
   <Target Name="ValidateNoBannedConsole" BeforeTargets="Build">
     <!--
-      Цепочки .Contains() в атрибуте Condition не поддерживаются MSBuild.
-      Вместо этого содержимое файла вычисляется через поддерживаемое значение metadata,
-      а затем по нему выполняется фильтрация.
+      Chaining .Contains() in a Condition attribute is not supported by MSBuild.
+      Instead: evaluate file content via metadata value (supported), then filter on it.
     -->
     <ItemGroup>
       <_CsFiles Include="@(Compile)">
@@ -32,3 +31,4 @@
   </Target>
 
 </Project>
+

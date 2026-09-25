@@ -497,7 +497,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_HighViolationRate_When_More_Than_20_Percent_Are_Invalid()
     {
-        // 10 candles, 3  = 30% > 20% threshold.
+        // 10 свечей, 3 нарушения = 30% > порога 20%.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[1] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1));
@@ -518,7 +518,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void No_HighViolationRate_Diagnostic_When_Below_Threshold()
     {
-        // 10 candles, 1  = 10% <= 20% threshold → no highViolationRate diagnostic.
+        // 10 свечей, 1 нарушение = 10% <= порога 20% → диагностики highViolationRate нет.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2));

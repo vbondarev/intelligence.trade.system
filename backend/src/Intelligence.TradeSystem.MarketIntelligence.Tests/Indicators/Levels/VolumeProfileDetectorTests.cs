@@ -327,7 +327,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Should().BeNull(because: "без HVN-зон Resistance2 должен быть null, не 0");
     }
 
-    // ── Guard-clause coverage ────────────────────────────────────────────────
+    // ── Покрытие защитных проверок ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Klines_Is_Null()
@@ -374,7 +374,7 @@ public sealed class VolumeProfileDetectorTests
         second.Should().Be(first);
     }
 
-    // ── Clustering behaviour ─────────────────────────────────────────────────
+    // ── Поведение кластеризации ───────────────────────────────────────────────
 
     [Fact]
     public void Clusters_Adjacent_High_Volume_Buckets_Into_One_Zone()
@@ -484,7 +484,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Price.Should().BeLessThan(165m);
     }
 
-    // ── Symmetry: upper HVN → resistance ────────────────────────────────────
+    // ── Симметрия: верхний HVN → сопротивление ───────────────────────────────
 
     [Fact]
     public void High_Volume_Upper_Zone_Is_Selected_As_Resistance()
@@ -504,7 +504,7 @@ public sealed class VolumeProfileDetectorTests
             volume: 10m,
             startTime: baseTime.AddHours(10 + i))).ToArray();
 
-        var klines = highZone.Concat(currentZone).ToArray();   // current price = 100
+        var klines = highZone.Concat(currentZone).ToArray();   // текущая цена = 100
         var result = VolumeProfileDetector.Detect(klines);
 
         // Resistance1 или Resistance2 должна попасть в высокообъёмную зону [145, 155]
@@ -770,7 +770,7 @@ public sealed class VolumeProfileDetectorTests
             because: "шумовые бакеты не преодолевают HVN-порог → единственный support кластер");
     }
 
-    // ── LevelStrength contracts ───────────────────────────────────────────────
+    // ── Контракты LevelStrength ───────────────────────────────────────────────
 
     [Fact]
     public void Dominant_Single_Cluster_Has_Strength_1()

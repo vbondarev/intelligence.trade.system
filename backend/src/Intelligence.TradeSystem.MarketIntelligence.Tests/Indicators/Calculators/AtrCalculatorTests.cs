@@ -207,7 +207,7 @@ public sealed class AtrCalculatorTests
         result.Value.Should().BeApproximately(20m, precision: 0.0001m);
     }
 
-    // ── Averaging behaviour ──────────────────────────────────────────────────
+    // ── Поведение усреднения ─────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Fallback_Average_When_TrueRanges_Count_Less_Than_Period()

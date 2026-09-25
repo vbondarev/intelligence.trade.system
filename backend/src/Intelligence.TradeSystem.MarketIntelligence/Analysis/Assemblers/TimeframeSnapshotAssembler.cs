@@ -43,7 +43,7 @@ public static class TimeframeSnapshotAssembler
             throw new ArgumentException("Klines collection is empty.", nameof(klines));
         }
 
-        // 1a. Validate — filter out dirty candles; violations → IndicatorDiagnostics.
+        // 1a. Validate — отбрасываем некорректные свечи; нарушения → IndicatorDiagnostics.
         var validKlines = KlineValidator.FilterValid(klines, out var violations);
 
         if (validKlines.Count == 0)
@@ -159,7 +159,7 @@ public static class TimeframeSnapshotAssembler
             ? Math.Round(lastVolume / volSma20Value.RequireValue(), 4)
             : null;
 
-        // volumeRatio diagnostic — emit window   ratio could not be computed.
+        // Диагностика volumeRatio — добавляем её, если ratio для окна вычислить нельзя.
         // Two cases:
         //   InvalidInput     — SMA is  but == 0 (all volumes are zero); no existing diagnostic covers this.
         //   InsufficientData — SMA itself is unavailable (volumeSma20 diagnostic already exists, but we

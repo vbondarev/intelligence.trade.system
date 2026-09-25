@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Diagnostics;
 
 public sealed class IndicatorDiagnosticFactoryTests
 {
-    // ── No diagnostic for normal   ──────────────────────────────
+    // ── Для обычного значения диагностика отсутствует ──────────
 
     [Fact]
     public void Create_Returns_Null_When_Value_Is_Available_And_Not_Fallback()
@@ -19,7 +19,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Should().BeNull();
     }
 
-    // ── Diagnostic for fallback  ─────────────────────────────────────────
+    // ── Диагностика для fallback ─────────────────────────────────────────
 
     [Fact]
     public void Create_Returns_Diagnostic_When_Value_Is_Fallback()
@@ -38,7 +38,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Message.Should().Contain("fallback");
     }
 
-    // ── Diagnostic for unavailable  ─────────────────────────────────────
+    // ── Диагностика для unavailable ─────────────────────────────────────
 
     [Fact]
     public void Create_Returns_Diagnostic_When_Value_Is_Unavailable()

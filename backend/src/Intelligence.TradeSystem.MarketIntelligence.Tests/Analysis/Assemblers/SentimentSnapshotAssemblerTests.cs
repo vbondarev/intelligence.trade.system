@@ -98,7 +98,7 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Rounds_FundingBiasScore_To_Four_Decimals()
     {
-        // Blended funding = 0.00033335, normalized by threshold 0.001 => 0.33335, then negated and rounded.
+        // Blended funding = 0.00033335, нормализован по порогу 0.001 => 0.33335, затем инвертирован и округлён.
         var derivatives = CreateDerivatives(fundingRate: 0.0006667m, fundingRateAvg24h: 0m);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
@@ -385,10 +385,10 @@ public sealed class SentimentSnapshotAssemblerTests
     public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()
     {
         //
-        const long maxAgeMs = 5_000L; // Intraday threshold
+        const long maxAgeMs = 5_000L; // Порог Intraday
         var now = DateTimeOffset.UtcNow;
         var windowEnd = now.AddMilliseconds(-5_824); // stale: age > maxAge
-        var windowStart = windowEnd.AddSeconds(-8);  // window = 8 s < 10 s
+        var windowStart = windowEnd.AddSeconds(-8);  // окно = 8 s < 10 s
 
         var buyVolume = 0.872m;
         var sellVolume = 0.1m;
