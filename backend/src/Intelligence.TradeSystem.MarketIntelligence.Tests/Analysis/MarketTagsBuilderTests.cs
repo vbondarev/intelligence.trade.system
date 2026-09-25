@@ -472,7 +472,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagNearResistance);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static List<string> Build(
         DerivativesSnapshot? derivatives = null,

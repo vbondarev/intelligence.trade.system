@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Calculato
 
 public sealed class SmaCalculatorTests
 {
-    // ── Guard clauses ────────────────────────────────────────────────────────
+    // ── Проверки входных условий ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Values_Is_Null()
@@ -29,7 +29,7 @@ public sealed class SmaCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary & fallback ──────────────────────────────────────────────────
+    // ── Граница и откат ──────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Array_Is_Empty()

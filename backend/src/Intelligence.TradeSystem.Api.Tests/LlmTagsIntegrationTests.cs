@@ -230,7 +230,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFac
         tags.Should().Contain(MarketTagConstants.WeakEntryConfirmation);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     /// <summary>
     /// Снапшот с известными входными данными, которые должны дать конкретный набор тегов:

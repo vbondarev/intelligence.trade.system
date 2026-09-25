@@ -15,7 +15,7 @@ public sealed class SnapshotHealthWarningsBuilderTests
     private static readonly SectionFreshnessOptions _intradayThresholds =
         SnapshotFreshnessOptions.Default.Intraday;
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static SnapshotHealthWarningsContext BuildCtx(
         AnalysisMode mode = AnalysisMode.Intraday,

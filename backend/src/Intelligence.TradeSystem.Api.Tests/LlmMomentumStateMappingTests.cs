@@ -240,7 +240,7 @@ public sealed class LlmMomentumStateMappingTests : IClassFixture<LlmMomentumStat
         }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketSnapshot snapshot)
     {

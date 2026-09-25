@@ -239,7 +239,7 @@ public static class TimeframeSnapshotAssembler
             ema20.HasValue && ema50.HasValue && ema200.HasValue
             && ema20.Value < ema50.Value && ema50.Value < ema200.Value;
 
-        // 7. Assemble
+        // 7. Сборка
         // Derive indicator availability/fallback flags for consumers (e.g. LlmTimeframeSummaryBuilder).
         var emaIsReliable = ema20Value.HasUsableValue() && ema50Value.HasUsableValue() && ema200Value.HasUsableValue();
         var emaHasFallback = ema20Value.IsFallback || ema50Value.IsFallback || ema200Value.IsFallback;

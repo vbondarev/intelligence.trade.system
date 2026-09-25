@@ -76,7 +76,7 @@ public static class SentimentSnapshotAssembler
         DateTimeOffset? capturedAtUtc = null,
         long maxTradeFlowAgeMs = TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(derivatives);
         ArgumentNullException.ThrowIfNull(orderBook);
         ArgumentNullException.ThrowIfNull(tradeFlow);
@@ -113,7 +113,7 @@ public static class SentimentSnapshotAssembler
         // 6. MarketRegime — heuristic from H1 and H4
         var marketRegime = ClassifyMarketRegime(h1, h4);
 
-        // 7. Assemble
+        // 7. Сборка
         return new SentimentSnapshot
         {
             LongShortBiasScore = longShortBiasScore,

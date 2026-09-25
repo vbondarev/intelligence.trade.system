@@ -68,7 +68,7 @@ public static class OrderBookSnapshotAssembler
         var bidWalls = DetectWalls(orderBook.Bids, midPrice);
         var askWalls = DetectWalls(orderBook.Asks, midPrice);
 
-        // 5. Assemble
+        // 5. Сборка
         return new OrderBookSnapshot
         {
             CapturedAtUtc = orderBook.CapturedAt,

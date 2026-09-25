@@ -22,9 +22,9 @@ internal sealed class ApiExceptionHandler(IProblemDetailsService problemDetailsS
             ConcurrencyConflictException => (ApiErrorDescriptors.ConcurrencyConflict, "The resource was modified by another operation."),
             MarketDataUnavailableException => (ApiErrorDescriptors.MarketDataUnavailable, null),
             DataSourceException => (ApiErrorDescriptors.MarketDataUnavailable, null),
-            // The current market endpoints use these framework exceptions for
-            // user-controlled exchange/symbol constraints; keep that API behavior
-            // explicit until those constraints have dedicated application errors.
+            // Текущие market endpoints используют эти framework exceptions для
+            // пользовательских ограничений exchange/symbol; сохраняем это API behavior
+            // явным до появления отдельной application error для этих ограничений.
             ArgumentException or NotSupportedException => (ApiErrorDescriptors.ValidationFailed, exception.Message),
             _ => (ApiErrorDescriptors.InternalError, null),
         };

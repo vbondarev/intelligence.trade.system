@@ -21,7 +21,7 @@ internal static class SnapshotHealthWarningsBuilder
     private const decimal LowVolumeThreshold = 0.5m;
     private const decimal FarFromLevelThreshold = 1.5m;
 
-    // ─── Public API ──────────────────────────────────────────────────────────
+    // ─── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Строит список мягких предупреждений для снапшота, используя указанный контекст.

@@ -342,7 +342,7 @@ public sealed class LlmLevelMetaMappingTests : IClassFixture<ApiWebApplicationFa
         }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync()
     {

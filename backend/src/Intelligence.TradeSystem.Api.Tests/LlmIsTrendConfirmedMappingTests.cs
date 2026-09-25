@@ -27,7 +27,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
         _factory = factory;
     }
 
-    // ─── Bullish confirmed ───────────────────────────────────────────────────
+    // ─── Подтверждённый бычий тренд ──────────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_True_When_Bullish_With_EmaAlignment_And_AboveEma200()
@@ -41,7 +41,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bullish + emaBullish + aboveEma200 → confirmed"));
     }
 
-    // ─── Bullish unconfirmed ─────────────────────────────────────────────────
+    // ─── Неподтверждённый бычий тренд ─────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_False_When_Bullish_But_EmaBullishAlignmentFalse()
@@ -67,7 +67,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bullish but price below EMA200 → not confirmed"));
     }
 
-    // ─── Bearish confirmed ───────────────────────────────────────────────────
+    // ─── Подтверждённый медвежий тренд ─────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_True_When_Bearish_With_EmaAlignment_And_BelowEma200()
@@ -81,7 +81,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bearish + emaBearish + belowEma200 → confirmed"));
     }
 
-    // ─── Bearish unconfirmed ─────────────────────────────────────────────────
+    // ─── Неподтверждённый медвежий тренд ───────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_False_When_Bearish_But_EmaBearishAlignmentFalse()
@@ -108,7 +108,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bearish but price above EMA200 → not confirmed"));
     }
 
-    // ─── Neutral trends always false ─────────────────────────────────────────
+    // ─── Нейтральные тренды всегда ложны ───────────────────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
@@ -145,7 +145,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
         }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketSnapshot snapshot)
     {

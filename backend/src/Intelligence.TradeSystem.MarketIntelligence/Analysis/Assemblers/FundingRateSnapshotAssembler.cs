@@ -42,13 +42,13 @@ public static class FundingRateSnapshotAssembler
     /// <exception cref="ArgumentException">Если список записей пустой.</exception>
     public static FundingRateSnapshot Assemble(IReadOnlyList<FundingRateEntry> entries)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(entries);
 
         if (entries.Count == 0)
             throw new ArgumentException("Funding rate entries list must not be empty.", nameof(entries));
 
-        // 2. Sort descending (newest first); current = first
+        // 2. Сортировка по убыванию (новейшее первым); текущий = первый
         var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
@@ -65,7 +65,7 @@ public static class FundingRateSnapshotAssembler
         var isExtremeBullish = current.FundingRate > ExtremeFundingThreshold;
         var isExtremeBearish = current.FundingRate < -ExtremeFundingThreshold;
 
-        // 6. Assemble
+        // 6. Сборка
         return new FundingRateSnapshot
         {
             Symbol = current.Symbol,

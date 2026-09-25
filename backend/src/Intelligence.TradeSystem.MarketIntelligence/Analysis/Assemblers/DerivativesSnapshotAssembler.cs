@@ -46,7 +46,7 @@ public static class DerivativesSnapshotAssembler
         OpenInterestSnapshot? openInterest,
         LongShortRatioSnapshot? longShortRatio)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(ticker);
 
         // 2. Current values from ticker
@@ -71,7 +71,7 @@ public static class DerivativesSnapshotAssembler
         var longRatio = longShortRatio?.CurrentBuyRatio ?? 0m;
         var shortRatio = longShortRatio?.CurrentSellRatio ?? 0m;
 
-        // 7. Assemble
+        // 7. Сборка
         return new DerivativesSnapshot
         {
             FundingRate = currentFundingRate,

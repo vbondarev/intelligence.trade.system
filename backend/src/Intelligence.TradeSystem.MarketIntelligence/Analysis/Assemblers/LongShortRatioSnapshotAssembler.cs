@@ -38,13 +38,13 @@ public static class LongShortRatioSnapshotAssembler
         IReadOnlyList<LongShortRatioEntry> entries,
         LongShortRatioPeriod period)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(entries);
 
         if (entries.Count == 0)
             throw new ArgumentException("Long/short ratio entries list must not be empty.", nameof(entries));
 
-        // 2. Sort descending (newest first); current = first
+        // 2. Сортировка по убыванию (новейшее первым); текущий = первый
         var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
@@ -57,7 +57,7 @@ public static class LongShortRatioSnapshotAssembler
         var isExtremelyLong = current.BuyRatio > ExtremeLongThreshold;
         var isExtremelyShort = current.BuyRatio < (1m - ExtremeLongThreshold);
 
-        // 5. Assemble
+        // 5. Сборка
         return new LongShortRatioSnapshot
         {
             Symbol = current.Symbol,

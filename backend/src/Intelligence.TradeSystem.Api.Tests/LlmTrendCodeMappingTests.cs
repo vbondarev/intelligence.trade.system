@@ -129,7 +129,7 @@ public sealed class LlmTrendCodeMappingTests : IClassFixture<ApiWebApplicationFa
         result.H1.Trend.Should().Be("Bearish");
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {

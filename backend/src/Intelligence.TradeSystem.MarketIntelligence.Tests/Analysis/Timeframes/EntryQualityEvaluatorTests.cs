@@ -905,7 +905,7 @@ public sealed class EntryQualityEvaluatorTests
     public void Bullish_ResistanceBelowCurrentPrice_IsNotAnObstacle_PassedAsNull()
     {
         // Resistance below current price is behind the trade, not ahead.
-        // Caller responsibility: pass oppDistancePct = null in this case.
+        // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
         // Evaluator must not penalise the trade when null is provided.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
@@ -919,7 +919,7 @@ public sealed class EntryQualityEvaluatorTests
     public void Bearish_SupportAboveCurrentPrice_IsNotAnObstacle_PassedAsNull()
     {
         // Support above current price is behind the short trade, not in its path.
-        // Caller responsibility: pass oppDistancePct = null in this case.
+        // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
             oppDistancePct: null, oppStrength: null);
 
@@ -1137,7 +1137,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "oppDistancePct == 0 with Strong resistance at current price → immediate obstacle → Poor");
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     /// <summary>Выбирает обработчик по bias с чистыми значениями по умолчанию — используется симметричными Theory-тестами.</summary>
     private static EntryQuality EvaluateByBias(

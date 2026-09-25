@@ -32,7 +32,7 @@ public static class TradeFlowSnapshotAssembler
     /// <exception cref="ArgumentException">Если список сделок пустой.</exception>
     public static TradeFlowSnapshot Assemble(IReadOnlyList<Trade> trades)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(trades);
 
         if (trades.Count == 0)
@@ -66,7 +66,7 @@ public static class TradeFlowSnapshotAssembler
         var hasAggressiveBuyPressure = deltaPct > AggressivePressureThresholdPct;
         var hasAggressiveSellPressure = deltaPct < -AggressivePressureThresholdPct;
 
-        // 5. Assemble
+        // 5. Сборка
         return new TradeFlowSnapshot
         {
             WindowStartUtc = trades.Min(t => t.Timestamp),

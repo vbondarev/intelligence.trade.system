@@ -67,7 +67,7 @@ internal static class LlmPayloadMapperExtensions
         };
     }
 
-    // ─── AnalysisContext ────────────────────────────────────────────────────
+    // ─── Контекст анализа ───────────────────────────────────────────────────
 
     private static LlmAnalysisContextPayload BuildAnalysisContext(AnalysisMode mode) =>
         new()
@@ -76,7 +76,7 @@ internal static class LlmPayloadMapperExtensions
             PrimaryTimeframes = AnalysisModeDefaults.GetPrimaryTimeframes(mode),
         };
 
-    // ─── Price ──────────────────────────────────────────────────────────────
+    // ─── Цена ───────────────────────────────────────────────────────────────
 
     private static LlmPricePayload BuildPrice(PriceSnapshot s) =>
         new()
@@ -92,7 +92,7 @@ internal static class LlmPayloadMapperExtensions
             Volume24h = s.Volume24h,
         };
 
-    // ─── Derivatives ────────────────────────────────────────────────────────
+    // ─── Деривативы ──────────────────────────────────────────────────────────
 
     private static LlmDerivativesPayload BuildDerivatives(DerivativesSnapshot s) =>
         new()
@@ -109,7 +109,7 @@ internal static class LlmPayloadMapperExtensions
             PremiumVsIndexPct = s.PremiumVsIndexPct,
         };
 
-    // ─── OrderBook ──────────────────────────────────────────────────────────
+    // ─── Книга заявок ───────────────────────────────────────────────────────
 
     private static LlmOrderBookPayload BuildOrderBook(OrderBookSnapshot s)
     {

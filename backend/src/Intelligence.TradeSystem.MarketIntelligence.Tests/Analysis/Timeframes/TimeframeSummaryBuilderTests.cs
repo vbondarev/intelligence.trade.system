@@ -199,7 +199,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.MomentumState.Should().Be(MomentumState.Overextended);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static TimeframeAnalysisSnapshot MakeSnapshot(
         MarketTrend trend = MarketTrend.Bullish,

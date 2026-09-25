@@ -53,10 +53,10 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: 0.85m),   // strong
             regime: MarketRegimes.Trending);
 
-        // Act
+        // Действие
         var payload = snapshot.ToLlmPayload(AnalysisMode.Intraday, _freshHealth);
 
-        // Assert
+        // Проверка
         payload.M15.Summary.EntryQuality.Should().Be("Poor",
             because: "H4 strong resistance at 0.05% < 0.15% threshold must force M15 entryQuality to Poor");
         payload.M15.Summary.RiskFlags.Should().Contain("NearHigherTimeframeResistance",
@@ -305,7 +305,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         // - Price above EMA20/EMA50, confirmed trend
         // - Strong support nearby
         // - No resistance on current TF or higher TFs
-        // - High volume, fresh snapshot, Trending regime
+        // - Высокий объём, свежий снимок, трендовый режим
         var m15 = MakeBullishTf("15m",
             distToSupport: 0.5m,
             supportStrength: 0.85m,     // Strong
@@ -338,7 +338,7 @@ public sealed class LlmPayloadMapperExtensionsTests
         // - Price below EMA20/EMA50, confirmed trend
         // - Strong resistance nearby
         // - No support on current TF or higher TFs (D1)
-        // - High volume, fresh snapshot, Trending regime
+        // - Высокий объём, свежий снимок, трендовый режим
         var h4 = MakeBearishTf("4h",
             distToResistance: 0.4m,
             resistanceStrength: 0.85m,   // Strong

@@ -37,7 +37,7 @@ public static class OpenInterestSnapshotAssembler
         IReadOnlyList<OpenInterestEntry> entries,
         OpenInterestInterval interval)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(entries);
 
         if (entries.Count == 0)
@@ -64,7 +64,7 @@ public static class OpenInterestSnapshotAssembler
         var isAccumulating = change1hPct > TrendThresholdPct;
         var isDistributing = change1hPct < -TrendThresholdPct;
 
-        // 6. Assemble
+        // 6. Сборка
         return new OpenInterestSnapshot
         {
             Symbol = symbol,

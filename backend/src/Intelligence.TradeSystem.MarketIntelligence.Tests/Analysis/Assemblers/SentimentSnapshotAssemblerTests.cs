@@ -418,7 +418,7 @@ public sealed class SentimentSnapshotAssemblerTests
             imbalanceTop10: -0.20m,
             imbalanceTop20: -0.10m);
 
-        // Act
+        // Действие
         var result = SentimentSnapshotAssembler.Assemble(
             derivatives: CreateDerivatives(),
             orderBook: orderBook,
@@ -428,7 +428,7 @@ public sealed class SentimentSnapshotAssemblerTests
             capturedAtUtc: now,
             maxTradeFlowAgeMs: maxAgeMs);
 
-        // Assert
+        // Проверка
         result.TradeFlowPressureScore
             .Should().BeGreaterThan(0m, because: "bullish raw signal must remain positive")
             .And.BeLessThanOrEqualTo(0.25m, because: "stale + short window + low volume + conflict → cap 0.25");

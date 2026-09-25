@@ -59,7 +59,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-        // rsi14 must be null, not 0.
+        // rsi14 должен быть null, а не 0.
         var rsi = json.RootElement.GetProperty("m15").GetProperty("rsi14");
         rsi.ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable RSI must serialize as null, not 0");
@@ -232,7 +232,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         var m15 = json.RootElement.GetProperty("m15");
 
-        // rsi14 must be null, not 0.
+        // rsi14 должен быть null, а не 0.
         m15.GetProperty("rsi14").ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable RSI must be null in JSON, not 0");
 
@@ -392,7 +392,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
             because: "clusterVolume of a detected level must be > 0");
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ────────────────────────────────────────────────
 
     private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {

@@ -131,7 +131,7 @@ internal static class MarketTagsBuilder
     /// <summary>Порог скоса ликвидности для преобладания верхней/нижней ликвидности.</summary>
     private const decimal LiquiditySkewThreshold = 0.15m;
 
-    // ─── Public API ──────────────────────────────────────────────────────────
+    // ─── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Строит детерминированный список тегов из снапшотов.
@@ -494,7 +494,7 @@ internal static class MarketTagsBuilder
         else if (derivatives.ShortRatio > LongShortCrowdingThreshold) target.Add(TagShortCrowded);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ────────────────────────────────────────────────
 
     private static List<TimeframeAnalysisSnapshot> GetNonNullTfs(
         TimeframeAnalysisSnapshot? m15,
