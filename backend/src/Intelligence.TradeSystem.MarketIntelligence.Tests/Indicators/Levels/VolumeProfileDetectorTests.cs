@@ -119,7 +119,7 @@ public sealed class VolumeProfileDetectorTests
             because: "высокообъёмная ценовая зона (45–55) должна быть определена как уровень поддержки");
     }
 
-    // ── Price-side invariants (strict, unconditional) ────────────────────────
+    // ── Инварианты стороны цены (строгие, безусловные) ───────────────────────
 
     /// <summary>
     /// Детерминированный сценарий: две HVN-зоны ниже текущей цены.
@@ -257,7 +257,7 @@ public sealed class VolumeProfileDetectorTests
             because: "Resistance2 обязан быть выше текущей цены");
     }
 
-    // ── Absent level is null, never zero ─────────────────────────────────────
+    // ── Отсутствующий уровень равен null, а не нулю ───────────────────────────
 
     [Fact]
     public void Absent_Support2_Is_Null_Not_Zero()
@@ -327,7 +327,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Should().BeNull(because: "без HVN-зон Resistance2 должен быть null, не 0");
     }
 
-    // ── Guard-clause coverage ────────────────────────────────────────────────
+    // ── Покрытие защитных проверок ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Klines_Is_Null()
@@ -338,7 +338,7 @@ public sealed class VolumeProfileDetectorTests
             .WithParameterName("klines");
     }
 
-    // ── Zero-volume profile ──────────────────────────────────────────────────
+    // ── Профиль с нулевым объёмом ───────────────────────────────────────────
 
     [Fact]
     public void Returns_All_Nulls_When_All_Volumes_Are_Zero()
@@ -359,7 +359,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Should().BeNull();
     }
 
-    // ── Determinism ──────────────────────────────────────────────────────────
+    // ── Детерминированность ──────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Deterministic_Result_For_Same_Input()
@@ -374,7 +374,7 @@ public sealed class VolumeProfileDetectorTests
         second.Should().Be(first);
     }
 
-    // ── Clustering behaviour ─────────────────────────────────────────────────
+    // ── Поведение кластеризации ───────────────────────────────────────────────
 
     [Fact]
     public void Clusters_Adjacent_High_Volume_Buckets_Into_One_Zone()
@@ -408,7 +408,7 @@ public sealed class VolumeProfileDetectorTests
             because: "соседние бакеты одной HVN-зоны должны объединяться в один кластер, не в два");
     }
 
-    // ── Proximity-ordering regression ────────────────────────────────────────
+    // ── Регрессия порядка по близости ───────────────────────────────────────
 
     [Fact]
     public void Selects_Closest_Strong_Support_Levels_When_Multiple_High_Volume_Zones_Exist()
@@ -484,7 +484,7 @@ public sealed class VolumeProfileDetectorTests
         result.Resistance2.Price.Should().BeLessThan(165m);
     }
 
-    // ── Symmetry: upper HVN → resistance ────────────────────────────────────
+    // ── Симметрия: верхний HVN → сопротивление ───────────────────────────────
 
     [Fact]
     public void High_Volume_Upper_Zone_Is_Selected_As_Resistance()
@@ -504,7 +504,7 @@ public sealed class VolumeProfileDetectorTests
             volume: 10m,
             startTime: baseTime.AddHours(10 + i))).ToArray();
 
-        var klines = highZone.Concat(currentZone).ToArray();   // current price = 100
+        var klines = highZone.Concat(currentZone).ToArray();   // текущая цена = 100
         var result = VolumeProfileDetector.Detect(klines);
 
         // Resistance1 или Resistance2 должна попасть в высокообъёмную зону [145, 155]
@@ -515,7 +515,7 @@ public sealed class VolumeProfileDetectorTests
             because: "высокообъёмная ценовая зона (145–155) должна быть определена как уровень сопротивления");
     }
 
-    // ── Single-cluster contract ───────────────────────────────────────────────
+    // ── Контракт одного кластера ─────────────────────────────────────────────
 
     [Fact]
     public void Returns_Only_One_Support_When_Only_One_Lower_Cluster_Exists()
@@ -573,7 +573,7 @@ public sealed class VolumeProfileDetectorTests
             because: "при наличии одного верхнего кластера Resistance2 должен быть null");
     }
 
-    // ── Anti-merge regression ─────────────────────────────────────────────────
+    // ── Регрессия против слияния кластеров ──────────────────────────────────
 
     [Fact]
     public void Does_Not_Merge_Two_Distinct_Nearby_High_Volume_Clusters()
@@ -615,7 +615,7 @@ public sealed class VolumeProfileDetectorTests
             because: "две раздельные HVN-зоны не должны быть склеены в один кластер");
     }
 
-    // ── VolumeProfileOptions integration ─────────────────────────────────────
+    // ── Интеграция VolumeProfileOptions ──────────────────────────────────────
 
     [Fact]
     public void Null_Options_Uses_Default_And_Produces_Same_Result_As_Explicit_Default()
@@ -697,7 +697,7 @@ public sealed class VolumeProfileDetectorTests
     public void Custom_BucketCount_Does_Not_Change_Level_Direction()
     {
         // Кастомное количество бакетов меняет точность, но не нарушает инвариант:
-        // support < currentPrice, resistance > currentPrice.
+        // support < currentPrice, resistance > currentPrice — проверяем стороны относительно текущей цены.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         var lowZone = Enumerable.Range(0, 10).Select(i => KlineFactory.Create(
@@ -729,7 +729,7 @@ public sealed class VolumeProfileDetectorTests
         }
     }
 
-    // ── Signal vs noise ───────────────────────────────────────────────────────
+    // ── Сигнал и шум ─────────────────────────────────────────────────────────
 
     [Fact]
     public void Selects_Strong_Zone_Over_Noisy_Background()
@@ -770,7 +770,7 @@ public sealed class VolumeProfileDetectorTests
             because: "шумовые бакеты не преодолевают HVN-порог → единственный support кластер");
     }
 
-    // ── LevelStrength contracts ───────────────────────────────────────────────
+    // ── Контракты LevelStrength ───────────────────────────────────────────────
 
     [Fact]
     public void Dominant_Single_Cluster_Has_Strength_1()
@@ -853,7 +853,7 @@ public sealed class VolumeProfileDetectorTests
         }
     }
 
-    // ── Source invariant ─────────────────────────────────────────────────────
+    // ── Инвариант источника ───────────────────────────────────────────────────
 
     [Fact]
     public void All_Detected_Levels_Have_Source_SimplifiedVolumeProfile()
@@ -922,7 +922,7 @@ public sealed class VolumeProfileDetectorTests
             because: "VolumeProfileDetector обязан устанавливать Source = SimplifiedVolumeProfile");
     }
 
-    // ── ClusterVolume invariant ───────────────────────────────────────────────
+    // ── Инвариант ClusterVolume ───────────────────────────────────────────────
 
     [Fact]
     public void All_Detected_Levels_Have_Positive_ClusterVolume()

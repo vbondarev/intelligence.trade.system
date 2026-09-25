@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Calculato
 
 public sealed class AtrCalculatorTests
 {
-    // ── Guard clauses ────────────────────────────────────────────────────────
+    // ── Проверки входных условий ────────────────────────────────────────────
 
     [Theory]
     [InlineData(0, "highs")]
@@ -38,7 +38,7 @@ public sealed class AtrCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Invariant: ATR always >= 0 when available ─────────────────────────────
+    // ── Инвариант: ATR всегда >= 0 при available-значении ─────────────────
 
     public static TheoryData<decimal[], decimal[], decimal[], int> AvailableAtrCases => new()
     {
@@ -91,7 +91,7 @@ public sealed class AtrCalculatorTests
             because: "ATR is an average of absolute ranges and can never be negative");
     }
 
-    // ── Insufficient data (< 2 candles) ─────────────────────────────────────
+    // ── Недостаточно данных (< 2 свечей) ────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Arrays_Are_Empty()
@@ -115,7 +115,7 @@ public sealed class AtrCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
     }
 
-    // ── True Range calculation ───────────────────────────────────────────────
+    // ── Расчёт True Range ───────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_Zero_For_Flat_Candles()
@@ -207,12 +207,12 @@ public sealed class AtrCalculatorTests
         result.Value.Should().BeApproximately(20m, precision: 0.0001m);
     }
 
-    // ── Averaging behaviour ──────────────────────────────────────────────────
+    // ── Поведение усреднения ─────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Fallback_Average_When_TrueRanges_Count_Less_Than_Period()
     {
-        // 3 свечи → 2 True Range, period = 14 → partial window
+        // 3 свечи → 2 True Range, period = 14 → неполное окно
         // TR[0] = max(|110-100|=10, |110-95|=15, |100-95|=5) = 15
         // TR[1] = max(|120-110|=10, |120-105|=15, |110-105|=5) = 15
         // Average = 15
@@ -238,8 +238,8 @@ public sealed class AtrCalculatorTests
         //   i=2: max(|15-12|=3, |15-11|=4,  |12-11|=1)  = 4
         //   i=3: max(|18-15|=3, |18-13|=5,  |15-13|=2)  = 5
         //
-        // Seed ATR (SMA первых period=2): (3+4)/2 = 3.5
-        // Wilder step:  ATR = ((3.5 × 1) + 5) / 2 = 4.25
+        // Начальный ATR (SMA первых period=2): (3+4)/2 = 3.5
+        // Шаг Wilder: ATR = ((3.5 × 1) + 5) / 2 = 4.25
         decimal[] highs = [10m, 12m, 15m, 18m];
         decimal[] lows = [8m, 9m, 12m, 15m];
         decimal[] closes = [9m, 11m, 13m, 17m];
@@ -337,7 +337,7 @@ public sealed class AtrCalculatorTests
         result.Value.Should().BeApproximately(10m, precision: 0.0001m);
     }
 
-    // ── Array length mismatch ────────────────────────────────────────────────
+    // ── Несовпадение длины массивов ─────────────────────────────────────────
 
     public static TheoryData<decimal[], decimal[], decimal[]> MismatchedLengthCases => new()
     {

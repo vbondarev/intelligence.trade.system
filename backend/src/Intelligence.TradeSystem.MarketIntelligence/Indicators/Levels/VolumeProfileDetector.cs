@@ -123,7 +123,7 @@ public static class VolumeProfileDetector
         decimal bucketSize,
         decimal threshold)
     {
-        // First pass: collect raw cluster data (volume-weighted price centre + total cluster volume).
+        // Первый проход: собираем сырые данные кластеров (volume-weighted центр цены + общий объём кластера).
         var raw = new List<(decimal Price, decimal ClusterVolume, bool IsFallback)>();
         var i = 0;
 
@@ -163,9 +163,9 @@ public static class VolumeProfileDetector
         if (raw.Count == 0)
             return [];
 
-        // Second pass: normalize strength by the largest cluster volume so that the
-        // dominant cluster always receives Strength = 1.0 and all others are relative to it.
-        // This guarantees Strength ∈ [0, 1] regardless of how many buckets a cluster spans.
+        // Второй проход: нормализуем strength по объёму крупнейшего кластера, чтобы
+        // доминирующий кластер всегда получал Strength = 1.0, а остальные значения были относительными.
+        // Это гарантирует Strength ∈ [0, 1] независимо от числа bucket, охваченных кластером.
         var maxClusterVolume = raw.Max(c => c.ClusterVolume);
 
         var clusters = new List<LevelInfo>(raw.Count);

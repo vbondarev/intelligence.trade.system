@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Diagnostics;
 
 public sealed class IndicatorDiagnosticFactoryTests
 {
-    // ── No diagnostic for normal available value ──────────────────────────────
+    // ── Для обычного значения диагностика отсутствует ──────────
 
     [Fact]
     public void Create_Returns_Null_When_Value_Is_Available_And_Not_Fallback()
@@ -19,7 +19,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Should().BeNull();
     }
 
-    // ── Diagnostic for fallback value ─────────────────────────────────────────
+    // ── Диагностика для fallback ─────────────────────────────────────────
 
     [Fact]
     public void Create_Returns_Diagnostic_When_Value_Is_Fallback()
@@ -38,7 +38,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Message.Should().Contain("fallback");
     }
 
-    // ── Diagnostic for unavailable value ─────────────────────────────────────
+    // ── Диагностика для unavailable ─────────────────────────────────────
 
     [Fact]
     public void Create_Returns_Diagnostic_When_Value_Is_Unavailable()
@@ -91,7 +91,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result.Message.Should().Contain("InvalidInput");
     }
 
-    // ── Message format ────────────────────────────────────────────────────────
+    // ── Формат сообщения ─────────────────────────────────────────────────────
 
     [Fact]
     public void Create_Fallback_Message_Follows_Expected_Format()
@@ -113,7 +113,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         result!.Message.Should().Be("1d.atr14 unavailable: InsufficientData.");
     }
 
-    // ── Null value ────────────────────────────────────────────────────────────
+    // ── Null-значение ───────────────────────────────────────────────────────
 
     [Fact]
     public void Create_Throws_ArgumentNullException_When_Value_Is_Null()
@@ -123,7 +123,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    // ── Timeframe / Indicator propagation ────────────────────────────────────
+    // ── Передача Timeframe / Indicator ───────────────────────────────────────
 
     [Theory]
     [InlineData("15m", "ema20")]

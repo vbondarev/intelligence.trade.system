@@ -22,10 +22,11 @@ using Moq;
 namespace Intelligence.TradeSystem.Api.Tests;
 
 /// <summary>
-/// Authenticated, HTTP-level regression coverage for the F-02 exchange-account lifecycle
-/// contract exposed by <c>/api/v1/exchange-accounts</c>. Tests replace the real Application
-/// services with strict mocks so real routing, model binding, authorization, and the central
-/// <c>ApiExceptionHandler</c> are all exercised for every documented outcome mapping.
+/// Регрессионное покрытие на уровне HTTP для жизненного цикла exchange-account
+/// contract F-02, доступного по <c>/api/v1/exchange-accounts</c>. Тесты подменяют реальные
+/// Application services строгими mocks, чтобы проверять маршрутизацию, model binding,
+/// authorization и центральный <c>ApiExceptionHandler</c> на каждом задокументированном
+/// сопоставлении исходов.
 /// </summary>
 public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplicationFactory>
 {

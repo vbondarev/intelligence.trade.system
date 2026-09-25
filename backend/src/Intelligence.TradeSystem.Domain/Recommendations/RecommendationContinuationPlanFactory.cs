@@ -25,7 +25,7 @@ internal static class RecommendationContinuationPlanFactory
 
         if (RecommendationActionPredicates.IsSafetyBlocked(assessment))
         {
-            // A safety fallback is valid while the same degraded observation remains current.
+            // Safety fallback допустим, пока то же degraded observation остаётся актуальным.
             reevaluation.Add(new DataQualityCondition(
                 RecommendationContinuationConditionScope.Recommendation,
                 result.DataQuality.Overall));

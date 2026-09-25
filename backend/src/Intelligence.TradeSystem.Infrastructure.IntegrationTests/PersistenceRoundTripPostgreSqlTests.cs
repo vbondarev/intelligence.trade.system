@@ -398,8 +398,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             Assert.Equal(historyCount, position.Changes.Count);
             var v2 = await repository.SaveAsync(account.UserId, position, v1);
 
-            // A dynamic-only observation still bumps the row version (the row itself
-            // changed) even though no PositionChange history row was appended.
+            // Наблюдение только с dynamic-данными всё равно увеличивает version строки
+            // (сама строка изменилась), хотя запись в истории PositionChange не добавляется.
             Assert.Equal(v1.Next(), v2);
         }
 
@@ -1170,8 +1170,8 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         await using var dbContext = fixture.CreateContext();
         await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
 
-        // Re-inserting with expectedVersion: null (a "blind" insert) must be treated as a
-        // conflict, not a silent overwrite, once the row already exists.
+        // Повторная вставка с expectedVersion: null («слепая» вставка) после появления строки
+        // должна считаться конфликтом, а не молча перезаписывать существующие данные.
         await using var otherContext = fixture.CreateContext();
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new ExchangeAccountRepository(otherContext).SaveAsync(account.UserId, account, expectedVersion: null));
@@ -1360,11 +1360,10 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
     [Fact]
     public async Task A_stale_writer_conflicts_and_leaves_no_new_position_history()
     {
-        // Simulates two concurrent synchronization jobs that both observed the exact same
-        // exchange snapshot for the same position and race to persist it: only the first
-        // writer may commit; the second (stale) writer must be rejected atomically, without
-        // leaving behind a duplicate (or any) history row and without double-bumping the
-        // version.
+        // Моделирует две параллельные synchronization jobs, наблюдавшие одинаковый
+        // exchange snapshot одной позиции и одновременно сохраняющие его: зафиксироваться
+        // может только первый writer; второй (устаревший) должен быть атомарно отклонён,
+        // без дублирующей (или любой лишней) записи истории и двойного увеличения version.
         var account = CreateAccount();
         var position = CreatePosition(account.Id);
 
@@ -1411,8 +1410,9 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => new PositionRepository(writerBContext).SaveAsync(account.UserId, positionB, readerB.Version));
 
-        // The stale writer's rejected update must not leave behind its divergent history row:
-        // the row count and values must be exactly what writer A committed.
+        // Отклонённое обновление устаревшего writer не должно оставлять его отличающуюся
+        // запись истории: количество строк и значения должны в точности соответствовать
+        // зафиксированным writer A.
         var historyAfterFailedWriterB = await CountPositionChanges(position.Id);
         Assert.Equal(historyAfterA, historyAfterFailedWriterB);
 

@@ -21,7 +21,7 @@ internal static class SnapshotHealthWarningsBuilder
     private const decimal LowVolumeThreshold = 0.5m;
     private const decimal FarFromLevelThreshold = 1.5m;
 
-    // ─── Public API ──────────────────────────────────────────────────────────
+    // ─── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Строит список мягких предупреждений для снапшота, используя указанный контекст.
@@ -37,16 +37,16 @@ internal static class SnapshotHealthWarningsBuilder
         var dataQuality = new List<string>();
         var marketInterpretation = new List<string>();
 
-        // Priority 1: data-quality
+        // Приоритет 1: data-quality
         AddNearStalenessWarnings(ctx, dataQuality);
 
-        // Priority 2: market-interpretation
+        // Приоритет 2: market-interpretation
         AddLowVolumeWarning(snapshot, ctx.Mode, marketInterpretation);
         AddConflictingMicrostructureWarning(snapshot.Sentiment, marketInterpretation);
         AddDirectionalNeutralRegimeWarning(snapshot, ctx.Mode, marketInterpretation);
         AddFarFromLevelWarning(snapshot, ctx.Mode, marketInterpretation);
 
-        // Merge by priority, deduplicate and truncate
+        // Объединить по приоритету, удалить дубликаты и обрезать список.
         var result = new List<string>(MaxWarnings);
         foreach (var w in dataQuality.Concat(marketInterpretation))
         {
@@ -58,7 +58,7 @@ internal static class SnapshotHealthWarningsBuilder
         return result;
     }
 
-    // ─── Rule implementations ────────────────────────────────────────────────
+    // ─── Реализации правил ───────────────────────────────────────────────────
 
     /// <summary>
     /// Правило 6.1: секция OrderBook / TradeFlow / Derivatives достигла порога близости к устареванию,
@@ -84,7 +84,7 @@ internal static class SnapshotHealthWarningsBuilder
         var maxAgeMs = (long)maxAge.TotalMilliseconds;
         var proximityMs = (long)(maxAgeMs * ctx.StalenessProximityFactor);
 
-        // Soft warning: возраст в зоне [proximity, maxAge). Уже устаревшие секции
+        // Мягкое предупреждение: возраст в зоне [proximity, maxAge). Уже устаревшие секции
         // попадают в жёсткие warnings (isFresh=false) и здесь не дублируются.
         if (ageMs >= proximityMs && ageMs < maxAgeMs)
             target.Add($"{sectionName} is near staleness threshold");
@@ -171,7 +171,7 @@ internal static class SnapshotHealthWarningsBuilder
         }
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────────────────
 
     /// <summary>
     /// Возвращает <see cref="TimeframeAnalysisSnapshot"/> для первичных таймфреймов текущего режима.

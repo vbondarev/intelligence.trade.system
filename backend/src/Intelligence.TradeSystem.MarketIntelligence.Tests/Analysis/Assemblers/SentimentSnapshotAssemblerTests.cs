@@ -74,7 +74,8 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Uses_Average_Of_Current_And_Avg24h_FundingRates()
     {
-        // Current funding alone would saturate to -1, but averaging with the opposite 24h value must neutralize the signal.
+        // Одно только текущее funding дало бы насыщение до -1, но усреднение с противоположным 24h funding
+        // должно нейтрализовать сигнал.
         var derivatives = CreateDerivatives(fundingRate: 0.001m, fundingRateAvg24h: -0.001m);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
@@ -97,7 +98,7 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Rounds_FundingBiasScore_To_Four_Decimals()
     {
-        // Blended funding = 0.00033335, normalized by threshold 0.001 => 0.33335, then negated and rounded.
+        // Blended funding = 0.00033335, нормализован по порогу 0.001 => 0.33335, затем инвертирован и округлён.
         var derivatives = CreateDerivatives(fundingRate: 0.0006667m, fundingRateAvg24h: 0m);
 
         var result = AssembleWithDefaults(derivatives: derivatives);
@@ -364,7 +365,7 @@ public sealed class SentimentSnapshotAssemblerTests
         result.MarketRegime.Should().Be("Trending");
     }
 
-    // --- Integration: BTCUSDT-like regression --------------------------------
+    // --- Integration: регрессия в стиле BTCUSDT ------------------------------
 
     /// <summary>
     /// Регрессионный тест: BTCUSDT-подобный снапшот с устаревшим tradeFlow,
@@ -374,7 +375,7 @@ public sealed class SentimentSnapshotAssemblerTests
     /// Исходные данные:
     ///   buyVolume = 0.872, sellVolume = 0.1
     ///   deltaPct ≈ 79 % → rawScore = 1.0 (clamp); HasAggressiveBuyPressure = true → floor 0.5 (raw уже выше)
-    ///   windowDuration = 8 s       → windowCap = 0.25
+    ///   WindowDuration = 8 s       → windowCap = 0.25
     ///   tradeFlowAge = 5 824 ms, maxAge = 5 000 ms → staleCap = 0.50
     ///   totalVolume = 0.972 BTC    → volumeCap = 0.35
     ///   конфликт orderBook + короткое окно → conflictWithWeaknessCap = 0.25
@@ -383,11 +384,11 @@ public sealed class SentimentSnapshotAssemblerTests
     [Fact]
     public void Integration_BtcUsdt_Like_Stale_Short_Conflict_Caps_TradeFlowScore_At_0_25()
     {
-        // Arrange
-        const long maxAgeMs = 5_000L; // Intraday threshold
+        // Подготовка данных.
+        const long maxAgeMs = 5_000L; // Порог Intraday
         var now = DateTimeOffset.UtcNow;
         var windowEnd = now.AddMilliseconds(-5_824); // stale: age > maxAge
-        var windowStart = windowEnd.AddSeconds(-8);  // window = 8 s < 10 s
+        var windowStart = windowEnd.AddSeconds(-8);  // окно = 8 s < 10 s
 
         var buyVolume = 0.872m;
         var sellVolume = 0.1m;
@@ -412,13 +413,13 @@ public sealed class SentimentSnapshotAssemblerTests
             HasAggressiveSellPressure = false,
         };
 
-        // orderBook dominates ask-side → negative pressure → conflict with bullish tradeFlow
+        // orderBook доминирует на ask-side → отрицательное давление → конфликт с bullish tradeFlow
         var orderBook = CreateOrderBook(
             imbalanceTop5: -0.40m,
             imbalanceTop10: -0.20m,
             imbalanceTop20: -0.10m);
 
-        // Act
+        // Действие
         var result = SentimentSnapshotAssembler.Assemble(
             derivatives: CreateDerivatives(),
             orderBook: orderBook,
@@ -428,7 +429,7 @@ public sealed class SentimentSnapshotAssemblerTests
             capturedAtUtc: now,
             maxTradeFlowAgeMs: maxAgeMs);
 
-        // Assert
+        // Проверка
         result.TradeFlowPressureScore
             .Should().BeGreaterThan(0m, because: "bullish raw signal must remain positive")
             .And.BeLessThanOrEqualTo(0.25m, because: "stale + short window + low volume + conflict → cap 0.25");

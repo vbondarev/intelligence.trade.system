@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Calculato
 
 public sealed class RsiCalculatorTests
 {
-    // ── Guard clauses ────────────────────────────────────────────────────────
+    // ── Проверки входных условий ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Closes_Is_Null()
@@ -29,7 +29,7 @@ public sealed class RsiCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary ─────────────────────────────────────────────────────────────
+    // ── Граничные значения ────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_EmptyInput_When_Array_Is_Empty()
@@ -65,7 +65,7 @@ public sealed class RsiCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.InsufficientData);
     }
 
-    // ── Formula cases ─────────────────────────────────────────────────────────
+    // ── Сценарии формулы ──────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_100_When_Only_Gains()
@@ -140,7 +140,7 @@ public sealed class RsiCalculatorTests
         result.Value.Should().BeLessThan(30m);
     }
 
-    // ── Invariant: RSI always in [0, 100] when available ─────────────────────
+    // ── Инвариант: доступный RSI всегда находится в [0, 100] ─────────────────
 
     public static TheoryData<decimal[]> AvailableRsiSeries => new()
     {
@@ -171,13 +171,13 @@ public sealed class RsiCalculatorTests
             because: "RSI is mathematically bounded to [0, 100] by definition");
     }
 
-    // ── Formula regression ───────────────────────────────────────────────────
+    // ── Регрессия формулы ────────────────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_When_Count_Equals_Period_Plus_One()
     {
         // closes=[100, 106, 104], period=2
-        // Changes: +6, -2 → avgGain=3, avgLoss=1 → RS=3 → RSI=75
+        // Изменения: +6, -2 → avgGain=3, avgLoss=1 → RS=3 → RSI=75
         var result = RsiCalculator.Compute([100m, 106m, 104m], period: 2);
 
         result.Value.Should().BeApproximately(75m, precision: 0.0001m);
@@ -212,7 +212,7 @@ public sealed class RsiCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
-    // ── Special cases: period = 1 ────────────────────────────────────────────
+    // ── Особые случаи: period = 1 ───────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_100_For_Period_One_When_Last_Move_Is_Up()

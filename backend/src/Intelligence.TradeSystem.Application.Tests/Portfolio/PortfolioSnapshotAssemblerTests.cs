@@ -156,7 +156,7 @@ public sealed class PortfolioSnapshotAssemblerTests
     [Fact]
     public void Does_Not_Recompute_PositionValue_From_Size_Times_MarkPrice()
     {
-        // Source PositionValue diverges from Size * MarkPrice (2 * 100 = 200) on purpose.
+        // Source PositionValue намеренно отличается от Size * MarkPrice (2 * 100 = 200).
         var positions = new[] { CreatePosition(size: 2m, markPrice: 100m, positionValue: 999m) };
 
         var result = PortfolioSnapshotAssembler.Assemble(balance: null, positions);

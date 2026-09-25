@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Calculato
 
 public sealed class SmaCalculatorTests
 {
-    // ── Guard clauses ────────────────────────────────────────────────────────
+    // ── Проверки входных условий ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Values_Is_Null()
@@ -29,7 +29,7 @@ public sealed class SmaCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary & fallback ──────────────────────────────────────────────────
+    // ── Граничные случаи и fallback ─────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Array_Is_Empty()
@@ -67,7 +67,7 @@ public sealed class SmaCalculatorTests
     [Fact]
     public void Returns_Available_Average_Of_Last_N_Values_When_Count_Greater_Than_Period()
     {
-        // last 3: [3m, 10m, 20m] → average = 11m
+        // последние 3: [3m, 10m, 20m] → среднее = 11m
         var result = SmaCalculator.Compute([1m, 2m, 3m, 10m, 20m], period: 3);
 
         result.Value.Should().Be(11m);
@@ -86,7 +86,7 @@ public sealed class SmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── Single-element & signed-value regressions ────────────────────────────
+    // ── Регрессии для одного элемента и знаковых значений ─────────────────
 
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
@@ -111,7 +111,7 @@ public sealed class SmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── Invariant: flat series always equals the constant ────────────────────
+    // ── Инвариант: постоянный ряд всегда равен константе ─────────────────────
 
     public static TheoryData<double, int, int> FlatSeriesCases => new()
     {
@@ -125,7 +125,7 @@ public sealed class SmaCalculatorTests
     [MemberData(nameof(FlatSeriesCases))]
     public void Returns_Available_Constant_For_Flat_Series(double constantD, int count, int period)
     {
-        // SMA flat series: каждое скользящее окно состоит из одного и того же значения,
+        // Постоянный ряд SMA: каждое скользящее окно состоит из одного и того же значения,
         // поэтому результат обязан точно совпадать с константой, а не быть приближённым.
         var constant = (decimal)constantD;
         var values = Enumerable.Repeat(constant, count).ToArray();
@@ -136,13 +136,13 @@ public sealed class SmaCalculatorTests
         result.Value.Should().BeApproximately(constant, precision: 0.0001m);
     }
 
-    // ── Window-selection regression ──────────────────────────────────────────
+    // ── Регрессия выбора окна ───────────────────────────────────────────────
 
     [Fact]
     public void Uses_Only_Last_N_Values_In_Window()
     {
-        // Correct → last 3: (1 + 2 + 3) / 3 = 2
-        // Wrong   → first 3: (1000 + 1000 + 1) / 3 ≈ 667
+        // Верно → последние 3: (1 + 2 + 3) / 3 = 2
+        // Неверно → первые 3: (1000 + 1000 + 1) / 3 ≈ 667
         var result = SmaCalculator.Compute([1000m, 1000m, 1m, 2m, 3m], period: 3);
 
         result.Value.Should().BeApproximately(2m, precision: 0.0001m);

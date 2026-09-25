@@ -7,7 +7,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Timeframes;
 /// </summary>
 public sealed class EntryQualityEvaluatorTests
 {
-    // ─── Neutral bias ─────────────────────────────────────────────────────────
+    // ─── Нейтральное направление ─────────────────────────────────────────────
 
     [Fact]
     public void Neutral_Bias_Always_Returns_Poor()
@@ -74,8 +74,8 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_ZeroDistance_Confirmed_ReturnsGood()
     {
-        // dist == 0 means price is exactly at the support level (retest).
-        // This is a valid entry signal — not a data-absent condition.
+        // dist == 0 означает, что цена находится точно на уровне поддержки (ретест).
+        // Это корректный сигнал входа, а не отсутствие данных.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0m);
 
         result.Should().Be(EntryQuality.Good,
@@ -118,14 +118,14 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_ZeroDistance_Confirmed_ReturnsGood()
     {
-        // dist == 0 means price is exactly at the resistance level (retest).
+        // dist == 0 означает, что цена находится точно на уровне сопротивления (ретест).
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0m);
 
         result.Should().Be(EntryQuality.Good,
             because: "distancePct == 0 is a retest at the level; confirmed + strong setup → Good");
     }
 
-    // ─── Symmetry: Bullish/Bearish Poor conditions ───────────────────────────
+    // ─── Симметрия: условия Poor для Bullish/Bearish ─────────────────────────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish)]
@@ -186,7 +186,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "dist just above 0.75 → Fair (not Good)");
     }
 
-    // ─── Consistency: Good невозможен при Neutral ─────────────────────────────
+    // ─── Согласованность: Good невозможен при Neutral ────────────────────────
 
     [Fact]
     public void Good_Is_Impossible_When_Bias_Is_Neutral()
@@ -258,7 +258,7 @@ public sealed class EntryQualityEvaluatorTests
                 because: $"Bearish: dist={dist} > FairMaxDistance → Poor, Fair impossible");
     }
 
-    // ─── Volume rule ─────────────────────────────────────────────────────────
+    // ─── Правило объёма ───────────────────────────────────────────────────────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish)]
@@ -291,7 +291,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "null volumeRatio → conservative cap at Fair");
     }
 
-    // ─── EMA rule ─────────────────────────────────────────────────────────────
+    // ─── Правило EMA ──────────────────────────────────────────────────────────
 
     [Fact]
     public void Bullish_BothEmaConflicts_Returns_Poor()
@@ -337,7 +337,7 @@ public sealed class EntryQualityEvaluatorTests
             because: $"Bearish + price above one EMA (above20={isAboveEma20}, above50={isAboveEma50}) → not above Fair");
     }
 
-    // ─── Snapshot freshness rule ──────────────────────────────────────────────
+    // ─── Правило свежести snapshot ───────────────────────────────────────────
 
     [Fact]
     public void StaleSnapshot_Caps_Good_At_Fair()
@@ -359,7 +359,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "snapshotIsFresh=false + volumeRatio < 0.5 → Poor");
     }
 
-    // ─── Market regime rule ───────────────────────────────────────────────────
+    // ─── Правило market regime ────────────────────────────────────────────────
 
     [Fact]
     public void NeutralRegime_Caps_Good_At_Fair()
@@ -381,7 +381,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "marketRegime=Neutral + low volume → Poor");
     }
 
-    // ─── CapAt helper ─────────────────────────────────────────────────────────
+    // ─── Вспомогательный метод CapAt ───────────────────────────────────────────
 
     [Fact]
     public void BtcUsdt_M15_Like_Snapshot_Returns_Poor()
@@ -408,7 +408,7 @@ public sealed class EntryQualityEvaluatorTests
     public void H4Like_Bearish_VeryLowVolume_Returns_Poor()
     {
         // bias=Bearish, isTrendConfirmed=true, resistance рядом, volumeRatio=0.0184,
-        // isAboveEma20=true, isAboveEma50=true (EMA conflict for bearish), marketRegime=Neutral
+        // isAboveEma20=true, isAboveEma50=true (конфликт EMA для bearish), marketRegime=Neutral
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bearish,
             isTrendConfirmed: true,
@@ -424,7 +424,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "H4-like: very low volume + EMA conflict (bearish) + neutral → Poor");
     }
 
-    // ─── Entry level strength rule ────────────────────────────────────────────
+    // ─── Правило strength для entry level ─────────────────────────────────────
 
     [Fact]
     public void Bullish_WeakEntryLevel_Returns_AtMostFair()
@@ -466,7 +466,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "Moderate entry level (0.50 > 0.35) + no other conflicts → Good");
     }
 
-    // ─── Opposite level rule ──────────────────────────────────────────────────
+    // ─── Правило opposite level ───────────────────────────────────────────────
 
     [Fact]
     public void Bullish_StrongResistanceVeryClose_Returns_Poor()
@@ -541,7 +541,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void OppLevel_Null_DoesNotBreakCalculation()
     {
-        // Regression: null oppDistancePct must not break the pipeline
+        // Регрессия: null oppDistancePct не должен ломать pipeline
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -549,13 +549,13 @@ public sealed class EntryQualityEvaluatorTests
             because: "null opposite level → no constraint applied → Good if other conditions OK");
     }
 
-    // ─── CapAt theory ─────────────────────────────────────────────────────────
+    // ─── Теория для CapAt ──────────────────────────────────────────────────────
 
     [Fact]
     public void BtcUsdt_M15_Like_WithHigherTfResistance_Returns_Poor()
     {
-        // Bullish, low volume, below EMAs, stale, neutral regime,
-        // higher TF resistance at 0.05% (≈ 77437 → 77480)
+        // Bullish, низкий объём, ниже EMA, stale, нейтральный режим,
+        // сопротивление higher TF на расстоянии 0.05% (≈ 77437 → 77480)
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -574,7 +574,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "m15-like: very close higher TF resistance + low volume + EMA conflict + neutral → Poor");
     }
 
-    // ─── Volume rule: additional boundary tests ───────────────��───────────────
+    // ─── Правило объёма: дополнительные граничные тесты ────────────────────────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish, 0.49)]
@@ -597,7 +597,7 @@ public sealed class EntryQualityEvaluatorTests
                 because: $"volumeRatio={ratio} ≥ 0.50 + all conditions OK → Good");
     }
 
-    // ─── EMA rule: Good-positive cases ───────────────────────────────────────
+    // ─── Правило EMA: положительные сценарии для Good ────────────────────────
 
     [Fact]
     public void Bullish_AboveBothEma_GoodPossible()
@@ -619,7 +619,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "Bearish + below both EMA20 and EMA50 → no EMA conflict → Good");
     }
 
-    // ─── Snapshot freshness: additional cases ───────────────────���────────────
+    // ─── Свежесть snapshot: дополнительные случаи ─────────────────────────────
 
     [Fact]
     public void StaleSnapshot_And_EmaConflict_Returns_Poor()
@@ -642,7 +642,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "fresh snapshot + all conditions OK → Good not restricted by freshness");
     }
 
-    // ─── Market regime: additional cases ─────────────────────────────────────
+    // ─── Market regime: дополнительные сценарии ──────────────────────────────
 
     [Fact]
     public void NeutralRegime_And_EmaConflict_Returns_Poor()
@@ -677,7 +677,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "non-Neutral regime + all conditions OK → Good allowed");
     }
 
-    // ─── Entry level strength: additional positive cases ─────────────────────
+    // ─── Strength entry level: дополнительные положительные сценарии ──────────
 
     [Fact]
     public void Bullish_StrongEntryLevel_Returns_Good()
@@ -719,12 +719,12 @@ public sealed class EntryQualityEvaluatorTests
             because: "Strong resistance (0.85 ≥ 0.70) + no other conflicts → Good");
     }
 
-    // ─── Opposite level: edge cases (null / wrong-side) ──────────────────────
+    // ─── Opposite level: граничные случаи (null / wrong-side) ───────────────
 
     [Fact]
     public void Bullish_OppLevelNull_GoodAllowed()
     {
-        // Resistance below price or absent → caller passes null → no constraint
+        // Resistance ниже цены или отсутствует → caller передаёт null → ограничение по opposite level отсутствует.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -735,7 +735,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_OppLevelNull_GoodAllowed()
     {
-        // Support above price or absent → caller passes null → no constraint
+        // Support выше цены или отсутствует → caller передаёт null → ограничение по opposite level отсутствует.
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
             oppDistancePct: null, oppStrength: null);
 
@@ -743,7 +743,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "null oppDistancePct (e.g. support above price) → no obstacle constraint");
     }
 
-    // ─── Higher TF: near/far opposite level (Bullish + Bearish) ─────────────
+    // ─── Higher TF: близкий/далёкий opposite level (Bullish + Bearish) ───────
 
     [Theory]
     [InlineData(TimeframeBias.Bullish)]
@@ -775,7 +775,7 @@ public sealed class EntryQualityEvaluatorTests
                 because: "opp level 0.10% < 0.15% → Poor");
     }
 
-    // ─── Real-world BTCUSDT scenarios ─────────────────────────────────────────
+    // ─── Реальные сценарии BTCUSDT ────────────────────────────────────────────
 
     [Fact]
     public void BullishM15_WithLowVolume_EmaConflict_StaleSnapshot_AndNearHigherTfResistance_ReturnsPoor()
@@ -790,8 +790,8 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: false,
             snapshotIsFresh: false,
             marketRegime: MarketRegimes.Neutral,
-            entryLevelStrength: 0.50m,   // Moderate support
-            oppDistancePct: 0.05m,        // h4 resistance at ~77480 (≈0.05% from 77437)
+            entryLevelStrength: 0.50m,   // умеренная поддержка
+            oppDistancePct: 0.05m,        // сопротивление H4 около 77480 (≈0.05% от 77437)
             oppStrength: 0.80m);
 
         result.Should().Be(EntryQuality.Poor,
@@ -807,8 +807,8 @@ public sealed class EntryQualityEvaluatorTests
             support1: null, distanceToSupport1Pct: null, rsiOverbought: false,
             resistance1: 102_000m, distanceToResistance1Pct: 0.3m, rsiOversold: false,
             volumeRatio: 0.0184m,
-            isAboveEma20: true,      // bearish EMA conflict
-            isAboveEma50: true,      // bearish EMA conflict
+            isAboveEma20: true,      // конфликт EMA для bearish
+            isAboveEma50: true,      // конфликт EMA для bearish
             snapshotIsFresh: false,
             marketRegime: MarketRegimes.Neutral,
             entryLevelStrength: 0.80m,
@@ -832,7 +832,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: true,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending,
-            entryLevelStrength: 0.80m,   // Strong support
+            entryLevelStrength: 0.80m,   // сильная поддержка
             oppDistancePct: null,
             oppStrength: null);
 
@@ -853,7 +853,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma50: false,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending,
-            entryLevelStrength: 0.80m,   // Strong resistance
+            entryLevelStrength: 0.80m,   // сильное сопротивление
             oppDistancePct: null,
             oppStrength: null);
 
@@ -861,7 +861,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "clean bearish: confirmed + strong resistance + volume OK + EMA OK + fresh + Trending → Good");
     }
 
-    // ─── CapAt theory ─────────────────────────────────────────────────────────
+    // ─── Теория для CapAt ──────────────────────────────────────────────────────
     [Theory]
     [InlineData(EntryQuality.Good, EntryQuality.Fair, EntryQuality.Fair)]
     [InlineData(EntryQuality.Good, EntryQuality.Poor, EntryQuality.Poor)]
@@ -876,12 +876,12 @@ public sealed class EntryQualityEvaluatorTests
                 because: $"CapAt({quality}, {max}) should return {expected}");
     }
 
-    // ─── Regression: distance == 0 ───────────────────────────────────────────
+    // ─── Регрессия: distance == 0 ──────────────────────────────────────────────
 
     [Fact]
     public void ZeroDistance_Unconfirmed_ReturnsFair()
     {
-        // Retest without trend confirmation → Fair (not Good, not Poor)
+        // Ретест без подтверждения тренда → Fair (не Good и не Poor)
         var result = EvaluateBullish(confirmed: false, support1: 99m, distS: 0m);
 
         result.Should().Be(EntryQuality.Fair,
@@ -891,22 +891,22 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void NegativeDistance_DoesNotReturnPoor_FromLevelQuality()
     {
-        // Negative dist < 0 means level is on the wrong side of the price.
-        // EvaluateLevelBasedQuality returns Poor for dist < 0.
+        // Отрицательный dist < 0 означает, что level находится на неверной стороне относительно цены.
+        // EvaluateLevelBasedQuality возвращает Poor при dist < 0.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: -0.5m);
 
         result.Should().Be(EntryQuality.Poor,
             because: "distancePct < 0 means level is behind the trade direction → Poor");
     }
 
-    // ─── Opposite level: wrong-side semantics ────────────────────────────────
+    // ─── Opposite level: семантика wrong-side ────────────────────────────────
 
     [Fact]
     public void Bullish_ResistanceBelowCurrentPrice_IsNotAnObstacle_PassedAsNull()
     {
-        // Resistance below current price is behind the trade, not ahead.
-        // Caller responsibility: pass oppDistancePct = null in this case.
-        // Evaluator must not penalise the trade when null is provided.
+        // Resistance ниже текущей цены находится позади направления сделки, а не впереди.
+        // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
+        // При передаче null evaluator не должен ухудшать качество сделки из-за opposite level.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: null, oppStrength: null);
 
@@ -918,8 +918,8 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bearish_SupportAboveCurrentPrice_IsNotAnObstacle_PassedAsNull()
     {
-        // Support above current price is behind the short trade, not in its path.
-        // Caller responsibility: pass oppDistancePct = null in this case.
+        // Support выше текущей цены находится позади short-сделки, а не на её пути.
+        // Ответственность вызывающего: передайте oppDistancePct = null в этом случае.
         var result = EvaluateBearish(confirmed: true, resistance1: 110m, distR: 0.3m,
             oppDistancePct: null, oppStrength: null);
 
@@ -928,13 +928,13 @@ public sealed class EntryQualityEvaluatorTests
                      "caller passes null → no opposite-level constraint → Good allowed");
     }
 
-    // ─── New: entryLevelStrength default is null ─────────────────────────────
+    // ─── Новый сценарий: entryLevelStrength по умолчанию равен null ─────────
 
     [Fact]
     public void EntryLevelStrength_OmittedDefault_CapsAtFair_NotGood()
     {
-        // When entryLevelStrength is not provided, the default is null.
-        // Unknown strength must cap at Fair — Good is forbidden.
+        // Если entryLevelStrength не передан, значение по умолчанию равно null.
+        // Неизвестный strength должен ограничивать качество уровнем Fair — Good запрещён.
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -944,7 +944,7 @@ public sealed class EntryQualityEvaluatorTests
             isAboveEma20: true, isAboveEma50: true,
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending);
-        // entryLevelStrength omitted → null → cap Fair
+        // entryLevelStrength не передан → null → ограничение Fair
 
         result.Should().NotBe(EntryQuality.Good,
             because: "omitted entryLevelStrength defaults to null → unknown strength → cap Fair");
@@ -962,12 +962,12 @@ public sealed class EntryQualityEvaluatorTests
             because: "explicit null entryLevelStrength → unknown → cap Fair");
     }
 
-    // ─── New: unknown EMA (null) ──────────────────────────────────────────────
+    // ─── Новый сценарий: неизвестная EMA (null) ──────────────────────────────
 
     [Fact]
     public void Bullish_UnknownEma20_Null_CapsAtFair()
     {
-        // isAboveEma20 = null means EMA20 data is unavailable → treated as conflict.
+        // isAboveEma20 = null означает, что данные EMA20 недоступны → считаем это конфликтом.
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -987,7 +987,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void Bullish_BothEmaUnknown_Null_ReturnsPoor()
     {
-        // Both EMA unknown → 2 conflicts → Poor
+        // Обе EMA неизвестны → 2 conflicts → Poor
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -1014,7 +1014,7 @@ public sealed class EntryQualityEvaluatorTests
             resistance1: 110m, distanceToResistance1Pct: 0.3m, rsiOversold: false,
             volumeRatio: 1.0m,
             isAboveEma20: false,
-            isAboveEma50: null,    // unknown → treated as conflict for bearish
+            isAboveEma50: null,    // unknown → считаем conflict для bearish
             snapshotIsFresh: true,
             marketRegime: MarketRegimes.Trending,
             entryLevelStrength: 1.0m);
@@ -1042,19 +1042,19 @@ public sealed class EntryQualityEvaluatorTests
             because: "both EMA values unknown for bearish → 2 conflicts → Poor");
     }
 
-    // ─── New: marketRegime robust comparison ──────────────────────────────────
+    // ─── Новый сценарий: устойчивое сравнение marketRegime ──────────────────
 
     [Theory]
     [InlineData("neutral")]           // lowercase
     [InlineData("NEUTRAL")]           // uppercase
-    [InlineData(" Neutral ")]         // trimming needed
-    [InlineData("  neutral  ")]       // extra spaces + lowercase
+    [InlineData(" Neutral ")]         // требуется trimming
+    [InlineData("  neutral  ")]       // лишние пробелы + lowercase
     public void MarketRegime_CaseAndWhitespacVariants_AreTreatedAsNeutral_CapsAtFair(string regime)
     {
-        // All these variants must be treated identically to "Neutral".
+        // Все эти варианты должны обрабатываться так же, как "Neutral".
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             marketRegime: regime,
-            volumeRatio: 1.0m);   // not low volume → cap Fair (not Poor)
+            volumeRatio: 1.0m);   // не низкий объём → ограничение Fair (не Poor)
 
         result.Should().NotBe(EntryQuality.Good,
             because: $"marketRegime='{regime}' normalises to Neutral → Good forbidden");
@@ -1065,7 +1065,7 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void MarketRegime_Null_CapsAtFair()
     {
-        // Null regime: unknown → conservative cap Fair.
+        // Режим null: значение неизвестно → консервативное ограничение Fair.
         var result = EntryQualityEvaluator.Evaluate(
             bias: TimeframeBias.Bullish,
             isTrendConfirmed: true,
@@ -1101,13 +1101,13 @@ public sealed class EntryQualityEvaluatorTests
             because: $"empty/whitespace marketRegime → unknown → conservative cap Fair");
     }
 
-    // ─── New: oppDistancePct < 0 ──────────────────────────────────────────────
+    // ─── Новый сценарий: oppDistancePct < 0 ───────────────────────────────────
 
     [Fact]
     public void OppDistancePct_Negative_IsIgnoredAsObstacle_Bullish()
     {
-        // Negative distance means the level is below price (wrong side for bullish).
-        // Must not degrade quality — it's not an obstacle.
+        // Отрицательная дистанция означает, что level ниже цены (неверная сторона для bullish).
+        // Качество не должно ухудшаться — это не препятствие.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
             oppDistancePct: -0.10m, oppStrength: 0.85m);
 
@@ -1128,16 +1128,16 @@ public sealed class EntryQualityEvaluatorTests
     [Fact]
     public void OppDistancePct_Zero_ActsAsNearObstacle_CapsAtFair()
     {
-        // Zero distance = level exactly at current price = maximum obstacle (between 0 and 0.15% threshold).
-        // Since 0 < CloseOppositeThreshold(0.15) with Moderate/Strong strength → Poor.
+        // Нулевое расстояние: opposite level находится точно на текущей цене — максимальное препятствие (между 0 и порогом 0.15%).
+        // Поскольку 0 < CloseOppositeThreshold(0.15) и strength = Moderate/Strong → Poor.
         var result = EvaluateBullish(confirmed: true, support1: 99m, distS: 0.5m,
-            oppDistancePct: 0m, oppStrength: 0.85m);   // Strong resistance at current price
+            oppDistancePct: 0m, oppStrength: 0.85m);   // Strong-сопротивление на текущей цене
 
         result.Should().Be(EntryQuality.Poor,
             because: "oppDistancePct == 0 with Strong resistance at current price → immediate obstacle → Poor");
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     /// <summary>Выбирает обработчик по bias с чистыми значениями по умолчанию — используется симметричными Theory-тестами.</summary>
     private static EntryQuality EvaluateByBias(

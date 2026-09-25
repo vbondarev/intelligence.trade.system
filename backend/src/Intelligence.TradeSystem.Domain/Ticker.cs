@@ -80,7 +80,7 @@ public sealed record Ticker(
     /// <summary>Оборот за 24 часа (в котируемой валюте, обычно USDT).</summary>
     public decimal Turnover24h { get; init; } = Turnover24h;
 
-    // ── Derivative-only fields (null for Spot) ──────────────────────────────
+    // ── Поля только для derivatives (null для Spot) ─────────────────────────
 
     /// <summary>
     /// Текущая ставка финансирования.

@@ -149,7 +149,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void VolumeRatio_Is_Null_When_All_Volumes_Are_Zero()
     {
-        // When all candle volumes are zero, VolumeSma20 = 0 → VolumeRatio cannot be computed → null.
+        // Если объёмы всех свечей равны нулю, VolumeSma20 = 0 → VolumeRatio не вычисляется → null.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = Enumerable.Range(0, 25)
             .Select(i => KlineFactory.Create(volume: 0m, startTime: baseTime.AddHours(i)))
@@ -161,7 +161,7 @@ public sealed class TimeframeSnapshotAssemblerTests
             because: "VolumeSma20 = 0 → division impossible → VolumeRatio is null, not fake-zero");
         result.Snapshot.VolumeRatioIsReliable.Should().BeFalse();
 
-        // A diagnostic must explain why VolumeRatio is absent.
+        // Diagnostic должен объяснять, почему VolumeRatio отсутствует.
         var diag = result.Snapshot.IndicatorDiagnostics
             .Should().ContainSingle(d => d.Indicator == "volumeRatio").Subject;
         diag.Timeframe.Should().Be("1h");
@@ -171,7 +171,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         diag.Message.Should().Contain("volumeRatio").And.Contain("unavailable");
     }
 
-    // ── Insufficient data scenarios ───────────────────────────────────────────
+    // ── Сценарии с недостаточными данными ───────────────────────────────────
 
     [Fact]
     public void Rsi14_Is_Null_When_Insufficient_Candles_For_Rsi()
@@ -242,7 +242,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.VolumeRatio.Should().NotBeNull().And.BeGreaterThan(0m);
     }
 
-    // ── Diagnostics scenarios ─────────────────────────────────────────────────
+    // ── Сценарии diagnostics ───────────────────────────────────────────────────
 
     [Fact]
     public void Diagnostics_Are_Empty_With_Sufficient_Data()
@@ -302,7 +302,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Diagnostics.Should().OnlyContain(d => d.Timeframe == "4h");
     }
 
-    // ── Nullable indicator contract (step 12) ────────────────────────────────
+    // ── Контракт nullable-индикаторов (шаг 12) ───────────────────────────────
 
     [Fact]
     public void Rsi14_Serializes_As_Null_When_Insufficient_Candles()
@@ -380,12 +380,12 @@ public sealed class TimeframeSnapshotAssemblerTests
         result.Snapshot.RsiOversold.Should().BeFalse(because: "null RSI must not trigger oversold");
     }
 
-    // ───── KlineValidator integration ─────
+    // ───── Интеграция KlineValidator ─────
 
     [Fact]
     public void Invalid_Kline_Is_Excluded_And_Diagnostic_Is_Emitted()
     {
-        // Prepare: 10 valid candles + 1 invalid (High < Low) at position 5.
+        // Подготовка: 10 корректных свечей + 1 некорректная (High < Low) на позиции 5.
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[5] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m);
 
@@ -442,15 +442,15 @@ public sealed class TimeframeSnapshotAssemblerTests
                 because: "negative volume violates OHLCV invariant");
     }
 
-    // ── Degradation policy diagnostics ───────────────────────────────────────
+    // ── Политика деградации диагностики ──────────────────────────────────────
 
     [Fact]
     public void Diagnostic_LastKlineFiltered_When_Newest_Candle_Is_Invalid()
     {
-        // Arrange: 5 valid candles + 1 invalid candle with the LATEST StartTime.
+        // Подготовка: 5 valid свечей + 1 invalid свеча с самым поздним StartTime.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 5).ToList();
-        // Inject an invalid candle (High < Low) with StartTime beyond all valid candles.
+        // Добавить некорректную свечу (High < Low) с StartTime позже всех корректных свечей.
         klines.Add(KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
             startTime: baseTime.AddHours(100)));
 
@@ -481,7 +481,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void No_LastKlineFiltered_Diagnostic_When_Invalid_Candle_Is_Not_The_Most_Recent()
     {
-        // Invalid candle at position 2 (not the last by time — series goes 0h..9h, invalid at 2h).
+        // Invalid-свеча в позиции 2, не последняя по времени: серия идёт 0h..9h, invalid на 2h.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m,
@@ -497,7 +497,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_HighViolationRate_When_More_Than_20_Percent_Are_Invalid()
     {
-        // 10 candles, 3 invalid = 30% > 20% threshold.
+        // 10 свечей, 3 нарушения = 30% > порога 20%.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[1] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(1));
@@ -518,7 +518,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void No_HighViolationRate_Diagnostic_When_Below_Threshold()
     {
-        // 10 candles, 1 invalid = 10% <= 20% threshold → no highViolationRate diagnostic.
+        // 10 свечей, 1 нарушение = 10% <= порога 20% → диагностики highViolationRate нет.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = KlineFactory.CreateSeries(count: 10).ToList();
         klines[2] = KlineFactory.Create(open: 100m, high: 90m, low: 95m, close: 95m, startTime: baseTime.AddHours(2));
@@ -533,7 +533,7 @@ public sealed class TimeframeSnapshotAssemblerTests
     [Fact]
     public void Diagnostic_InsufficientData_When_Only_One_Valid_Kline_Remains()
     {
-        // 4 invalid + 1 valid = 1 usable candle < KlineMinimumUsableCount (2).
+        // 4 invalid + 1 valid = 1 пригодная свеча < KlineMinimumUsableCount (2).
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = new List<Intelligence.TradeSystem.Domain.Kline>
         {
@@ -567,7 +567,7 @@ public sealed class TimeframeSnapshotAssemblerTests
                 because: "5 valid candles is sufficient");
     }
 
-    // ── Level meta — Strength and ClusterVolume propagation ──────────────────
+    // ── Level meta — передача Strength и ClusterVolume ───────────────────────
 
     [Fact]
     public void Support1_Strength_And_ClusterVolume_Are_Populated_When_Level_Is_Detected()
@@ -605,7 +605,7 @@ public sealed class TimeframeSnapshotAssemblerTests
         // Одна свеча — объёмный профиль не найдёт уровней из-за нехватки данных
         var klines = KlineFactory.CreateSeries(count: 1);
 
-        // Assembler выбрасывает исключение при validKlines < 2 — проверяем это отдельно;
+        // Assembler выбрасывает исключение при validKlines.Count < 2 — проверяем это отдельно;
         // здесь нас интересует поведение когда уровни не обнаружены.
         // Создаём минимально достаточный набор свечей с одинаковыми ценами — профиль не выдаст поддержку/сопротивление
         // относительно Close, поэтому проверяем консистентность: если Price == null, то Strength == null.

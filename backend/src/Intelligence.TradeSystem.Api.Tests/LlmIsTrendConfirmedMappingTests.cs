@@ -27,12 +27,12 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
         _factory = factory;
     }
 
-    // ─── Bullish confirmed ───────────────────────────────────────────────────
+    // ─── Подтверждённый бычий тренд ──────────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_True_When_Bullish_With_EmaAlignment_And_AboveEma200()
     {
-        // Bullish + emaBullishAlignment=true (default) + isAboveEma200=true (default)
+        // Bullish + emaBullishAlignment=true (по умолчанию) + isAboveEma200=true (по умолчанию)
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish);
         var result = await GetPayloadAsync(snapshot);
 
@@ -41,7 +41,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bullish + emaBullish + aboveEma200 → confirmed"));
     }
 
-    // ─── Bullish unconfirmed ─────────────────────────────────────────────────
+    // ─── Неподтверждённый бычий тренд ─────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_False_When_Bullish_But_EmaBullishAlignmentFalse()
@@ -67,12 +67,12 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bullish but price below EMA200 → not confirmed"));
     }
 
-    // ─── Bearish confirmed ───────────────────────────────────────────────────
+    // ─── Подтверждённый медвежий тренд ─────────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_True_When_Bearish_With_EmaAlignment_And_BelowEma200()
     {
-        // Bearish default: emaBearishAlignment=true, isAboveEma200=false
+        // Bearish по умолчанию: emaBearishAlignment=true, isAboveEma200=false
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bearish);
         var result = await GetPayloadAsync(snapshot);
 
@@ -81,7 +81,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bearish + emaBearish + belowEma200 → confirmed"));
     }
 
-    // ─── Bearish unconfirmed ─────────────────────────────────────────────────
+    // ─── Неподтверждённый медвежий тренд ───────────────────────────────────────
 
     [Fact]
     public async Task IsTrendConfirmed_False_When_Bearish_But_EmaBearishAlignmentFalse()
@@ -98,7 +98,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
     [Fact]
     public async Task IsTrendConfirmed_False_When_Bearish_But_AboveEma200()
     {
-        // emaBearishAlignment=true (default for Bearish), but price is above EMA200 — conflict
+        // emaBearishAlignment=true (по умолчанию для Bearish), но цена выше EMA200 — конфликт
         var snapshot = ApiSnapshotTestData.CreateSnapshot(
             MarketTrend.Bearish, overrideIsAboveEma200: true, overrideEmaBullish: null, overrideEmaBearish: null);
         var result = await GetPayloadAsync(snapshot);
@@ -108,7 +108,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: Bearish but price above EMA200 → not confirmed"));
     }
 
-    // ─── Neutral trends always false ─────────────────────────────────────────
+    // ─── Для нейтрального тренда isTrendConfirmed всегда false ───────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
@@ -123,7 +123,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
                 because: $"{tf.Timeframe}: {trend} has no directional trend to confirm"));
     }
 
-    // ─── Consistency: isTrendConfirmed does not contradict bias ──────────────
+    // ─── Согласованность: isTrendConfirmed не противоречит bias ──────────────
 
     [Theory]
     [InlineData(MarketTrend.Bullish)]
@@ -145,7 +145,7 @@ public sealed class LlmIsTrendConfirmedMappingTests : IClassFixture<ApiWebApplic
         }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private async Task<LlmMarketAnalysisPayload?> GetPayloadAsync(MarketSnapshot snapshot)
     {

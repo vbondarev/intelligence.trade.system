@@ -9,7 +9,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Timeframes;
 /// </summary>
 public sealed class TimeframeSummaryBuilderTests
 {
-    // ─── Bullish fully confirmed ─────────────────────────────────────────────
+    // ─── Полностью подтверждённый Bullish ──────────────────────────────────
 
     [Fact]
     public void Build_BullishFullyConfirmed_AllSummaryFieldsAreConsistent()
@@ -27,7 +27,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("WeakTrend");
     }
 
-    // ─── Bearish fully confirmed ─────────────────────────────────────────────
+    // ─── Полностью подтверждённый Bearish ──────────────────────────────────
 
     [Fact]
     public void Build_BearishFullyConfirmed_AllSummaryFieldsAreConsistent()
@@ -77,7 +77,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.MomentumState.Should().Be(MomentumState.Neutral);
     }
 
-    // ─── Invariant: Bias=Neutral ⇒ IsTrendConfirmed=false ───────────────────
+    // ─── Инвариант: Bias=Neutral ⇒ IsTrendConfirmed=false ─────────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
@@ -92,25 +92,25 @@ public sealed class TimeframeSummaryBuilderTests
             because: "Neutral bias cannot produce confirmed trend");
     }
 
-    // ─── Invariant: IsTrendConfirmed=true ⇒ Bias≠Neutral ────────────────────
+    // ─── Инвариант: IsTrendConfirmed=true ⇒ Bias≠Neutral ───────────────────
 
     [Fact]
     public void Build_WhenIsTrendConfirmedTrue_BiasIsNotNeutral()
     {
-        // Bullish confirmed
+        // Bullish подтверждён
         var bullish = MakeSnapshot(trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true);
         var rb = BuildForTest(bullish);
         if (rb.IsTrendConfirmed)
             rb.Bias.Should().NotBe(TimeframeBias.Neutral);
 
-        // Bearish confirmed
+        // Bearish подтверждён
         var bearish = MakeSnapshot(trend: MarketTrend.Bearish, emaBearish: true, isAboveEma200: false);
         var rr = BuildForTest(bearish);
         if (rr.IsTrendConfirmed)
             rr.Bias.Should().NotBe(TimeframeBias.Neutral);
     }
 
-    // ─── Invariant: Healthy ⇒ IsTrendConfirmed=true ──────────────────────────
+    // ─── Инвариант: Healthy ⇒ IsTrendConfirmed=true ───────────────────────
 
     [Fact]
     public void Build_WhenMomentumIsHealthy_IsTrendConfirmedIsTrue()
@@ -122,14 +122,14 @@ public sealed class TimeframeSummaryBuilderTests
             r.IsTrendConfirmed.Should().BeTrue(because: "Healthy momentum requires confirmed trend");
     }
 
-    // ─── Invariant: Sideways/Unknown ⇒ Bias=Neutral ─────────────────────────
+    // ─── Инвариант: Sideways/Unknown ⇒ Bias=Neutral ────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
     [InlineData(MarketTrend.Unknown)]
     public void Build_SidewaysOrUnknown_BiasIsNeutral(MarketTrend trend)
     {
-        // Even with EMA flags set to true, Sideways/Unknown must yield Neutral bias.
+        // Даже при EMA flags=true значения Sideways/Unknown должны давать Neutral bias.
         var s = MakeSnapshot(trend: trend, emaBullish: true, emaBearish: true, isAboveEma200: true);
         var r = BuildForTest(s);
 
@@ -137,7 +137,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: $"{trend} must always produce Neutral bias regardless of EMA flags");
     }
 
-    // ─── Invariant: Unknown ⇒ TrendStrengthLabel=Undefined ──────────────────
+    // ─── Инвариант: Unknown ⇒ TrendStrengthLabel=Undefined ───────────────
 
     [Theory]
     [InlineData(0.0)]
@@ -154,7 +154,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: $"Unknown trend with score={score} must yield Undefined");
     }
 
-    // ─── EMA conflict: Bullish trend + emaBullish=false ⇒ Neutral bias ──────
+    // ─── Конфликт EMA: Bullish trend + emaBullish=false ⇒ Neutral bias ──────
 
     [Fact]
     public void Build_BullishTrendWithEmaConflict_BiasIsNeutral()
@@ -199,7 +199,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.MomentumState.Should().Be(MomentumState.Overextended);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static TimeframeAnalysisSnapshot MakeSnapshot(
         MarketTrend trend = MarketTrend.Bullish,
@@ -215,10 +215,10 @@ public sealed class TimeframeSummaryBuilderTests
         decimal volumeRatio = 1.1m,
         decimal? distanceToSupport = 0.6m,
         decimal? distanceToResist = 0.3m,
-        // Level strengths (default Strong — не ограничивает Good)
+        // Strength уровней (по умолчанию Strong — не ограничивает Good)
         decimal? support1Strength = 0.8m,
         decimal? resistance1Strength = 0.8m,
-        // Indicator availability / fallback
+        // Доступность индикаторов и fallback
         bool rsi14IsReliable = true,
         bool emaIsReliable = true,
         bool emaHasFallback = false,
@@ -288,7 +288,7 @@ public sealed class TimeframeSummaryBuilderTests
         TimeframeSummaryBuilder.Build(s, snapshotIsFresh, marketRegime, higherTfOppositeLevel);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Step 11: Nullable / unavailable indicator scenarios
+    // Шаг 11: сценарии nullable / unavailable индикаторов
     // ═══════════════════════════════════════════════════════════════════════════
 
     // ─── 13.1: EMA unavailable ───────────────────────────────────────────────
@@ -296,7 +296,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_EmaUnavailable_NeutralSummaryAndIndicatorUnavailableFlag()
     {
-        // When EMA unavailable the assembler sets Trend=Unknown; we replicate that here.
+        // Если EMA недоступна, assembler устанавливает Trend=Unknown; здесь воспроизводится это состояние.
         var s = MakeSnapshot(
             trend: MarketTrend.Unknown,
             trendStrengthScore: 0m,
@@ -313,7 +313,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
     }
 
-    // ─── 13.2: RSI unavailable — must not become oversold ────────────────────
+    // ─── 13.2: RSI unavailable — не должен становиться oversold ───────────────
 
     [Fact]
     public void Build_RsiUnavailable_NoOversoldOrOverboughtFlags_EntryQualityNotGood()
@@ -352,14 +352,14 @@ public sealed class TimeframeSummaryBuilderTests
             because: "ATR unavailable caps entryQuality at Poor");
     }
 
-    // ─── 13.4: VolumeRatio unavailable — no fake LowVolume ───────────────────
+    // ─── 13.4: VolumeRatio unavailable — без ложного LowVolume ─────────────
 
     [Fact]
     public void Build_VolumeRatioUnavailable_NoLowVolumeFlag_AddsVolumeDataUnavailable()
     {
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, trendStrengthScore: 0.6m,
-            volumeRatio: 0m,           // zero because unavailable
+            volumeRatio: 0m,           // ноль из-за unavailable-значения
             volumeRatioIsReliable: false);
 
         var r = BuildForTest(s);
@@ -370,7 +370,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
     }
 
-    // ─── 13.5: VolumeRatio fallback — VolumeDataFallback + conditional LowVolume
+    // ─── 13.5: fallback VolumeRatio — VolumeDataFallback + условный LowVolume
 
     [Fact]
     public void Build_VolumeRatioFallback_Low_AddsBothVolumeDataFallbackAndLowVolume()
@@ -403,7 +403,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: "fallback VolumeRatio 0.8 >= 0.5, no LowVolume");
     }
 
-    // ─── 13.6: Strong bullish but RSI unavailable ─────────────────────────────
+    // ─── 13.6: сильный bullish, но RSI unavailable ─────────────────────────
 
     [Fact]
     public void Build_BullishConfirmed_RsiUnavailable_MomentumNotHealthy_EntryNotGood()
@@ -426,7 +426,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("RsiUnavailable");
     }
 
-    // ─── 13.7: Normal fully available bullish ────────────────────────────────
+    // ─── 13.7: обычный полностью available bullish ─────────────────────────
 
     [Fact]
     public void Build_FullyAvailable_Bullish_SummaryConsistent()
@@ -451,7 +451,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("VolumeDataUnavailable");
     }
 
-    // ─── 13.8: Normal fully available bearish ────────────────────────────────
+    // ─── 13.8: обычный полностью available bearish ─────────────────────────
 
     [Fact]
     public void Build_FullyAvailable_Bearish_SummaryConsistent()
@@ -474,7 +474,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("IndicatorUnavailable");
     }
 
-    // ─── 13.9: EMA fallback alone caps EntryQuality at Fair ─────────────────
+    // ─── 13.9: только fallback EMA ограничивает EntryQuality уровнем Fair ──
 
     [Fact]
     public void Build_EmaFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
@@ -486,7 +486,7 @@ public sealed class TimeframeSummaryBuilderTests
             rsi14: 60m, rsi14IsReliable: true,
             trendStrengthScore: 0.85m,
             distanceToSupport: 0.5m,
-            emaIsReliable: true, emaHasFallback: true,   // EMA partial window
+            emaIsReliable: true, emaHasFallback: true,   // неполное окно EMA
             atrIsReliable: true, atrIsFallback: false,
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
@@ -501,20 +501,20 @@ public sealed class TimeframeSummaryBuilderTests
             because: "EMA fallback must produce IndicatorFallback risk flag");
     }
 
-    // ─── 13.10: ATR fallback alone caps EntryQuality at Fair ─────────────────
+    // ─── 13.10: один ATR fallback ограничивает EntryQuality значением Fair ─
 
     [Fact]
     public void Build_AtrFallback_Alone_Caps_EntryQuality_At_Fair_Not_Good()
     {
         // Все критические индикаторы доступны, ATR рассчитан по partial window (fallback).
-        // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → cap at Fair.
+        // ApplyIndicatorCap: AtrIsFallback || EmaHasFallback → ограничение на уровне Fair.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, rsi14IsReliable: true,
             trendStrengthScore: 0.85m,
             distanceToSupport: 0.5m,
             emaIsReliable: true, emaHasFallback: false,
-            atrIsReliable: true, atrIsFallback: true,    // ATR partial window
+            atrIsReliable: true, atrIsFallback: true,    // неполное окно ATR
             volumeRatioIsReliable: true, volumeRatioIsFallback: false,
             volumeRatio: 1.2m);
 
@@ -530,7 +530,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: "any fallback indicator must produce IndicatorFallback risk flag");
     }
 
-    // ─── 13.11: VolumeRatio fallback does NOT affect EntryQuality ────────────
+    // ─── 13.11: fallback VolumeRatio НЕ влияет на EntryQuality ─────────────
 
     [Fact]
     public void Build_VolumeRatioFallback_Does_Not_Affect_EntryQuality()
@@ -545,7 +545,7 @@ public sealed class TimeframeSummaryBuilderTests
             distanceToSupport: 0.5m,
             emaIsReliable: true, emaHasFallback: false,
             atrIsReliable: true, atrIsFallback: false,
-            volumeRatioIsReliable: true, volumeRatioIsFallback: true,  // fallback, but high ratio
+            volumeRatioIsReliable: true, volumeRatioIsFallback: true,  // fallback, но ratio высокий
             volumeRatio: 1.2m);
 
         var r = BuildForTest(s);
@@ -559,13 +559,13 @@ public sealed class TimeframeSummaryBuilderTests
             because: "volumeRatio=1.2 >= 0.5 threshold, no LowVolume flag");
     }
 
-    // ─── 14: Integration — RSI unavailable + EMA200 fallback + ATR unavailable
+    // ─── 14: интеграция — RSI unavailable + EMA200 fallback + ATR unavailable
 
     [Fact]
     public void Build_Integration_RsiUnavailable_Ema200Fallback_AtrUnavailable_SafeSummary()
     {
-        // EMA200 is fallback but still has a value → Trend can still be determined.
-        // RSI and ATR are unavailable.
+        // EMA200 использует fallback, но значение сохраняется → Trend всё ещё можно определить.
+        // RSI и ATR недоступны.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: null, rsi14IsReliable: false,
@@ -576,35 +576,35 @@ public sealed class TimeframeSummaryBuilderTests
 
         var r = BuildForTest(s);
 
-        // No false oversold/overbought
+        // Ложные oversold/overbought отсутствуют
         r.RiskFlags.Should().NotContain("RsiOversold", because: "RSI unavailable must not produce RsiOversold");
         r.RiskFlags.Should().NotContain("RsiOverbought");
 
-        // Specific indicator flags present
+        // Присутствуют специальные indicator flags
         r.RiskFlags.Should().Contain("RsiUnavailable");
         r.RiskFlags.Should().Contain("AtrUnavailable");
         r.RiskFlags.Should().Contain("IndicatorUnavailable");
         r.RiskFlags.Should().Contain("IndicatorFallback", because: "EMA200 is fallback");
 
-        // EntryQuality capped — multiple unavailable indicators
+        // EntryQuality ограничен из-за нескольких unavailable indicators
         r.EntryQuality.Should().Be(EntryQuality.Poor,
             because: "RSI and ATR unavailable → entry quality capped at Poor");
 
-        // Momentum not Healthy without RSI confirmation
+        // Momentum не Healthy из-за отсутствия подтверждения RSI
         r.MomentumState.Should().NotBe(MomentumState.Healthy,
             because: "RSI unavailable prevents Healthy momentum");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Higher TF opposite level + entry level strength scenarios
+    // Сценарии с opposite level на higher TF и strength entry level
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ─── 14.1: Bullish �� higher TF resistance very close → Poor ─────────────
+    // ─── 14.1: Bullish — очень близкое сопротивление higher TF → Poor ──────────
 
     [Fact]
     public void Build_Bullish_HigherTfResistanceVeryClose_Returns_Poor_And_Flag()
     {
-        // m15-like: current TF has no resistance, but higher TF resistance at 0.05%
+        // Для m15 на текущем TF сопротивление отсутствует, но сопротивление higher TF находится на 0.05%.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,
@@ -619,7 +619,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
     }
 
-    // ─── 14.2: Bullish — higher TF resistance near (0.25%) → not Good ────────
+    // ─── 14.2: Bullish — близкое сопротивление higher TF (0.25%) → не Good ─
 
     [Fact]
     public void Build_Bullish_HigherTfResistanceNear_Returns_AtMostFair_And_Flag()
@@ -638,7 +638,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
     }
 
-    // ─── 14.3: Bearish — higher TF support very close → Poor ────────────────
+    // ─── 14.3: Bearish — близкая поддержка старшего TF → Poor ───────────────
 
     [Fact]
     public void Build_Bearish_HigherTfSupportVeryClose_Returns_Poor_And_Flag()
@@ -658,7 +658,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
     }
 
-    // ─── 14.4: Bearish — higher TF support near (0.25%) → not Good ──────��───
+    // ─── 14.4: Bearish — близкая поддержка higher TF (0.25%) → не Good ────────
 
     [Fact]
     public void Build_Bearish_HigherTfSupportNear_Returns_AtMostFair_And_Flag()
@@ -678,7 +678,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeSupport");
     }
 
-    // ─── 14.5: WeakEntryLevel risk flag ──────────────────────────────────────
+    // ─── 14.5: risk-флаг WeakEntryLevel ────────────────────────────────────
 
     [Fact]
     public void Build_Bullish_WeakSupport_AddsWeakEntryLevelFlag()
@@ -711,7 +711,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("WeakEntryLevel");
     }
 
-    // ─── 14.6: Regression — Good still reachable without obstacles ───────────
+    // ─── 14.6: Regression — Good всё ещё достижимо при наличии препятствий ───
 
     [Fact]
     public void Build_Bullish_StrongSupport_NoOppLevel_Returns_Good()
@@ -746,7 +746,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("WeakEntryLevel");
     }
 
-    // ─── 14.7: NearResistance flag (same TF) ─────────────────────────────────
+    // ─── 14.7: flag NearResistance на том же TF ─────────────────────────────
 
     [Fact]
     public void Build_Bullish_SameTfResistanceNear_AddsNearResistanceFlag()
@@ -768,7 +768,7 @@ public sealed class TimeframeSummaryBuilderTests
     // RiskFlags synchronization scenarios (Prompts 14 сценариев 1–7 + BTCUSDT)
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ─── Scenario 1: h4 bearish confirmed but entry filtered ──────────────────
+    // ─── Сценарий 1: h4 bearish подтверждён, но вход отфильтрован ─────────
 
     [Fact]
     public void RiskFlags_Scenario1_H4BearishConfirmedButEntryFiltered()
@@ -804,7 +804,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 2: m15 neutral low volume near resistance ───────────────────
+    // ─── Сценарий 2: m15, нейтральный режим, низкий объём, близко сопротивление ─
 
     [Fact]
     public void RiskFlags_Scenario2_M15NeutralLowVolumeNearResistance()
@@ -830,13 +830,13 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 3: h1 neutral range between support/resistance ──────────────
+    // ─── Сценарий 3: нейтральный диапазон h1 между support/resistance ───────
 
     [Fact]
     public void RiskFlags_Scenario3_H1NeutralRangeBetweenLevels()
     {
         // trend = Sideways, support strong, resistance moderate, distToResist < 0.3, volumeRatio < 0.5
-        // mixed EMA state: isAboveEma20 = true, isAboveEma50 = false
+        // смешанное состояние EMA: isAboveEma20 = true, isAboveEma50 = false
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways,
             rsi14: 50m, trendStrengthScore: 0.3m,
@@ -859,7 +859,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 4: bullish entry filtered by resistance ─────────────────────
+    // ─── Сценарий 4: bullish-вход отфильтрован сопротивлением ─────────────
 
     [Fact]
     public void RiskFlags_Scenario4_BullishEntryFilteredByNearResistance()
@@ -886,7 +886,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 5: bearish entry filtered by nearby support ─────────────────
+    // ─── Сценарий 5: bearish-вход отфильтрован близкой поддержкой ────────
 
     [Fact]
     public void RiskFlags_Scenario5_BearishEntryFilteredByNearSupport()
@@ -913,7 +913,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 6: clean bullish Good setup ─────────────────────────────────
+    // ─── Сценарий 6: чистый bullish setup с Good ─────────────────────────
 
     [Fact]
     public void RiskFlags_Scenario6_CleanBullishGoodSetup_NoSpuriousFlags()
@@ -943,7 +943,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── Scenario 7: clean bearish Good setup ─────────────────────────────────
+    // ─── Сценарий 7: чистый bearish setup с Good ─────────────────────────
 
     [Fact]
     public void RiskFlags_Scenario7_CleanBearishGoodSetup_NoSpuriousFlags()
@@ -973,7 +973,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── BTCUSDT-like regression: m15 neutral ─────────────────────────────────
+    // ─── Регрессия в стиле BTCUSDT: m15 neutral ───────────────────────────────
 
     [Fact]
     public void RiskFlags_BtcUsdt_M15_NeutralLowVolumeNearResistance()
@@ -999,7 +999,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── BTCUSDT-like regression: h1 neutral range ────────────────────────────
+    // ─── Регрессия в стиле BTCUSDT: диапазон h1 neutral ───────────────────────
 
     [Fact]
     public void RiskFlags_BtcUsdt_H1_NeutralRangeNearResistanceMixedEma()
@@ -1011,7 +1011,7 @@ public sealed class TimeframeSummaryBuilderTests
             volumeRatio: 0.3248m,
             distanceToResist: 0.06m, resistance1Strength: 0.55m,
             distanceToSupport: 0.49m, support1Strength: 0.80m,
-            isAboveEma20: true, isAboveEma50: false);  // mixed EMA state
+            isAboveEma20: true, isAboveEma50: false);  // смешанное состояние EMA
 
         var r = BuildForTest(s);
 
@@ -1028,7 +1028,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── BTCUSDT-like regression: h4 bearish confirmed filtered ───────────────
+    // ─── Регрессия в стиле BTCUSDT: h4 bearish confirmed filtered ─────────────
 
     [Fact]
     public void RiskFlags_BtcUsdt_H4_BearishConfirmedAllFiltersFired()
@@ -1062,7 +1062,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── VeryLowVolume threshold boundary ─────────────────────────────────────
+    // ─── Граница порога VeryLowVolume ─────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_VeryLowVolume_Below_0_25_AddsBothVeryLowVolumeAndLowVolume()
@@ -1086,7 +1086,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("VeryLowVolume");
     }
 
-    // ─── StaleSnapshot flag ────────────────────────────────────────────────────
+    // ─── Флаг StaleSnapshot ───────────────────────────────────────────────────
 
     [Theory]
     [InlineData(false)]
@@ -1102,7 +1102,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: "StaleSnapshot flag is present iff snapshotIsFresh=false");
     }
 
-    // ─── RsiAgainstBias flags ──────────────────────────────────────────────────
+    // ─── Флаги RsiAgainstBias ─────────────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_Bullish_Rsi_Below50_AddsRsiAgainstBullishBias()
@@ -1131,7 +1131,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("RsiAgainstBullishBias");
     }
 
-    // ─── TrendConfirmedButEntryFiltered not added when Good ───────────────────
+    // ─── TrendConfirmedButEntryFiltered не добавляется при Good ─────────────
 
     [Fact]
     public void RiskFlags_TrendConfirmedGoodEntry_NoTrendConfirmedButEntryFilteredFlag()
@@ -1152,7 +1152,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().NotContain("TrendConfirmedButEntryFiltered");
     }
 
-    // ─── MissingEntryLevel flag ────────────────────────────────────────────────
+    // ─── Флаг MissingEntryLevel ───────────────────────────────────────────────
 
     [Fact]
     public void RiskFlags_Bullish_NullSupport_AddsMissingEntryLevelFlag()
@@ -1162,7 +1162,7 @@ public sealed class TimeframeSummaryBuilderTests
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.0m,
             distanceToSupport: null, support1Strength: null,
             distanceToResist: null, resistance1Strength: null);
-        // Override support to null via a snapshot with no support
+        // Переопределяем support в null через snapshot
         var sNoSupport = s with { Support1 = null, Support1Strength = null };
 
         var r = BuildForTest(sNoSupport);
@@ -1170,7 +1170,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("MissingEntryLevel");
     }
 
-    // ─── NeutralBias flag ──────────────────────────────────────────────────────
+    // ─── Флаг NeutralBias ────────────────────────────────────────────────────
 
     [Theory]
     [InlineData(MarketTrend.Sideways)]
@@ -1188,7 +1188,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().OnlyHaveUniqueItems();
     }
 
-    // ─── marketRegime trim: leading/trailing spaces ────────────────────────────
+    // ─── trim marketRegime: пробелы в начале/конце ─────────────────────────
 
     [Theory]
     [InlineData(" Neutral")]
@@ -1209,12 +1209,12 @@ public sealed class TimeframeSummaryBuilderTests
             because: $"marketRegime='{paddedRegime}' should be recognized as Neutral after Trim()");
     }
 
-    // ─── BetweenStrongSupportAndResistance threshold 0.75% ───────────────────
+    // ─── Порог BetweenStrongSupportAndResistance 0.75% ───────────────────────
 
     [Fact]
     public void RiskFlags_BetweenStrongSupportAndResistance_At_0_74Pct_AddsFlag()
     {
-        // Both distances just inside the 0.75% threshold; both levels Moderate/Strong.
+        // Оба расстояния чуть меньше порога 0.75%; оба уровня имеют strength Moderate/Strong.
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
             volumeRatio: 1.0m,
@@ -1231,7 +1231,7 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void RiskFlags_BetweenStrongSupportAndResistance_At_0_76Pct_DoesNotAddFlag()
     {
-        // Both distances just outside the 0.75% threshold.
+        // Оба расстояния чуть больше порога 0.75%.
         var s = MakeSnapshot(
             trend: MarketTrend.Sideways, trendStrengthScore: 0.4m,
             volumeRatio: 1.0m,
@@ -1245,7 +1245,7 @@ public sealed class TimeframeSummaryBuilderTests
             because: "both distances 0.76% >= 0.75% → flag absent");
     }
 
-    // ─── Negative distance filtering in ResolveNearestOppositeLevel ──────────
+    // ─── Фильтрация отрицательной distance в ResolveNearestOppositeLevel ──
 
     [Fact]
     public void Build_Bullish_NegativeCurrentResistance_PositiveHigherTf_SelectsHigherTf()
@@ -1355,8 +1355,8 @@ public sealed class TimeframeSummaryBuilderTests
     [Fact]
     public void Build_Bullish_NegativeCurrentResistance_ValidHigherTf_QualityIsNotGoodAndFlagIsSet()
     {
-        // Before fix: negative current resistance (-0.30) numerically beat higher-TF 0.25 → higher-TF lost.
-        // After fix: negative current discarded → higher-TF resistance caps quality at Fair.
+        // До исправления отрицательное resistance (-0.30) численно опережало higher-TF 0.25 → higher-TF терялся.
+        // После исправления отрицательное значение отбрасывается → resistance higher-TF ограничивает качество на Fair.
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, emaBullish: true, isAboveEma200: true,
             rsi14: 60m, trendStrengthScore: 0.85m, volumeRatio: 1.2m,

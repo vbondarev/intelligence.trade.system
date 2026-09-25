@@ -5,7 +5,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Trend;
 
 public sealed class TrendClassifierTests
 {
-    // ── Direction classification ─────────────────────────────────────────────
+    // ── Классификация направления ─────────────────────────────────────────────
 
     [Fact]
     public void Returns_Bullish_When_Ema20_Greater_Ema50_Greater_Ema200()
@@ -52,7 +52,7 @@ public sealed class TrendClassifierTests
         score.Should().Be(0.49m);
     }
 
-    // ── Strength score: directed trends ─────────────────────────────────────
+    // ── Оценка силы: направленные тренды ─────────────────────────────────────
 
     [Fact]
     public void StrengthScore_Is_0_8_For_Full_Bullish_Alignment_Without_Volume_Boost()
@@ -114,7 +114,7 @@ public sealed class TrendClassifierTests
         score.Should().BeLessThanOrEqualTo(1m);
     }
 
-    // ── Strength score: sideways contracts ──────────────────────────────────
+    // ── Оценка силы: контракты для бокового рынка ───────────────────────────────
 
     [Fact]
     public void Sideways_StrengthScore_Is_Not_Greater_Than_0_49()
@@ -222,10 +222,10 @@ public sealed class TrendClassifierTests
 
     public static IEnumerable<object[]> ScoreRangeTestCases =>
     [
-        [200m, 150m, 100m, 210m, 0.5m],  // Bullish, low volume
-        [100m, 150m, 200m,  90m, 2.0m],  // Bearish, high volume
+        [200m, 150m, 100m, 210m, 0.5m],  // Bullish, низкий объём
+        [100m, 150m, 200m,  90m, 2.0m],  // Bearish, высокий объём
         [150m, 100m, 130m, 140m, 1.0m],  // Sideways
-        [150m, 100m, 130m, 140m, -5.0m], // Sideways, dirty negative volume
-        [100m, 100m, 100m, 100m, 1.0m],  // All equal
+        [150m, 100m, 130m, 140m, -5.0m], // Sideways, некорректный отрицательный объём
+        [100m, 100m, 100m, 100m, 1.0m],  // Все значения равны
     ];
 }

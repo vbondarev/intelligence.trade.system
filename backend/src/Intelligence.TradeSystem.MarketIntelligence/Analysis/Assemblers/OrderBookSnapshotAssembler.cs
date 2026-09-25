@@ -39,10 +39,10 @@ public static class OrderBookSnapshotAssembler
             throw new ArgumentException("Order book must contain at least one bid and one ask level.", nameof(orderBook));
         }
 
-        // 1. Mid price
+        // 1. Средняя цена (mid price)
         var midPrice = (orderBook.Bids[0].Price + orderBook.Asks[0].Price) / 2m;
 
-        // 2. Aggregate volumes top 5 / 10 / 20
+        // 2. Агрегируем объёмы для top 5 / 10 / 20
         var bidTop5 = VolumeSum(orderBook.Bids, 5);
         var bidTop10 = VolumeSum(orderBook.Bids, 10);
         var bidTop20 = VolumeSum(orderBook.Bids, 20);
@@ -55,7 +55,7 @@ public static class OrderBookSnapshotAssembler
         var imbalanceTop10 = Imbalance(bidTop10, askTop10);
         var imbalanceTop20 = Imbalance(bidTop20, askTop20);
 
-        // 3. Top levels (up to 20)
+        // 3. Лучшие уровни (до 20)
         var topBids = orderBook.Bids.Take(20)
             .Select(e => new OrderBookLevel { Price = e.Price, Size = e.Size })
             .ToList();
@@ -68,7 +68,7 @@ public static class OrderBookSnapshotAssembler
         var bidWalls = DetectWalls(orderBook.Bids, midPrice);
         var askWalls = DetectWalls(orderBook.Asks, midPrice);
 
-        // 5. Assemble
+        // 5. Сборка
         return new OrderBookSnapshot
         {
             CapturedAtUtc = orderBook.CapturedAt,
@@ -95,7 +95,7 @@ public static class OrderBookSnapshotAssembler
         };
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── Вспомогательные методы ─────────────────────────────────────────────
 
     private static decimal VolumeSum(IReadOnlyList<OrderBookEntry> levels, int depth) =>
         levels.Take(depth).Sum(e => e.Size);

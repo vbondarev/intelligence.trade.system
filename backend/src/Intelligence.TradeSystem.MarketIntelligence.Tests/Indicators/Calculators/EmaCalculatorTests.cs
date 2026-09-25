@@ -6,7 +6,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Indicators.Calculato
 
 public sealed class EmaCalculatorTests
 {
-    // ── Guard clauses ────────────────────────────────────────────────────────
+    // ── Проверки входных условий ────────────────────────────────────────────
 
     [Fact]
     public void Throws_ArgumentNullException_When_Values_Is_Null()
@@ -29,7 +29,7 @@ public sealed class EmaCalculatorTests
             .WithParameterName(nameof(period));
     }
 
-    // ── Boundary & fallback ──────────────────────────────────────────────────
+    // ── Граничные случаи и fallback ─────────────────────────────────────────
 
     [Fact]
     public void Returns_Unavailable_When_Array_Is_Empty()
@@ -56,7 +56,7 @@ public sealed class EmaCalculatorTests
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
     {
-        // values.Length(1) < period(10) → Fallback: среднее по доступным = само значение.
+        // values.Length = 1, period = 10 → values.Length < period, поэтому fallback равен среднему по доступным значениям.
         var result = EmaCalculator.Compute([42m], period: 10);
 
         result.Value.Should().BeApproximately(42m, precision: 0.0001m);
@@ -88,7 +88,7 @@ public sealed class EmaCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
-    // ── Smoothing formula ────────────────────────────────────────────────────
+    // ── Формула сглаживания ─────────────────────────────────────────────────
 
     [Fact]
     public void Uses_Classic_Smoothing_Formula_For_Known_Series()
@@ -139,7 +139,7 @@ public sealed class EmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── EMA vs SMA behavioral ────────────────────────────────────────────────
+    // ── Различия поведения EMA и SMA ────────────────────────────────────────
 
     [Fact]
     public void Gives_More_Weight_To_Recent_Values_In_Rising_Series()
@@ -179,7 +179,7 @@ public sealed class EmaCalculatorTests
         result.IsAvailable.Should().BeTrue();
     }
 
-    // ── Flat series invariant ─────────────────────────────────────────────────
+    // ── Инвариант постоянного ряда ───────────────────────────────────────────
 
     [Theory]
     [InlineData(50, 30, 10)]  // 30 значений × 50m,  period=10
@@ -187,7 +187,7 @@ public sealed class EmaCalculatorTests
     [InlineData(100, 15, 5)]  // 15 значений × 100m, period=5
     public void Returns_Available_Constant_For_Flat_Series(decimal constant, int count, int period)
     {
-        // Для flat-серии EMA инициализируется через SMA константы и остаётся константой на всех шагах.
+        // Для постоянного ряда EMA инициализируется через SMA константы и остаётся константой на всех шагах.
         var values = Enumerable.Repeat(constant, count).ToArray();
 
         var result = EmaCalculator.Compute(values, period);

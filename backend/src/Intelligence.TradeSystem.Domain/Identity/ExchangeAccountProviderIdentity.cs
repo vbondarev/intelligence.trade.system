@@ -1,7 +1,7 @@
 namespace Intelligence.TradeSystem.Domain.Identity;
 
 /// <summary>
-/// Exchange-neutral identity of the provider-side account bound to an exchange account.
+/// Нейтральная к бирже identity аккаунта на стороне provider, связанного с биржевым аккаунтом.
 /// </summary>
 public readonly record struct ExchangeAccountProviderIdentity
 {

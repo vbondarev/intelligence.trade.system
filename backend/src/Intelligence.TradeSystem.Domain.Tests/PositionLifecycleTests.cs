@@ -108,7 +108,7 @@ public sealed class PositionLifecycleTests
 
         first.Should().BeNull();
         second.Should().BeNull();
-        position.Changes.Should().ContainSingle(); // only the initial New
+        position.Changes.Should().ContainSingle(); // только исходное состояние New
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class PositionLifecycleTests
         var second = position.MarkUnknown(T0.AddHours(2));
 
         second.Should().BeNull();
-        position.Changes.Should().HaveCount(2); // New + one MarkedUnknown
+        position.Changes.Should().HaveCount(2); // New + один MarkedUnknown
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public sealed class PositionLifecycleTests
         var second = position.Close(T0.AddMinutes(2));
 
         second.Should().BeNull();
-        position.Changes.Should().HaveCount(2); // New + one Closed
+        position.Changes.Should().HaveCount(2); // New + один Closed
         position.ClosedAt.Should().Be(T0.AddMinutes(1));
     }
 

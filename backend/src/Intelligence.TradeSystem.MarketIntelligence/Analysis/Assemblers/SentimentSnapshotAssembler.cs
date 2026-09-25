@@ -48,7 +48,7 @@ public static class SentimentSnapshotAssembler
     /// <summary>Вес дисбаланса стакана на глубине 20 в агрегированном скоре.</summary>
     private const decimal ImbalanceWeightTop20 = 0.2m;
 
-    // ── Public API ───────────────────────────────────────────────────────────
+    // ── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Вычисляет и возвращает <see cref="SentimentSnapshot"/> для переданных рыночных снапшотов.
@@ -76,7 +76,7 @@ public static class SentimentSnapshotAssembler
         DateTimeOffset? capturedAtUtc = null,
         long maxTradeFlowAgeMs = TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs)
     {
-        // 1. Validate
+        // 1. Проверка
         ArgumentNullException.ThrowIfNull(derivatives);
         ArgumentNullException.ThrowIfNull(orderBook);
         ArgumentNullException.ThrowIfNull(tradeFlow);
@@ -84,36 +84,36 @@ public static class SentimentSnapshotAssembler
         ArgumentNullException.ThrowIfNull(h4);
 
         // 2. LongShortBiasScore = LongRatio − ShortRatio
-        //    Both ratios in [0, 1] → difference naturally in [−1, 1]; Clamp for safety.
+        //    Оба ratio находятся в [0, 1] → разность естественно в [−1, 1]; Clamp — для безопасности.
         var longShortBiasScore = Math.Clamp(
             derivatives.LongRatio - derivatives.ShortRatio,
             -1m, 1m);
 
-        // 3. FundingBiasScore — contrarian signal
-        //    High positive funding (longs overpaying) → bearish crowd → negative score.
+        // 3. FundingBiasScore — контртрендовый сигнал
+        //    Высокий положительный funding (longs переплачивают) → bearish crowd → отрицательный score.
         var fundingBiasScore = ComputeFundingBiasScore(
             derivatives.FundingRate,
             derivatives.FundingRateAvg24h);
 
-        // 4. OrderBookPressureScore — weighted average of pre-computed imbalances
-        //    All imbalances are in [−1, 1]; weights sum to 1.0 → result stays in [−1, 1].
+        // 4. OrderBookPressureScore — взвешенное среднее заранее вычисленных imbalances
+        //    Все imbalances находятся в [−1, 1]; сумма weights равна 1.0 → результат остаётся в [−1, 1].
         var orderBookPressureScore = Math.Round(
             orderBook.ImbalanceTop5 * ImbalanceWeightTop5 +
             orderBook.ImbalanceTop10 * ImbalanceWeightTop10 +
             orderBook.ImbalanceTop20 * ImbalanceWeightTop20,
             4);
 
-        // 5. TradeFlowPressureScore — normalized delta + aggressive pressure floor + quality caps
+        // 5. TradeFlowPressureScore — нормализованная delta + минимальный уровень агрессивного давления + ограничения качества
         var tradeFlowPressureScore = ComputeTradeFlowPressureScore(
             tradeFlow,
             orderBookPressureScore,
             capturedAtUtc,
             maxTradeFlowAgeMs);
 
-        // 6. MarketRegime — heuristic from H1 and H4
+        // 6. MarketRegime — heuristic по H1 и H4
         var marketRegime = ClassifyMarketRegime(h1, h4);
 
-        // 7. Assemble
+        // 7. Сборка
         return new SentimentSnapshot
         {
             LongShortBiasScore = longShortBiasScore,
@@ -124,7 +124,7 @@ public static class SentimentSnapshotAssembler
         };
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    // ── Приватные вспомогательные методы ─────────────────────────────────────
 
     /// <summary>
     /// Вычисляет контрарный скор настроения из ставки финансирования.
@@ -135,10 +135,10 @@ public static class SentimentSnapshotAssembler
     /// </summary>
     private static decimal ComputeFundingBiasScore(decimal fundingRate, decimal fundingRateAvg24h)
     {
-        // Blend current and 24 h average to smooth intraperiod spikes
+        // Смешиваем текущую и 24-часовую среднюю, чтобы сгладить внутрипериодные всплески
         var blended = (fundingRate + fundingRateAvg24h) / 2m;
 
-        // Negate: high positive rate → crowded longs → bearish contrarian signal
+        // Меняем знак: высокая положительная ставка → crowded longs → bearish contrarian signal
         return Math.Round(
             -Math.Clamp(blended / FundingNormalizationFactor, -1m, 1m),
             4);
@@ -161,7 +161,7 @@ public static class SentimentSnapshotAssembler
     {
         var score = Math.Clamp(tradeFlow.DeltaPct / TradeFlowNormalizationFactor, -1m, 1m);
 
-        // Aggressive flags guarantee a minimum meaningful signal even when delta is modest
+        // Aggressive flags гарантируют минимальный значимый сигнал, даже если delta невелик
         if (tradeFlow.HasAggressiveBuyPressure && score < AggressivePressureFloor)
         {
             score = AggressivePressureFloor;
@@ -172,7 +172,7 @@ public static class SentimentSnapshotAssembler
             score = -AggressivePressureFloor;
         }
 
-        // Apply quality caps (freshness / window / volume / orderBook conflict)
+        // Применяем ограничения качества (актуальность / длительность окна / объём / конфликт с orderBook)
         score = TradeFlowPressureScoreAdjuster.ApplyCaps(
             score,
             tradeFlow,

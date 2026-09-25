@@ -68,7 +68,7 @@ internal static class MarketTagsBuilder
     public const string TagOrderBookTradeFlowConflict = MarketTagConstants.OrderBookTradeFlowConflict;
     public const string TagWeakTradeFlowConfirmation = MarketTagConstants.WeakTradeFlowConfirmation;
 
-    // ─── V2 whitelist — orderBook ──────────────────────────────────────────────
+    // ─── Список допустимых тегов V2 — orderBook ────────────────────────────────
 
     public const string TagStrongOrderBookImbalance = MarketTagConstants.StrongOrderBookImbalance;
     public const string TagUpperLiquidityHeavy = MarketTagConstants.UpperLiquidityHeavy;
@@ -131,7 +131,7 @@ internal static class MarketTagsBuilder
     /// <summary>Порог скоса ликвидности для преобладания верхней/нижней ликвидности.</summary>
     private const decimal LiquiditySkewThreshold = 0.15m;
 
-    // ─── Public API ──────────────────────────────────────────────────────────
+    // ─── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Строит детерминированный список тегов из снапшотов.
@@ -170,9 +170,9 @@ internal static class MarketTagsBuilder
         var all = new List<string>(MaxTags * 2);
         var primaryTfs = GetNonNullTfs(m15, h1, h4);
 
-        // ── HIGH PRIORITY ──────────────────────────────────────────────────────
+        // ── ВЫСОКИЙ ПРИОРИТЕТ ────────────────────────────────────────────────
 
-        // 1. TradeFlow quality (short window, low volume, conflict, weak confirmation)
+        // 1. Качество TradeFlow (короткое окно, низкий volume, конфликт, слабое подтверждение)
         //    stale-tradeflow здесь не генерируется при capturedAtUtc=null — добавляется LlmTagEnricher.
         var qualityTags = TradeFlowPressureScoreAdjuster.ComputeQualityTags(
             sentiment.TradeFlowPressureScore,
@@ -181,7 +181,7 @@ internal static class MarketTagsBuilder
             capturedAtUtc);
         AddAll(all, qualityTags);
 
-        // 2. OI direction
+        // 2. Направление OI
         AddOiTags(derivatives, all);
 
         // 3. Режим (volatile — самый высокий приоритет в группе)
@@ -199,7 +199,7 @@ internal static class MarketTagsBuilder
         if (primaryTfs.Count > 0)
             AddDirectionalNeutralRegimeTag(primaryTfs, sentiment.MarketRegime, all);
 
-        // ── MEDIUM PRIORITY ────────────────────────────────────────────────────
+        // ── СРЕДНИЙ ПРИОРИТЕТ ────────────────────────────────────────────────
 
         // 7. Давление в стакане
         AddOrderBookTags(orderBook, sentiment, all);
@@ -221,7 +221,7 @@ internal static class MarketTagsBuilder
         // 12. Кросс-сигналы (short covering / long unwinding)
         AddCrossSignalTags(all);
 
-        // ── LOW PRIORITY ───────────────────────────────────────────────────────
+        // ── НИЗКИЙ ПРИОРИТЕТ ─────────────────────────────────────────────────
 
         // 13. Близость к уровням
         if (primaryTfs.Count > 0)
@@ -274,7 +274,7 @@ internal static class MarketTagsBuilder
         hasBuyPressure ? TagAggressiveBuying :
         hasSellPressure ? TagAggressiveSelling : null;
 
-    // ─── Private tag-group implementations ───────────────────────────────────
+    // ─── Приватные реализации групп тегов ───────────────────────────────────
 
     /// <summary>V2 расширенный маппинг режима.</summary>
     private static void AddRegimeTags(string? marketRegime, List<string> target)
@@ -494,7 +494,7 @@ internal static class MarketTagsBuilder
         else if (derivatives.ShortRatio > LongShortCrowdingThreshold) target.Add(TagShortCrowded);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ────────────────────────────────────────────────
 
     private static List<TimeframeAnalysisSnapshot> GetNonNullTfs(
         TimeframeAnalysisSnapshot? m15,

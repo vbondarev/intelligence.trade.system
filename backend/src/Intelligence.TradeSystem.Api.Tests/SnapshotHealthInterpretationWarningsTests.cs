@@ -105,7 +105,7 @@ public sealed class SnapshotHealthInterpretationWarningsTests
         warnings.Should().OnlyHaveUniqueItems(because: "предупреждения не должны дублироваться");
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private HttpClient CreateClientWithConflictingSnapshot()
     {

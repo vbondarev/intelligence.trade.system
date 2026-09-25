@@ -14,9 +14,9 @@ using Xunit;
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 /// <summary>
-/// PostgreSQL-backed coverage for the F-02 exchange-account lifecycle boundary: the
-/// user-scoped active-account list query and the atomicity of the credential-rotation
-/// lifecycle transaction (<see cref="ExchangeAccountLifecycleTransaction"/>).
+/// Покрытие PostgreSQL для lifecycle boundary биржевого аккаунта F-02:
+/// user-scoped запрос списка активных аккаунтов и атомарность lifecycle-транзакции
+/// ротации credentials (<see cref="ExchangeAccountLifecycleTransaction"/>).
 /// </summary>
 [Collection("PostgreSql-A")]
 public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fixture)
@@ -463,10 +463,9 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 userId, account.Id, new ExchangeAccountCredentialSecret("original-key", "original-secret"));
         }
 
-        // A concurrent writer bumps the account's version between the pre-verification read
-        // and the lifecycle transaction, so the account CAS save below observes a stale
-        // expected version and fails after the credential has already been rotated in the
-        // same transaction.
+        // Параллельный writer увеличивает version аккаунта между чтением до верификации
+        // и lifecycle-транзакцией, поэтому CAS-сохранение аккаунта ниже видит устаревшую
+        // expected version и завершается ошибкой после ротации credentials в той же транзакции.
         await using (var concurrentWriterContext = fixture.CreateContext())
         {
             var concurrentAccount = CreateAccount(account.Id, userId, ExchangeAccountConnectionStatus.Unavailable);
@@ -485,7 +484,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 await store.RotateAsync(userId, account.Id, ConcurrencyVersion.Initial,
                     new ExchangeAccountCredentialSecret("rotated-key", "rotated-secret"), token);
                 account.MarkConnected();
-                // Stale expected version (1): the concurrent writer already advanced it to 2.
+                // Устаревшая expected version (1): параллельный writer уже увеличил её до 2.
                 await repository.SaveAsync(userId, account, ConcurrencyVersion.Initial, token);
             }));
         }
@@ -496,8 +495,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         var reloadedCredential = await CreateStore(readContext, keys).GetAsync(userId, account.Id);
         reloadedCredential!.Use((apiKey, apiSecret) =>
         {
-            // The credential rotation performed inside the failed transaction must have been
-            // rolled back together with the account save: the original pair is still active.
+            // Ротация credentials внутри неудачной транзакции должна откатиться вместе
+            // с сохранением аккаунта: исходная пара всё ещё активна.
             Assert.Equal("original-key", apiKey);
             Assert.Equal("original-secret", apiSecret);
         });
@@ -526,7 +525,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
 
             await Assert.ThrowsAsync<ConcurrencyConflictException>(() => transaction.ExecuteAsync(async token =>
             {
-                // Stale expected credential version: the row is still at version 1.
+                // Устаревшая expected credential version: строка всё ещё имеет version 1.
                 await store.RotateAsync(userId, account.Id, staleCredentialVersion,
                     new ExchangeAccountCredentialSecret("rotated-key", "rotated-secret"), token);
                 account.MarkConnected();

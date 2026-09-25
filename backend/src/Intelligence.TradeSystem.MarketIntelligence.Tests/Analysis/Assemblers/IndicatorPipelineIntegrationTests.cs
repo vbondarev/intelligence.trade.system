@@ -18,23 +18,23 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis.Assemblers;
 /// </summary>
 public sealed class IndicatorPipelineIntegrationTests
 {
-    // ─── Scenario 1: RSI unavailable serializes as null ──────────────────────
+    // ─── Сценарий 1: недоступный RSI сериализуется как null ──────────
 
     [Fact]
     public void Pipeline_Sets_Rsi14_To_Null_And_Adds_Diagnostic_When_Insufficient_Candles()
     {
-        // RSI14 requires period + 1 = 15 candles. 5 candles → Unavailable.
+        // RSI14 требует period + 1 = 15 свечей. 5 свечей → Unavailable.
         var klines = KlineFactory.CreateSeries(count: 5);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
         var s = result.Snapshot;
 
-        // Null, not 0.
+        // Null, а не 0.
         s.Rsi14.Should().BeNull(because: "rsi14 must be null when data is insufficient, not 0");
         s.Rsi14IsReliable.Should().BeFalse();
         s.RsiOverbought.Should().BeFalse(because: "unavailable RSI must not trigger overbought");
         s.RsiOversold.Should().BeFalse(because: "unavailable RSI must not trigger oversold");
 
-        // Diagnostic explains the null.
+        // Diagnostic объясняет значение null.
         var diag = s.IndicatorDiagnostics.Should().ContainSingle(d => d.Indicator == "rsi14").Subject;
         diag.Timeframe.Should().Be("15m");
         diag.Reason.Should().Be(IndicatorValueReason.InsufficientData.ToString());
@@ -43,12 +43,12 @@ public sealed class IndicatorPipelineIntegrationTests
         diag.Message.Should().Contain("unavailable");
     }
 
-    // ─── Scenario 2: ATR unavailable serializes as null ──────────────────────
+    // ─── Сценарий 2: недоступный ATR сериализуется как null ──────────
 
     [Fact]
     public void Pipeline_Sets_Atr14_To_Null_And_Adds_Diagnostic_When_Only_One_Candle()
     {
-        // AtrCalculator requires >= 2 candles. 1 candle → Unavailable.
+        // AtrCalculator требует >= 2 свечей. 1 свеча → Unavailable.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "4h");
         var s = result.Snapshot;
@@ -62,39 +62,39 @@ public sealed class IndicatorPipelineIntegrationTests
         diag.IsFallback.Should().BeFalse();
     }
 
-    // ─── Scenario 3: EMA200 partial window keeps value but adds fallback diag ─
+    // ─── Сценарий 3: частичное окно EMA200 сохраняет значение и добавляет fallback diag ─
 
     [Fact]
     public void Pipeline_Keeps_Ema200_Value_And_Adds_FallbackDiagnostic_When_Partial_Window()
     {
-        // EMA200 with only 50 candles → Fallback(PartialWindow).
+        // EMA200 только с 50 свечами → Fallback(PartialWindow).
         var klines = KlineFactory.CreateSeries(count: 50);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "15m");
         var s = result.Snapshot;
 
-        // Fallback value is not null — it's a real (though partial) estimate.
+        // Fallback-значение не null — это реальная, хотя и частичная, оценка.
         s.Ema200.Should().NotBeNull(because: "EMA200 computes a fallback with partial window");
         s.Ema200.Should().BeGreaterThan(0m);
         s.EmaHasFallback.Should().BeTrue();
 
-        // Diagnostic reports the partial window.
+        // Diagnostic сообщает о частичном окне.
         var diag = s.IndicatorDiagnostics.Should().ContainSingle(d => d.Indicator == "ema200").Subject;
         diag.Reason.Should().Be(IndicatorValueReason.PartialWindow.ToString());
         diag.IsFallback.Should().BeTrue();
         diag.Message.Should().Contain("fallback");
     }
 
-    // ─── Scenario 4: VolumeSma20 partial window adds fallback diagnostic ──────
+    // ─── Сценарий 4: частичное окно VolumeSma20 добавляет fallback diagnostic ─
 
     [Fact]
     public void Pipeline_Adds_FallbackDiagnostic_When_VolumeSma20_Uses_Partial_Window()
     {
-        // SmaCalculator with 10 candles and period 20 → Fallback(PartialWindow).
+        // SmaCalculator с 10 свечами и period=20 → Fallback(PartialWindow).
         var klines = KlineFactory.CreateSeries(count: 10);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var s = result.Snapshot;
 
-        // VolumeSma20 has a fallback value (average of available volumes).
+        // VolumeSma20 содержит fallback-значение — среднее по доступным объёмам.
         s.VolumeSma20.Should().NotBeNull();
         s.VolumeSma20.Should().BeGreaterThan(0m);
         s.VolumeRatioIsFallback.Should().BeTrue();
@@ -104,41 +104,41 @@ public sealed class IndicatorPipelineIntegrationTests
         diag.IsFallback.Should().BeTrue();
     }
 
-    // ─── Scenario 5: EMA alignment is false when EMA has zero-fake risk ──────
+    // ─── Сценарий 5: EMA alignment равен false при риске фиктивного нулевого EMA ─
 
     [Fact]
     public void Pipeline_Boolean_EmaFlags_Reflect_Real_Values_Not_FakeZero()
     {
-        // With a small set of candles all EMAs are computed (fallback), but from the same prices.
-        // When EMA20 == EMA50 == EMA200 (same single price seed), alignment must be false.
+        // При небольшом наборе свечей все EMA вычисляются (fallback), используя одни и те же цены.
+        // При EMA20 == EMA50 == EMA200 (одинаковом seed из одной цены) alignment должен быть false.
         var klines = KlineFactory.CreateSeries(count: 1);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var s = result.Snapshot;
 
-        // All EMAs have values (fallback = price itself for 1 candle).
+        // Все EMA имеют значения (fallback для одной свечи равен самой цене).
         s.Ema20.Should().NotBeNull();
         s.Ema50.Should().NotBeNull();
         s.Ema200.Should().NotBeNull();
 
-        // With equal EMAs (all = same seed price), neither alignment is true.
+        // При равных EMA (все равны одной seed-цене) ни один alignment не равен true.
         s.EmaBullishAlignment.Should().BeFalse(
             because: "EMA20 == EMA50 == EMA200 (same seed price) cannot produce bullish alignment");
         s.EmaBearishAlignment.Should().BeFalse(
             because: "EMA20 == EMA50 == EMA200 (same seed price) cannot produce bearish alignment");
 
-        // IsAbove flags reflect real comparison, not fake-zero.
+        // Flags IsAbove отражают реальное сравнение, а не fake-zero.
         var expectedAbove20 = s.Ema20.HasValue && s.LastCandle.Close > s.Ema20.Value;
         var expectedAbove200 = s.Ema200.HasValue && s.LastCandle.Close > s.Ema200.Value;
         s.IsAboveEma20.Should().Be(expectedAbove20);
         s.IsAboveEma200.Should().Be(expectedAbove200);
     }
 
-    // ─── Scenario 6: RSI unavailable does not create false oversold ──────────
+    // ─── Сценарий 6: недоступный RSI не создаёт ложный oversold ────────
 
     [Fact]
     public void Pipeline_Does_Not_Mark_RsiOversold_When_Rsi_Is_Unavailable()
     {
-        // Bearish series with very few candles → RSI unavailable.
+        // В bearish-серии слишком мало свечей → RSI недоступен.
         var klines = KlineFactory.CreateSeries(count: 5, trend: SeriesTrend.Bearish, startPrice: 200m);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var s = result.Snapshot;
@@ -148,13 +148,13 @@ public sealed class IndicatorPipelineIntegrationTests
         s.RsiOverbought.Should().BeFalse();
     }
 
-    // ─── Scenario 7: No diagnostics with sufficient data ─────────────────────
+    // ─── Сценарий 7: diagnostics отсутствуют при достаточном объёме данных ───
 
     [Fact]
     public void Pipeline_Produces_No_Diagnostics_When_All_Indicators_Fully_Available()
     {
-        // 250 candles → EMA20/50/200, RSI14, ATR14, VolumeSma20 all fully available.
-        // KlineFactory produces candles with non-zero volume → VolumeRatio is also computable.
+        // 250 свечей → EMA20/50/200, RSI14, ATR14 и VolumeSma20 полностью доступны.
+        // KlineFactory создаёт свечи с ненулевым объёмом → VolumeRatio также можно вычислить.
         var klines = KlineFactory.CreateSeries(count: 250);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var s = result.Snapshot;
@@ -162,7 +162,7 @@ public sealed class IndicatorPipelineIntegrationTests
         s.IndicatorDiagnostics.Should().BeEmpty(
             because: "250 candles with non-zero volume is sufficient for all indicators — no diagnostics expected");
 
-        // All indicator values are non-null.
+        // Все значения индикаторов не null.
         s.Ema20.Should().NotBeNull();
         s.Ema50.Should().NotBeNull();
         s.Ema200.Should().NotBeNull();
@@ -176,22 +176,22 @@ public sealed class IndicatorPipelineIntegrationTests
         s.VolumeRatioIsReliable.Should().BeTrue();
     }
 
-    // ─── Scenario 8: Diagnostics stable order ────────────────────────────────
+    // ─── Сценарий 8: стабильный порядок diagnostics ───────────────────
 
     [Fact]
     public void Pipeline_Diagnostics_Are_In_Stable_Indicator_Order_Within_Timeframe()
     {
-        // 10 candles → ema20/50 may be partial or available, ema200 partial,
-        // rsi14 unavailable, atr14 available, volumeSma20 partial.
-        // Volumes are non-zero → volumeRatio IS computable (no volumeRatio diagnostic).
+        // 10 свечей → ema20/50 могут быть partial или available, ema200 — partial,
+        // rsi14 — unavailable, atr14 — available, volumeSma20 — partial.
+        // Объёмы ненулевые → volumeRatio вычисляется, diagnostic для volumeRatio отсутствует.
         var klines = KlineFactory.CreateSeries(count: 10);
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
 
-        // Extract indicator names in the order they appear.
+        // Извлекаем имена индикаторов в порядке появления.
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
-        // Expected stable order: ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20 → volumeRatio.
-        // volumeRatio appears only when VolumeRatio is null; in this scenario it is computable → not present.
+        // Ожидаемый стабильный порядок: ema20 → ema50 → ema200 → rsi14 → atr14 → volumeSma20 → volumeRatio.
+        // diagnostic volumeRatio появляется, когда значение VolumeRatio равно null; в этом сценарии ratio вычисляется → diagnostic отсутствует.
         var expectedOrder = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20", "volumeRatio" };
         var presentInOrder = expectedOrder.Where(indicatorOrder.Contains).ToList();
 
@@ -199,14 +199,14 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "indicator diagnostics must be emitted in the canonical stable order");
     }
 
-    // ─── Scenario 8b: volumeRatio diagnostic comes after volumeSma20 ─────────
+    // ─── Сценарий 8b: diagnostic volumeRatio идёт после volumeSma20 ────
 
     [Fact]
     public void Pipeline_VolumeRatio_Diagnostic_Comes_After_VolumeSma20_In_Stable_Order()
     {
-        // All volumes = 0 → VolumeSma20 = Available(0) → VolumeRatio = null → volumeRatio diagnostic emitted.
-        // VolumeSma20 is Available(0) → no volumeSma20 diagnostic.
-        // Stable order must place volumeRatio after volumeSma20 (even when volumeSma20 diagnostic is absent).
+        // Все объёмы равны 0 → VolumeSma20 = Available(0) → VolumeRatio = null → добавляется diagnostic volumeRatio.
+        // VolumeSma20 = Available(0) → diagnostic volumeSma20 не добавляется.
+        // Стабильный порядок должен располагать volumeRatio после volumeSma20, даже если diagnostic volumeSma20 отсутствует.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var klines = Enumerable.Range(0, 25)
             .Select(i => KlineFactory.Create(volume: 0m, startTime: baseTime.AddHours(i)))
@@ -215,12 +215,12 @@ public sealed class IndicatorPipelineIntegrationTests
         var result = TimeframeSnapshotAssembler.Assemble(klines, timeframe: "1h");
         var indicatorOrder = result.Snapshot.IndicatorDiagnostics.Select(d => d.Indicator).ToList();
 
-        // volumeRatio must be present and must appear after any earlier indicators.
+        // Diagnostic volumeRatio присутствует, поэтому должен идти после всех предыдущих индикаторов.
         indicatorOrder.Should().Contain("volumeRatio");
         indicatorOrder.Should().NotContain("volumeSma20",
             because: "VolumeSma20 = Available(0) → not a fallback → no volumeSma20 diagnostic");
 
-        // No other indicator (ema/rsi/atr) appears after volumeRatio.
+        // После volumeRatio другие индикаторы (ema/rsi/atr) отсутствуют.
         var volumeRatioIdx = indicatorOrder.IndexOf("volumeRatio");
         var laterIndicators = indicatorOrder.Skip(volumeRatioIdx + 1).ToList();
         var priorIndicators = new[] { "ema20", "ema50", "ema200", "rsi14", "atr14", "volumeSma20" };
@@ -228,35 +228,35 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "volumeRatio must be the last diagnostic in stable order");
     }
 
-    // ─── Scenario 9: Assembler diagnostic count across multiple timeframes ───
+    // ─── Сценарий 9: количество diagnostics assembler по нескольким таймфреймам ─
 
     [Fact]
     public void MarketSnapshotAssembler_Aggregates_Diagnostics_From_All_Timeframes()
     {
-        // Build snapshots with different data amounts to trigger different diagnostics.
+        // Собрать snapshots с разным объёмом данных, чтобы вызвать разные diagnostics.
         var m15 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 5), "15m").Snapshot;
         var h1 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 10), "1h").Snapshot;
         var h4 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 250), "4h").Snapshot;
         var d1 = TimeframeSnapshotAssembler.Assemble(KlineFactory.CreateSeries(count: 50), "1d").Snapshot;
 
-        // Build a market snapshot (minimal required data for non-timeframe fields).
+        // Собрать market snapshot (минимальные обязательные данные для полей вне timeframe).
         var (_, allDiags) = BuildMinimalMarketSnapshot(m15, h1, h4, d1);
 
         allDiags.Should().Contain(d => d.Timeframe == "15m");
         allDiags.Should().Contain(d => d.Timeframe == "1h");
         allDiags.Should().Contain(d => d.Timeframe == "1d");
 
-        // 4h with 250 candles should not add any diagnostics.
+        // Для 4h с 250 свечами diagnostics добавляться не должны.
         allDiags.Should().NotContain(d => d.Timeframe == "4h");
 
-        // Order: 15m first, then 1h, 4h, 1d.
+        // Порядок: сначала 15m, затем 1h, 4h, 1d.
         var timeframes = allDiags.Select(d => d.Timeframe).Distinct().ToList();
         var orderedExpected = _timeframeOrder.Where(tf => timeframes.Contains(tf)).ToList();
         timeframes.Should().ContainInOrder(orderedExpected,
             because: "diagnostics are aggregated in timeframe order: 15m → 1h → 4h → 1d");
     }
 
-    // ─── Scenario 10: VolumeRatio diagnostic when VolumeSma20 is zero ────────
+    // ─── Сценарий 10: diagnostic VolumeRatio при нулевом VolumeSma20 ────────
 
     [Fact]
     public void Pipeline_VolumeRatio_Is_Null_When_All_Candle_Volumes_Are_Zero()
@@ -273,7 +273,7 @@ public sealed class IndicatorPipelineIntegrationTests
             because: "VolumeSma20 = 0 → VolumeRatio cannot be computed → null, not fake-zero");
         s.VolumeRatioIsReliable.Should().BeFalse();
 
-        // Diagnostic must explain why VolumeRatio is absent.
+        // Diagnostic должен объяснять, почему VolumeRatio отсутствует.
         var diag = s.IndicatorDiagnostics.Should().ContainSingle(d => d.Indicator == "volumeRatio").Subject;
         diag.Timeframe.Should().Be("1h");
         diag.Reason.Should().Be(IndicatorValueReason.InvalidInput.ToString(),
@@ -284,7 +284,7 @@ public sealed class IndicatorPipelineIntegrationTests
 
     private static readonly string[] _timeframeOrder = ["15m", "1h", "1d"];
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     /// <summary>
     /// Строит минимальный рыночный снимок и возвращает его агрегированные диагностические данные,

@@ -2,6 +2,8 @@
 
 Используй корневой `AGENTS.md` как основной источник постоянных правил разработки репозитория и применяй path-specific инструкции из `.github/instructions/`, когда они относятся к изменяемым файлам.
 
+Языковая политика человекочитаемого текста, XML documentation и комментариев определена в корневом `AGENTS.md`; для C# дополнительно применяй правила из `backend/src/AGENTS.md`.
+
 Для разработки следуй каноническому agent-first workflow из корневого `AGENTS.md`. До Issue используется Discovery-контур `Discussion / Research → Human decisions → Issue`; после Issue агент составляет Implementation Plan, а implementation нетривиальной задачи начинается только после явного Human Gate. Issue задаёт согласованный `WHAT`, approved Plan — `HOW`, а `ROADMAP.md` остаётся источником статуса разработки и последовательности этапов.
 
 Дополнительные правила:

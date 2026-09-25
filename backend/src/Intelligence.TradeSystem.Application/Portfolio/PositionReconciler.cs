@@ -48,8 +48,8 @@ public static class PositionReconciler
 
         void RefreshAccountFreshness()
         {
-            // Freshness is independent of category and symbol scope, but reconciliation must
-            // never mutate a position belonging to a different exchange account.
+            // Свежесть не зависит от category и symbol scope, но reconciliation не должна
+            // изменять позицию, принадлежащую другому биржевому аккаунту.
             foreach (var position in trackedPositions.Concat(newPositions))
             {
                 if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
@@ -77,8 +77,8 @@ public static class PositionReconciler
             };
         }
 
-        // A response that is older than an active lifecycle cannot prove a new state or
-        // absence. Ignore its data while still evaluating freshness.
+        // Ответ, который старше активного lifecycle, не может подтверждать новое состояние или
+        // отсутствие. Его данные игнорируются, но свежесть по-прежнему оценивается.
         var scopedActivePositions = trackedPositions
             .Where(position =>
                 position.TrackingState != PositionTrackingState.Closed &&
@@ -122,8 +122,8 @@ public static class PositionReconciler
             };
         }
 
-        // Only currently active (non-closed) lifecycles can be matched and updated by a new
-        // observation. A previously closed position with a matching key must not be reopened.
+        // С новым наблюдением можно сопоставлять и обновлять только активные (не закрытые)
+        // lifecycles. Ранее закрытая позиция с совпадающим ключом не должна открываться повторно.
         var activeByKey = trackedPositions
             .Where(position =>
                 position.TrackingState != PositionTrackingState.Closed &&
@@ -229,9 +229,9 @@ public static class PositionReconciler
             }
         }
 
-        // A Complete observation can only prove absence (and therefore closure) when it covers
-        // its scope with no unresolved mapping ambiguity. Partial observations, or Complete
-        // observations degraded by unmappable/duplicate entries, can never close a position.
+        // Наблюдение Complete может подтверждать отсутствие (и тем самым закрытие), только если оно охватывает
+        // свою область без неразрешённой неоднозначности mapping. Partial-наблюдения и Complete-наблюдения,
+        // ухудшенные из-за несопоставимых или дублирующихся записей, никогда не закрывают позицию.
         var canInferClosed = observation.Status == OpenPositionsObservationStatus.Complete && !hasMappingIssues;
         var missingCause = canInferClosed
             ? PositionChangeCause.MissingFromCompleteObservation

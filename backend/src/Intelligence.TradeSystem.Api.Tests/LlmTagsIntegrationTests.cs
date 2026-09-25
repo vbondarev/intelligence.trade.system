@@ -180,7 +180,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFac
         tags.Should().Contain(MarketTagConstants.NoCleanEntry);
     }
 
-    // ─── Conflicting tags never co-exist ─────────────────────────────────────
+    // ─── Противоречивые tags никогда не сосуществуют ─────────────────────────
 
     [Fact]
     public async Task Tags_Never_Contain_Both_Trending_And_Neutral()
@@ -211,11 +211,11 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFac
     [Fact]
     public async Task Tags_Contain_TrendConfirmedEntryFiltered_And_WeakEntryConfirmation_When_Trend_Confirmed_But_Entry_Poor()
     {
-        // Bullish snapshot with EmaBullishAlignment=true and IsAboveEma200=true → IsTrendConfirmed=true.
-        // Stale CapturedAtUtc causes EntryQuality=Poor, so LlmTimeframeSummaryBuilder adds
-        // "TrendConfirmedButEntryFiltered" to riskFlags. LlmTagEnricher maps it to
-        // "trend-confirmed-entry-filtered". AggressiveBuying in base tags triggers
-        // "weak-entry-confirmation" (directional signal + Poor entry).
+        // В Bullish snapshot EmaBullishAlignment=true и IsAboveEma200=true → IsTrendConfirmed=true.
+        // Устаревший CapturedAtUtc даёт EntryQuality=Poor, поэтому LlmTimeframeSummaryBuilder добавляет
+        // "TrendConfirmedButEntryFiltered" в riskFlags. LlmTagEnricher преобразует его в
+        // "trend-confirmed-entry-filtered". AggressiveBuying в базовых tags запускает
+        // "weak-entry-confirmation" (направленный сигнал + Poor entry).
         var snapshot = ApiSnapshotTestData.CreateSnapshot() with
         {
             Tags = [MarketTagConstants.AggressiveBuying],
@@ -230,7 +230,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFac
         tags.Should().Contain(MarketTagConstants.WeakEntryConfirmation);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     /// <summary>
     /// Снапшот с известными входными данными, которые должны дать конкретный набор тегов:
@@ -250,7 +250,7 @@ public sealed class LlmTagsIntegrationTests : IClassFixture<ApiWebApplicationFac
                 HasAggressiveSellPressure = false,
             },
             Sentiment = snapshot.Sentiment with { MarketRegime = "Trending" },
-            Tags = ["trending", "positive-funding"],  // pre-built tags from test fixture
+            Tags = ["trending", "positive-funding"],  // заранее подготовленные tags из test fixture
         };
     }
 

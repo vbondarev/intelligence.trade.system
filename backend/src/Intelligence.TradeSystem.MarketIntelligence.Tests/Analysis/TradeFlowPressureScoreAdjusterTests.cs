@@ -26,10 +26,10 @@ public sealed class TradeFlowPressureScoreAdjusterTests
 {
     private const long DefaultMaxAgeMs = TradeFlowPressureScoreAdjuster.DefaultMaxTradeFlowAgeMs; // 5_000
 
-    // --- 1–2. Staleness-based caps -------------------------------------------
+    // --- 1–2. Ограничения по актуальности ---------------------------------------
 
     [Theory]
-    [InlineData(-7_000, 0.50)]   // age > maxAge but < maxAge×2 → StaleCap
+    [InlineData(-7_000, 0.50)]   // age > maxAge, но < maxAge×2 → StaleCap
     [InlineData(-25_000, 0.25)]  // age > maxAge×2 → VeryStaleCap
     public void Staleness_Caps_Score_Based_On_Age(int windowEndOffsetMs, double expectedCap)
     {
@@ -49,7 +49,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
-    // --- 3–5. Window-based caps -----------------------------------------------
+    // --- 3–5. Ограничения по длительности окна ----------------------------------
 
     [Theory]
     [InlineData(8, 0.25)]   // < 10 s
@@ -69,7 +69,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
-    // --- 6–7. Volume-based caps -----------------------------------------------
+    // --- 6–7. Ограничения по объёму ---------------------------------------------
 
     [Theory]
     [InlineData(0.872, 0.1, 0.35)]  // total < 1 BTC
@@ -89,13 +89,13 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo((decimal)expectedCap);
     }
 
-    // --- 8. Conflict: obScore < 0 --------------------------------------------
+    // --- 8. Конфликт: obScore < 0 -----------------------------------------------
 
     [Fact]
     public void Conflict_With_OrderBook_Caps_Score_At_0_50()
     {
         var now = DateTimeOffset.UtcNow;
-        // Long window, big volume, fresh > only conflict cap applies
+        // Длинное окно, большой объём, свежие данные → применяется только ограничение конфликта
         var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300, buyVolume: 50m, sellVolume: 50m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
@@ -107,7 +107,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.50m);
     }
 
-    // --- 9. Conflict + short window < 30 s -----------------------------------
+    // --- 9. Конфликт + короткое окно < 30 s ----------------------------------
 
     [Fact]
     public void Conflict_And_Short_Window_Caps_Score_At_0_25()
@@ -124,7 +124,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.25m);
     }
 
-    // --- 10. Negative raw score � sign preserved ------------------------------
+    // --- 10. Отрицательная исходная оценка — знак сохраняется ------------------
 
     [Fact]
     public void Negative_RawScore_Preserves_Sign_After_Cap()
@@ -142,13 +142,13 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeGreaterThanOrEqualTo(-0.25m);
     }
 
-    // --- 11. Raw score below active cap � score unchanged --------------------
+    // --- 11. Исходная оценка ниже действующего ограничения — оценка не изменяется -
 
     [Fact]
     public void Score_Below_Cap_Is_Not_Changed()
     {
         var now = DateTimeOffset.UtcNow;
-        // Window = 8 s > cap = 0.25; raw = 0.2 < 0.25 > unchanged
+        // Window = 8 s → ограничение = 0.25; raw = 0.2 < 0.25 → значение не меняется
         var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 8, buyVolume: 50m, sellVolume: 50m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
@@ -160,13 +160,13 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().Be(0.2m);
     }
 
-    // --- 12. Clean scenario � no caps apply ----------------------------------
+    // --- 12. Чистый сценарий — ограничения не применяются -----------------------
 
     [Fact]
     public void Clean_Scenario_Allows_Full_Score()
     {
         var now = DateTimeOffset.UtcNow;
-        // Fresh, window >= 300 s, volume >= 3 BTC, no conflict
+        // Свежие данные, окно >= 300 s, volume >= 3 BTC, конфликт отсутствует
         var tradeFlow = CreateFreshTradeFlow(now, windowSeconds: 300, buyVolume: 10m, sellVolume: 5m);
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
@@ -178,17 +178,17 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().Be(1m);
     }
 
-    // --- 13. Composition: strictest cap wins ---------------------------------
+    // --- 13. Композиция: применяется самое строгое ограничение ------------------
 
     [Fact]
     public void Strictest_Cap_Wins_When_Multiple_Caps_Apply()
     {
-        // stale cap = 0.50, short window (8 s) cap = 0.25, volume (<1) cap = 0.35, conflict cap = 0.50
+        // ограничение актуальности = 0.50, короткое окно (8 s) = 0.25, volume (<1) = 0.35, конфликт = 0.50
         // strictest = 0.25
         var now = DateTimeOffset.UtcNow;
         var tradeFlow = CreateTradeFlow(
             windowEnd: now.AddMilliseconds(-12_000),           // stale
-            windowStart: now.AddMilliseconds(-12_000 - 8_000), // window = 8 s
+            windowStart: now.AddMilliseconds(-12_000 - 8_000), // окно = 8 s
             buyVolume: 0.872m, sellVolume: 0.1m);              // total < 1 BTC
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
@@ -201,15 +201,15 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.25m);
     }
 
-    // --- 14. Regression: BTCUSDT-like snapshot -------------------------------
+    // --- 14. Регрессия: снимок в стиле BTCUSDT -------------------------------
 
     [Fact]
     public void Regression_BTCUSDT_Like_Stale_Short_Conflict_Caps_At_0_25()
     {
         // buyVolume = 0.872, sellVolume = 0.1
-        // deltaPct ? 79% > raw = 1 (clamped after AggressiveBuyPressure floor in assembler)
-        // windowDuration ? 8 s
-        // tradeFlowAgeMs ? 5824, maxTradeFlowAgeMs = 5000
+        // deltaPct ≈ 79% → raw = 1 (после clamp и floor AggressiveBuyPressure в assembler)
+        // WindowDuration = 8 s
+        // tradeFlowAgeMs = 5824, maxTradeFlowAgeMs = 5000
         // orderBookPressureScore < 0 (AskDominant)
         var maxAgeMs = 5_000L;
         var now = DateTimeOffset.UtcNow;
@@ -220,12 +220,12 @@ public sealed class TradeFlowPressureScoreAdjusterTests
             windowStart: windowStart,
             buyVolume: 0.872m, sellVolume: 0.1m);
 
-        // Caps:
-        //   freshness: ageMs=5824 > maxAge=5000 > cap=0.50
-        //   window:    8 s < 10 s               > cap=0.25
-        //   volume:    0.972 < 1 BTC             > cap=0.35
-        //   conflict:  obScore<0, window<30s     > conflictWithWeakness cap=0.25
-        // Strictest: 0.25
+        // Ограничения:
+        //   актуальность: ageMs=5824 > maxAge=5000 → ограничение=0.50
+        //   окно:        8 s < 10 s               → ограничение=0.25
+        //   объём:       0.972 < 1 BTC             → ограничение=0.35
+        //   конфликт: obScore<0, окно<30s → conflictWithWeakness ограничение=0.25
+        // Самое строгое ограничение: 0.25
 
         var result = TradeFlowPressureScoreAdjuster.ApplyCaps(
             rawScore: 1m,
@@ -237,7 +237,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.25m, because: "BTCUSDT-regression: stale+short window+conflict");
     }
 
-    // --- ComputeWindowCap unit tests -----------------------------------------
+    // --- Unit-тесты ComputeWindowCap ------------------------------------------
 
     [Theory]
     [InlineData(0, 0.25)]
@@ -254,7 +254,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         TradeFlowPressureScoreAdjuster.ComputeWindowCap(windowSeconds).Should().Be(expectedCap);
     }
 
-    // --- ComputeVolumeCap unit tests -----------------------------------------
+    // --- Unit-тесты ComputeVolumeCap ------------------------------------------
 
     [Theory]
     [InlineData(0, 0.35)]
@@ -269,35 +269,35 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         TradeFlowPressureScoreAdjuster.ComputeVolumeCap(totalVolume).Should().Be(expectedCap);
     }
 
-    // --- HasOrderBookConflict unit tests -------------------------------------
+    // --- Unit-тесты HasOrderBookConflict --------------------------------------
 
     [Theory]
-    [InlineData(1, -0.1, true)]   // tf positive, ob negative > conflict
-    [InlineData(-1, 0.1, true)]   // tf negative, ob positive > conflict
-    [InlineData(1, 0.1, false)]   // same sign
-    [InlineData(-1, -0.1, false)] // same sign
-    [InlineData(0, -0.5, false)]  // tf zero > no conflict
-    [InlineData(1, 0, false)]     // ob zero > no conflict
+    [InlineData(1, -0.1, true)]   // tf положительный, ob отрицательный → conflict
+    [InlineData(-1, 0.1, true)]   // tf отрицательный, ob положительный → conflict
+    [InlineData(1, 0.1, false)]   // одинаковый знак
+    [InlineData(-1, -0.1, false)] // одинаковый знак
+    [InlineData(0, -0.5, false)]  // tf = 0 → conflict отсутствует
+    [InlineData(1, 0, false)]     // ob = 0 → conflict отсутствует
     public void HasOrderBookConflict_Detects_Conflict(decimal tfScore, decimal obScore, bool expected)
     {
         TradeFlowPressureScoreAdjuster.HasOrderBookConflict(tfScore, obScore).Should().Be(expected);
     }
 
-    // --- ApplyCapToScore unit tests -------------------------------------------
+    // --- Unit-тесты ApplyCapToScore -------------------------------------------
 
     [Theory]
-    [InlineData(1, 0.25, 0.25)]    // positive, cap applies
-    [InlineData(-1, 0.25, -0.25)]  // negative, cap applies with sign
-    [InlineData(0.2, 0.25, 0.2)]   // below cap, unchanged
-    [InlineData(-0.2, 0.25, -0.2)] // below cap, unchanged (negative)
-    [InlineData(0, 0.25, 0)]       // zero stays zero
+    [InlineData(1, 0.25, 0.25)]    // положительное значение — cap применяется
+    [InlineData(-1, 0.25, -0.25)]  // отрицательное значение — cap применяется с сохранением знака
+    [InlineData(0.2, 0.25, 0.2)]   // ниже cap — без изменений
+    [InlineData(-0.2, 0.25, -0.2)] // ниже cap — без изменений (отрицательное значение)
+    [InlineData(0, 0.25, 0)]       // ноль остаётся нулём
     public void ApplyCapToScore_Applies_Cap_With_Sign_Preservation(
         decimal rawScore, decimal cap, decimal expected)
     {
         TradeFlowPressureScoreAdjuster.ApplyCapToScore(rawScore, cap).Should().Be(expected);
     }
 
-    // --- Quality tags tests ---------------------------------------------------
+    // --- Тесты тегов качества --------------------------------------------------
 
     [Fact]
     public void ComputeQualityTags_Returns_Expected_Tags_For_Regression_Scenario()
@@ -342,7 +342,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         tags.Should().NotContain(MarketTagConstants.WeakTradeFlowConfirmation);
     }
 
-    // --- Helpers --------------------------------------------------------------
+    // --- Вспомогательные методы ------------------------------------------------
 
     /// <summary>
     /// Создаёт TradeFlowSnapshot, свежий (windowEnd == capturedAtUtc),

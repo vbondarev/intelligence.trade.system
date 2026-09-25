@@ -44,16 +44,16 @@ public sealed class BybitExchangeAccountAccessVerifier(
             return FromFailure(metadata.Failure);
         }
 
-        // Bybit's readOnly flag is the authoritative write-safety check. The
-        // capabilities below are confirmed by the corresponding read operations.
+        // Флаг readOnly Bybit — источник истины для проверки запрета записи.
+        // Указанные ниже capabilities подтверждаются соответствующими операциями чтения.
         if (metadata.Metadata?.IsReadOnly != true)
         {
             return ExchangeAccountAccessVerificationResult.Failed(
                 ExchangeAccountAccessVerificationStatus.PermissionsRejected);
         }
 
-        // D-01 verifies the currently supported Unified/Linear Bybit path;
-        // legacy account-mode probing is intentionally out of scope.
+        // D-01 проверяет поддерживаемый путь Unified/Linear Bybit;
+        // проверка legacy account mode намеренно не входит в scope.
         var balance = await lease.Provider
             .GetWalletBalanceAsync(AccountType.Unified, cancellationToken)
             .ConfigureAwait(false);

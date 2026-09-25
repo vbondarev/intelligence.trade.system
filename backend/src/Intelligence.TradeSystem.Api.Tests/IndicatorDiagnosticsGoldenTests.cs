@@ -25,17 +25,17 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         _factory = factory;
     }
 
-    // ─── Golden: RSI unavailable serializes as null, not 0 ───────────────────
+    // ─── Эталонный тест: недоступный RSI сериализуется как null, а не 0 ───────
 
     [Fact]
     public async Task LlmPayload_Sets_Rsi14_To_Null_And_Adds_Diagnostic_When_Insufficient_Candles()
     {
-        // Snapshot with RSI unavailable (Rsi14 = null, Rsi14IsReliable = false).
+        // Snapshot с недоступным RSI (Rsi14 = null, Rsi14IsReliable = false).
         var snapshot = ApiSnapshotTestData.CreateSnapshot(MarketTrend.Bullish,
             overrideIsAboveEma200: null, overrideEmaBullish: null, overrideEmaBearish: null,
             overrideRsi14: null, overrideRsiOverbought: false, overrideRsiOversold: false);
 
-        // Inject a diagnostic explaining the null.
+        // Добавить diagnostic, объясняющий значение null.
         snapshot = snapshot with
         {
             IndicatorDiagnostics =
@@ -59,18 +59,18 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-        // rsi14 must be null, not 0.
+        // rsi14 должен быть null, а не 0.
         var rsi = json.RootElement.GetProperty("m15").GetProperty("rsi14");
         rsi.ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable RSI must serialize as null, not 0");
 
-        // rsiOversold/rsiOverbought must be false.
+        // rsiOversold/rsiOverbought должны быть false.
         json.RootElement.GetProperty("m15").GetProperty("rsiOversold").GetBoolean()
             .Should().BeFalse();
         json.RootElement.GetProperty("m15").GetProperty("rsiOverbought").GetBoolean()
             .Should().BeFalse();
 
-        // indicatorDiagnostics contains the rsi14 diagnostic.
+        // indicatorDiagnostics содержит diagnostic для rsi14.
         var diags = json.RootElement.GetProperty("indicatorDiagnostics");
         diags.ValueKind.Should().Be(JsonValueKind.Array);
         var rsiDiag = diags.EnumerateArray()
@@ -81,7 +81,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         rsiDiag.GetProperty("isFallback").GetBoolean().Should().BeFalse();
     }
 
-    // ─── Golden: ATR unavailable serializes as null ───────────────────────────
+    // ─── Эталонный тест: недоступный ATR сериализуется как null ────────────────
 
     [Fact]
     public async Task LlmPayload_Sets_Atr14_To_Null_When_Insufficient_Candles()
@@ -109,14 +109,14 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         atr.ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable ATR must serialize as null, not 0");
 
-        // Diagnostic present.
+        // Diagnostic присутствует.
         var diags = json.RootElement.GetProperty("indicatorDiagnostics").EnumerateArray()
             .FirstOrDefault(d => d.GetProperty("indicator").GetString() == "atr14");
         diags.ValueKind.Should().NotBe(JsonValueKind.Undefined);
         diags.GetProperty("reason").GetString().Should().Be("InsufficientData");
     }
 
-    // ─── Golden: EMA200 partial window adds fallback diagnostic ───────────────
+    // ─── Эталонный тест: частичное окно EMA200 добавляет fallback diagnostic ───
 
     [Fact]
     public async Task LlmPayload_Keeps_Ema200_Value_And_Adds_FallbackDiagnostic_For_PartialWindow()
@@ -140,12 +140,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-        // ema200 has a numeric value (fallback, not null).
+        // ema200 имеет числовое значение (fallback, а не null).
         var ema200 = json.RootElement.GetProperty("m15").GetProperty("ema200");
         ema200.ValueKind.Should().Be(JsonValueKind.Number,
             because: "EMA200 fallback should produce a numeric value, not null");
 
-        // Fallback diagnostic present.
+        // Fallback diagnostic присутствует.
         var diag = json.RootElement.GetProperty("indicatorDiagnostics").EnumerateArray()
             .FirstOrDefault(d => d.GetProperty("indicator").GetString() == "ema200");
         diag.ValueKind.Should().NotBe(JsonValueKind.Undefined);
@@ -153,14 +153,14 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         diag.GetProperty("isFallback").GetBoolean().Should().BeTrue();
     }
 
-    // ─── Golden: indicatorDiagnostics empty with full data ────────────────────
+    // ─── Эталонный тест: indicatorDiagnostics пуст при полном наборе данных ────
 
     [Fact]
     public async Task LlmPayload_Has_Empty_IndicatorDiagnostics_When_All_Indicators_Available()
     {
-        // All indicators available → no diagnostics.
+        // Все индикаторы доступны → diagnostics отсутствуют.
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
-        // IndicatorDiagnostics defaults to [] in MarketSnapshot.
+        // В MarketSnapshot IndicatorDiagnostics по умолчанию равен [].
 
         var service = MockService(snapshot);
         using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
@@ -176,7 +176,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
             because: "no diagnostics expected when all indicators are fully available");
     }
 
-    // ─── Golden: stable order of indicatorDiagnostics in JSON ─────────────────
+    // ─── Эталонный тест: стабильный порядок indicatorDiagnostics в JSON ────────
 
     [Fact]
     public async Task LlmPayload_IndicatorDiagnostics_Are_In_Stable_Order_In_Json()
@@ -198,7 +198,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         diags.Should().HaveCount(3);
 
-        // Stable order: 15m ema200 → 15m rsi14 → 1h ema200.
+        // Стабильный порядок: 15m ema200 → 15m rsi14 → 1h ema200.
         diags[0].GetProperty("timeframe").GetString().Should().Be("15m");
         diags[0].GetProperty("indicator").GetString().Should().Be("ema200");
         diags[1].GetProperty("timeframe").GetString().Should().Be("15m");
@@ -207,12 +207,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         diags[2].GetProperty("indicator").GetString().Should().Be("ema200");
     }
 
-    // ─── Golden: complete JSON fragment with null indicators and diagnostics ──
+    // ─── Эталонный тест: полный JSON-фрагмент с null-индикаторами и diagnostics
 
     [Fact]
     public async Task LlmPayload_GoldenJson_Contains_Null_Indicators_And_Diagnostics()
     {
-        // rsi14 = null (unavailable) + ema200 = fallback + atr14 = null.
+        // rsi14 = null (unavailable), ema200 использует fallback, atr14 = null.
         var snapshot = BuildSnapshotWithDiagnostics(
             [
                 new IndicatorDiagnosticSnapshot { Timeframe = "15m", Indicator = "ema200", Reason = "PartialWindow",    IsFallback = true,  Message = "15m.ema200 calculated using fallback: PartialWindow." },
@@ -232,23 +232,23 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         var m15 = json.RootElement.GetProperty("m15");
 
-        // rsi14 must be null, not 0.
+        // rsi14 должен быть null, а не 0.
         m15.GetProperty("rsi14").ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable RSI must be null in JSON, not 0");
 
-        // atr14 must be null, not 0.
+        // atr14 должен быть null, а не 0.
         m15.GetProperty("atr14").ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable ATR must be null in JSON, not 0");
 
-        // ema200 has a number (fallback).
+        // ema200 имеет числовое значение (fallback).
         m15.GetProperty("ema200").ValueKind.Should().Be(JsonValueKind.Number,
             because: "EMA200 fallback has a numeric value");
 
-        // No false oversold/overbought.
+        // Ложные oversold/overbought отсутствуют.
         m15.GetProperty("rsiOversold").GetBoolean().Should().BeFalse();
         m15.GetProperty("rsiOverbought").GetBoolean().Should().BeFalse();
 
-        // indicatorDiagnostics has 3 entries.
+        // indicatorDiagnostics содержит 3 записи.
         var diags = json.RootElement.GetProperty("indicatorDiagnostics").EnumerateArray().ToList();
         diags.Should().HaveCount(3);
         diags.Should().Contain(d => d.GetProperty("indicator").GetString() == "rsi14"
@@ -259,12 +259,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
                                  && d.GetProperty("isFallback").GetBoolean() == false);
     }
 
-    // ─── Golden: VolumeRatio unavailable serializes as null + diagnostic ────────
+    // ─── Эталонный тест: недоступный VolumeRatio сериализуется как null + diagnostic
 
     [Fact]
     public async Task LlmPayload_Sets_VolumeRatio_To_Null_And_Adds_Diagnostic_When_Unavailable()
     {
-        // VolumeRatio = null (e.g. VolumeSma20 == 0 → division by zero → InvalidInput).
+        // VolumeRatio = null (например, VolumeSma20 == 0 → деление на ноль → InvalidInput).
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         snapshot = snapshot with
         {
@@ -293,12 +293,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-        // volumeRatio must be null, not 0.
+        // volumeRatio должен быть null, а не 0.
         var volumeRatio = json.RootElement.GetProperty("m15").GetProperty("volumeRatio");
         volumeRatio.ValueKind.Should().Be(JsonValueKind.Null,
             because: "unavailable VolumeRatio must serialize as null, not 0");
 
-        // Diagnostic present with correct reason.
+        // Diagnostic присутствует с корректной причиной.
         var diag = json.RootElement.GetProperty("indicatorDiagnostics").EnumerateArray()
             .FirstOrDefault(d => d.GetProperty("indicator").GetString() == "volumeRatio");
         diag.ValueKind.Should().NotBe(JsonValueKind.Undefined,
@@ -307,12 +307,12 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         diag.GetProperty("isFallback").GetBoolean().Should().BeFalse();
     }
 
-    // ─── Golden: level not found → flat support1 = null in JSON ──────────────
+    // ─── Эталонный тест: уровень не найден → плоское support1 = null в JSON ───
 
     [Fact]
     public async Task LlmPayload_Sets_Support1_To_Null_In_Json_When_Level_Not_Found()
     {
-        // Flat support1 field must serialize as null when the level is absent — not as 0.
+        // Плоское поле support1 при отсутствии уровня должно сериализоваться как null, а не как 0.
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
         snapshot = snapshot with
         {
@@ -336,7 +336,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var m15 = json.RootElement.GetProperty("m15");
 
-        // Flat level fields must be null.
+        // Плоские поля уровней должны быть null.
         m15.GetProperty("support1").ValueKind.Should().Be(JsonValueKind.Null,
             because: "absent support1 level must be null in JSON, not 0");
         m15.GetProperty("support2").ValueKind.Should().Be(JsonValueKind.Null,
@@ -346,18 +346,18 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         m15.GetProperty("resistance2").ValueKind.Should().Be(JsonValueKind.Null,
             because: "absent resistance2 level must be null in JSON, not 0");
 
-        // Meta fields must be absent entirely (JsonIgnore(WhenWritingNull)).
+        // Поля Meta должны полностью отсутствовать (JsonIgnore(WhenWritingNull)).
         m15.TryGetProperty("support1Meta", out _).Should().BeFalse(
             because: "absent level must not produce a meta object in JSON");
     }
 
-    // ─── Golden: level found → JSON meta contains all four fields ────────────
+    // ─── Эталонный тест: найденный уровень → JSON meta содержит все четыре поля
 
     [Fact]
     public async Task LlmPayload_Level_Meta_Contains_All_Fields_In_Json_When_Level_Found()
     {
-        // Verify that when a level is detected, the full meta object (price/strength/source/clusterVolume)
-        // is present in the raw JSON wire format — not just in the typed C# object.
+        // Проверить, что при обнаружении уровня полный объект meta (price/strength/source/clusterVolume)
+        // присутствует в исходном JSON wire format, а не только в типизированном C#-объекте.
         var snapshot = ApiSnapshotTestData.CreateSnapshot();
 
         var service = MockService(snapshot);
@@ -369,30 +369,30 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var meta = json.RootElement.GetProperty("m15").GetProperty("support1Meta");
 
-        // price — numeric, matches flat support1.
+        // price — числовое значение, совпадающее с полем support1.
         meta.GetProperty("price").ValueKind.Should().Be(JsonValueKind.Number,
             because: "support1Meta.price must be a number in JSON");
         meta.GetProperty("price").GetDecimal().Should().Be(
             json.RootElement.GetProperty("m15").GetProperty("support1").GetDecimal(),
             because: "meta.price must match flat support1 field");
 
-        // strength — numeric, in [0, 1].
+        // strength — числовое значение в [0, 1].
         meta.GetProperty("strength").ValueKind.Should().Be(JsonValueKind.Number,
             because: "support1Meta.strength must be a number in JSON");
         meta.GetProperty("strength").GetDecimal().Should().BeInRange(0m, 1m);
 
-        // source — string, volume-profile.
+        // source — строка volume-profile.
         meta.GetProperty("source").GetString().Should().Be("volume-profile",
             because: "only SimplifiedVolumeProfile detector is used in V1");
 
-        // clusterVolume — numeric, > 0.
+        // clusterVolume — числовое значение, > 0.
         meta.GetProperty("clusterVolume").ValueKind.Should().Be(JsonValueKind.Number,
             because: "support1Meta.clusterVolume must be serialized as a number in JSON");
         meta.GetProperty("clusterVolume").GetDecimal().Should().BePositive(
             because: "clusterVolume of a detected level must be > 0");
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ────────────────────────────────────────────────
 
     private static Mock<IMarketSnapshotService> MockService(MarketSnapshot snapshot)
     {
@@ -424,7 +424,7 @@ public sealed class IndicatorDiagnosticsGoldenTests : IClassFixture<ApiWebApplic
             overrideRsiOverbought: overrideRsiOverbought,
             overrideRsiOversold: overrideRsiOversold);
 
-        // Apply ATR override to all timeframes if needed.
+        // При необходимости применить переопределение ATR ко всем таймфреймам.
         if (!overrideAtrIsReliable || overrideAtr14 != 180m)
         {
             snapshot = snapshot with

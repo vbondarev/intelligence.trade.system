@@ -12,7 +12,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Analysis;
 /// </summary>
 internal static class TradeFlowPressureScoreAdjuster
 {
-    // -- Freshness caps -------------------------------------------------------
+    // -- Ограничения актуальности -----------------------------------------------
 
     /// <summary>
     /// Значение по умолчанию для maxTradeFlowAgeMs.
@@ -21,7 +21,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// При вызове из Application-слоя это значение используется как консервативный fallback;
     /// точный порог, зависящий от режима, передаётся из <c>SectionFreshnessOptions</c> в API-слое.
     /// </summary>
-    internal const long DefaultMaxTradeFlowAgeMs = 5_000L; // 5 s — Intraday threshold
+    internal const long DefaultMaxTradeFlowAgeMs = 5_000L; // 5 s — порог Intraday
 
     /// <summary>Ограничение для age > maxAge (устаревший снимок).</summary>
     internal const decimal StaleCap = 0.50m;
@@ -29,7 +29,7 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Ограничение для age > maxAge × 2 (сильно устаревший снимок).</summary>
     internal const decimal VeryStaleCap = 0.25m;
 
-    // -- Window duration caps -------------------------------------------------
+    // -- Ограничения по длительности окна -------------------------------------
 
     /// <summary>Нижняя граница большого окна; при большей длительности окна ограничение не применяется.</summary>
     internal const double WindowLargeCapThresholdSeconds = 60.0;
@@ -40,20 +40,20 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Нижняя граница короткого окна.</summary>
     internal const double WindowShortCapThresholdSeconds = 10.0;
 
-    /// <summary>Ограничение для windowDuration >= 60 s — на уровне window ограничение отсутствует.</summary>
+    /// <summary>Ограничение для WindowDuration >= 60 s — по длительности окна ограничение отсутствует.</summary>
     /// <remarks>Значение 1 означает «нет ограничения».</remarks>
     internal const decimal WindowNoCap = 1.0m;
 
-    /// <summary>Ограничение для windowDuration в [30, 60).</summary>
+    /// <summary>Ограничение для WindowDuration в [30, 60).</summary>
     internal const decimal WindowLargeCap = 0.50m;
 
-    /// <summary>Ограничение для windowDuration в [10, 30).</summary>
+    /// <summary>Ограничение для WindowDuration в [10, 30).</summary>
     internal const decimal WindowMediumCap = 0.35m;
 
-    /// <summary>Ограничение для windowDuration &lt; 10 s.</summary>
+    /// <summary>Ограничение для WindowDuration &lt; 10 s.</summary>
     internal const decimal WindowShortCap = 0.25m;
 
-    // -- Volume caps ----------------------------------------------------------
+    // -- Ограничения по объёму -------------------------------------------------
 
     // TODO: ввести symbol-specific пороги объёма (например, в единицах symbol > thresholds).
     // Текущие пороги калиброваны по BTCUSDT (единицы: base asset, например BTC).
@@ -70,17 +70,17 @@ internal static class TradeFlowPressureScoreAdjuster
     /// <summary>Ограничение для totalVolume в [VolumeLowThreshold, VolumeMediumThreshold).</summary>
     internal const decimal VolumeMediumCap = 0.50m;
 
-    // -- Conflict caps --------------------------------------------------------
+    // -- Ограничения при конфликте ---------------------------------------------
 
     /// <summary>Ограничение при конфликте orderBook и tradeFlow.</summary>
     internal const decimal ConflictCap = 0.50m;
 
     /// <summary>
-    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или window &lt; 30 s.
+    /// Усиленное ограничение при конфликте и устаревшем tradeFlow или WindowDuration &lt; 30 s.
     /// </summary>
     internal const decimal ConflictWithWeaknessCap = 0.25m;
 
-    // -- Public API -----------------------------------------------------------
+    // -- Публичный API --------------------------------------------------------
 
     /// <summary>
     /// Применяет все ограничения качества к <paramref name="rawScore"/> и возвращает скорректированный score.
@@ -112,18 +112,18 @@ internal static class TradeFlowPressureScoreAdjuster
 
         var cap = 1.0m; // без cap по умолчанию
 
-        // 1. Freshness cap (только при наличии reference time)
+        // 1. Ограничение актуальности (только при наличии reference time)
         cap = Math.Min(cap, ComputeFreshnessCap(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs));
 
-        // 2. Window duration cap
+        // 2. Ограничение по длительности окна
         var windowSeconds = (tradeFlow.WindowEndUtc - tradeFlow.WindowStartUtc).TotalSeconds;
         cap = Math.Min(cap, ComputeWindowCap(windowSeconds));
 
-        // 3. Volume cap
+        // 3. Ограничение по объёму
         var totalVolume = tradeFlow.BuyVolume + tradeFlow.SellVolume;
         cap = Math.Min(cap, ComputeVolumeCap(totalVolume));
 
-        // 4. Conflict cap
+        // 4. Ограничение при конфликте
         if (HasOrderBookConflict(rawScore, orderBookPressureScore))
         {
             var isWeak = IsStaleOrShortWindow(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs, windowSeconds);
@@ -131,7 +131,7 @@ internal static class TradeFlowPressureScoreAdjuster
             cap = Math.Min(cap, conflictCap);
         }
 
-        // Apply cap with sign preservation
+        // Применяем ограничение с сохранением знака
         return ApplyCapToScore(rawScore, cap);
     }
 
@@ -162,14 +162,14 @@ internal static class TradeFlowPressureScoreAdjuster
         if (rawScore != 0m && HasOrderBookConflict(rawScore, orderBookPressureScore))
             tags.Add(MarketTagConstants.OrderBookTradeFlowConflict);
 
-        // Сводный предупредительный тег: хотя бы один factors сработал
+        // Сводный предупредительный тег: хотя бы один фактор сработал
         if (tags.Count > 0)
             tags.Add(MarketTagConstants.WeakTradeFlowConfirmation);
 
         return tags;
     }
 
-    // -- Private helpers ------------------------------------------------------
+    // -- Вспомогательные методы -------------------------------------------------
 
     /// <summary>
     /// Вычисляет ограничение актуальности. Возвращает 1.0 (нет ограничения), если capturedAtUtc == null.
@@ -217,7 +217,7 @@ internal static class TradeFlowPressureScoreAdjuster
 
     /// <summary>
     /// Определяет, является ли tradeFlow слабым для применения ограничения конфликта:
-    /// устаревший снимок или window &lt; 30 s.
+    /// устаревший снимок или WindowDuration &lt; 30 s.
     /// </summary>
     private static bool IsStaleOrShortWindow(
         TradeFlowSnapshot tradeFlow,

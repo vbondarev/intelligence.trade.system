@@ -43,7 +43,7 @@ public static class TimeframeSnapshotAssembler
             throw new ArgumentException("Klines collection is empty.", nameof(klines));
         }
 
-        // 1a. Validate — filter out dirty candles; violations → IndicatorDiagnostics.
+        // 1a. Validate — отбрасываем некорректные свечи; нарушения → IndicatorDiagnostics.
         var validKlines = KlineValidator.FilterValid(klines, out var violations);
 
         if (validKlines.Count == 0)
@@ -71,7 +71,7 @@ public static class TimeframeSnapshotAssembler
         // 3a. Diagnostics — собираем в порядке индикаторов (стабильный порядок).
         var indicatorDiagnostics = new List<IndicatorDiagnostic>();
 
-        // Prepend kline-level violations so consumers see data quality issues first.
+        // Сначала добавляем нарушения по kline, чтобы потребители первыми видели проблемы качества данных.
         foreach (var violation in violations)
         {
             indicatorDiagnostics.Add(new IndicatorDiagnostic
@@ -84,9 +84,9 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // Degradation policy — emit additional diagnostics for structurally significant data issues.
+        // Политика деградации: добавляем дополнительные diagnostics для структурно значимых проблем качества данных.
 
-        // 1. Last candle by time was filtered out — the most recent market data is absent.
+        // 1. Последняя по времени свеча отфильтрована — самые свежие рыночные данные отсутствуют.
         var originalLatest = klines.Max(k => k.StartTime);
         var validLatest = validKlines.Max(k => k.StartTime);
         if (originalLatest > validLatest)
@@ -102,7 +102,7 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 2. High violation rate — more than KlineHighViolationRateThreshold of input klines were invalid.
+        // 2. Высокая доля нарушений — доля входных klines, не прошедших validation, превышает KlineHighViolationRateThreshold.
         if (violations.Count > 0 &&
             violations.Count / (decimal)klines.Count > AnalysisThresholds.KlineHighViolationRateThreshold)
         {
@@ -118,8 +118,8 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 3. Insufficient usable data — valid set is smaller than KlineMinimumUsableCount.
-        //    validKlines.Count == 0 already throws above; this handles the 1-candle edge case.
+        // 3. Недостаточно пригодных данных — набор validKlines меньше KlineMinimumUsableCount.
+        //    validKlines.Count == 0 уже обрабатывается выше; здесь покрывается edge case с одной свечой.
         if (validKlines.Count < AnalysisThresholds.KlineMinimumUsableCount)
         {
             indicatorDiagnostics.Add(new IndicatorDiagnostic
@@ -141,7 +141,7 @@ public static class TimeframeSnapshotAssembler
         indicatorDiagnostics.AddIfNeeded(timeframe, "atr14", atr14Value);
         indicatorDiagnostics.AddIfNeeded(timeframe, "volumeSma20", volSma20Value);
 
-        // Snapshot-модель теперь использует decimal? для EMA/ATR/VolumeSma20/VolumeRatio.
+        // Snapshot-модель использует decimal? для EMA/ATR/VolumeSma20/VolumeRatio.
         // Используем .OrNull() — null сигнализирует об отсутствии данных; fake-zero не подставляем.
         var ema20 = ema20Value.OrNull();
         var ema50 = ema50Value.OrNull();
@@ -159,11 +159,11 @@ public static class TimeframeSnapshotAssembler
             ? Math.Round(lastVolume / volSma20Value.RequireValue(), 4)
             : null;
 
-        // volumeRatio diagnostic — emit only when ratio could not be computed.
-        // Two cases:
-        //   InvalidInput     — SMA is available but == 0 (all volumes are zero); no existing diagnostic covers this.
-        //   InsufficientData — SMA itself is unavailable (volumeSma20 diagnostic already exists, but we
-        //                      still name the derived indicator explicitly for consumer clarity).
+        // Диагностика volumeRatio — добавляем её, если ratio для окна вычислить нельзя.
+        // Два случая:
+        //   InvalidInput     — SMA доступна, но равна 0 (все объёмы нулевые); существующие diagnostics этот случай не покрывают.
+        //   InsufficientData — сама SMA недоступна (diagnostic для volumeSma20 уже существует, но
+        //                      производный индикатор всё равно указываем явно для ясности потребителя).
         if (volumeRatio is null)
         {
             var volumeRatioReason = volSma20Value.HasUsableValue()
@@ -180,7 +180,7 @@ public static class TimeframeSnapshotAssembler
             });
         }
 
-        // 4. Support / Resistance via Volume Profile
+        // 4. Support / Resistance через Volume Profile
         var levels = VolumeProfileDetector.Detect(sorted);
 
         // 5. Trend
@@ -204,10 +204,10 @@ public static class TimeframeSnapshotAssembler
                 ema50Value.RequireValue(),
                 ema200Value.RequireValue(),
                 lastClose,
-                volumeRatio ?? 0m);   // TrendClassifier expects decimal; null → 0 (no volume boost)
+                volumeRatio ?? 0m);   // TrendClassifier ожидает decimal; null → 0 (без volume boost)
         }
 
-        // 6. Derived signals
+        // 6. Производные сигналы
         var lastKline = sorted[^1];
 
         var candleRangePct = lastKline.Close > 0m
@@ -239,14 +239,14 @@ public static class TimeframeSnapshotAssembler
             ema20.HasValue && ema50.HasValue && ema200.HasValue
             && ema20.Value < ema50.Value && ema50.Value < ema200.Value;
 
-        // 7. Assemble
-        // Derive indicator availability/fallback flags for consumers (e.g. LlmTimeframeSummaryBuilder).
+        // 7. Сборка
+        // Формируем flags доступности/fallback индикаторов для потребителей (например, LlmTimeframeSummaryBuilder).
         var emaIsReliable = ema20Value.HasUsableValue() && ema50Value.HasUsableValue() && ema200Value.HasUsableValue();
         var emaHasFallback = ema20Value.IsFallback || ema50Value.IsFallback || ema200Value.IsFallback;
         var atrIsReliable = atr14Value.IsAvailable;
         var atrIsFallback = atr14Value.IsFallback;
-        // VolumeRatioIsReliable must reflect whether the ratio was actually computable (not just SMA availability).
-        // If VolumeSma20 == 0 → VolumeRatio is null → not reliable.
+        // VolumeRatioIsReliable должен отражать, удалось ли реально вычислить ratio, а не только доступность SMA.
+        // Если VolumeSma20 == 0, то VolumeRatio = null и значение считается ненадёжным.
         var volumeRatioIsReliable = volumeRatio.HasValue;
         var volumeRatioIsFallback = volumeRatio.HasValue && volSma20Value.IsFallback;
 

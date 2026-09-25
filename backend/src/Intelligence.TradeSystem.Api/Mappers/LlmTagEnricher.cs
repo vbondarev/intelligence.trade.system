@@ -14,7 +14,7 @@ namespace Intelligence.TradeSystem.Api.Mappers;
 /// </summary>
 internal static class LlmTagEnricher
 {
-    // ─── Public API ──────────────────────────────────────────────────────────
+    // ─── Публичный API ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Обогащает базовые теги снапшота данными из health и summary таймфреймов.
@@ -56,7 +56,7 @@ internal static class LlmTagEnricher
         return Deduplicate(all, MarketTagConstants.MaxTags);
     }
 
-    // ─── Internal helpers (testable) ─────────────────────────────────────────
+    // ─── Внутренние помощники (доступны для тестирования) ─────────────────────
 
     /// <summary>
     /// Проверяет, содержит ли список предупреждений сообщение об устаревании для указанной секции.
@@ -65,7 +65,7 @@ internal static class LlmTagEnricher
     internal static bool HasStaleWarning(IReadOnlyList<string> warnings, string sectionName) =>
         warnings.Any(w => w.StartsWith($"{sectionName} is stale", StringComparison.OrdinalIgnoreCase));
 
-    // ─── Private helpers ──────────────────────────────────────────────────────
+    // ─── Приватные методы ────────────────────────────────────────────────────
 
     private static void AddEntryQualityTags(List<TimeframeSummary> primarySummaries, List<string> all)
     {

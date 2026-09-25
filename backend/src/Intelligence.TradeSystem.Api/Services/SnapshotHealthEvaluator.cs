@@ -51,7 +51,7 @@ internal sealed class SnapshotHealthEvaluator : ISnapshotHealthEvaluator
         AddSection("h4", reference, reference, thresholds.H4MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
         AddSection("d1", reference, reference, thresholds.D1MaxAge, requiredSections, sectionAges, warnings, ref isFresh);
 
-        // Spread validation warnings (добавляются маппером — но health-evaluator может добавить заранее)
+        // Предупреждения валидации spread (добавляются маппером, но health-evaluator может добавить заранее)
         CheckOrderBookSpread(snapshot.OrderBook, warnings);
 
         // Мягкие предупреждения интерпретации — не влияют на isFresh/isPartial

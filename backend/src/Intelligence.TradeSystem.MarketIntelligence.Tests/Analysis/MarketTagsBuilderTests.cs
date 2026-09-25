@@ -10,7 +10,7 @@ namespace Intelligence.TradeSystem.MarketIntelligence.Tests.Analysis;
 /// </summary>
 public sealed class MarketTagsBuilderTests
 {
-    // ─── 4.1 Regime tags ─────────────────────────────────────────────────────
+    // ─── 4.1 Теги режима ──────────────────────────────────────────────────────
 
     [Fact]
     public void Trending_Regime_Produces_Trending_Tag()
@@ -60,7 +60,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetRegimeTag("MeanReversion").Should().BeNull();
     }
 
-    // ─── MeanReversion regime ─────────────────────────────────────────────────
+    // ─── Режим MeanReversion ──────────────────────────────────────────────────
 
     [Fact]
     public void MeanReversion_Regime_Produces_MeanReversionRegime_Tag()
@@ -127,7 +127,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagMeanReversionRegime);
     }
 
-    // ─── 4.2 Funding tags ────────────────────────────────────────────────────
+    // ─── 4.2 Funding-теги ─────────────────────────────────────────────────────
 
     [Fact]
     public void Positive_FundingRate_Produces_PositiveFunding_Tag()
@@ -163,7 +163,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetFundingTag(0m).Should().BeNull();
     }
 
-    // ─── 4.3 Pressure tags ───────────────────────────────────────────────────
+    // ─── 4.3 Теги давления ────────────────────────────────────────────────────
 
     [Fact]
     public void BidDominant_ImbalanceTop5_Produces_BidPressure_Tag()
@@ -204,7 +204,7 @@ public sealed class MarketTagsBuilderTests
         MarketTagsBuilder.GetPressureTag(-MarketTagsBuilder.OrderBookPressureThreshold).Should().BeNull();
     }
 
-    // ─── 4.4 Aggression tags ───────────────────────────────────────────────
+    // ─── 4.4 Теги агрессии ─────────────────────────────────────────────────
 
     [Fact]
     public void AggressiveBuy_Flag_Produces_AggressiveBuying_Tag()
@@ -386,7 +386,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().Contain(MarketTagsBuilder.TagNear24hHigh);
     }
 
-    // ─── Сценарий 3: volatile market regime ──────────────────────────────────
+    // ─── Сценарий 3: волатильный рыночный режим ────────────────────────────────
 
     [Fact]
     public void MarketRegime_Volatile_Adds_VolatileRegime_Tag()
@@ -400,7 +400,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagBearishRegime);
     }
 
-    // ─── Сценарий 4: declining OI ────────────────────────────────────────────
+    // ─── Сценарий 4: снижение OI ───────────────────────────────────────────────
 
     [Fact]
     public void Derivatives_DecliningOI_Adds_OiDeclining_Tag()
@@ -417,7 +417,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagOiRising);
     }
 
-    // ─── Сценарий 5: possible long unwinding ─────────────────────────────────
+    // ─── Сценарий 5: возможное закрытие лонгов ─────────────────────────────────
 
     [Fact]
     public void AggressiveSelling_With_DecliningOI_Adds_PossibleLongUnwinding_Tag()
@@ -438,7 +438,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagPossibleShortCovering);
     }
 
-    // ─── Сценарий 6: primary timeframe low volume ─────────────────────────────
+    // ─── Сценарий 6: низкий объём на основном таймфрейме ────────────────────────
 
     [Fact]
     public void PrimaryTimeframe_LowVolumeRatio_Adds_LowVolume_Tag()
@@ -472,7 +472,7 @@ public sealed class MarketTagsBuilderTests
         result.Should().NotContain(MarketTagsBuilder.TagNearResistance);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Вспомогательные методы ───────────────────────────────────────────────
 
     private static List<string> Build(
         DerivativesSnapshot? derivatives = null,
