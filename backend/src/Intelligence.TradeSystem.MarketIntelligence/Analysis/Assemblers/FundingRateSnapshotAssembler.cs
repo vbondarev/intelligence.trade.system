@@ -48,7 +48,7 @@ public static class FundingRateSnapshotAssembler
         if (entries.Count == 0)
             throw new ArgumentException("Funding rate entries list must not be empty.", nameof(entries));
 
-        // 2. Сортировка по убыванию (новейшее первым); текущий = первый
+        // 2. Сортировка по убыванию (новейшее первым); current = первый
         var sorted = entries.OrderByDescending(e => e.Timestamp).ToList();
         var current = sorted[0];
 
