@@ -67,7 +67,7 @@ internal static class LlmPayloadMapperExtensions
         };
     }
 
-    // ─── Контекст анализа ───────────────────────────────────────────────────
+    // ─── AnalysisContext — контекст анализа ──────────────────────────────────
 
     private static LlmAnalysisContextPayload BuildAnalysisContext(AnalysisMode mode) =>
         new()
@@ -76,7 +76,7 @@ internal static class LlmPayloadMapperExtensions
             PrimaryTimeframes = AnalysisModeDefaults.GetPrimaryTimeframes(mode),
         };
 
-    // ─── Цена ───────────────────────────────────────────────────────────────
+    // ─── Price — цена ────────────────────────────────────────────────────────
 
     private static LlmPricePayload BuildPrice(PriceSnapshot s) =>
         new()
@@ -92,7 +92,7 @@ internal static class LlmPayloadMapperExtensions
             Volume24h = s.Volume24h,
         };
 
-    // ─── Деривативы ──────────────────────────────────────────────────────────
+    // ─── Derivatives — деривативы ───────────────────────────────────────────
 
     private static LlmDerivativesPayload BuildDerivatives(DerivativesSnapshot s) =>
         new()
@@ -109,7 +109,7 @@ internal static class LlmPayloadMapperExtensions
             PremiumVsIndexPct = s.PremiumVsIndexPct,
         };
 
-    // ─── Книга заявок ───────────────────────────────────────────────────────
+    // ─── OrderBook — книга заявок ───────────────────────────────────────────
 
     private static LlmOrderBookPayload BuildOrderBook(OrderBookSnapshot s)
     {
@@ -188,7 +188,7 @@ internal static class LlmPayloadMapperExtensions
             HasAggressiveSellPressure = s.HasAggressiveSellPressure,
         };
 
-    // ─── Таймфрейм ──────────────────────────────────────────────────────────
+    // ─── Timeframe — таймфрейм ──────────────────────────────────────────────
 
     private const string LevelSourceV1 = "volume-profile";
 

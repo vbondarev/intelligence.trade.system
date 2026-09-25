@@ -289,7 +289,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
     [InlineData(1, 0.25, 0.25)]    // положительное значение — cap применяется
     [InlineData(-1, 0.25, -0.25)]  // отрицательное значение — cap применяется с сохранением знака
     [InlineData(0.2, 0.25, 0.2)]   // ниже cap — без изменений
-    [InlineData(-0.2, 0.25, -0.2)] // ниже cap — без изменений (negative)
+    [InlineData(-0.2, 0.25, -0.2)] // ниже cap — без изменений (отрицательное значение)
     [InlineData(0, 0.25, 0)]       // ноль остаётся нулём
     public void ApplyCapToScore_Applies_Cap_With_Sign_Preservation(
         decimal rawScore, decimal cap, decimal expected)

@@ -156,7 +156,7 @@ public sealed class LlmPayloadMapperExtensionsTests
                 resistanceStrength: null,
                 volumeRatio: 1.2m),
             h4: MakeBullishTf("4h",
-                // Смоделировать сопротивление ниже цены: null (позади сделки).
+                // Смоделировать отсутствие сопротивления: null не создаёт ограничения для сделки.
                 distToResistance: null,
                 resistanceStrength: 0.85m),
             regime: MarketRegimes.Trending);
