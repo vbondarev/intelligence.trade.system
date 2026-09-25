@@ -442,7 +442,7 @@ public sealed class TimeframeSnapshotAssemblerTests
                 because: "negative volume violates OHLCV invariant");
     }
 
-    // ── Diagnostics degradation policy ───────────────────────────────────────
+    // ── Политика деградации диагностики ──────────────────────────────────────
 
     [Fact]
     public void Diagnostic_LastKlineFiltered_When_Newest_Candle_Is_Invalid()

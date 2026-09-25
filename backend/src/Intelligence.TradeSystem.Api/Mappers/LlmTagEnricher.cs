@@ -65,7 +65,7 @@ internal static class LlmTagEnricher
     internal static bool HasStaleWarning(IReadOnlyList<string> warnings, string sectionName) =>
         warnings.Any(w => w.StartsWith($"{sectionName} is stale", StringComparison.OrdinalIgnoreCase));
 
-    // ─── Внутренние помощники ────────────────────────────────────────────────
+    // ─── Приватные методы ────────────────────────────────────────────────────
 
     private static void AddEntryQualityTags(List<TimeframeSummary> primarySummaries, List<string> all)
     {

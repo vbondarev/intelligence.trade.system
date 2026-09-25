@@ -100,7 +100,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     public async Task Concurrent_syncs_discovering_different_new_positions_do_not_deadlock()
     {
         // Блокировка (FOR NO KEY UPDATE) должна оставаться совместимой с неявной
-        // блокировкой KEY SHARE FK, которую удерживает параллельная вставка позиции в exchange_accounts;
+        // блокировкой KEY SHARE родительской записи exchange_accounts, которую через FK удерживает параллельная вставка новой позиции;
         // иначе две параллельные sync-операции, вставляющие разные новые позиции
         // одного аккаунта, вызвали бы deadlock (PostgreSQL 40P01) вместо
         // последовательной обработки или retry.

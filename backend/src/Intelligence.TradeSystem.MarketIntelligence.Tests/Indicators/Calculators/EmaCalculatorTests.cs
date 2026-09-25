@@ -56,7 +56,7 @@ public sealed class EmaCalculatorTests
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
     {
-        // .Length(1) < period(10) → Fallback: среднее по доступным = само значение.
+        // values.Length = 1, period = 10 → values.Length < period, поэтому fallback равен среднему по доступным значениям.
         var result = EmaCalculator.Compute([42m], period: 10);
 
         result.Value.Should().BeApproximately(42m, precision: 0.0001m);
