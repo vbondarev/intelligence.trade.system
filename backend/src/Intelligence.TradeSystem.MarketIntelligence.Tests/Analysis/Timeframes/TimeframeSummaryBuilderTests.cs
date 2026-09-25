@@ -215,7 +215,7 @@ public sealed class TimeframeSummaryBuilderTests
         decimal volumeRatio = 1.1m,
         decimal? distanceToSupport = 0.6m,
         decimal? distanceToResist = 0.3m,
-        // Level strengths (default Strong — не ограничивает Good)
+        // Strength уровней (по умолчанию Strong — не ограничивает Good)
         decimal? support1Strength = 0.8m,
         decimal? resistance1Strength = 0.8m,
         // Доступность индикаторов и fallback
@@ -359,7 +359,7 @@ public sealed class TimeframeSummaryBuilderTests
     {
         var s = MakeSnapshot(
             trend: MarketTrend.Bullish, trendStrengthScore: 0.6m,
-            volumeRatio: 0m,           // zero because unavailable
+            volumeRatio: 0m,           // ноль из-за unavailable-значения
             volumeRatioIsReliable: false);
 
         var r = BuildForTest(s);
@@ -596,7 +596,7 @@ public sealed class TimeframeSummaryBuilderTests
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Сценарии higher TF opposite level + strength entry level
+    // Сценарии с opposite level на higher TF и strength entry level
     // ═══════════════════════════════════════════════════════════════════════════
 
     // ─── 14.1: Bullish — очень близкое сопротивление higher TF → Poor ──────────
@@ -619,7 +619,7 @@ public sealed class TimeframeSummaryBuilderTests
         r.RiskFlags.Should().Contain("NearHigherTimeframeResistance");
     }
 
-    // ─── 14.2: Bullish — nearby higher TF resistance (0.25%) → не Good ─────
+    // ─── 14.2: Bullish — близкое сопротивление higher TF (0.25%) → не Good ─
 
     [Fact]
     public void Build_Bullish_HigherTfResistanceNear_Returns_AtMostFair_And_Flag()

@@ -237,7 +237,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         result.Should().BeLessThanOrEqualTo(0.25m, because: "BTCUSDT-regression: stale+short window+conflict");
     }
 
-    // --- Unit tests ComputeWindowCap ------------------------------------------
+    // --- Unit-тесты ComputeWindowCap ------------------------------------------
 
     [Theory]
     [InlineData(0, 0.25)]
@@ -254,7 +254,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         TradeFlowPressureScoreAdjuster.ComputeWindowCap(windowSeconds).Should().Be(expectedCap);
     }
 
-    // --- Unit tests ComputeVolumeCap ------------------------------------------
+    // --- Unit-тесты ComputeVolumeCap ------------------------------------------
 
     [Theory]
     [InlineData(0, 0.35)]
@@ -269,21 +269,21 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         TradeFlowPressureScoreAdjuster.ComputeVolumeCap(totalVolume).Should().Be(expectedCap);
     }
 
-    // --- Unit tests HasOrderBookConflict --------------------------------------
+    // --- Unit-тесты HasOrderBookConflict --------------------------------------
 
     [Theory]
     [InlineData(1, -0.1, true)]   // tf положительный, ob отрицательный → conflict
     [InlineData(-1, 0.1, true)]   // tf отрицательный, ob положительный → conflict
     [InlineData(1, 0.1, false)]   // same sign
     [InlineData(-1, -0.1, false)] // same sign
-    [InlineData(0, -0.5, false)]  // tf zero > no conflict
-    [InlineData(1, 0, false)]     // ob zero > no conflict
+    [InlineData(0, -0.5, false)]  // tf = 0 → conflict отсутствует
+    [InlineData(1, 0, false)]     // ob = 0 → conflict отсутствует
     public void HasOrderBookConflict_Detects_Conflict(decimal tfScore, decimal obScore, bool expected)
     {
         TradeFlowPressureScoreAdjuster.HasOrderBookConflict(tfScore, obScore).Should().Be(expected);
     }
 
-    // --- Unit tests ApplyCapToScore -------------------------------------------
+    // --- Unit-тесты ApplyCapToScore -------------------------------------------
 
     [Theory]
     [InlineData(1, 0.25, 0.25)]    // положительное значение — cap применяется
@@ -297,7 +297,7 @@ public sealed class TradeFlowPressureScoreAdjusterTests
         TradeFlowPressureScoreAdjuster.ApplyCapToScore(rawScore, cap).Should().Be(expected);
     }
 
-    // --- Tests quality tags ---------------------------------------------------
+    // --- Тесты quality tags ---------------------------------------------------
 
     [Fact]
     public void ComputeQualityTags_Returns_Expected_Tags_For_Regression_Scenario()

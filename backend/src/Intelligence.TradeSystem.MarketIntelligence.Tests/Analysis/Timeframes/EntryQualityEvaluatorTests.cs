@@ -719,7 +719,7 @@ public sealed class EntryQualityEvaluatorTests
             because: "Strong resistance (0.85 ≥ 0.70) + no other conflicts → Good");
     }
 
-    // ─── Opposite level: edge cases (null / wrong-side) ───────────────────────
+    // ─── Opposite level: граничные случаи (null / wrong-side) ───────────────
 
     [Fact]
     public void Bullish_OppLevelNull_GoodAllowed()
