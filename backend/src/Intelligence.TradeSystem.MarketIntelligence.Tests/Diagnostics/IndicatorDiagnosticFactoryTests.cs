@@ -123,7 +123,7 @@ public sealed class IndicatorDiagnosticFactoryTests
         act.Should().Throw<ArgumentNullException>();
     }
 
-    // ── Timeframe / Indicator propagation ────────────────────────────────────
+    // ── Передача Timeframe / Indicator ───────────────────────────────────────
 
     [Theory]
     [InlineData("15m", "ema20")]

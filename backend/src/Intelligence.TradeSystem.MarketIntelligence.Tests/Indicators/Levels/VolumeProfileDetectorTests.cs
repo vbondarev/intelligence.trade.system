@@ -338,7 +338,7 @@ public sealed class VolumeProfileDetectorTests
             .WithParameterName("klines");
     }
 
-    // ── Zero-volume profile ──────────────────────────────────────────────────
+    // ── Профиль с нулевым объёмом ───────────────────────────────────────────
 
     [Fact]
     public void Returns_All_Nulls_When_All_Volumes_Are_Zero()
@@ -408,7 +408,7 @@ public sealed class VolumeProfileDetectorTests
             because: "соседние бакеты одной HVN-зоны должны объединяться в один кластер, не в два");
     }
 
-    // ── Proximity-ordering regression ────────────────────────────────────────
+    // ── Регрессия порядка по близости ───────────────────────────────────────
 
     [Fact]
     public void Selects_Closest_Strong_Support_Levels_When_Multiple_High_Volume_Zones_Exist()
@@ -515,7 +515,7 @@ public sealed class VolumeProfileDetectorTests
             because: "высокообъёмная ценовая зона (145–155) должна быть определена как уровень сопротивления");
     }
 
-    // ── Single-cluster contract ───────────────────────────────────────────────
+    // ── Контракт одного кластера ─────────────────────────────────────────────
 
     [Fact]
     public void Returns_Only_One_Support_When_Only_One_Lower_Cluster_Exists()
@@ -573,7 +573,7 @@ public sealed class VolumeProfileDetectorTests
             because: "при наличии одного верхнего кластера Resistance2 должен быть null");
     }
 
-    // ── Anti-merge regression ─────────────────────────────────────────────────
+    // ── Регрессия против слияния кластеров ──────────────────────────────────
 
     [Fact]
     public void Does_Not_Merge_Two_Distinct_Nearby_High_Volume_Clusters()
@@ -697,7 +697,7 @@ public sealed class VolumeProfileDetectorTests
     public void Custom_BucketCount_Does_Not_Change_Level_Direction()
     {
         // Кастомное количество бакетов меняет точность, но не нарушает инвариант:
-        // support < currentPrice, resistance > currentPrice.
+        // support < currentPrice, resistance > currentPrice — проверяем стороны относительно текущей цены.
         var baseTime = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         var lowZone = Enumerable.Range(0, 10).Select(i => KlineFactory.Create(

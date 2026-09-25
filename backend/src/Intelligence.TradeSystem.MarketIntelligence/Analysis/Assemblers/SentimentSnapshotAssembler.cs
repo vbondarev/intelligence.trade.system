@@ -89,7 +89,7 @@ public static class SentimentSnapshotAssembler
             derivatives.LongRatio - derivatives.ShortRatio,
             -1m, 1m);
 
-        // 3. FundingBiasScore — contrarian signal
+        // 3. FundingBiasScore — контртрендовый сигнал
         //    Высокий положительный funding (longs переплачивают) → bearish crowd → отрицательный score.
         var fundingBiasScore = ComputeFundingBiasScore(
             derivatives.FundingRate,
@@ -103,7 +103,7 @@ public static class SentimentSnapshotAssembler
             orderBook.ImbalanceTop20 * ImbalanceWeightTop20,
             4);
 
-        // 5. TradeFlowPressureScore — normalized delta + aggressive pressure floor + quality caps
+        // 5. TradeFlowPressureScore — нормализованная delta + минимальный уровень aggressive pressure + quality caps
         var tradeFlowPressureScore = ComputeTradeFlowPressureScore(
             tradeFlow,
             orderBookPressureScore,

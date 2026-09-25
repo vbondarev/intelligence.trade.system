@@ -22,7 +22,7 @@ public sealed class KlineValidatorTests
     [Fact]
     public void High_Equal_To_Low_Is_Valid()
     {
-        // Doji candle: High == Low == Open == Close
+        // Свеча Doji: High == Low == Open == Close
         var kline = KlineFactory.Create(open: 100m, high: 100m, low: 100m, close: 100m);
 
         var result = KlineValidator.Validate(kline, 0);
@@ -60,7 +60,7 @@ public sealed class KlineValidatorTests
         result.IsValid.Should().BeTrue();
     }
 
-    // ───── Validate — High < Low ─────
+    // ───── Validate — случай High < Low ─────
 
     [Fact]
     public void High_Less_Than_Low_Is_Invalid()

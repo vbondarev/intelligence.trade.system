@@ -223,9 +223,9 @@ public sealed class TrendClassifierTests
     public static IEnumerable<object[]> ScoreRangeTestCases =>
     [
         [200m, 150m, 100m, 210m, 0.5m],  // Bullish, низкий объём
-        [100m, 150m, 200m,  90m, 2.0m],  // Bearish, high volume
+        [100m, 150m, 200m,  90m, 2.0m],  // Bearish, высокий объём
         [150m, 100m, 130m, 140m, 1.0m],  // Sideways
-        [150m, 100m, 130m, 140m, -5.0m], // Sideways, dirty negative volume
+        [150m, 100m, 130m, 140m, -5.0m], // Sideways, некорректный отрицательный объём
         [100m, 100m, 100m, 100m, 1.0m],  // All equal
     ];
 }

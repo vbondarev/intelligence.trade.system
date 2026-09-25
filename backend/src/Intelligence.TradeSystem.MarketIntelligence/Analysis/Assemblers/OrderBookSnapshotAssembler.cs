@@ -42,7 +42,7 @@ public static class OrderBookSnapshotAssembler
         // 1. Mid price
         var midPrice = (orderBook.Bids[0].Price + orderBook.Asks[0].Price) / 2m;
 
-        // 2. Aggregate volumes top 5 / 10 / 20
+        // 2. Агрегируем объёмы для top 5 / 10 / 20
         var bidTop5 = VolumeSum(orderBook.Bids, 5);
         var bidTop10 = VolumeSum(orderBook.Bids, 10);
         var bidTop20 = VolumeSum(orderBook.Bids, 20);

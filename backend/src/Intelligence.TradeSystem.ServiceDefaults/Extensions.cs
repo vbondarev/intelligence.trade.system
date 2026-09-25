@@ -38,7 +38,7 @@ public static class Extensions
             // Включить resilience по умолчанию
             http.AddStandardResilienceHandler();
 
-            // Turn on service discovery by default
+            // Включаем service discovery по умолчанию
             http.AddServiceDiscovery();
         });
 

@@ -177,7 +177,7 @@ public sealed class RsiCalculatorTests
     public void Returns_Available_When_Count_Equals_Period_Plus_One()
     {
         // closes=[100, 106, 104], period=2
-        // Changes: +6, -2 → avgGain=3, avgLoss=1 → RS=3 → RSI=75
+        // Изменения: +6, -2 → avgGain=3, avgLoss=1 → RS=3 → RSI=75
         var result = RsiCalculator.Compute([100m, 106m, 104m], period: 2);
 
         result.Value.Should().BeApproximately(75m, precision: 0.0001m);
@@ -212,7 +212,7 @@ public sealed class RsiCalculatorTests
         result.Reason.Should().Be(IndicatorValueReason.None);
     }
 
-    // ── Special cases: period = 1 ────────────────────────────────────────────
+    // ── Особые случаи: period = 1 ───────────────────────────────────────────
 
     [Fact]
     public void Returns_Available_100_For_Period_One_When_Last_Move_Is_Up()

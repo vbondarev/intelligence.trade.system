@@ -122,12 +122,12 @@ internal static class EntryQualityEvaluator
     {
         if (bias == TimeframeBias.Neutral) return EntryQuality.Poor;
 
-        // ── Step 1: base quality ──────────────────────────────────────────────
+        // ── Шаг 1: базовое качество ───────────────────────────────────────────
         var quality = bias == TimeframeBias.Bullish
             ? EvaluateLevelBasedQuality(isTrendConfirmed, support1, distanceToSupport1Pct, rsiOverbought)
             : EvaluateLevelBasedQuality(isTrendConfirmed, resistance1, distanceToResistance1Pct, rsiOversold);
 
-        // ── Step 2–7: downgrade rules ─────────────────────────────────────────
+        // ── Шаги 2–7: правила понижения качества ──────────────────────────────
         bool hasEmaConflict = HasEmaConflict(bias, isAboveEma20, isAboveEma50);
 
         quality = ApplyVolumeRule(quality, volumeRatio);
@@ -167,7 +167,7 @@ internal static class EntryQualityEvaluator
 
         if (bias == TimeframeBias.Bullish)
         {
-            // null = unknown position = conservative = not confirmed above EMA = conflict
+            // null = положение неизвестно → консервативно считаем, что нахождение выше EMA не подтверждено → conflict
             int conflictCount = (isAboveEma20 == true ? 0 : 1) + (isAboveEma50 == true ? 0 : 1);
             return conflictCount switch
             {
@@ -178,7 +178,7 @@ internal static class EntryQualityEvaluator
         }
 
         // Bearish: конфликт — когда цена выше EMA.
-        // null = unknown = conservative = not confirmed below EMA = conflict.
+        // null = положение неизвестно → консервативно считаем, что нахождение ниже EMA не подтверждено → conflict.
         {
             int conflictCount = (isAboveEma20 == false ? 0 : 1) + (isAboveEma50 == false ? 0 : 1);
             return conflictCount switch
@@ -212,7 +212,7 @@ internal static class EntryQualityEvaluator
     internal static EntryQuality ApplyMarketRegimeRule(
         EntryQuality quality, string? marketRegime, decimal? volumeRatio, bool hasEmaConflict)
     {
-        // Unknown regime: conservative cap — Good forbidden, max Fair.
+        // Неизвестный regime: применяем консервативный cap — Good запрещён, максимум Fair.
         if (string.IsNullOrWhiteSpace(marketRegime))
             return CapAt(quality, EntryQuality.Fair);
 
@@ -247,7 +247,7 @@ internal static class EntryQualityEvaluator
 
         var dist = oppDistancePct.Value;
 
-        // Negative distance: Strong is behind the trade direction (wrong side of price) — not an obstacle.
+        // Отрицательная дистанция: level находится позади направления сделки (wrong side of price) и не является препятствием.
         if (dist < 0m) return quality;
 
         if (dist >= NearOppositeThreshold) return quality;
@@ -260,7 +260,7 @@ internal static class EntryQualityEvaluator
         return CapAt(quality, EntryQuality.Fair);
     }
 
-    // ─── Core quality formula ────────────────────────────────────────────────
+    // ─── Основная формула качества ───────────────────────────────────────────
 
     /// <summary>
     /// Базовое качество входа по уровню, дистанции и состоянию RSI.
@@ -275,7 +275,7 @@ internal static class EntryQualityEvaluator
     {
         if (level is null) return EntryQuality.Poor;
         if (rsiExtreme) return EntryQuality.Poor;
-        // null → data absent; negative → wrong side. Zero is  (retest at the Strong).
+        // null → данных нет; отрицательное значение → wrong side. Ноль допустим (retest непосредственно на level).
         if (distancePct is not { } dist || dist < 0m) return EntryQuality.Poor;
         if (dist > FairMaxDistance) return EntryQuality.Poor;
 

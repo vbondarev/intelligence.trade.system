@@ -139,7 +139,7 @@ public sealed class EmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── EMA vs SMA behavioral ────────────────────────────────────────────────
+    // ── Различия поведения EMA и SMA ────────────────────────────────────────
 
     [Fact]
     public void Gives_More_Weight_To_Recent_Values_In_Rising_Series()
@@ -179,7 +179,7 @@ public sealed class EmaCalculatorTests
         result.IsAvailable.Should().BeTrue();
     }
 
-    // ── Flat series invariant ─────────────────────────────────────────────────
+    // ── Инвариант flat series ───────────────────────────────────────────────
 
     [Theory]
     [InlineData(50, 30, 10)]  // 30 значений × 50m,  period=10

@@ -45,14 +45,14 @@ public static class OpenInterestSnapshotAssembler
             throw new ArgumentException("Open interest entries list must not be empty.", nameof(entries));
         }
 
-        // 2. Sort ascending; Strong = last (most recent)
+        // 2. Сортируем по возрастанию; current — последний (самый свежий)
         var sorted = entries.OrderBy(e => e.Timestamp).ToList();
         var current = sorted[^1];
 
         var symbol = current.Symbol;
         var category = current.Category;
 
-        // 3. Changes vs. 1h and 4h ago
+        // 3. Изменения относительно значений 1 и 4 часа назад
         var change1hPct = ComputeChangePct(sorted, current, TimeSpan.FromHours(1));
         var change4hPct = ComputeChangePct(sorted, current, TimeSpan.FromHours(4));
 

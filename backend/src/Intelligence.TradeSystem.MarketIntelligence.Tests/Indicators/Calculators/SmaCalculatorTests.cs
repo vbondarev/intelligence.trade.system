@@ -86,7 +86,7 @@ public sealed class SmaCalculatorTests
         result.IsFallback.Should().BeFalse();
     }
 
-    // ── Single-element & signed- regressions ────────────────────────────
+    // ── Регрессии для одного элемента и знаковых значений ─────────────────
 
     [Fact]
     public void Returns_Fallback_Single_Value_When_Array_Has_One_Element()
@@ -136,7 +136,7 @@ public sealed class SmaCalculatorTests
         result.Value.Should().BeApproximately(constant, precision: 0.0001m);
     }
 
-    // ── Window-selection regression ──────────────────────────────────────────
+    // ── Регрессия выбора окна ───────────────────────────────────────────────
 
     [Fact]
     public void Uses_Only_Last_N_Values_In_Window()

@@ -115,7 +115,7 @@ internal static class TradeFlowPressureScoreAdjuster
         // 1. Freshness cap (только при наличии reference time)
         cap = Math.Min(cap, ComputeFreshnessCap(tradeFlow, capturedAtUtc, maxTradeFlowAgeMs));
 
-        // 2. Window duration cap
+        // 2. Cap по длительности окна
         var windowSeconds = (tradeFlow.WindowEndUtc - tradeFlow.WindowStartUtc).TotalSeconds;
         cap = Math.Min(cap, ComputeWindowCap(windowSeconds));
 

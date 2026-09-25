@@ -328,7 +328,7 @@ public static class TimeframeSummaryBuilder
             AddVolumeThresholdFlags(s.VolumeRatio, Add);
         }
 
-        // ── EMA conflict flags ───────────────────────────────────────────────
+        // ── Flags конфликтов EMA ─────────────────────────────────────────────
         if (!s.EmaIsReliable)
         {
             Add("EmaDataUnavailable");
@@ -338,7 +338,7 @@ public static class TimeframeSummaryBuilder
             AddEmaRiskFlags(s, bias, Add);
         }
 
-        // ── Opposite Strong proximity ─────────────────────────────────────────
+        // ── Близость opposite level ────────────────────────────────────────────
         if (oppDistancePct is >= 0m and < EntryQualityEvaluator.NearOppositeThreshold)
         {
             if (bias == TimeframeBias.Bullish)
@@ -357,7 +357,7 @@ public static class TimeframeSummaryBuilder
                 Add("NearSupport");
         }
 
-        // ── Entry Strong: missing or weak ─────────────────────────────────────
+        // ── Entry level: отсутствует или слабый ───────────────────────────────
         AddEntryLevelRiskFlags(s, bias, entryLevelStrength, Add);
 
         // ── Market regime ────────────────────────────────────────────────────
@@ -369,7 +369,7 @@ public static class TimeframeSummaryBuilder
                 Add("DirectionalTrendWithNeutralRegime");
         }
 
-        // ── Trend confirmed but entry filtered ───────────────────────────────
+        // ── Тренд подтверждён, но вход отфильтрован ──────────────────────────
         if (isTrendConfirmed && entryQuality != EntryQuality.Good)
             Add("TrendConfirmedButEntryFiltered");
 
@@ -383,7 +383,7 @@ public static class TimeframeSummaryBuilder
                 Add("BetweenStrongSupportAndResistance");
         }
 
-        // ── General IndicatorUnavailable / IndicatorFallback ─────────────────
+        // ── Общие IndicatorUnavailable / IndicatorFallback ───────────────────
         if (!s.EmaIsReliable || !s.Rsi14IsReliable || !s.AtrIsReliable || !s.VolumeRatioIsReliable)
             Add("IndicatorUnavailable");
 
@@ -430,7 +430,7 @@ public static class TimeframeSummaryBuilder
             return;
         }
 
-        // При Neutral bias не добавляем directional EMA flags, но отмечаем mixed/structural conflict.
+        // При Neutral bias не добавляем directional EMA flags, но отмечаем смешанный/структурный conflict.
         if (s.Trend == MarketTrend.Bullish || s.Trend == MarketTrend.Bearish)
             add("EmaConflict");
 
@@ -503,7 +503,7 @@ public static class TimeframeSummaryBuilder
         && s.DistanceToSupport1Pct is >= 0m and < RangeLevelDistanceThreshold
         && s.DistanceToResistance1Pct is >= 0m and < RangeLevelDistanceThreshold;
 
-    // ─── Entry Strong / opposite Strong resolution ─────────────────────────────
+    // ─── Разрешение entry level / opposite level ───────────────────────────────
 
     /// <summary>
     /// Возвращает нормализованную силу уровня входа для данного bias.
@@ -595,7 +595,7 @@ public static class TimeframeSummaryBuilder
         return (distancePct, strength, isHigherTf);
     }
 
-    // ─── Market regime helpers ───────────────────────────────────────────────
+    // ─── Вспомогательные методы market regime ───────────────────────────────
 
     private static string? NormalizeMarketRegime(string? marketRegime) =>
         string.IsNullOrWhiteSpace(marketRegime) ? null : marketRegime.Trim();

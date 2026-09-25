@@ -413,7 +413,7 @@ public sealed class SentimentSnapshotAssemblerTests
             HasAggressiveSellPressure = false,
         };
 
-        // orderBook dominates ask-side → negative pressure → conflict  bullish tradeFlow
+        // orderBook доминирует на ask-side → отрицательное давление → конфликт с bullish tradeFlow
         var orderBook = CreateOrderBook(
             imbalanceTop5: -0.40m,
             imbalanceTop10: -0.20m,
