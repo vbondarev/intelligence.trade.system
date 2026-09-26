@@ -40,7 +40,6 @@ public partial class Program
 
         var app = builder.Build();
         app.UseExceptionHandler();
-        app.UseExceptionHandler();
 
         if (app.Environment.IsDevelopment())
         {
