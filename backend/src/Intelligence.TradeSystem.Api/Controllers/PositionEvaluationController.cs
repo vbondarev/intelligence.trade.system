@@ -76,7 +76,10 @@ public sealed class PositionEvaluationController(
                     result.Snapshot ?? throw new InvalidOperationException(
                         "A successful evaluation must contain a snapshot."))),
             PositionEvaluationOutcome.NotFound => NotFoundProblem(),
-            PositionEvaluationOutcome.NotEvaluable => ConflictProblem(),
+            PositionEvaluationOutcome.NotEvaluable => ConflictProblem(
+                result.NotEvaluableReason
+                    ?? throw new InvalidOperationException(
+                        "Результат невозможной оценки должен содержать причину.")),
             _ => throw new InvalidOperationException("Unknown position evaluation outcome."),
         };
     }
@@ -92,9 +95,15 @@ public sealed class PositionEvaluationController(
                 ApiErrorDescriptors.ResourceNotFound,
                 "The requested resource was not found."));
 
-    private ConflictObjectResult ConflictProblem() =>
-        Conflict(ApiProblemDetails.Create(
+    private ConflictObjectResult ConflictProblem(
+        PositionEvaluationNotEvaluableReason reason)
+    {
+        var problemDetails = ApiProblemDetails.Create(
             HttpContext,
             ApiErrorDescriptors.PositionNotEvaluable,
-            "The position cannot be evaluated with the current state."));
+            "The position cannot be evaluated with the current state.");
+        problemDetails.Extensions["reason"] =
+            PositionEvaluationNotEvaluableReasonV1Mapper.ToWireValue(reason);
+        return Conflict(problemDetails);
+    }
 }

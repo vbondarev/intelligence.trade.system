@@ -8,6 +8,18 @@ internal static class ApiErrorDescriptors
         "Request validation failed.",
         "urn:intelligence-trade:error:validation-failed");
 
+    public static ApiErrorDescriptor AuthenticationRequired { get; } = new(
+        ApiErrorCodes.AuthenticationRequired,
+        StatusCodes.Status401Unauthorized,
+        "Authentication required.",
+        "urn:intelligence-trade:error:authentication-required");
+
+    public static ApiErrorDescriptor AccessForbidden { get; } = new(
+        ApiErrorCodes.AccessForbidden,
+        StatusCodes.Status403Forbidden,
+        "Access forbidden.",
+        "urn:intelligence-trade:error:access-forbidden");
+
     public static ApiErrorDescriptor ResourceNotFound { get; } = new(
         ApiErrorCodes.ResourceNotFound,
         StatusCodes.Status404NotFound,

@@ -3,6 +3,8 @@ namespace Intelligence.TradeSystem.Api.Errors;
 internal static class ApiErrorCodes
 {
     public const string ValidationFailed = "validation_failed";
+    public const string AuthenticationRequired = "authentication_required";
+    public const string AccessForbidden = "access_forbidden";
     public const string ResourceNotFound = "resource_not_found";
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string PositionNotEvaluable = "position_not_evaluable";

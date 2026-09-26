@@ -241,6 +241,46 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
         service.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("argument", "Symbol 'BTCUSDT' is invalid for snapshot analysis.")]
+    [InlineData("not-supported", "Exchange 'Bybit' is not supported in this environment.")]
+    public async Task LlmPayload_Returns_InternalError_When_Service_Throws_Framework_Exception(
+        string exceptionKind,
+        string exceptionMessage)
+    {
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        var exception = exceptionKind switch
+        {
+            "argument" => (Exception)new ArgumentException(exceptionMessage),
+            "not-supported" => new NotSupportedException(exceptionMessage),
+            _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind)),
+        };
+        service
+            .Setup(x => x.BuildSnapshotAsync(
+                ExchangeId.Bybit,
+                "BTCUSDT",
+                MarketCategory.Linear,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(exception);
+
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
+        using var response = await client.GetAsync(
+            "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
+
+        await ProblemDetailsAssertions.AssertProblemAsync(
+            response,
+            HttpStatusCode.InternalServerError,
+            "An unexpected error occurred.",
+            null,
+            "internal_error");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(exceptionMessage);
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
+        service.VerifyAll();
+    }
+
     // ─── 503 Service Unavailable ────────────────────────────────────────────
 
     [Fact]
