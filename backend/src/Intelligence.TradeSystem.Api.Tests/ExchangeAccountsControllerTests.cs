@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Support;
@@ -69,6 +70,25 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     }
 
     [Fact]
+    public async Task Unexpected_framework_exception_returns_safe_internal_error()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ListActiveAsync(userId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ArgumentException("internal diagnostic detail"));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.GetAsync("/api/v1/exchange-accounts");
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("internal diagnostic detail");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("internal_error");
+        problem.Detail.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Connect_returns_201_created_without_a_location_header()
     {
         var userId = UserId.New();
@@ -109,6 +129,26 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             Times.Never);
     }
 
+    [Fact]
+    public async Task Connect_returns_structured_validation_problem_for_malformed_json()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsync(
+            "/api/v1/exchange-accounts",
+            new StringContent("{", Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        problem.Extensions["traceId"].Should().NotBeNull();
+        problem.Extensions["errors"].Should().NotBeNull();
+        service.VerifyNoOtherCalls();
+    }
+
     [Theory]
     [InlineData(ExchangeAccountConnectionOutcome.InvalidCredentials, HttpStatusCode.BadRequest)]
     [InlineData(ExchangeAccountConnectionOutcome.PermissionsRejected, HttpStatusCode.Forbidden)]
@@ -131,6 +171,11 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         response.StatusCode.Should().Be(expectedStatus);
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContainAny("api-key", "api-secret");
+        if (outcome == ExchangeAccountConnectionOutcome.PermissionsRejected)
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+            problem!.Extensions["code"]!.ToString().Should().Be("exchange_permissions_rejected");
+        }
     }
 
     [Fact]

@@ -23,5 +23,10 @@ internal sealed class ApiProblemDetailsSchemaFilter : ISchemaFilter
             Type = JsonSchemaType.String,
             Description = "Request trace identifier.",
         };
+        schema.Properties["reason"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.String,
+            Description = "Stable machine-readable reason: closed_position, portfolio_unavailable, portfolio_inconsistent, or temporal_inconsistency.",
+        };
     }
 }

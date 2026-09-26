@@ -41,6 +41,7 @@ public partial class Program
         var app = builder.Build();
 
         app.UseExceptionHandler();
+        app.UseApiErrorStatusCodePages();
 
         if (app.Environment.IsDevelopment())
         {

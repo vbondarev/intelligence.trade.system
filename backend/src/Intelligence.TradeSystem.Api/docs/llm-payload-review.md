@@ -101,17 +101,17 @@ _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown Analysis
 
 ---
 
-### MED-3 — Тестовый пробел: 400 от сервиса не покрыт для LlmPayload
+### MED-3 — Legacy public market validation contract
 
 **Файл:** `Intelligence.TradeSystem.Api.Tests/LlmPayloadEndpointTests.cs`
 
-Ветки `ArgumentException` и `NotSupportedException` из `BuildSnapshotAsync` присутствуют в контроллере, но не верифицированы тестом для `/llm-payload`.
+`/api/market-analysis/**` сохраняет legacy mapping `ArgumentException` и
+`NotSupportedException`, возникающих при обработке market inputs, в
+`400 validation_failed`. Mapping ограничен этой публичной boundary; generic
+exceptions в пользовательском `/api/v1` не классифицируются по CLR-типу.
 
-**Решение:** добавить:
-```csharp
-[Fact] LlmPayload_Returns_BadRequest_When_Service_Throws_ArgumentException()
-[Fact] LlmPayload_Returns_BadRequest_When_Service_Throws_NotSupportedException()
-```
+Параметры запроса валидируются явно до вызова сервиса. Контракт сохранения
+legacy behavior для обоих endpoint проверяется тестами snapshot и llm-payload.
 
 ---
 

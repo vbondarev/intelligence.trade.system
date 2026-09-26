@@ -15,4 +15,6 @@ internal sealed class ProblemDetailsDto
     public string? Code { get; init; }
 
     public string? TraceId { get; init; }
+
+    public string? Reason { get; init; }
 }

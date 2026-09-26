@@ -241,6 +241,43 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
         service.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("argument", "invalid for snapshot analysis")]
+    [InlineData("not-supported", "not supported")]
+    public async Task LlmPayload_Preserves_Legacy_BadRequest_For_Unsupported_Market_Inputs(
+        string exceptionKind,
+        string detailFragment)
+    {
+        var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        var exception = exceptionKind switch
+        {
+            "argument" => (Exception)new ArgumentException(
+                "Symbol 'BTCUSDT' is invalid for snapshot analysis."),
+            "not-supported" => new NotSupportedException(
+                "Exchange 'Bybit' is not supported in this environment."),
+            _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind)),
+        };
+        service
+            .Setup(x => x.BuildSnapshotAsync(
+                ExchangeId.Bybit,
+                "BTCUSDT",
+                MarketCategory.Linear,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(exception);
+
+        using var client = _factory.CreateClientWithMarketSnapshotService(service.Object);
+        using var response = await client.GetAsync(
+            "/api/market-analysis/BTCUSDT/llm-payload?exchange=Bybit&category=Linear");
+
+        await ProblemDetailsAssertions.AssertProblemAsync(
+            response,
+            HttpStatusCode.BadRequest,
+            "Request validation failed.",
+            detailFragment,
+            "validation_failed");
+        service.VerifyAll();
+    }
+
     // ─── 503 Service Unavailable ────────────────────────────────────────────
 
     [Fact]

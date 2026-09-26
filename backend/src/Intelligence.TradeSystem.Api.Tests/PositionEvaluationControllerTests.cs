@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Api.Tests.Support;
@@ -332,6 +333,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
+        problem.Extensions["reason"]!.ToString().Should().Be("portfolio_unavailable");
         market.Verify(
             service => service.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
@@ -339,6 +341,18 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
                 It.IsAny<MarketCategory>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(PositionEvaluationNotEvaluableReason.ClosedPosition, "closed_position")]
+    [InlineData(PositionEvaluationNotEvaluableReason.PortfolioUnavailable, "portfolio_unavailable")]
+    [InlineData(PositionEvaluationNotEvaluableReason.PortfolioInconsistent, "portfolio_inconsistent")]
+    [InlineData(PositionEvaluationNotEvaluableReason.TemporalInconsistency, "temporal_inconsistency")]
+    public void Not_evaluable_reasons_have_explicit_v1_wire_values(
+        PositionEvaluationNotEvaluableReason reason,
+        string wireValue)
+    {
+        PositionEvaluationNotEvaluableReasonV1Mapper.ToWireValue(reason).Should().Be(wireValue);
     }
 
     [Fact]

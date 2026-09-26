@@ -419,12 +419,41 @@ public sealed class AuthenticationIntegrationTests(
     }
 
     [Fact]
-    public async Task Auth_me_without_a_token_is_unauthorized()
+    public async Task V1_authentication_failures_have_one_safe_problem_contract_and_bearer_challenge()
     {
         using var client = apiFactory.CreateClient();
+        using var missing = await client.GetAsync("/api/v1/auth/me");
+        var realToken = await IssueAccessTokenAsync();
+        var invalidSignature = realToken.AccessToken[..^1]
+            + (realToken.AccessToken[^1] == 'a' ? "b" : "a");
+        using var invalid = await GetWithTokenAsync(client, invalidSignature, "/api/v1/auth/me");
+        var wrongIssuer = CreateSignedToken(
+            "http://wrong-issuer.test",
+            Audience,
+            DateTime.UtcNow.AddMinutes(5));
+        using var issuerMismatch = await GetWithTokenAsync(client, wrongIssuer, "/api/v1/auth/me");
+        var wrongAudience = CreateSignedToken(
+            Issuer,
+            "wrong-audience",
+            DateTime.UtcNow.AddMinutes(5));
+        using var audienceMismatch = await GetWithTokenAsync(client, wrongAudience, "/api/v1/auth/me");
+        var expired = CreateSignedToken(Issuer, Audience, DateTime.UtcNow.AddMinutes(-5));
+        using var expiredToken = await GetWithTokenAsync(client, expired, "/api/v1/auth/me");
 
-        (await client.GetAsync("/api/v1/auth/me"))
-            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var responses = new[] { missing, invalid, issuerMismatch, audienceMismatch, expiredToken };
+        var first = await AssertAuthenticationProblemAsync(responses[0]);
+        foreach (var response in responses)
+        {
+            var current = await AssertAuthenticationProblemAsync(response);
+            current.Should().Be(first);
+        }
+
+        using var hubResponse = await client.PostAsync(
+            "/hubs/v1/updates/negotiate?negotiateVersion=1",
+            content: null);
+        hubResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var hubBody = await hubResponse.Content.ReadAsStringAsync();
+        hubBody.Should().NotContain("authentication_required");
     }
 
     [Fact]
@@ -801,6 +830,28 @@ public sealed class AuthenticationIntegrationTests(
     }
 
     [Fact]
+    public async Task V1_authorization_failure_returns_the_stable_forbidden_problem()
+    {
+        using var client = apiFactory.CreateClient();
+        var token = CreateSignedToken(Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "openid");
+
+        using var response = await GetWithTokenAsync(client, token, "/api/v1/auth/me");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = document.RootElement;
+        problem.GetProperty("type").GetString()
+            .Should().Be("urn:intelligence-trade:error:access-forbidden");
+        problem.GetProperty("title").GetString().Should().Be("Access is forbidden.");
+        problem.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.Forbidden);
+        problem.GetProperty("instance").GetString().Should().Be("/api/v1/auth/me");
+        problem.GetProperty("code").GetString().Should().Be("access_forbidden");
+        problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        (await response.Content.ReadAsStringAsync()).Should().NotContain("exchange_permissions_rejected");
+    }
+
+    [Fact]
     public async Task Public_api_endpoints_remain_anonymous()
     {
         using var client = apiFactory.CreateClient();
@@ -895,11 +946,38 @@ public sealed class AuthenticationIntegrationTests(
         return (code, codeVerifier);
     }
 
-    private async Task<HttpResponseMessage> GetWithTokenAsync(HttpClient client, string token)
+    private async Task<HttpResponseMessage> GetWithTokenAsync(
+        HttpClient client,
+        string token,
+        string path = "/test-only/protected")
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/test-only/protected");
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await client.SendAsync(request);
+    }
+
+    private static async Task<(string Type, string Title, string? Detail)> AssertAuthenticationProblemAsync(
+        HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        response.Headers.WwwAuthenticate.Should().ContainSingle();
+        response.Headers.WwwAuthenticate.Single().Scheme.Should().Be("Bearer");
+        response.Headers.WwwAuthenticate.Single().Parameter.Should().BeNullOrWhiteSpace();
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = document.RootElement;
+        var type = problem.GetProperty("type").GetString();
+        var title = problem.GetProperty("title").GetString();
+        problem.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.Unauthorized);
+        problem.GetProperty("instance").GetString().Should().Be("/api/v1/auth/me");
+        problem.GetProperty("code").GetString().Should().Be("authentication_required");
+        problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        type.Should().Be("urn:intelligence-trade:error:authentication-required");
+        title.Should().Be("Authentication is required.");
+        return (type!, title!, problem.TryGetProperty("detail", out var detail)
+            ? detail.GetString()
+            : null);
     }
 
     private static Task<HttpResponseMessage> NegotiateWithTokenAsync(

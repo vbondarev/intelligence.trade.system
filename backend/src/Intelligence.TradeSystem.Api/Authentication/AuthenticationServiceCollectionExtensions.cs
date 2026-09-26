@@ -76,6 +76,22 @@ public static class AuthenticationServiceCollectionExtensions
                     RoleClaimType = "role",
                     ClockSkew = TimeSpan.FromSeconds(5),
                 };
+                options.Events = new JwtBearerEvents
+                {
+                    OnChallenge = context =>
+                    {
+                        if (!context.Request.Path.StartsWithSegments("/api/v1"))
+                        {
+                            return Task.CompletedTask;
+                        }
+
+                        context.HandleResponse();
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        context.Response.Headers["WWW-Authenticate"] =
+                            JwtBearerDefaults.AuthenticationScheme;
+                        return Task.CompletedTask;
+                    },
+                };
             });
 
         services.AddAuthorization(options =>

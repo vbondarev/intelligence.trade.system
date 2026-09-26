@@ -122,7 +122,7 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task Middleware_auth_responses_do_not_promise_problem_details_bodies()
+    public async Task V1_auth_responses_describe_problem_details_bodies_and_bearer_challenge()
     {
         using var document = await GetDocumentAsync();
         var paths = document.RootElement.GetProperty("paths");
@@ -131,24 +131,36 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         {
             var parts = expected.Key.Split(' ', 2);
             var operation = paths.GetProperty(parts[1]).GetProperty(parts[0].ToLowerInvariant());
-            operation.GetProperty("responses").GetProperty("401")
-                .TryGetProperty("content", out _)
-                .Should().BeFalse();
+            var responses = operation.GetProperty("responses");
+            var unauthorized = responses.GetProperty("401");
+            unauthorized.GetProperty("description").GetString()
+                .Should().Contain("authentication_required");
+            unauthorized.GetProperty("content")
+                .GetProperty("application/problem+json")
+                .GetProperty("schema")
+                .GetProperty("$ref")
+                .GetString()
+                .Should().Be("#/components/schemas/ProblemDetails");
+            unauthorized.GetProperty("headers")
+                .GetProperty("WWW-Authenticate")
+                .GetProperty("schema")
+                .GetProperty("type")
+                .GetString()
+                .Should().Be("string");
 
-            var forbidden = operation.GetProperty("responses").GetProperty("403");
+            var forbidden = responses.GetProperty("403");
+            forbidden.GetProperty("description").GetString()
+                .Should().Contain("access_forbidden");
+            forbidden.GetProperty("content")
+                .GetProperty("application/problem+json")
+                .GetProperty("schema")
+                .GetProperty("$ref")
+                .GetString()
+                .Should().Be("#/components/schemas/ProblemDetails");
             if (BusinessForbiddenOperationIds.Contains(expected.Value))
             {
-                forbidden.GetProperty("content")
-                    .GetProperty("application/problem+json")
-                    .GetProperty("schema")
-                    .GetProperty("$ref")
-                    .GetString()
-                    .Should().Be("#/components/schemas/ProblemDetails");
-            }
-            else
-            {
-                forbidden.TryGetProperty("content", out _)
-                    .Should().BeFalse();
+                forbidden.GetProperty("description").GetString()
+                    .Should().NotBeNullOrWhiteSpace();
             }
         }
     }
@@ -162,7 +174,7 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
 
         var problemDetails = schemas.GetProperty("ProblemDetails");
         problemDetails.GetProperty("properties").EnumerateObject().Select(property => property.Name)
-            .Should().Contain(["type", "title", "status", "detail", "instance", "code", "traceId"]);
+            .Should().Contain(["type", "title", "status", "detail", "instance", "code", "traceId", "reason"]);
 
         var positionList = root.GetProperty("paths")
             .GetProperty("/api/v1/positions")
