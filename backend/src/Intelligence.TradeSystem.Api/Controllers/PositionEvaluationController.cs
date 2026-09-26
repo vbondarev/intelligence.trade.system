@@ -79,7 +79,7 @@ public sealed class PositionEvaluationController(
             PositionEvaluationOutcome.NotEvaluable => ConflictProblem(
                 result.NotEvaluableReason
                     ?? throw new InvalidOperationException(
-                        "A non-evaluable position must contain a reason.")),
+                        "Результат невозможной оценки должен содержать причину.")),
             _ => throw new InvalidOperationException("Unknown position evaluation outcome."),
         };
     }

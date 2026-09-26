@@ -1,6 +1,8 @@
 using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Errors;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Intelligence.TradeSystem.Api.Authentication;
@@ -80,15 +82,13 @@ public static class AuthenticationServiceCollectionExtensions
                 {
                     OnChallenge = context =>
                     {
-                        if (!context.Request.Path.StartsWithSegments("/api/v1"))
+                        if (context.Request.Path.StartsWithSegments("/api/v1"))
                         {
-                            return Task.CompletedTask;
+                            context.Error = null;
+                            context.ErrorDescription = null;
+                            context.ErrorUri = null;
                         }
 
-                        context.HandleResponse();
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        context.Response.Headers["WWW-Authenticate"] =
-                            JwtBearerDefaults.AuthenticationScheme;
                         return Task.CompletedTask;
                     },
                 };
@@ -110,6 +110,10 @@ public static class AuthenticationServiceCollectionExtensions
             options.AddPolicy(TradeAuthorization.ApiPolicy, tradeApi);
             options.AddPolicy(TradeAuthorization.UserPolicy, tradeUser);
         });
+
+        services.AddSingleton<
+            IAuthorizationMiddlewareResultHandler,
+            V1AuthorizationMiddlewareResultHandler>();
 
         return services;
     }

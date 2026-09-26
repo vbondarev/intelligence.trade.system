@@ -31,12 +31,12 @@ internal sealed class TradeUserAuthorizationOperationFilter : IOperationFilter
         AddProblemDetailsResponse(
             operation,
             StatusCodes.Status401Unauthorized,
-            "Authentication is required; code: authentication_required.",
+            "Authentication required. code: authentication_required.",
             context);
         AddProblemDetailsResponse(
             operation,
             StatusCodes.Status403Forbidden,
-            "Authorization policy denied access; code: access_forbidden. Endpoint-specific business errors retain their own codes.",
+            "Access forbidden. code: access_forbidden. Endpoint-specific business errors retain their own codes.",
             context);
         AddUnauthorizedHeader(operation);
     }

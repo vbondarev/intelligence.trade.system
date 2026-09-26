@@ -39,9 +39,8 @@ public partial class Program
         builder.Services.AddTradeAuthentication(builder.Configuration, builder.Environment);
 
         var app = builder.Build();
-
         app.UseExceptionHandler();
-        app.UseApiErrorStatusCodePages();
+        app.UseExceptionHandler();
 
         if (app.Environment.IsDevelopment())
         {

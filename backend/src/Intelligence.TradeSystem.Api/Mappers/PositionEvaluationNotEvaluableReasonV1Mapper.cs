@@ -1,16 +1,25 @@
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Application.Evaluations;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
 internal static class PositionEvaluationNotEvaluableReasonV1Mapper
 {
-    public static string ToWireValue(PositionEvaluationNotEvaluableReason reason) =>
+    public static PositionNotEvaluableReasonV1 ToWireValue(
+        PositionEvaluationNotEvaluableReason reason) =>
         reason switch
         {
-            PositionEvaluationNotEvaluableReason.ClosedPosition => "closed_position",
-            PositionEvaluationNotEvaluableReason.PortfolioUnavailable => "portfolio_unavailable",
-            PositionEvaluationNotEvaluableReason.PortfolioInconsistent => "portfolio_inconsistent",
-            PositionEvaluationNotEvaluableReason.TemporalInconsistency => "temporal_inconsistency",
-            _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+            PositionEvaluationNotEvaluableReason.ClosedPosition =>
+                PositionNotEvaluableReasonV1.ClosedPosition,
+            PositionEvaluationNotEvaluableReason.PortfolioUnavailable =>
+                PositionNotEvaluableReasonV1.PortfolioUnavailable,
+            PositionEvaluationNotEvaluableReason.PortfolioInconsistent =>
+                PositionNotEvaluableReasonV1.PortfolioInconsistent,
+            PositionEvaluationNotEvaluableReason.TemporalInconsistency =>
+                PositionNotEvaluableReasonV1.TemporalInconsistency,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(reason),
+                reason,
+                "Неизвестная причина невозможности оценки позиции."),
         };
 }

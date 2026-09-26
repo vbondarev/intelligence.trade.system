@@ -135,6 +135,8 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
             var unauthorized = responses.GetProperty("401");
             unauthorized.GetProperty("description").GetString()
                 .Should().Contain("authentication_required");
+            unauthorized.GetProperty("description").GetString()
+                .Should().Contain("Authentication required.");
             unauthorized.GetProperty("content")
                 .GetProperty("application/problem+json")
                 .GetProperty("schema")
@@ -151,6 +153,8 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
             var forbidden = responses.GetProperty("403");
             forbidden.GetProperty("description").GetString()
                 .Should().Contain("access_forbidden");
+            forbidden.GetProperty("description").GetString()
+                .Should().Contain("Access forbidden.");
             forbidden.GetProperty("content")
                 .GetProperty("application/problem+json")
                 .GetProperty("schema")
@@ -175,6 +179,23 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         var problemDetails = schemas.GetProperty("ProblemDetails");
         problemDetails.GetProperty("properties").EnumerateObject().Select(property => property.Name)
             .Should().Contain(["type", "title", "status", "detail", "instance", "code", "traceId", "reason"]);
+        var reasonProperty = problemDetails.GetProperty("properties").GetProperty("reason");
+        GetReferenceName(reasonProperty)!.Should().Be("PositionNotEvaluableReasonV1");
+        (!problemDetails.TryGetProperty("required", out var required)
+            || required.EnumerateArray()
+                .All(property => property.GetString() != "reason"))
+            .Should()
+            .BeTrue();
+        schemas.GetProperty("PositionNotEvaluableReasonV1")
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .Should()
+            .Equal(
+                "closedPosition",
+                "portfolioUnavailable",
+                "portfolioInconsistent",
+                "temporalInconsistency");
 
         var positionList = root.GetProperty("paths")
             .GetProperty("/api/v1/positions")

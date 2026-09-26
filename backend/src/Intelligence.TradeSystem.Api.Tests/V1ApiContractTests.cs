@@ -32,6 +32,22 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
         using var response = await _client.GetAsync("/api/v1/auth/me");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        response.Headers.WwwAuthenticate.Should().ContainSingle();
+        response.Headers.WwwAuthenticate.Single().Scheme.Should().Be("Bearer");
+        response.Headers.WwwAuthenticate.Single().Parameter.Should().BeNullOrWhiteSpace();
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = document.RootElement;
+        problem.GetProperty("type").GetString()
+            .Should().Be("urn:intelligence-trade:error:authentication-required");
+        problem.GetProperty("title").GetString().Should().Be("Authentication required.");
+        problem.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.Unauthorized);
+        problem.GetProperty("instance").GetString().Should().Be("/api/v1/auth/me");
+        problem.GetProperty("code").GetString().Should().Be("authentication_required");
+        problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        if (problem.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Theory]

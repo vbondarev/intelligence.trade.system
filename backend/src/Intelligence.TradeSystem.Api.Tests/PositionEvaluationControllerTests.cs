@@ -333,7 +333,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
-        problem.Extensions["reason"]!.ToString().Should().Be("portfolio_unavailable");
+        problem.Extensions["reason"]!.ToString().Should().Be("portfolioUnavailable");
         market.Verify(
             service => service.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
@@ -344,15 +344,90 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
     }
 
     [Theory]
-    [InlineData(PositionEvaluationNotEvaluableReason.ClosedPosition, "closed_position")]
-    [InlineData(PositionEvaluationNotEvaluableReason.PortfolioUnavailable, "portfolio_unavailable")]
-    [InlineData(PositionEvaluationNotEvaluableReason.PortfolioInconsistent, "portfolio_inconsistent")]
-    [InlineData(PositionEvaluationNotEvaluableReason.TemporalInconsistency, "temporal_inconsistency")]
-    public void Not_evaluable_reasons_have_explicit_v1_wire_values(
+    [InlineData(
+        PositionEvaluationNotEvaluableReason.ClosedPosition,
+        PositionNotEvaluableReasonV1.ClosedPosition)]
+    [InlineData(
+        PositionEvaluationNotEvaluableReason.PortfolioUnavailable,
+        PositionNotEvaluableReasonV1.PortfolioUnavailable)]
+    [InlineData(
+        PositionEvaluationNotEvaluableReason.PortfolioInconsistent,
+        PositionNotEvaluableReasonV1.PortfolioInconsistent)]
+    [InlineData(
+        PositionEvaluationNotEvaluableReason.TemporalInconsistency,
+        PositionNotEvaluableReasonV1.TemporalInconsistency)]
+    public void Not_evaluable_reasons_map_to_typed_v1_values(
         PositionEvaluationNotEvaluableReason reason,
-        string wireValue)
+        PositionNotEvaluableReasonV1 v1Reason)
     {
-        PositionEvaluationNotEvaluableReasonV1Mapper.ToWireValue(reason).Should().Be(wireValue);
+        PositionEvaluationNotEvaluableReasonV1Mapper.ToWireValue(reason).Should().Be(v1Reason);
+    }
+
+    [Fact]
+    public void Unknown_not_evaluable_reason_is_a_programming_failure()
+    {
+        var act = () => PositionEvaluationNotEvaluableReasonV1Mapper.ToWireValue(
+            (PositionEvaluationNotEvaluableReason)int.MaxValue);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task Post_returns_409_with_portfolio_inconsistent_reason()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portfolio);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                marketSnapshotService: market.Object,
+                exchangeAccountRepository: accountRepository.Object,
+                portfolioStateRepository: portfolioRepository.Object));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
+        problem.Extensions["reason"]!.ToString().Should().Be("portfolioInconsistent");
+        market.Verify(
+            service => service.BuildSnapshotAsync(
+                It.IsAny<ExchangeId>(),
+                It.IsAny<string>(),
+                It.IsAny<MarketCategory>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -496,6 +571,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
+        problem.Extensions["reason"]!.ToString().Should().Be("closedPosition");
         market.Verify(
             service => service.BuildSnapshotAsync(
                 It.IsAny<ExchangeId>(),
@@ -503,6 +579,69 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
                 It.IsAny<MarketCategory>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task Post_returns_409_with_temporal_inconsistency_reason()
+    {
+        var userId = UserId.New();
+        var position = CreatePosition();
+        var account = ExchangeAccount.Create(
+            position.ExchangePositionKey.ExchangeAccountId,
+            userId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountConnectionStatus.Connected);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [position],
+            new PortfolioCapitalState(1_000m, 800m, T0, 1_000m),
+            T0.AddMinutes(3),
+            TimeSpan.FromMinutes(5));
+        var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+        accountRepository
+            .Setup(repository => repository.GetByIdAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+        var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(portfolio);
+        var policyProvider = new Mock<IRecommendationPolicyDefinitionProvider>(MockBehavior.Strict);
+        policyProvider
+            .Setup(provider => provider.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PolicyDefinition.Default);
+        var market = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        market
+            .Setup(service => service.BuildSnapshotAsync(
+                account.ExchangeId,
+                position.ExchangePositionKey.InstrumentId.Value!,
+                position.MarketCategory,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiSnapshotTestData.CreateSnapshot());
+        var positionRepository = CreatePositionRepository(userId, position);
+        using var client = CreateClient(
+            userId,
+            CreateService(
+                positionRepository.Object,
+                marketSnapshotService: market.Object,
+                exchangeAccountRepository: accountRepository.Object,
+                portfolioStateRepository: portfolioRepository.Object,
+                policyDefinitionProvider: policyProvider.Object));
+
+        using var response = await client.PostAsync(
+            $"/api/v1/positions/{position.Id.Value}/evaluation",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("position_not_evaluable");
+        problem.Extensions["reason"]!.ToString().Should().Be("temporalInconsistency");
     }
 
     [Fact]

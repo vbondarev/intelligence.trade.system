@@ -393,11 +393,13 @@ public sealed class AuthenticationIntegrationTests(
             DateTime.UtcNow.AddMinutes(5),
             principalType: principalType);
 
-        (await GetWithTokenAsync(client, token)).StatusCode.Should().Be(HttpStatusCode.OK);
+        using var tradeApiResponse = await GetWithTokenAsync(client, token);
+        tradeApiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var userResponse = await client.SendAsync(request);
+        await AssertAuthorizationProblemAsync(userResponse);
     }
 
     [Theory]
@@ -415,7 +417,8 @@ public sealed class AuthenticationIntegrationTests(
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var response = await client.SendAsync(request);
+        await AssertAuthorizationProblemAsync(response);
     }
 
     [Fact]
@@ -451,9 +454,9 @@ public sealed class AuthenticationIntegrationTests(
         using var hubResponse = await client.PostAsync(
             "/hubs/v1/updates/negotiate?negotiateVersion=1",
             content: null);
-        hubResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        var hubBody = await hubResponse.Content.ReadAsStringAsync();
-        hubBody.Should().NotContain("authentication_required");
+        await AssertHubAuthorizationFailureAsync(
+            hubResponse,
+            HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -524,7 +527,7 @@ public sealed class AuthenticationIntegrationTests(
             "/hubs/v1/updates/negotiate?negotiateVersion=1",
             content: null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await AssertHubAuthorizationFailureAsync(response, HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -538,7 +541,7 @@ public sealed class AuthenticationIntegrationTests(
             + $"&access_token={Uri.EscapeDataString(token.AccessToken)}",
             content: null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await AssertHubAuthorizationFailureAsync(response, HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -563,12 +566,12 @@ public sealed class AuthenticationIntegrationTests(
             subject: "not-a-guid",
             principalType: UserPrincipalType);
 
-        (await NegotiateWithTokenAsync(client, machineToken))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await NegotiateWithTokenAsync(client, missingScopeToken))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await NegotiateWithTokenAsync(client, invalidSubjectToken))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var machineResponse = await NegotiateWithTokenAsync(client, machineToken);
+        using var missingScopeResponse = await NegotiateWithTokenAsync(client, missingScopeToken);
+        using var invalidSubjectResponse = await NegotiateWithTokenAsync(client, invalidSubjectToken);
+        await AssertHubAuthorizationFailureAsync(machineResponse, HttpStatusCode.Forbidden);
+        await AssertHubAuthorizationFailureAsync(missingScopeResponse, HttpStatusCode.Forbidden);
+        await AssertHubAuthorizationFailureAsync(invalidSubjectResponse, HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -824,31 +827,9 @@ public sealed class AuthenticationIntegrationTests(
         using var client = apiFactory.CreateClient();
         var token = CreateSignedToken(Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "openid");
 
-        var response = await GetWithTokenAsync(client, token);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }
-
-    [Fact]
-    public async Task V1_authorization_failure_returns_the_stable_forbidden_problem()
-    {
-        using var client = apiFactory.CreateClient();
-        var token = CreateSignedToken(Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "openid");
-
         using var response = await GetWithTokenAsync(client, token, "/api/v1/auth/me");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var problem = document.RootElement;
-        problem.GetProperty("type").GetString()
-            .Should().Be("urn:intelligence-trade:error:access-forbidden");
-        problem.GetProperty("title").GetString().Should().Be("Access is forbidden.");
-        problem.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.Forbidden);
-        problem.GetProperty("instance").GetString().Should().Be("/api/v1/auth/me");
-        problem.GetProperty("code").GetString().Should().Be("access_forbidden");
-        problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
-        (await response.Content.ReadAsStringAsync()).Should().NotContain("exchange_permissions_rejected");
+        await AssertAuthorizationProblemAsync(response);
     }
 
     [Fact]
@@ -974,10 +955,40 @@ public sealed class AuthenticationIntegrationTests(
         problem.GetProperty("code").GetString().Should().Be("authentication_required");
         problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
         type.Should().Be("urn:intelligence-trade:error:authentication-required");
-        title.Should().Be("Authentication is required.");
+        title.Should().Be("Authentication required.");
         return (type!, title!, problem.TryGetProperty("detail", out var detail)
             ? detail.GetString()
             : null);
+    }
+
+    private static async Task AssertAuthorizationProblemAsync(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = document.RootElement;
+        problem.GetProperty("type").GetString()
+            .Should().Be("urn:intelligence-trade:error:access-forbidden");
+        problem.GetProperty("title").GetString().Should().Be("Access forbidden.");
+        problem.GetProperty("status").GetInt32().Should().Be((int)HttpStatusCode.Forbidden);
+        problem.GetProperty("instance").GetString().Should().Be("/api/v1/auth/me");
+        problem.GetProperty("code").GetString().Should().Be("access_forbidden");
+        problem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+        if (problem.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private static async Task AssertHubAuthorizationFailureAsync(
+        HttpResponseMessage response,
+        HttpStatusCode expectedStatus)
+    {
+        response.StatusCode.Should().Be(expectedStatus);
+        response.Content.Headers.ContentType?.MediaType.Should().NotBe("application/problem+json");
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("authentication_required");
+        body.Should().NotContain("access_forbidden");
     }
 
     private static Task<HttpResponseMessage> NegotiateWithTokenAsync(

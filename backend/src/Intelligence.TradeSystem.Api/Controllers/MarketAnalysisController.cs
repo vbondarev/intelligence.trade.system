@@ -72,24 +72,11 @@ public sealed class MarketAnalysisController : ControllerBase
             return BadRequestProblem(validationResult.Errors[0].ErrorMessage);
         }
 
-        MarketSnapshot snapshot;
-        try
-        {
-            snapshot = await _marketSnapshotService.BuildSnapshotAsync(
-                request.Exchange!.Value,
-                request.Symbol!.Trim(),
-                request.Category!.Value,
-                cancellationToken).ConfigureAwait(false);
-        }
-        // Сохраняем legacy validation behavior только на публичной market boundary.
-        catch (ArgumentException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
+        var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
+            request.Exchange!.Value,
+            request.Symbol!.Trim(),
+            request.Category!.Value,
+            cancellationToken).ConfigureAwait(false);
 
         return Ok(snapshot.ToResponse(PortfolioSnapshot.Unavailable));
     }
@@ -132,23 +119,11 @@ public sealed class MarketAnalysisController : ControllerBase
         var mode = request.Mode ?? AnalysisMode.Intraday;
         var normalizedSymbol = symbol.Trim();
 
-        MarketSnapshot snapshot;
-        try
-        {
-            snapshot = await _marketSnapshotService.BuildSnapshotAsync(
-                request.Exchange!.Value,
-                normalizedSymbol,
-                request.Category!.Value,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (ArgumentException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return BadRequestProblem(exception.Message);
-        }
+        var snapshot = await _marketSnapshotService.BuildSnapshotAsync(
+            request.Exchange!.Value,
+            normalizedSymbol,
+            request.Category!.Value,
+            cancellationToken).ConfigureAwait(false);
 
         var health = _snapshotHealthEvaluator.Evaluate(snapshot, mode);
         var payload = snapshot.ToLlmPayload(mode, health);

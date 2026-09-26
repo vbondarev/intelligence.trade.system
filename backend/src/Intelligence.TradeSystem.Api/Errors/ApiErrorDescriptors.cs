@@ -11,13 +11,13 @@ internal static class ApiErrorDescriptors
     public static ApiErrorDescriptor AuthenticationRequired { get; } = new(
         ApiErrorCodes.AuthenticationRequired,
         StatusCodes.Status401Unauthorized,
-        "Authentication is required.",
+        "Authentication required.",
         "urn:intelligence-trade:error:authentication-required");
 
     public static ApiErrorDescriptor AccessForbidden { get; } = new(
         ApiErrorCodes.AccessForbidden,
         StatusCodes.Status403Forbidden,
-        "Access is forbidden.",
+        "Access forbidden.",
         "urn:intelligence-trade:error:access-forbidden");
 
     public static ApiErrorDescriptor ResourceNotFound { get; } = new(

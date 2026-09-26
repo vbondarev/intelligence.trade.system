@@ -242,19 +242,17 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Theory]
-    [InlineData("argument", "invalid for snapshot analysis")]
-    [InlineData("not-supported", "not supported")]
-    public async Task LlmPayload_Preserves_Legacy_BadRequest_For_Unsupported_Market_Inputs(
+    [InlineData("argument", "Symbol 'BTCUSDT' is invalid for snapshot analysis.")]
+    [InlineData("not-supported", "Exchange 'Bybit' is not supported in this environment.")]
+    public async Task LlmPayload_Returns_InternalError_When_Service_Throws_Framework_Exception(
         string exceptionKind,
-        string detailFragment)
+        string exceptionMessage)
     {
         var service = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         var exception = exceptionKind switch
         {
-            "argument" => (Exception)new ArgumentException(
-                "Symbol 'BTCUSDT' is invalid for snapshot analysis."),
-            "not-supported" => new NotSupportedException(
-                "Exchange 'Bybit' is not supported in this environment."),
+            "argument" => (Exception)new ArgumentException(exceptionMessage),
+            "not-supported" => new NotSupportedException(exceptionMessage),
             _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind)),
         };
         service
@@ -271,10 +269,15 @@ public sealed class LlmPayloadEndpointTests : IClassFixture<ApiWebApplicationFac
 
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            detailFragment,
-            "validation_failed");
+            HttpStatusCode.InternalServerError,
+            "An unexpected error occurred.",
+            null,
+            "internal_error");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(exceptionMessage);
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
         service.VerifyAll();
     }
 
