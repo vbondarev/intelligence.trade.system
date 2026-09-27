@@ -673,9 +673,11 @@ def publish_validation_result(
     )
 
 
-def set_pending_for_targets(
+def write_status_for_targets(
     repository: str,
     targets: list[tuple[int, str]],
+    state: str,
+    description: str,
     token: str,
 ) -> None:
     first_error: HandlerError | None = None
@@ -684,8 +686,8 @@ def set_pending_for_targets(
             write_status(
                 repository,
                 head_sha,
-                "pending",
-                "Ожидает повторной проверки Approved Plan.",
+                state,
+                description,
                 token,
             )
         except HandlerError as exception:
@@ -693,6 +695,20 @@ def set_pending_for_targets(
                 first_error = exception
     if first_error is not None:
         raise first_error
+
+
+def set_pending_for_targets(
+    repository: str,
+    targets: list[tuple[int, str]],
+    token: str,
+) -> None:
+    write_status_for_targets(
+        repository,
+        targets,
+        "pending",
+        "Ожидает повторной проверки Approved Plan.",
+        token,
+    )
 
 
 def fail_closed_for_targets(
@@ -707,21 +723,53 @@ def fail_closed_for_targets(
     except HandlerError as exception:
         first_error = exception
 
-    for _, head_sha in targets:
+    try:
+        write_status_for_targets(
+            repository,
+            targets,
+            "failure",
+            description,
+            token,
+        )
+    except HandlerError as exception:
+        if first_error is None:
+            first_error = exception
+
+    if first_error is not None:
+        raise first_error
+
+
+def validate_targets(
+    repository: str,
+    targets: list[tuple[int, str]],
+    token: str,
+) -> None:
+    first_error: HandlerError | None = None
+    for pull_request_number, head_sha in targets:
         try:
-            write_status(
+            publish_validation_result(
                 repository,
+                pull_request_number,
                 head_sha,
-                "failure",
-                description,
                 token,
             )
         except HandlerError as exception:
             if first_error is None:
                 first_error = exception
 
-    if first_error is not None:
-        raise first_error
+    if first_error is None:
+        return
+
+    try:
+        fail_closed_for_targets(
+            repository,
+            targets,
+            f"Не удалось проверить Approved Plan: {first_error}",
+            token,
+        )
+    except HandlerError as status_exception:
+        raise first_error from status_exception
+    raise first_error
 
 
 def handle_workflow_run_event(
@@ -740,17 +788,25 @@ def handle_workflow_run_event(
     if not targets:
         return "Workflow run не относится к актуальному открытому PR."
 
-    set_pending_for_targets(repository, targets, token)
+    try:
+        set_pending_for_targets(repository, targets, token)
+    except HandlerError as pending_exception:
+        try:
+            write_status_for_targets(
+                repository,
+                targets,
+                "failure",
+                f"Не удалось установить pending status: {pending_exception}",
+                token,
+            )
+        except HandlerError as failure_exception:
+            raise pending_exception from failure_exception
+        raise
+
     if action == "requested":
         return f"plan-freshness переведён в pending для {len(targets)} PR."
 
-    for pull_request_number, head_sha in targets:
-        publish_validation_result(
-            repository,
-            pull_request_number,
-            head_sha,
-            token,
-        )
+    validate_targets(repository, targets, token)
     return f"plan-freshness обновлён для {len(targets)} PR."
 
 
@@ -795,42 +851,57 @@ def handle_issue_comment_event(
     kind = change["kind"]
     try:
         set_pending_for_targets(repository, targets, token)
-    except HandlerError:
+    except HandlerError as pending_exception:
+        incident_exception: HandlerError | None = None
         if kind in {"plan-edited", "plan-deleted"}:
-            create_integrity_incident(repository, change, token)
+            try:
+                create_integrity_incident(repository, change, token)
+            except HandlerError as exception:
+                incident_exception = exception
+        try:
+            write_status_for_targets(
+                repository,
+                targets,
+                "failure",
+                f"Не удалось установить pending status: {pending_exception}",
+                token,
+            )
+        except HandlerError as failure_exception:
+            raise pending_exception from failure_exception
+        if incident_exception is not None:
+            raise pending_exception from incident_exception
         raise
 
     if kind in {"plan-edited", "plan-deleted"}:
         try:
             create_integrity_incident(repository, change, token)
         except HandlerError as exception:
-            for pull_request_number, head_sha in targets:
-                write_status(
+            try:
+                write_status_for_targets(
                     repository,
-                    head_sha,
+                    targets,
                     "failure",
                     f"Integrity Incident не записан: {exception}",
                     token,
                 )
+            except HandlerError as status_exception:
+                raise exception from status_exception
             raise
     elif kind == "incident-mutated":
-        for pull_request_number, head_sha in targets:
-            write_status(
+        exception = HandlerError("Integrity Incident был изменён или удалён.")
+        try:
+            write_status_for_targets(
                 repository,
-                head_sha,
+                targets,
                 "failure",
-                "Integrity Incident был изменён или удалён.",
+                str(exception),
                 token,
             )
-        raise HandlerError("Integrity Incident был изменён или удалён.")
+        except HandlerError as status_exception:
+            raise exception from status_exception
+        raise exception
 
-    for pull_request_number, head_sha in targets:
-        publish_validation_result(
-            repository,
-            pull_request_number,
-            head_sha,
-            token,
-        )
+    validate_targets(repository, targets, token)
     return f"Issue comment обработан; проверено PR: {len(targets)}."
 
 

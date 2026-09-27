@@ -33,6 +33,11 @@ REPOSITORY = "vbondarev/intelligence.trade.system"
 ISSUE_NUMBER = 165
 PULL_REQUEST_NUMBER = 166
 HEAD_SHA = "a" * 40
+MULTI_TARGETS = [
+    (166, "a" * 40),
+    (167, "b" * 40),
+    (168, "c" * 40),
+]
 BASE_URL = (
     f"https://github.com/{REPOSITORY}/issues/{ISSUE_NUMBER}"
     "#issuecomment-5851955523"
@@ -304,6 +309,40 @@ class TrustedPlanFreshnessTests(TestCase):
             handle_workflow_run_event(event, REPOSITORY, "trusted-token")
         self.assertEqual(["pending", "validate"], calls)
 
+    def test_workflow_run_partial_pending_failure_fails_every_target(self) -> None:
+        event = make_workflow_run_event("completed")
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+            if sha == MULTI_TARGETS[0][1] and state == "pending":
+                raise HandlerError("pending A failed")
+
+        with patch.dict(
+            handle_workflow_run_event.__globals__,
+            {
+                "workflow_run_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "partial pending failure must not validate"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(HandlerError, "pending A failed"):
+                handle_workflow_run_event(event, REPOSITORY, "trusted-token")
+
+        self.assertEqual(
+            [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [(sha, "failure") for _, sha in MULTI_TARGETS],
+            calls,
+        )
+
     def test_issue_event_sets_pending_before_validation(self) -> None:
         event = make_issue_event("created", f"{BASE_PLAN_MARKER}\n\nPlan.")
         calls: list[str] = []
@@ -429,6 +468,280 @@ class TrustedPlanFreshnessTests(TestCase):
         )
         self.assertEqual(["pending", "failure"], calls)
         self.assertEqual("failure", states[HEAD_SHA])
+
+    def test_partial_pending_failure_fails_all_targets(self) -> None:
+        event = make_issue_event("created", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        calls: list[tuple[str, str]] = []
+        states = {sha: "success" for _, sha in MULTI_TARGETS}
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+            if sha == MULTI_TARGETS[0][1] and state == "pending":
+                raise HandlerError("pending A failed")
+            states[sha] = state
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "partial pending failure must not validate"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(HandlerError, "pending A failed"):
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertEqual(
+            [
+                (MULTI_TARGETS[0][1], "pending"),
+                (MULTI_TARGETS[1][1], "pending"),
+                (MULTI_TARGETS[2][1], "pending"),
+                (MULTI_TARGETS[0][1], "failure"),
+                (MULTI_TARGETS[1][1], "failure"),
+                (MULTI_TARGETS[2][1], "failure"),
+            ],
+            calls,
+        )
+        self.assertEqual({sha: "failure" for _, sha in MULTI_TARGETS}, states)
+        self.assertNotIn("success", [state for _, state in calls])
+
+    def test_failure_status_error_does_not_skip_remaining_targets(self) -> None:
+        event = make_issue_event(
+            "edited",
+            f"{INCIDENT_MARKER}\n\nMutated.",
+            author=INTEGRITY_INCIDENT_AUTHOR,
+            association="BOT",
+            changes={"body": {"from": f"{INCIDENT_MARKER}\n\nOriginal."}},
+        )
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+            if sha == MULTI_TARGETS[0][1] and state == "failure":
+                raise HandlerError("failure A failed")
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "mutated incident must not validate"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "Integrity Incident был изменён или удалён",
+            ) as caught:
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertIsInstance(caught.exception.__cause__, HandlerError)
+        self.assertEqual("failure A failed", str(caught.exception.__cause__))
+        self.assertEqual(
+            [
+                (sha, "pending") for _, sha in MULTI_TARGETS
+            ]
+            + [
+                (sha, "failure") for _, sha in MULTI_TARGETS
+            ],
+            calls,
+        )
+        self.assertNotIn("success", [state for _, state in calls])
+
+    def test_incident_creation_and_first_failure_errors_do_not_skip_targets(
+        self,
+    ) -> None:
+        event = make_issue_event(
+            "deleted",
+            f"{BASE_PLAN_MARKER}\n\nPlan.",
+            sender="collaborator",
+        )
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+            if sha == MULTI_TARGETS[0][1] and state == "failure":
+                raise HandlerError("failure A failed")
+
+        def fail_incident(*_args) -> None:
+            raise HandlerError("incident creation failed")
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "create_integrity_incident": fail_incident,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "failed incident creation must not validate"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "incident creation failed",
+            ) as caught:
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertIsInstance(caught.exception.__cause__, HandlerError)
+        self.assertEqual("failure A failed", str(caught.exception.__cause__))
+        self.assertEqual(
+            [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [(sha, "failure") for _, sha in MULTI_TARGETS],
+            calls,
+        )
+        self.assertNotIn("success", [state for _, state in calls])
+
+    def test_classification_error_attempts_all_pending_and_failure_targets(
+        self,
+    ) -> None:
+        event = make_issue_event("deleted", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        event["comment"].pop("body")
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+            if sha == MULTI_TARGETS[0][1]:
+                raise HandlerError(f"{state} A failed")
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "classification failure must not validate"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "Deleted comment payload не содержит исходный body",
+            ) as caught:
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertEqual(
+            [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [(sha, "failure") for _, sha in MULTI_TARGETS],
+            calls,
+        )
+        self.assertIsInstance(caught.exception.__cause__, HandlerError)
+        self.assertEqual("pending A failed", str(caught.exception.__cause__))
+        self.assertNotIn("success", [state for _, state in calls])
+
+    def test_multi_target_happy_path_sets_pending_then_validates_all(self) -> None:
+        event = make_issue_event("created", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+
+        def publish(
+            _repo: str,
+            number: int,
+            sha: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, f"validate:{number}"))
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": publish,
+            },
+        ):
+            result = handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertIn("проверено PR: 3", result)
+        self.assertEqual(
+            [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [
+                (sha, f"validate:{number}")
+                for number, sha in MULTI_TARGETS
+            ],
+            calls,
+        )
+
+    def test_validation_error_does_not_skip_other_targets(self) -> None:
+        event = make_issue_event("created", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        calls: list[tuple[str, str]] = []
+
+        def write(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, state))
+
+        def publish(
+            _repo: str,
+            number: int,
+            sha: str,
+            _token: str,
+        ) -> None:
+            calls.append((sha, f"validate:{number}"))
+            if number == MULTI_TARGETS[0][0]:
+                raise HandlerError("validation A failed")
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: MULTI_TARGETS,
+                "write_status": write,
+                "publish_validation_result": publish,
+            },
+        ):
+            with self.assertRaisesRegex(HandlerError, "validation A failed"):
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertEqual(
+            [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [
+                (sha, f"validate:{number}")
+                for number, sha in MULTI_TARGETS
+            ]
+            + [(sha, "pending") for _, sha in MULTI_TARGETS]
+            + [(sha, "failure") for _, sha in MULTI_TARGETS],
+            calls,
+        )
+        self.assertNotIn("success", [state for _, state in calls])
 
     def test_owner_plan_deletion_by_other_actor_creates_incident(self) -> None:
         event = make_issue_event(
