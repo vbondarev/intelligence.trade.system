@@ -66,6 +66,13 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
     def test_pull_request_target_is_not_used(self) -> None:
         self.assertNotIn("pull_request_target:", self.workflow)
 
+    def test_trusted_plan_freshness_test_is_not_called(self) -> None:
+        self.assertNotIn("test-trusted-plan-freshness.py", self.workflow)
+
+    def test_trusted_plan_freshness_workflow_is_removed(self) -> None:
+        freshness_workflow = WORKFLOW_PATH.with_name("trusted-plan-freshness.yml")
+        self.assertFalse(freshness_workflow.exists())
+
     def test_pr_body_edits_trigger_a_new_build_workflow_run(self) -> None:
         pull_request_events = re.search(
             r"(?ms)^  pull_request:\n(?P<events>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\Z)",

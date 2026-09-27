@@ -610,13 +610,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–F** и технические задачи **Tech-G01 — Tech-G08** завершены. Tech-G09 находится в работе: PR validation и структурные проверки подготовлены, а trusted freshness workflow должен сначала попасть в `main`; затем требуется включить `plan-freshness` в ruleset `develop` и проверить события end-to-end. G-01 начнётся после завершения Tech-G09; актуальная последовательность определяется `ROADMAP.md`.
+Этапы **A–F** и технические задачи **Tech-G01 — Tech-G08** завершены. Tech-G09 находится в работе. Подготовлены durable Approved Plan lifecycle, structural agent-assets validation и zero-permission PR workflow validation. До завершения остаются cleanup по текущему Approved Amendment, exact-current-head CI, final live External Re-review, отсутствие valid blockers, Human Merge Gate и merge PR #166. Tech-G09 не считается завершённым до merge; дальнейшая последовательность определяется `ROADMAP.md`.
 
 Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 
 Основная ближайшая последовательность:
 
-1. завершить Tech-G09: опубликовать trusted workflow в `main`, включить required `plan-freshness` и проверить события end-to-end;
+1. завершить Tech-G09;
 2. G-01: React-панель и BFF;
 3. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
 4. Telegram-уведомления и детерминированные объяснения;

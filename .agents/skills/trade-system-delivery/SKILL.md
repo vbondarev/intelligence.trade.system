@@ -23,10 +23,10 @@ description: Выполняет согласованную Issue-задачу о
 
 1. Сохрани полный Approved Implementation Plan отдельным комментарием связанного GitHub Issue с точной первой строкой `# Approved Implementation Plan`; canonical comment должен быть опубликован `vbondarev` с `author_association=OWNER`.
 2. Получи permalink комментария и проверь, что он доступен для чтения. При ошибке публикации или проверки остановись до исправления состояния.
-3. Не редактируй base Plan или Amendment. После human decision и нового Human Gate создай отдельный comment `# Approved Implementation Plan — Amendment` со ссылкой `Base Approved Implementation Plan: <permalink>` и только утверждённым изменением `HOW`.
-4. При edit/delete trusted canonical comment дождись Integrity Incident от `github-actions[bot]` и не продолжай с прежним effective Plan. Replacement публикуется отдельным immutable comment после Human Gate с ссылкой на Incident; bot не утверждает Plan.
+3. Не редактируй base Plan или Amendment. После human decision и нового Human Gate создай отдельный append-only comment `# Approved Implementation Plan — Amendment` со ссылкой `Base Approved Implementation Plan: <permalink>` и только утверждённым изменением `HOW`.
+4. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, остановись и запроси Human Decision.
 
-После успешной проверки permalink повторно получи актуальную target branch и создай отдельную ветку вида `task/<issue>-<kebab-case>`. Реализуй только согласованные Issue `WHAT` и effective Approved Plan `HOW` — trusted immutable base Plan вместе со всеми применимыми trusted amendments и replacements после разрешённых Integrity Incidents. Соседние улучшения не добавляй.
+После успешной проверки permalink повторно получи актуальную target branch и создай отдельную ветку вида `task/<issue>-<kebab-case>`. Реализуй только согласованные Issue `WHAT` и effective Approved Plan `HOW` — trusted immutable base Plan вместе со всеми применимыми trusted Amendments. Соседние улучшения не добавляй.
 
 ## Implementation и проверки
 
@@ -37,8 +37,8 @@ description: Выполняет согласованную Issue-задачу о
 ## Commit, Draft PR и sanity check
 
 - В PR description добавь permalink базового Approved Plan и permalink каждого применимого amendment либо `- Нет`; отклонения сверяй с effective Approved Plan.
-- PR sanity check подтверждает, что base permalink ведёт к immutable comment связанной Issue от `vbondarev/OWNER`, а каждый amendment существует, immutable, доверенно авторизован и ссылается на active base Plan.
-- PR sanity check также подтверждает `plan-freshness` status для точного текущего head и наличие этого status context в required checks target branch.
+- PR sanity check подтверждает, что base permalink ведёт к immutable comment связанной Issue от `vbondarev/OWNER`, а все current Amendments существуют, immutable, доверенно авторизованы, ссылаются на base Plan и перечислены в Issue-comment order.
+- PR sanity check подтверждает Issue, base Plan, все current Amendments, PR metadata и текущий head.
 
 - Commit message: `#<issue>: <текст на русском языке в прошедшем времени>`.
 - PR title: `#<issue>: <краткое название на русском языке>`.

@@ -13,7 +13,7 @@
 - [ADR](adr/) — принятые архитектурные решения и причины их выбора.
 - [API v1 conventions](api-v1-conventions.md) и другие контрактные документы — точное поведение конкретных подсистем.
 - GitHub Issue — согласованный WHAT конкретной задачи.
-- Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only amendments, а edit/delete инвалидирует artifact через Integrity Incident до Human Gate и replacement.
+- Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only Amendments. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, требуется `STOP → Human Decision`.
 - [AGENTS.md](../AGENTS.md) — долговечные правила работы coding agents в репозитории.
 
 ## Как читать продуктовую документацию
@@ -39,4 +39,4 @@ ROADMAP отвечает на другой вопрос: «что действи
 
 Idea → Research → Concept → Human decision → Architecture / ADR при необходимости → ROADMAP → GitHub Issue → Implementation Plan → Human Gate → durable Approved Plan → Implementation.
 
-Конкретный шаг может быть пропущен только когда он неприменим, но Idea, Research или Concept сами по себе не являются implementation scope.
+Конкретный шаг может быть пропущен только когда он неприменим, но Idea, Research или Concept сами по себе не являются implementation scope. Актуальность WHAT/HOW перед merge подтверждается live External Re-review; Human Merge Gate является окончательной границей допуска к merge.

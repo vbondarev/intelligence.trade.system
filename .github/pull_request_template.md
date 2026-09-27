@@ -9,6 +9,8 @@ Approved Implementation Plan:
 Approved Plan Amendments:
 - Нет
 
+<!-- Перечисли все current trusted Amendments ровно один раз в порядке комментариев связанной Issue. -->
+
 ## Что реализовано
 
 <!-- Кратко опиши фактические изменения этого PR. -->

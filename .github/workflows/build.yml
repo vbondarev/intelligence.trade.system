@@ -254,9 +254,6 @@ jobs:
       - name: Test PR workflow validator
         run: python3 .github/scripts/test-check-pr-approved-plan.py
 
-      - name: Test trusted Plan freshness workflow
-        run: python3 .github/scripts/test-trusted-plan-freshness.py
-
       - name: Test PR workflow security boundary
         run: python3 .github/scripts/test-pr-workflow-security.py
 
