@@ -4,7 +4,7 @@ Closes #
 
 ## Утверждённый Implementation Plan
 
-Approved Implementation Plan:
+Approved Implementation Plan: <permalink или N/A>
 
 Approved Plan Amendments:
 - Нет
