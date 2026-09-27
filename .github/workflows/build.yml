@@ -9,8 +9,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
 
 jobs:
   classify-changes:
@@ -27,6 +25,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Classify changed files
         id: classify
@@ -170,6 +169,7 @@ jobs:
         with:
           ref: ${{ needs['classify-changes'].outputs.diff_head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate documentation diff
         shell: bash
@@ -209,6 +209,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Test agent-assets validator
         run: python3 .github/scripts/test-check-agent-assets.py
@@ -219,19 +220,47 @@ jobs:
   pr-workflow-validation:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions: {}
 
     steps:
-      - name: Checkout the pull request head
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Fetch the public pull request head without credentials
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GIT_TERMINAL_PROMPT: 0
+          GIT_CONFIG_NOSYSTEM: 1
+          GIT_CONFIG_GLOBAL: /dev/null
+        run: |
+          set -euo pipefail
+
+          git init .
+          git -c credential.helper= -c http.extraheader= fetch \
+            --no-tags \
+            --depth=1 \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/pull/${PR_NUMBER}/head"
+
+          fetched_sha="$(git rev-parse FETCH_HEAD)"
+          if [[ "$fetched_sha" != "$EXPECTED_HEAD_SHA" ]]; then
+            echo "Fetched pull request SHA не совпадает с event head SHA." >&2
+            exit 1
+          fi
+
+          git checkout --detach "$EXPECTED_HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
       - name: Test PR workflow validator
         run: python3 .github/scripts/test-check-pr-approved-plan.py
 
+      - name: Test trusted Plan freshness workflow
+        run: python3 .github/scripts/test-trusted-plan-freshness.py
+
+      - name: Test PR workflow security boundary
+        run: python3 .github/scripts/test-pr-workflow-security.py
+
       - name: Validate PR workflow links
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/check-pr-approved-plan.py
 
   build:
@@ -242,6 +271,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -274,6 +305,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -321,6 +354,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Docker build API
         run: docker build -f backend/src/Intelligence.TradeSystem.Api/Dockerfile -t intelligence-trade-system-api:ci backend

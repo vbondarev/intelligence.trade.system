@@ -610,7 +610,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–F** и технические задачи **Tech-G01 — Tech-G09** завершены. Tech-G09 сделал Approved Implementation Plan долговечным GitHub Issue comment, связал PR с Issue и Plan и добавил обязательную структурную проверку agent assets в CI. Следующий этап — G-01: основной React-клиент; актуальная последовательность определяется `ROADMAP.md`.
+Этапы **A–F** и технические задачи **Tech-G01 — Tech-G09** завершены. Tech-G09 сделал Approved Implementation Plan immutable GitHub Issue comment, связал PR с Issue и Plan, добавил trusted `plan-freshness` status и обязательную структурную проверку agent assets в CI. Следующий этап — G-01: основной React-клиент; актуальная последовательность определяется `ROADMAP.md`.
 
 Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 

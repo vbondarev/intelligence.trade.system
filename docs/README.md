@@ -13,7 +13,7 @@
 - [ADR](adr/) — принятые архитектурные решения и причины их выбора.
 - [API v1 conventions](api-v1-conventions.md) и другие контрактные документы — точное поведение конкретных подсистем.
 - GitHub Issue — согласованный WHAT конкретной задачи.
-- Approved Implementation Plan — отдельный GitHub Issue comment с canonical marker и permalink; утверждённые изменения HOW сохраняются append-only amendments.
+- Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only amendments, а edit/delete инвалидирует artifact через Integrity Incident до Human Gate и replacement.
 - [AGENTS.md](../AGENTS.md) — долговечные правила работы coding agents в репозитории.
 
 ## Как читать продуктовую документацию

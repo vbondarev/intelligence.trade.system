@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 import sys
@@ -15,6 +16,7 @@ PROJECT_OWNED_SKILLS = {
     "trade-system-delivery",
     "trade-system-pr-review",
 }
+REQUIRED_ROUTING_REFERENCES = PROJECT_OWNED_SKILLS
 FRONTMATTER_KEY = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$")
 DOUBLE_QUOTED_VALUE = re.compile(r'^"((?:[^"\\]|\\.)*)"(?:\s+#.*)?$')
 SINGLE_QUOTED_VALUE = re.compile(r"^'((?:''|[^'])*)'(?:\s+#.*)?$")
@@ -95,7 +97,13 @@ def parse_frontmatter_value(
                 f"{relative_path}:{line_number}: некорректное quoted значение frontmatter."
             )
             return ""
-        return match.group(1)
+        try:
+            return json.loads(f'"{match.group(1)}"')
+        except json.JSONDecodeError:
+            errors.append(
+                f"{relative_path}:{line_number}: некорректное quoted значение frontmatter."
+            )
+            return ""
     if value.startswith("'"):
         match = SINGLE_QUOTED_VALUE.fullmatch(value)
         if match is None:
@@ -104,7 +112,25 @@ def parse_frontmatter_value(
             )
             return ""
         return match.group(1).replace("''", "'")
-    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
+
+    value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
+    invalid_scalar = (
+        not value
+        or any(character in value for character in "[]{}\"'")
+        or re.search(r":(?:\s|$)", value) is not None
+        or value[0] in "!&*|>@`"
+        or re.match(r"^[?:-](?:\s|$)", value) is not None
+        or value.casefold() in {"null", "~", "true", "false", ".nan", ".inf", "-.inf", "+.inf"}
+        or re.fullmatch(r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?", value)
+        is not None
+        or "\t" in value
+    )
+    if invalid_scalar:
+        errors.append(
+            f"{relative_path}:{line_number}: некорректный unquoted scalar frontmatter."
+        )
+        return ""
+    return value
 
 
 def is_nonempty_frontmatter_value(value: str) -> bool:
@@ -159,9 +185,10 @@ def validate_markdown_references(
     source_path: Path,
     text: str,
     errors: list[str],
-) -> None:
+) -> set[str]:
     relative_path = source_path.relative_to(root).as_posix()
     text = strip_fenced_code_blocks(text)
+    skill_references: set[str] = set()
 
     for match in MARKDOWN_LINK.finditer(text):
         target = match.group(1) or match.group(2) or ""
@@ -191,12 +218,14 @@ def validate_markdown_references(
 
     for match in SKILL_REFERENCE.finditer(text):
         skill_name = match.group(1)
+        skill_references.add(skill_name)
         skill_path = root / ".agents" / "skills" / skill_name / "SKILL.md"
         if not skill_path.is_file():
             errors.append(
                 f"{relative_path}: ссылка на project-owned skill не существует: "
                 f".agents/skills/{skill_name}/SKILL.md."
             )
+    return skill_references
 
 
 def validate_repository(repository_root: Path) -> list[str]:
@@ -262,7 +291,20 @@ def validate_repository(repository_root: Path) -> list[str]:
     for control_path in control_paths:
         text = read_text(control_path, root, errors)
         if text is not None:
-            validate_markdown_references(root, control_path, text, errors)
+            referenced_skills = validate_markdown_references(
+                root,
+                control_path,
+                text,
+                errors,
+            )
+            for skill_name in sorted(
+                REQUIRED_ROUTING_REFERENCES - referenced_skills
+            ):
+                errors.append(
+                    f"{control_path.relative_to(root).as_posix()}: "
+                    f"обязательная routing-ссылка на "
+                    f".agents/skills/{skill_name}/SKILL.md отсутствует."
+                )
 
     registry_path = root / ".agents" / "skills" / "README.md"
     registry_text = read_text(registry_path, root, errors)

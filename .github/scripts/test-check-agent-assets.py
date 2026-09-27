@@ -25,19 +25,20 @@ def write_text(root: Path, relative_path: str, text: str) -> Path:
 
 def create_repository(root: Path) -> None:
     write_text(root, "docs/README.md", "# Документация\n")
+    workflow_references = "\n".join(
+        f".agents/skills/{skill_name}/SKILL.md"
+        for skill_name in sorted(PROJECT_OWNED_SKILLS)
+    )
     write_text(
         root,
         "AGENTS.md",
-        "# Правила\n\n[Документация](docs/README.md)\n",
+        "# Правила\n\n[Документация](docs/README.md)\n\n"
+        f"{workflow_references}\n",
     )
     write_text(
         root,
         ".github/copilot-instructions.md",
-        "\n".join(
-            f".agents/skills/{skill_name}/SKILL.md"
-            for skill_name in sorted(PROJECT_OWNED_SKILLS)
-        )
-        + "\n",
+        workflow_references + "\n",
     )
     write_text(
         root,
@@ -122,6 +123,39 @@ class AgentAssetsValidatorTests(unittest.TestCase):
             any("некорректное quoted значение frontmatter" in error for error in self.errors())
         )
 
+    def test_malformed_unquoted_frontmatter_values_fail(self) -> None:
+        path = self.skill_file()
+        original = path.read_text(encoding="utf-8")
+        for invalid_value in (
+            "[unterminated",
+            "{key: value",
+            "value: invalid",
+            "true",
+        ):
+            with self.subTest(invalid_value=invalid_value):
+                path.write_text(
+                    original.replace(
+                        "description: Описание workflow.",
+                        f"description: {invalid_value}",
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any(
+                        "некорректный unquoted scalar" in error
+                        for error in self.errors()
+                    )
+                )
+
+    def test_valid_quoted_frontmatter_scalars_pass(self) -> None:
+        path = self.skill_file()
+        path.write_text(
+            '---\nname: "trade-system-delivery"\n'
+            'description: "Описание [workflow]"\n---\n# Процесс\n',
+            encoding="utf-8",
+        )
+        self.assertEqual([], self.errors())
+
     def test_missing_skill_description_fails(self) -> None:
         path = self.skill_file()
         path.write_text(
@@ -190,6 +224,32 @@ class AgentAssetsValidatorTests(unittest.TestCase):
         self.assertTrue(
             any("ссылка на project-owned skill не существует" in error for error in self.errors())
         )
+
+    def test_control_file_missing_one_required_route_fails(self) -> None:
+        path = self.root / "AGENTS.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                ".agents/skills/trade-system-delivery/SKILL.md\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error
+                and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_control_file_missing_all_required_routes_fails(self) -> None:
+        path = self.root / ".github" / "copilot-instructions.md"
+        path.write_text("# Routing удалён\n", encoding="utf-8")
+        errors = self.errors()
+        missing_routes = [
+            error for error in errors if "обязательная routing-ссылка" in error
+        ]
+        self.assertEqual(len(PROJECT_OWNED_SKILLS), len(missing_routes))
 
     def test_instruction_without_apply_to_fails(self) -> None:
         path = self.root / ".github" / "instructions" / "example.instructions.md"

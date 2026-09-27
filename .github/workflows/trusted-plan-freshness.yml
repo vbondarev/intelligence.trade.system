@@ -1,0 +1,93 @@
+name: Trusted Plan Freshness
+
+on:
+  pull_request:
+    types: [ opened, edited, reopened, synchronize ]
+  workflow_run:
+    workflows: [ Build and Test ]
+    types: [ requested, completed ]
+  issue_comment:
+    types: [ created, edited, deleted ]
+
+permissions: {}
+
+jobs:
+  test-pr-head:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+      - name: Fetch public pull request head without credentials
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GIT_TERMINAL_PROMPT: 0
+          GIT_CONFIG_NOSYSTEM: 1
+          GIT_CONFIG_GLOBAL: /dev/null
+        run: |
+          set -euo pipefail
+
+          git init .
+          git -c credential.helper= -c http.extraheader= fetch \
+            --no-tags \
+            --depth=1 \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/pull/${PR_NUMBER}/head"
+          fetched_sha="$(git rev-parse FETCH_HEAD)"
+          if [[ "$fetched_sha" != "$EXPECTED_HEAD_SHA" ]]; then
+            echo "Полученный PR SHA не совпадает с event head SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$EXPECTED_HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - name: Test candidate validators and workflow boundaries
+        run: |
+          python3 .github/scripts/test-check-pr-approved-plan.py
+          python3 .github/scripts/test-trusted-plan-freshness.py
+          python3 .github/scripts/test-pr-workflow-security.py
+
+  validate-workflow-run:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Validate trusted Plan freshness
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/trusted-plan-freshness.py
+
+  validate-issue-comment:
+    if: github.event_name == 'issue_comment'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      statuses: write
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Revalidate linked PRs after trusted Issue comment changes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/trusted-plan-freshness.py
