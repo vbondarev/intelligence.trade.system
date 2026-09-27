@@ -1,7 +1,18 @@
 # Skills проекта
 
-Каталог `.agents/skills` содержит выбранный набор project-scoped Agent Skills для
-`Intelligence.TradeSystem`.
+Каталог `.agents/skills` содержит project-owned workflow skills и выбранные external Agent Skills для `Intelligence.TradeSystem`.
+
+## Project-owned skills
+
+Эти skills задают отдельные стадии agent-first workflow и не заменяют долговечные правила из применимых `AGENTS.md`.
+
+| Skill | Ответственность |
+| --- | --- |
+| `trade-system-discovery` | Discovery до согласованного GitHub Issue |
+| `trade-system-delivery` | Plan, Human Gate и Delivery до Draft PR sanity check |
+| `trade-system-pr-review` | External Review текущего Pull Request |
+
+## External skills
 
 - External skills не переводятся и не редактируются локально.
 - Repository instructions и явная задача пользователя имеют приоритет над external skill.
