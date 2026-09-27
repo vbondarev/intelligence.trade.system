@@ -76,6 +76,8 @@
 
 Для нетривиальной задачи implementation запрещён до явного Human Gate — утверждения Implementation Plan человеком. Не принимай самостоятельно новое архитектурное решение и не расширяй scope; при конфликте источников или необходимости изменить согласованный `WHAT` остановись и верни вопрос человеку.
 
+После Human Gate сохраняй утверждённый Implementation Plan отдельным GitHub Issue comment с первой строкой `# Approved Implementation Plan`; implementation начинается только после получения permalink. Изменения утверждённого `HOW` сохраняй отдельными append-only amendments после нового Human Gate. PR должен содержать восстанавливаемые ссылки на Issue, базовый Plan и amendments; implementation и review не должны зависеть от предыдущей AI-сессии.
+
 Self-review автора и External Review — разные этапы. Review comments не являются автоматическими командами: проверяй их по текущему коду, Issue, Approved Plan и применимым правилам.
 
 Не выполняй merge без отдельного явного Human Merge Gate пользователя, независимо от состояния CI и review threads.

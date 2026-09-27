@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.38
+Версия документа: 3.39
 Дата актуализации: 27 сентября 2026 года
-Проверенная база: `develop` перед реализацией Issue #162 (`dcd9b31dfb3b23dbc44f905ec84df8d22a33f5ce`)
-Последняя учтённая задача: Issue #162 «Tech-G08: Нормализовать agent-development context»
+Проверенная база: `develop` перед реализацией Issue #165 (`b1d282be4730a3ec89996ab7c384bdb5ac79560b`)
+Последняя учтённая задача: Issue #165 «Tech-G09: Обеспечить воспроизводимость agent-first lifecycle»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -103,7 +103,7 @@
 - **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
 - **Tech-G07** ✅ (Issue #158): стабилизирован error contract `/api/v1`: generic framework exceptions больше не считаются validation failures и неожиданные ошибки сохраняют `500 internal_error` с diagnostics; явные validation failures остаются `400`; REST authentication/authorization возвращают `401 authentication_required` и `403 access_forbidden`; `position_not_evaluable` содержит явную машинную причину; OpenAPI и contract documentation синхронизированы.
 - **Tech-G08** ✅ (Issue #162): нормализован agent-development context: root `AGENTS.md` стал repository control plane, Discovery/Delivery/PR Review разделены на project-owned skills, а Infrastructure и Identity получили локальные instructions. Project-owned и external skills явно разграничены; архитектурные invariants, Human Gates и source-of-truth hierarchy сохранены.
-- **Tech-G09** ⬜: обеспечить воспроизводимость agent-first lifecycle между независимыми AI-сессиями: GitHub Issue остаётся source of truth для согласованного WHAT, Approved Implementation Plan — для HOW; утверждённый HOW доступен как долговечный GitHub-артефакт, а Pull Request сохраняет восстанавливаемую связь с Issue и Plan. Новый агент может восстановить согласованное состояние без доступа к предыдущей AI-сессии. Структура repository instructions, path-specific instructions и Agent Skills автоматически проверяется на объективные структурные ошибки.
+- **Tech-G09** ✅ (Issue #165): Approved Implementation Plan сохраняется отдельным GitHub Issue comment, а PR содержит восстанавливаемые ссылки на Issue, базовый Plan и append-only amendments. Project-owned workflow assets структурно проверяются regression-tested validators; обязательные checks выполняются для docs и full CI paths без анализа OpenClaw и external skills.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -474,15 +474,14 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Обеспечить воспроизводимость agent-first delivery | Tech-G09 |
-| 2 | Создать адаптивную React-панель | G-01 — G-08 |
-| 3 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
-| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Создать адаптивную React-панель | G-01 — G-08 |
+| 2 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
+| 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G08 завершены. Перед началом React обязательна последовательность: Tech-G08 ✅ → Tech-G09 → G-01. Далее сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G09 завершены. Следующий шаг перед React — G-01; далее сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -563,6 +562,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-27 | 3.39 | Issue #165 завершает Tech-G09: Approved Implementation Plan и append-only amendments хранятся в GitHub Issue comments, PR восстанавливает связь с Issue и Plan, а regression-tested structural validators agent assets и PR workflow обязательны в CI. Следующий шаг — G-01; backend runtime и OpenClaw не изменялись. |
 | 2026-09-27 | 3.38 | Issue #162 завершает Tech-G08: root `AGENTS.md` стал control plane, workflow разделены на project-owned Discovery/Delivery/PR Review skills, Infrastructure и Identity получили локальные instructions, а каталог skills отделяет project-owned от external. Tech-G09 остаётся следующим обязательным шагом перед G-01; validator, durable Plan mechanism, CI и templates не изменялись. |
 | 2026-09-27 | 3.37 | Issue #160 добавил Tech-G08 и Tech-G09 перед G-01 и уточнил критерий G-01 о синхронизации frontend agent instructions с фактически принятой архитектурой. Последовательность agent-first подготовки отражена в ROADMAP и README; этап G остаётся текущим. AI-инструкции, skills, templates, CI и runtime в этой задаче не изменялись. |
 | 2026-09-26 | 3.36 | Issue #158 завершает Tech-G07 перед G-01: generic framework/programming exceptions больше не превращаются в validation failures и сохраняют `500 internal_error` diagnostics; явные `/api/v1` auth failures получили стабильные ProblemDetails и Bearer challenge semantics; `position_not_evaluable` публикует явную machine-readable reason; OpenAPI, API contract documentation и README синхронизированы. Этап F и SignalR auth contract не изменялись. |

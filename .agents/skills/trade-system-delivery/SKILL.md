@@ -9,7 +9,7 @@ description: Выполняет согласованную Issue-задачу о
 
 Каноническая последовательность:
 
-`Issue → Implementation Plan → Human Gate → branch → implementation → self-review → checks → docs → final self-review → commit → push → Draft PR → PR sanity`
+`Issue → Implementation Plan → Human Gate → durable Approved Plan → refresh target branch → branch → implementation → self-review → checks → docs → final self-review → commit → push → Draft PR → PR sanity`
 
 После PR sanity передай работу в `.agents/skills/trade-system-pr-review/SKILL.md`; там выполняется полный цикл `External Review → Review fixes → Re-review → Human Merge Gate`. Не дублируй здесь детали этого цикла.
 
@@ -17,9 +17,15 @@ description: Выполняет согласованную Issue-задачу о
 
 До Plan изучи связанный Issue, `ROADMAP.md`, применимые `AGENTS.md` и path-specific instructions, ADR, contracts, релевантный код и подходящие skills. Plan должен определить компоненты, последовательность, архитектурные последствия, проверки, документацию, риски и границы scope.
 
-Для нетривиальной задачи implementation запрещён до явного Human Gate — утверждения Plan человеком. Остановись и верни вопрос человеку при новом архитектурном выборе, scope expansion, конфликте Issue/Plan/ADR/contract или необходимости изменить согласованный `WHAT`. Не стандартизируй хранение Approved Plan и durable workflow state в обход отдельного решения.
+Для нетривиальной задачи implementation запрещён до явного Human Gate — утверждения Plan человеком. Остановись и верни вопрос человеку при новом архитектурном выборе, scope expansion, конфликте Issue/Plan/ADR/contract или необходимости изменить согласованный `WHAT`.
 
-После Gate повторно получи актуальную target branch и создай отдельную ветку вида `task/<issue>-<kebab-case>`. Реализуй только согласованные Issue `WHAT` и Approved Plan `HOW`; соседние улучшения не добавляй.
+После Human Gate до обновления target branch и создания branch:
+
+1. Сохрани полный Approved Implementation Plan отдельным комментарием связанного GitHub Issue с точной первой строкой `# Approved Implementation Plan`.
+2. Получи permalink комментария и проверь, что он доступен для чтения. При ошибке публикации или проверки остановись до исправления состояния.
+3. Не редактируй базовый Approved Plan при изменении `HOW`. После human decision и нового Human Gate создай отдельный comment `# Approved Implementation Plan — Amendment` со ссылкой `Base Approved Implementation Plan: <permalink>` и только утверждённым изменением.
+
+После успешной проверки permalink повторно получи актуальную target branch и создай отдельную ветку вида `task/<issue>-<kebab-case>`. Реализуй только согласованные Issue `WHAT` и effective Approved Plan `HOW` — базовый Plan вместе со всеми применимыми amendments. Соседние улучшения не добавляй.
 
 ## Implementation и проверки
 
@@ -28,6 +34,9 @@ description: Выполняет согласованную Issue-задачу о
 Выполни применимые checks. Неприменимые проверки не называй успешными и кратко укажи причину. Синхронизируй документы, ставшие неверными из-за реализации. После fixes/tests/docs проведи final self-review полного итогового diff.
 
 ## Commit, Draft PR и sanity check
+
+- В PR description добавь permalink базового Approved Plan и permalink каждого применимого amendment либо `- Нет`; отклонения сверяй с effective Approved Plan.
+- PR sanity check подтверждает, что base permalink ведёт к canonical comment связанной Issue, а каждый amendment существует и ссылается на base Plan.
 
 - Commit message: `#<issue>: <текст на русском языке в прошедшем времени>`.
 - PR title: `#<issue>: <краткое название на русском языке>`.

@@ -5,13 +5,16 @@ description: Выполняет технический review Pull Request Intel
 
 # Технический review pull request
 
-Перед анализом обязательно сверь:
+Перед анализом восстанови согласованное состояние из GitHub, без опоры на предыдущую AI-сессию:
 
-1. актуальные PR head/base SHA и полный diff;
+1. PR body и его единственную primary Issue link `Closes #<issue>`;
 2. связанный GitHub Issue;
-3. Approved Implementation Plan;
-4. применимые root/local/path-specific instructions;
-5. применимые ADR и contract docs.
+3. permalink в поле `Approved Implementation Plan` и canonical base comment `# Approved Implementation Plan` этой Issue;
+4. все перечисленные Approved Plan Amendments в порядке Issue comments, с их ссылками на base Plan;
+5. актуальные PR head/base SHA и полный diff;
+6. применимые root/local/path-specific instructions, ADR и contract docs.
+
+Отсутствующая или неоднозначная Issue/Plan-связь, битый permalink, ссылка на другую Issue/repository, неканонический base comment, неперечисленный amendment или amendment без ссылки на base Plan являются blocker workflow defects. Не угадывай актуальный Plan по случайным comments Issue.
 
 Затем:
 
