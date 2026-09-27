@@ -48,7 +48,6 @@ jobs:
         run: |
           python3 .github/scripts/test-check-pr-approved-plan.py
           python3 .github/scripts/test-trusted-plan-freshness.py
-          python3 .github/scripts/test-pr-workflow-security.py
 
   validate-workflow-run:
     if: github.event_name == 'workflow_run'

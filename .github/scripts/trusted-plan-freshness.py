@@ -686,14 +686,50 @@ def set_pending_for_targets(
     targets: list[tuple[int, str]],
     token: str,
 ) -> None:
+    first_error: HandlerError | None = None
     for _, head_sha in targets:
-        write_status(
-            repository,
-            head_sha,
-            "pending",
-            "Ожидает повторной проверки Approved Plan.",
-            token,
-        )
+        try:
+            write_status(
+                repository,
+                head_sha,
+                "pending",
+                "Ожидает повторной проверки Approved Plan.",
+                token,
+            )
+        except HandlerError as exception:
+            if first_error is None:
+                first_error = exception
+    if first_error is not None:
+        raise first_error
+
+
+def fail_closed_for_targets(
+    repository: str,
+    targets: list[tuple[int, str]],
+    description: str,
+    token: str,
+) -> None:
+    first_error: HandlerError | None = None
+    try:
+        set_pending_for_targets(repository, targets, token)
+    except HandlerError as exception:
+        first_error = exception
+
+    for _, head_sha in targets:
+        try:
+            write_status(
+                repository,
+                head_sha,
+                "failure",
+                description,
+                token,
+            )
+        except HandlerError as exception:
+            if first_error is None:
+                first_error = exception
+
+    if first_error is not None:
+        raise first_error
 
 
 def handle_workflow_run_event(
@@ -742,18 +778,20 @@ def handle_issue_comment_event(
             and isinstance(issue_number, int)
             and issue_number > 0
         ):
-            targets = linked_pull_request_targets(
-                repository,
-                issue_number,
-                token,
-            )
-            set_pending_statuses(repository, targets, token)
-            fail_statuses(
-                repository,
-                targets,
-                f"Не удалось проверить Issue comment event: {exception}",
-                token,
-            )
+            try:
+                targets = linked_pull_request_targets(
+                    repository,
+                    issue_number,
+                    token,
+                )
+                fail_closed_for_targets(
+                    repository,
+                    targets,
+                    f"Не удалось проверить Issue comment event: {exception}",
+                    token,
+                )
+            except HandlerError as status_exception:
+                raise exception from status_exception
         raise
     if change is None:
         return "Issue comment не относится к trusted Plan workflow."

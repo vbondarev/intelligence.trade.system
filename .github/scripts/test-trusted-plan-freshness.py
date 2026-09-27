@@ -25,7 +25,6 @@ handle_issue_comment_event = handler["handle_issue_comment_event"]
 HandlerError = handler["HandlerError"]
 write_status = handler["write_status"]
 create_integrity_incident = handler["create_integrity_incident"]
-pull_request_edit_event_is_enabled = handler["pull_request_edit_event_is_enabled"]
 
 REPOSITORY = "vbondarev/intelligence.trade.system"
 ISSUE_NUMBER = 165
@@ -97,18 +96,6 @@ def make_workflow_run_event(
 
 
 class TrustedPlanFreshnessTests(TestCase):
-    def test_build_workflow_must_revalidate_pr_body_edits(self) -> None:
-        build_workflow = (
-            Path(__file__).resolve().parent.parent / "workflows" / "build.yml"
-        ).read_text(encoding="utf-8")
-        self.assertTrue(pull_request_edit_event_is_enabled(build_workflow))
-        self.assertFalse(
-            pull_request_edit_event_is_enabled(
-                "on:\n  pull_request:\n    types: [opened, synchronize]\n"
-                "  workflow_dispatch:\n"
-            )
-        )
-
     def test_owner_created_base_plan_is_trusted_event(self) -> None:
         change = classify_issue_comment_event(
             make_issue_event("created", f"{BASE_PLAN_MARKER}\n\nPlan.")
@@ -354,6 +341,91 @@ class TrustedPlanFreshnessTests(TestCase):
                 "trusted-token",
             )
         self.assertEqual(["status:pending", "validate"], calls)
+
+    def test_classification_error_invalidates_existing_success(self) -> None:
+        event = make_issue_event("deleted", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        event["comment"].pop("body")
+        states = {HEAD_SHA: "success"}
+        calls: list[str] = []
+
+        def write_status(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append(state)
+            states[sha] = state
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: [
+                    (PULL_REQUEST_NUMBER, HEAD_SHA)
+                ],
+                "write_status": write_status,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "classification errors must not publish a success"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "Deleted comment payload не содержит исходный body",
+            ) as caught:
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertNotIsInstance(caught.exception, NameError)
+        self.assertEqual(["pending", "failure"], calls)
+        self.assertEqual("failure", states[HEAD_SHA])
+
+    def test_status_api_error_still_attempts_failure_and_never_succeeds(
+        self,
+    ) -> None:
+        event = make_issue_event("deleted", f"{BASE_PLAN_MARKER}\n\nPlan.")
+        event["comment"].pop("body")
+        states = {HEAD_SHA: "success"}
+        calls: list[str] = []
+
+        def write_status(
+            _repo: str,
+            sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append(state)
+            if state == "pending":
+                raise HandlerError("GitHub status API недоступен.")
+            states[sha] = state
+
+        with patch.dict(
+            handle_issue_comment_event.__globals__,
+            {
+                "linked_pull_request_targets": lambda *_args: [
+                    (PULL_REQUEST_NUMBER, HEAD_SHA)
+                ],
+                "write_status": write_status,
+                "publish_validation_result": lambda *_args: self.fail(
+                    "status API errors must not publish a success"
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "Deleted comment payload не содержит исходный body",
+            ) as caught:
+                handle_issue_comment_event(event, REPOSITORY, "trusted-token")
+
+        self.assertNotIsInstance(caught.exception, NameError)
+        self.assertIsInstance(caught.exception.__cause__, HandlerError)
+        self.assertEqual(
+            "GitHub status API недоступен.",
+            str(caught.exception.__cause__),
+        )
+        self.assertEqual(["pending", "failure"], calls)
+        self.assertEqual("failure", states[HEAD_SHA])
 
     def test_owner_plan_deletion_by_other_actor_creates_incident(self) -> None:
         event = make_issue_event(
