@@ -26,4 +26,4 @@
 
 ## Проверки
 
-Изменения Identity, authentication или OAuth/OIDC проверяй через `Intelligence.TradeSystem.Authentication.IntegrationTests`, сохраняющие реальные PostgreSQL, OpenIddict, JwtBearer и protocol checks.
+Изменения Identity, authentication или OAuth/OIDC проверяй через `Intelligence.TradeSystem.Authentication.IntegrationTests`, сохраняющие реальные PostgreSQL, OpenIddict и JwtBearer protocol checks, а также SignalR authentication/authorization, закрытие соединения после истечения access token и REST recovery после reconnect.
