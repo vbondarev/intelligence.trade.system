@@ -1,6 +1,6 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.41
+Версия документа: 3.42
 Дата актуализации: 28 сентября 2026 года
 Проверенная база: `develop` перед реализацией Issue #165 (`b1d282be4730a3ec89996ab7c384bdb5ac79560b`)
 Последняя учтённая задача: Issue #165 «Tech-G09: Обеспечить воспроизводимость agent-first lifecycle»
@@ -49,6 +49,7 @@
 ## 3. Обозначения статуса
 
 - ✅ Завершено — критерии этапа реализованы в `develop` и защищены соответствующими тестами; это не означает автоматическую реализацию пользовательского интерфейса или runtime-trigger, если они явно отнесены к последующим этапам.
+- Исключение Tech-G09: по третьему Approved Plan Amendment статус ✅ фиксируется после завершения обязательных pre-merge проверок до ручного merge PR #166; сам статус не означает, что изменения уже находятся в `develop`, и не заменяет Human Merge Gate.
 - 🚧 Текущий этап — следующий этап, на котором сосредоточена разработка.
 - 🟡 Частично — есть архитектурная заготовка или часть сценария, но пользовательская возможность ещё не завершена.
 - ⬜ Не начато — значимой реализации в проверенной ветке нет.
@@ -103,7 +104,7 @@
 - **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
 - **Tech-G07** ✅ (Issue #158): стабилизирован error contract `/api/v1`: generic framework exceptions больше не считаются validation failures и неожиданные ошибки сохраняют `500 internal_error` с diagnostics; явные validation failures остаются `400`; REST authentication/authorization возвращают `401 authentication_required` и `403 access_forbidden`; `position_not_evaluable` содержит явную машинную причину; OpenAPI и contract documentation синхронизированы.
 - **Tech-G08** ✅ (Issue #162): нормализован agent-development context: root `AGENTS.md` стал repository control plane, Discovery/Delivery/PR Review разделены на project-owned skills, а Infrastructure и Identity получили локальные instructions. Project-owned и external skills явно разграничены; архитектурные invariants, Human Gates и source-of-truth hierarchy сохранены.
-- **Tech-G09** ⏳ (Issue #165): durable Approved Plan lifecycle, structural agent-assets validation, zero-permission PR workflow validation и cleanup по второму Approved Amendment реализованы в PR #166; exact-head CI зелёный, final live External Re-review пройден, valid blockers отсутствуют, review threads закрыты. Для завершения остаются Human Merge Gate → merge PR #166. До merge Tech-G09 остаётся в работе; затем следующий шаг — G-01.
+- **Tech-G09** ✅ (Issue #165): durable Approved Plan lifecycle, structural agent-assets validation, zero-permission PR workflow validation и cleanup по второму Approved Amendment реализованы; exact-head CI зелёный, final live External Re-review пройден, valid blockers отсутствуют, review threads закрыты. По третьему Approved Plan Amendment задача зафиксирована как завершённая до ручного merge PR #166; отдельный Human Merge Gate и merge остаются обязательными и не следуют из статуса автоматически. После merge следующий шаг — G-01.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -188,7 +189,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F завершены; перед началом G-01 завершается техническая задача Tech-G09.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и техническая задача Tech-G09 завершены; перед началом G-01 остаются отдельный Human Merge Gate и ручной merge PR #166.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -481,7 +482,7 @@ GET    /api/v1/auth/me
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G08 завершены. В Tech-G09 завершены cleanup по второму Approved Amendment, exact-head CI и final live External Re-review; valid blockers отсутствуют, review threads закрыты. Tech-G09 остаётся в работе до Human Merge Gate и merge PR #166; после этого следующим шагом станет G-01, затем сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G09 завершены. Для Tech-G09 implementation cleanup, exact-head CI и final live External Re-review завершены; valid blockers отсутствуют, review threads закрыты. По третьему Approved Plan Amendment статус задачи зафиксирован как ✅ до ручного merge; перед переходом к G-01 остаются отдельный Human Merge Gate и merge PR #166. Затем сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -562,6 +563,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-28 | 3.42 | По явному Human Decision опубликован третий Approved Plan Amendment: Tech-G09 разрешено зафиксировать как ✅ после успешных pre-merge проверок до ручного merge PR #166. Implementation cleanup завершён, exact-head CI зелёный, final live External Re-review пройден, valid blockers отсутствуют и review threads закрыты; отдельный Human Merge Gate и ручной merge по-прежнему обязательны. |
 | 2026-09-28 | 3.41 | Final live External Re-review PR #166 завершён: cleanup второго Approved Amendment проверен, exact-head CI зелёный, valid blocker findings отсутствуют, review threads закрыты. Tech-G09 остаётся в работе до Human Merge Gate и merge PR #166. |
 | 2026-09-27 | 3.40 | По Human Decision и второму Approved Plan Amendment Tech-G09 упрощён: strict real-time plan-freshness, trusted event workflow и Integrity Incident automation выведены из scope; authoritative freshness boundary перенесён на live External Re-review + Human Merge Gate. Tech-G09 остаётся в работе до cleanup, exact-head CI, final live External Re-review, отсутствия valid blockers, Human Merge Gate и merge PR #166; backend runtime, OpenClaw и Tech-G10 не изменялись. |
 | 2026-09-27 | 3.39 | Issue #165 продолжает Tech-G09: candidate PR validation, доверенная связь PR → Issue/Approved Plan и regression-tested structural validators подготовлены. Trusted workflow ожидает публикации через отдельный bootstrap PR в `main`; required `plan-freshness` и end-to-end event verification остаются обязательными до завершения Tech-G09 и начала G-01. Backend runtime и OpenClaw не изменялись. |
