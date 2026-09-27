@@ -234,6 +234,11 @@ def amendment_base_permalink(comment: dict[str, object]) -> str:
         for line in comment_body(comment).splitlines()
         if (match := BASE_AMENDMENT_LINK_LINE.fullmatch(line)) is not None
     ]
+    values = [
+        value
+        for value in values
+        if value not in {"<permalink>", "<base-permalink>"}
+    ]
     if len(values) != 1 or not values[0]:
         raise ValidationError(
             "Каждый Approved Plan Amendment должен содержать ровно один "

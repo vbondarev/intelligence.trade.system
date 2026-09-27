@@ -277,6 +277,21 @@ class PullRequestPlanValidatorTests(TestCase):
             [make_base_plan(), make_amendment(amendment_id, wrong_base)],
         )
 
+    def test_amendment_template_placeholder_is_not_a_second_base_link(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            str(amendment["body"])
+            + "\nПример поля: Base Approved Implementation Plan: <permalink>\n"
+        )
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan(), amendment],
+        )
+        self.assertIn("1 amendment(s)", result)
+
     def test_current_amendment_omitted_from_pr_fails(self) -> None:
         self.assert_invalid(
             make_body(),
