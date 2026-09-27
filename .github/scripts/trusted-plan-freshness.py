@@ -624,24 +624,6 @@ def publish_validation_result(
                 expected_head_sha,
                 token,
             )
-        except (ValidationError, HandlerError) as exception:
-            write_status(
-                repository,
-                expected_head_sha,
-                "failure",
-                f"Проверка Plan не пройдена: {exception}",
-                token,
-            )
-            return
-
-        write_status(
-            repository,
-            expected_head_sha,
-            "success",
-            f"Approved Plan проверен; snapshot {outcome.snapshot_sha256[:16]}.",
-            token,
-        )
-        try:
             ensure_pull_request_edit_event(
                 repository,
                 expected_head_sha,
@@ -662,15 +644,25 @@ def publish_validation_result(
                 token,
             )
             return
-        if latest.snapshot_sha256 == outcome.snapshot_sha256:
-            return
+
+        if latest.snapshot_sha256 != outcome.snapshot_sha256:
+            write_status(
+                repository,
+                expected_head_sha,
+                "pending",
+                "Snapshot изменился; повторная Plan validation.",
+                token,
+            )
+            continue
+
         write_status(
             repository,
             expected_head_sha,
-            "pending",
-            "Snapshot изменился; повторная Plan validation.",
+            "success",
+            f"Approved Plan проверен; snapshot {latest.snapshot_sha256[:16]}.",
             token,
         )
+        return
 
     write_status(
         repository,

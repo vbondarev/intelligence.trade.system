@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import runpy
+from types import SimpleNamespace
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -23,8 +24,10 @@ workflow_run_targets = handler["workflow_run_targets"]
 handle_workflow_run_event = handler["handle_workflow_run_event"]
 handle_issue_comment_event = handler["handle_issue_comment_event"]
 HandlerError = handler["HandlerError"]
+ValidationError = handler["ValidationError"]
 write_status = handler["write_status"]
 create_integrity_incident = handler["create_integrity_incident"]
+publish_validation_result = handler["publish_validation_result"]
 
 REPOSITORY = "vbondarev/intelligence.trade.system"
 ISSUE_NUMBER = 165
@@ -522,6 +525,213 @@ class TrustedPlanFreshnessTests(TestCase):
         with patch.dict(write_status.__globals__, {"request_json": fail_api}):
             with self.assertRaises(HandlerError):
                 write_status(REPOSITORY, HEAD_SHA, "pending", "pending", "token")
+
+    def test_success_is_published_only_after_matching_final_snapshot(self) -> None:
+        calls: list[str] = []
+        statuses: list[str] = ["pending"]
+        snapshot = SimpleNamespace(snapshot_sha256="a" * 64)
+
+        def write(
+            _repository: str,
+            _sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            calls.append(f"status:{state}")
+            statuses.append(state)
+
+        def validate(*_args, **_kwargs):
+            calls.append("final-validation")
+            return snapshot
+
+        with patch.dict(
+            publish_validation_result.__globals__,
+            {
+                "ensure_pull_request_edit_event": lambda *_args: calls.append(
+                    "confirm-edit-state"
+                ),
+                "stable_validation": lambda *_args: (
+                    calls.append("stable-validation") or snapshot
+                ),
+                "validate_current_pull_request": validate,
+                "write_status": write,
+            },
+        ):
+            publish_validation_result(
+                REPOSITORY,
+                PULL_REQUEST_NUMBER,
+                HEAD_SHA,
+                "trusted-token",
+            )
+
+        self.assertEqual(["pending", "success"], statuses)
+        self.assertEqual(
+            [
+                "confirm-edit-state",
+                "stable-validation",
+                "confirm-edit-state",
+                "final-validation",
+                "status:success",
+            ],
+            calls,
+        )
+        self.assertEqual("status:success", calls[-1])
+        self.assertEqual(1, calls.count("final-validation"))
+
+    def test_final_validation_error_never_publishes_success(self) -> None:
+        statuses: list[str] = ["pending"]
+
+        def write(
+            _repository: str,
+            _sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            statuses.append(state)
+
+        def fail_validation(*_args, **_kwargs):
+            raise ValidationError("Plan metadata is invalid.")
+
+        with patch.dict(
+            publish_validation_result.__globals__,
+            {
+                "ensure_pull_request_edit_event": lambda *_args: None,
+                "stable_validation": lambda *_args: SimpleNamespace(
+                    snapshot_sha256="a" * 64
+                ),
+                "validate_current_pull_request": fail_validation,
+                "write_status": write,
+            },
+        ):
+            publish_validation_result(
+                REPOSITORY,
+                PULL_REQUEST_NUMBER,
+                HEAD_SHA,
+                "trusted-token",
+            )
+
+        self.assertEqual(["pending", "failure"], statuses)
+        self.assertNotIn("success", statuses)
+
+    def test_changing_final_snapshots_retry_and_exhaust_as_failure(self) -> None:
+        statuses: list[str] = ["pending"]
+        final_snapshots = iter(["b" * 64, "c" * 64, "d" * 64])
+        validation_calls = 0
+
+        def validate(*_args, **_kwargs):
+            nonlocal validation_calls
+            validation_calls += 1
+            return SimpleNamespace(snapshot_sha256=next(final_snapshots))
+
+        with patch.dict(
+            publish_validation_result.__globals__,
+            {
+                "ensure_pull_request_edit_event": lambda *_args: None,
+                "stable_validation": lambda *_args: SimpleNamespace(
+                    snapshot_sha256="a" * 64
+                ),
+                "validate_current_pull_request": validate,
+                "write_status": lambda _repo, _sha, state, _desc, _token:
+                statuses.append(state),
+            },
+        ):
+            publish_validation_result(
+                REPOSITORY,
+                PULL_REQUEST_NUMBER,
+                HEAD_SHA,
+                "trusted-token",
+            )
+
+        self.assertEqual(
+            ["pending", "pending", "pending", "pending", "failure"],
+            statuses,
+        )
+        self.assertEqual(3, validation_calls)
+        self.assertNotIn("success", statuses)
+
+    def test_failure_status_error_propagates_after_final_validation_error(
+        self,
+    ) -> None:
+        attempted_statuses: list[str] = []
+        persisted_statuses: list[str] = ["pending"]
+
+        def write(
+            _repository: str,
+            _sha: str,
+            state: str,
+            _description: str,
+            _token: str,
+        ) -> None:
+            attempted_statuses.append(state)
+            if state == "failure":
+                raise HandlerError("Status API unavailable.")
+            persisted_statuses.append(state)
+
+        def fail_validation(*_args, **_kwargs):
+            raise HandlerError("Metadata API unavailable.")
+
+        with patch.dict(
+            publish_validation_result.__globals__,
+            {
+                "ensure_pull_request_edit_event": lambda *_args: None,
+                "stable_validation": lambda *_args: SimpleNamespace(
+                    snapshot_sha256="a" * 64
+                ),
+                "validate_current_pull_request": fail_validation,
+                "write_status": write,
+            },
+        ):
+            with self.assertRaisesRegex(
+                HandlerError,
+                "Status API unavailable",
+            ):
+                publish_validation_result(
+                    REPOSITORY,
+                    PULL_REQUEST_NUMBER,
+                    HEAD_SHA,
+                    "trusted-token",
+                )
+
+        self.assertEqual(["failure"], attempted_statuses)
+        self.assertEqual(["pending"], persisted_statuses)
+        self.assertNotIn("success", attempted_statuses)
+
+    def test_snapshot_stabilizing_on_retry_can_publish_success(self) -> None:
+        statuses: list[str] = ["pending"]
+        stable_snapshots = iter(["a" * 64, "b" * 64])
+        final_snapshots = iter(["b" * 64, "b" * 64])
+        stable_calls = 0
+
+        def stable(*_args):
+            nonlocal stable_calls
+            stable_calls += 1
+            return SimpleNamespace(snapshot_sha256=next(stable_snapshots))
+
+        def validate(*_args, **_kwargs):
+            return SimpleNamespace(snapshot_sha256=next(final_snapshots))
+
+        with patch.dict(
+            publish_validation_result.__globals__,
+            {
+                "ensure_pull_request_edit_event": lambda *_args: None,
+                "stable_validation": stable,
+                "validate_current_pull_request": validate,
+                "write_status": lambda _repo, _sha, state, _desc, _token:
+                statuses.append(state),
+            },
+        ):
+            publish_validation_result(
+                REPOSITORY,
+                PULL_REQUEST_NUMBER,
+                HEAD_SHA,
+                "trusted-token",
+            )
+
+        self.assertEqual(["pending", "pending", "success"], statuses)
+        self.assertEqual(2, stable_calls)
+        self.assertEqual("success", statuses[-1])
 
     def test_trusted_workflow_only_handles_authenticated_events(self) -> None:
         workflow = (
