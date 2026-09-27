@@ -1,22 +1,13 @@
 # Инструкции GitHub Copilot
 
-Используй корневой `AGENTS.md` как основной источник постоянных правил разработки репозитория и применяй path-specific инструкции из `.github/instructions/`, когда они относятся к изменяемым файлам.
+Для постоянных repository rules используй корневой `AGENTS.md`. Дополняй его применимыми локальными `AGENTS.md` и path-specific instructions из `.github/instructions/`.
 
-Языковая политика человекочитаемого текста, XML documentation и комментариев определена в корневом `AGENTS.md`; для C# дополнительно применяй правила из `backend/src/AGENTS.md`.
+Для C# дополнительно применяй `backend/src/AGENTS.md`. Актуальное состояние и последовательность этапов определяй по `ROADMAP.md`, а требования конкретной задачи — по связанному GitHub Issue и Approved Implementation Plan.
 
-Для разработки следуй каноническому agent-first workflow из корневого `AGENTS.md`. До Issue используется Discovery-контур `Discussion / Research → Human decisions → Issue`; после Issue агент составляет Implementation Plan, а implementation нетривиальной задачи начинается только после явного Human Gate. Issue задаёт согласованный `WHAT`, approved Plan — `HOW`, а `ROADMAP.md` остаётся источником статуса разработки и последовательности этапов.
+Выбирай project-owned workflow skill по стадии:
 
-Дополнительные правила:
+- до согласованного Issue — `.agents/skills/trade-system-discovery/SKILL.md`;
+- после Issue до PR sanity check — `.agents/skills/trade-system-delivery/SKILL.md`;
+- для External Review — `.agents/skills/trade-system-pr-review/SKILL.md`.
 
-- не дублируй архитектурные ограничения и workflow из `AGENTS.md` в новых Copilot-specific файлах;
-- текущее состояние проекта и следующий этап определяй по `ROADMAP.md`, а scope конкретной Issue-задачи — по связанному Issue, а не по старым комментариям или истории PR;
-- предпочитай минимальные изменения, сохраняющие существующие контракты, DI-границы и направление зависимостей;
-- внешние skills из `.agents/skills` не переводи и не переписывай вручную, если задача явно не посвящена их обновлению;
-- не изменяй `openclaw/**`, если задача явно не относится к OpenClaw;
-- runtime-файлы внутри `openclaw/**` не являются инструкциями для разработки основной кодовой базы;
-- при review проверяй текущий код, тесты, связанный Issue и применимые repository instructions, а не предполагай поведение только по именам или документации;
-- review comment не является автоматической командой на изменение: сначала проверь его по актуальному коду, Issue, approved Plan и архитектурным правилам; устаревшие/дублирующие замечания можно объяснить и закрыть;
-- новый архитектурный выбор, scope expansion или конфликт требований на Plan/Implementation/Review требует остановки, human decision и при необходимости синхронизации Issue/Plan с повторным Human Gate;
-- self-review автора и External Review другого reviewer — разные этапы и не заменяют друг друга;
-- после review fixes не требуется автоматически возвращать PR в Draft;
-- не считай успешный CI или отсутствие замечаний разрешением на merge: merge выполняется только после явного Human Merge Gate.
+Следуй явно указанной иерархии instructions и routing; не предполагай скрытого vendor-specific precedence между инструкциями и skills.

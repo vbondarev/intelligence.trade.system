@@ -2,7 +2,7 @@
 
 ## Область действия
 
-Этот файл применяется к `backend/src` и дополняет корневой `../../AGENTS.md` правилами .NET-решения. Для `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.MarketIntelligence` и `Intelligence.TradeSystem.Exchanges/Bybit` учитывай также их локальные `AGENTS.md`.
+Этот файл применяется к `backend/src` и дополняет корневой `../../AGENTS.md` правилами .NET-решения. Для `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.MarketIntelligence`, `Intelligence.TradeSystem.Infrastructure`, `Intelligence.TradeSystem.Identity` и `Intelligence.TradeSystem.Exchanges/Bybit` учитывай также их локальные `AGENTS.md`.
 
 Не копируй сюда текущее состояние этапов, номера PR и подробности уже завершённых реализаций — для этого используется `ROADMAP.md`, ADR и контрактные документы.
 
@@ -33,17 +33,14 @@ XML documentation (`summary`, `remarks`, `param`, `returns`, `exception`, `value
 - Пользовательские repository/application операции должны сохранять явный `UserId` scope и cross-user isolation.
 - `MarketSnapshot` остаётся публичным и не содержит позиции, портфель, `UserId`, `ExchangeAccountId` или credentials.
 - Биржевые credentials не являются частью Domain aggregate; расшифрованные значения должны жить только как краткоживущие transient inputs.
-- PostgreSQL schema меняется migrations. Не добавляй автоматическое применение migrations в startup API без отдельного решения.
-- Для mutable aggregate сохраняй существующий optimistic concurrency/CAS contract. Не переноси version token в Domain только ради persistence.
 - Для синхронизации сохраняй монотонность observation state и идемпотентность повторных наблюдений.
-- Transactional outbox остаётся атомарным с бизнес-состоянием и использует at-least-once delivery; consumers должны учитывать повторную доставку.
+- Изменения Identity persistence schema должны синхронизироваться с отдельным sibling project `Intelligence.TradeSystem.Identity.Migrations`; `Identity/AGENTS.md` не распространяется на него автоматически.
 
 ## Concurrency и порядок блокировок
 
 - Workflows, которые одновременно сериализуют `Position` и `ExchangeAccount`, сохраняют единый порядок блокировок `position(s) → account`; не вводи обратный порядок `account → position(s)`.
 - Lifecycle-операции, которые одновременно изменяют account и credentials, сохраняют порядок `account → credential`.
-- Для account serialization используй минимально необходимую силу PostgreSQL lock. Усиление до `FOR UPDATE` требует отдельного анализа взаимодействия с FK `KEY SHARE` и риска lock-upgrade deadlock.
-- Если pre-lock version/watermark используется для обнаружения race, после захвата locks обязательно повторно проверь релевантное состояние. Изменившийся набор или версии должны приводить к контролируемому `ConcurrencyConflictException` и bounded retry на уровне owning workflow, а не к stale write.
+- После захвата locks повторно проверяй релевантное состояние. Изменившийся набор или версии должны приводить к контролируемому `ConcurrencyConflictException` и bounded retry на уровне owning workflow, а не к stale write.
 - Изменение этих правил считается concurrency-sensitive изменением и требует PostgreSQL integration/concurrency coverage на реальной БД.
 
 ## Аутентификация и авторизация
@@ -115,4 +112,4 @@ dotnet test Intelligence.TradeSystem.slnx --configuration Release --no-build --l
 
 ## Skills
 
-Общие правила работы с внешними skills заданы в корневом `AGENTS.md`. Не копируй содержимое skill в этот файл. Используй специализированный skill только тогда, когда текущая задача действительно соответствует его назначению.
+Общие правила работы со skills и routing к workflow skills заданы в корневом `AGENTS.md`. Не копируй содержимое skill в этот файл. Используй специализированные project-owned и external skills только тогда, когда текущая задача соответствует их назначению.

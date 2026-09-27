@@ -2,44 +2,36 @@
 
 ## Область действия
 
-Этот файл задаёт постоянные правила работы coding agents во всём репозитории `Intelligence.TradeSystem`.
-
-Если в рабочем каталоге есть более узкие инструкции, применяй их только как локальное дополнение к этим правилам. Текущее состояние разработки и последовательность этапов определяются `ROADMAP.md`; не копируй историю задач и PR в инструкции для агентов.
+Этот файл задаёт постоянные правила coding agents для всего репозитория. Более узкие `AGENTS.md` и path-specific instructions дополняют его для соответствующих файлов.
 
 ## Языковая политика
 
-Человекочитаемый текст проекта, включая комментарии, XML documentation, пояснения, Issue, Implementation Plan, Pull Request и review-текст, пишется на русском языке. Общеупотребимые технические и предметные термины сохраняются на языке оригинала, если это естественная и однозначная форма для разработчиков.
+Человекочитаемый текст проекта, включая комментарии, XML documentation, документацию, Issue, Implementation Plan, Pull Request и review-текст, пишется на русском языке. Общеупотребимые технические термины сохраняй на языке оригинала, если это естественная и однозначная форма для разработчиков.
 
-Требование относится к языку повествования, а не к запрету латиницы. Не выполняй искусственный перевод общеупотребимой технической терминологии только ради русского написания.
-
-Не переводь имена типов, методов, свойств, enum, namespace, файлов, API routes, operationId, wire values, команды, названия библиотек, продуктов, протоколов и GitHub jobs/checks. Не добавляй комментарии только ради формального документирования: комментарий должен объяснять причину, ограничение, инвариант или нетривиальное поведение.
-
-Корректно: `Повторно считываем текущий Recommendation и pending state перед применением stability policy.` и `При истечении access token SignalR connection должен быть закрыт.` Некорректно: `Re-read the current baseline and pending state before re-evaluating stability.` или искусственный перевод привычных технических терминов только ради устранения латиницы.
+Не переводи имена типов, методов, свойств, enum, namespace, файлов, API routes, operationId, wire values, команды, названия библиотек, продуктов, протоколов и GitHub jobs/checks. Не добавляй комментарии только ради формального документирования: они должны объяснять причину, ограничение, инвариант или нетривиальное поведение.
 
 ## Назначение проекта
 
 `Intelligence.TradeSystem` развивается как backend-система сопровождения уже открытых торговых позиций. Backend является единым источником бизнес-истины для Web, Telegram и будущих клиентов.
 
-Основные принципы:
-
-- биржевые интеграции первого MVP работают только на чтение;
-- публичные рыночные данные отделены от пользовательских и приватных данных;
-- пользовательские данные всегда изолированы по `UserId`;
-- детерминированное ядро формирует бизнес-оценку и рекомендацию;
-- ИИ не должен обходить бизнес-правила, правила риска или становиться источником истины для доменного решения;
-- публичные и пользовательские клиенты используют одну бизнес-логику backend.
+- Биржевые интеграции первого MVP работают только на чтение.
+- Публичные рыночные данные отделены от пользовательских и приватных данных.
+- Пользовательские данные всегда изолированы по `UserId`.
+- Детерминированное ядро формирует бизнес-оценку и рекомендацию.
+- ИИ не обходит бизнес-правила и правила риска и не становится источником истины для доменного решения.
+- Публичные и пользовательские клиенты используют одну бизнес-логику backend.
 
 ## Архитектурные границы
 
 Сохраняй направление зависимостей и ответственность проектов:
 
-- `Domain` — бизнес-модель и инварианты, без EF Core, HTTP, Bybit и инфраструктуры;
-- `MarketIntelligence` — детерминированные расчёты и публичные рыночные снимки, без IO и оркестрации;
-- `Application` — сценарии и оркестрация поверх Domain и MarketIntelligence;
-- `Infrastructure` — PostgreSQL, EF Core, безопасность хранения и технические реализации application ports;
-- `Exchanges` — адаптеры внешних бирж и нормализация transport-моделей;
-- `Api` — HTTP boundary и composition root, без торговых вычислений;
-- `Identity` — отдельный authorization server;
+- `Domain` — бизнес-модель и инварианты без EF Core, HTTP, Bybit и инфраструктуры.
+- `MarketIntelligence` — детерминированные расчёты и публичные рыночные снимки без IO и оркестрации.
+- `Application` — сценарии и оркестрация поверх Domain и MarketIntelligence.
+- `Infrastructure` — PostgreSQL, EF Core, безопасность хранения и технические реализации application ports.
+- `Exchanges` — адаптеры внешних бирж и нормализация transport-моделей.
+- `Api` — HTTP boundary и composition root без торговых вычислений.
+- `Identity` — отдельный authorization server.
 - `ServiceDefaults` / `AppHost` — общая эксплуатационная и Aspire-обвязка.
 
 Не переноси EF Core entities в Domain/Application и не протаскивай типы Bybit.Net за границу exchange adapter.
@@ -47,187 +39,71 @@
 ## Контракты и безопасность
 
 - Публичные wire-контракты развивай преимущественно аддитивно; не переименовывай, не удаляй и не переосмысливай существующие поля без явного breaking-change решения.
-- `MarketSnapshot` содержит только публичные рыночные данные и не должен включать пользователя, аккаунт, позиции, credentials или портфель.
-- Пользовательские repository/application операции должны сохранять явную user scope и cross-user защиту.
+- `MarketSnapshot` содержит только публичные рыночные данные: не включай в него пользователя, аккаунт, позиции, credentials или портфель.
+- Пользовательские repository/application операции сохраняют явный `UserId` scope и cross-user защиту.
 - API keys, API secrets, master keys, access tokens и расшифрованные credentials не должны попадать в логи, ответы, доменные aggregate или checked-in configuration.
-- PostgreSQL schema изменяется через migrations; не запускай migrations автоматически при старте API без отдельного решения.
-- Для конкурентных изменений сохраняй существующие CAS/idempotency/monotonicity инварианты и проверяй их PostgreSQL integration tests.
+- PostgreSQL schema меняется через migrations; не применяй migrations автоматически при старте API без отдельного решения.
+- Для конкурентных изменений сохраняй существующие CAS/idempotency/monotonicity invariants и проверяй их PostgreSQL integration tests.
 - Transactional outbox сохраняет at-least-once semantics; не обещай exactly-once delivery.
 
-## Работа с документацией и skills
+## Документация и skills
 
-- README.md описывает продукт на обзорном уровне, текущее состояние и запуск; не дублируй в нём детально долгосрочную продуктовую документацию.
-- docs/README.md — точка входа в проектную документацию и описание назначения source-of-truth документов.
-- docs/product/vision.md фиксирует долгосрочное целевое состояние продукта и основные продуктовые направления.
-- docs/product/capability-map.md — каталог текущих и будущих product capabilities и их зрелости; порядок записей не является порядком реализации.
-- docs/product/concepts.md фиксирует продуктовый язык для Discovery; Product Concept не является автоматически Domain entity, API contract, persistence model или принятым архитектурным решением.
-- docs/product/scenarios.md фиксирует целевые пользовательские сценарии и бизнес-потоки без преждевременного определения технической реализации.
-- ROADMAP.md — единственный актуальный источник статуса разработки и утверждённой последовательности этапов.
-- GitHub Issue для задачи разработки является источником её согласованного scope, требований и критериев приёмки.
-- ADR фиксируют принятые архитектурные решения и причины.
-- Контрактные документы описывают точное поведение конкретных подсистем.
-- AGENTS.md должен содержать только долговечные правила работы coding agents, а не историю реализации.
-- Capability со статусом Idea, Research или Concept в продуктовой документации не является разрешением создать GitHub Issue, добавить пункт в ROADMAP или начать implementation. Такой переход требует отдельного human decision в Discovery.
-- При изменении архитектуры, tooling или долговечных правил репозитория проверяй применимые AGENTS.md и обновляй их вместе с README.md/ROADMAP.md и продуктовой документацией, если прежняя инструкция стала неверной или неполной.
-- Внешние skills в .agents/skills сохраняй на языке и в форме оригинального источника; не переводи и не переписывай их как project-owned документацию.
-- Используй skill только когда его назначение соответствует текущей задаче; не применяй нерелевантные skills автоматически.
-- Каталог и происхождение внешних skills описаны в .agents/skills/README.md. При конфликте repository instructions и external skill приоритет имеют repository instructions и явная задача пользователя.
-- Для полного технического review pull request используй trade-system-pr-review.
+- `README.md` описывает продукт на обзорном уровне, текущее состояние и запуск; не дублируй в нём подробную долгосрочную продуктовую документацию.
+- `docs/README.md` — точка входа в документацию и описание назначения source-of-truth документов.
+- `docs/product/vision.md` фиксирует долгосрочную цель и направления продукта.
+- `docs/product/capability-map.md` описывает текущие и будущие capabilities; порядок записей не задаёт последовательность разработки.
+- `docs/product/concepts.md` фиксирует продуктовый язык для Discovery. Product Concept не становится автоматически Domain entity, API contract, persistence model или принятым архитектурным решением.
+- `docs/product/scenarios.md` фиксирует пользовательские сценарии без преждевременного выбора технической реализации.
+- `ROADMAP.md` — единственный актуальный источник статуса разработки и утверждённой последовательности этапов.
+- GitHub Issue — source of truth для согласованного scope, требований и acceptance criteria (`WHAT`).
+- Approved Implementation Plan — source of truth для согласованной реализации (`HOW`).
+- ADR фиксируют принятые архитектурные решения; contract docs описывают точное поведение подсистем.
+- `AGENTS.md` хранит долговечные правила, а Agent Skills — специализированные процедуры; не записывай в AGENTS.md историю реализации и PR.
+- Capability со статусом Idea, Research или Concept не разрешает создать Issue, добавить этап в ROADMAP или начать implementation без отдельного human decision.
+- При изменении архитектуры, tooling или долговечных repository rules синхронизируй применимые инструкции и документы, если прежнее описание стало неверным или неполным.
+- Внешние skills в `.agents/skills` сохраняй на языке и в форме оригинального источника. При конфликте приоритет имеют repository instructions и явная задача пользователя.
+- `.agents/skills/README.md` фиксирует происхождение external skills и правила их обновления. Используй skill только когда его назначение соответствует задаче.
 
-## Agent-first workflow разработки
+## Agent-first workflow
 
-Процесс разработки состоит из двух связанных контуров: Discovery формирует согласованный `WHAT`, Delivery реализует его через управляемый human-gate lifecycle.
+Соблюдай source-of-truth hierarchy: Issue задаёт `WHAT`, Approved Implementation Plan — `HOW`, `AGENTS.md` — долговечные `RULES`, а implementation prompt — выполнение согласованного решения.
 
-Короткая семантика:
+Выбирай project-owned workflow skill по стадии:
 
-- Discussion / Discovery — формируем решение;
-- GitHub Issue — source of truth для `WHAT`: согласованный scope, требования и критерии приёмки;
-- утверждённый Implementation Plan — source of truth для `HOW` конкретной реализации;
-- implementation prompt — `DO IT`;
-- `AGENTS.md` — постоянные `RULES`.
+- Discovery до согласованного Issue: `.agents/skills/trade-system-discovery/SKILL.md`.
+- Delivery после Issue до PR sanity check: `.agents/skills/trade-system-delivery/SKILL.md`.
+- External Review текущего PR: `.agents/skills/trade-system-pr-review/SKILL.md`.
 
-### Discovery: от идеи до Issue
+Для нетривиальной задачи implementation запрещён до явного Human Gate — утверждения Implementation Plan человеком. Не принимай самостоятельно новое архитектурное решение и не расширяй scope; при конфликте источников или необходимости изменить согласованный `WHAT` остановись и верни вопрос человеку.
 
-Используй последовательность:
+Self-review автора и External Review — разные этапы. Review comments не являются автоматическими командами: проверяй их по текущему коду, Issue, Approved Plan и применимым правилам.
 
-`Discussion / Research → Human decisions → Issue`.
-
-- Если задача ещё не зафиксирована в Issue, сначала исследуй проблему, варианты, риски, scope/out-of-scope и acceptance criteria. Не превращай неоднозначную идею в implementation автоматически.
-- Архитектурные, продуктовые и scope-решения принимает человек. Агент может подготовить варианты и последствия, но не подменяет human decision.
-- После согласования `WHAT` создай или синхронизируй GitHub Issue. Только после этого Issue становится source of truth для Delivery.
-- Перед созданием Issue определи один `type:*`, один или несколько применимых `area:*` и необходимые optional labels.
-- `ROADMAP.md` определяет текущий этап и последовательность развития, но не заменяет Issue конкретной задачи.
-
-### Классификация Issue и Pull Request через Labels
-
-Labels используются только для классификации задачи и затрагиваемых областей. Они не заменяют Issue, `ROADMAP.md`, GitHub state, Human Gate или review lifecycle.
-
-#### Type
-
-Каждый Issue должен иметь ровно один label группы `type:*`:
-
-- `type:feature` — новая функциональность или возможность;
-- `type:bug` — исправление некорректного поведения;
-- `type:refactor` — изменение внутренней структуры без намеренного изменения поведения;
-- `type:documentation` — изменения только документации и repository instructions;
-- `type:maintenance` — CI, tooling, repository/process maintenance и техническое обслуживание.
-
-#### Area
-
-Каждый Issue должен иметь один или несколько применимых labels группы `area:*`:
-
-- `area:domain`;
-- `area:application`;
-- `area:api`;
-- `area:market-intelligence`;
-- `area:infrastructure`;
-- `area:exchange`;
-- `area:identity`;
-- `area:frontend`;
-- `area:platform`;
-- `area:ci`;
-- `area:agent-workflow`;
-- `area:openclaw`.
-
-Назначай только области, которые фактически входят в scope задачи. Не добавляй `area:*` только потому, что реализация использует уже существующую возможность этого слоя.
-
-#### Дополнительные labels
-
-Используй только при наличии соответствующего смысла:
-
-- `impact:breaking-change` — намеренное несовместимое изменение публичного или долговечного контракта;
-- `impact:performance` — производительность является существенной целью или acceptance criterion;
-- `risk:security` — задача существенно изменяет security boundary, authentication/authorization, secrets или user isolation;
-- `follow-up` — задача сознательно вынесена из другой задачи или Pull Request.
-
-#### Правила lifecycle
-
-- Labels определяются во время Discovery и фиксируются при создании GitHub Issue.
-- Issue является source of truth для классификации задачи.
-- Pull Request должен наследовать текущие labels связанного Issue.
-- Pull Request не должен самостоятельно вводить другую классификацию задачи.
-- Если Implementation Plan или реализация выявили новую область, сначала проверь, является ли это уточнением существующего scope или его расширением.
-- Если новая область означает изменение scope или новое архитектурное решение, остановись и верни вопрос на Human Gate до изменения Issue и labels.
-- Labels не используются для хранения состояния workflow: не вводи `in-progress`, `ready`, `done`, `approved`, `needs-review`, `stage:*`, `human-gate-passed` и аналогичные статусы.
-
-### Delivery: от Issue до Human Merge Gate
-
-Для нетривиальной задачи используй последовательность:
-
-`Issue → Agent Implementation Plan → Human Plan Review → Human Gate → Create implementation branch → Implementation → Self-review → Fixes → Tests / CI-equivalent checks → Documentation sync → Final self-review → Commit → Push → Draft PR → PR sanity check → External Review → Review fixes → Re-review → Human Merge Gate`.
-
-#### Plan и Human Gate
-
-- Перед изменением кода изучи связанный Issue, `ROADMAP.md`, применимые `AGENTS.md`, path-specific instructions, ADR, contract docs и релевантную кодовую базу.
-- Implementation Plan составляет агент после анализа этих источников. План должен перечислять затрагиваемые компоненты, архитектурные последствия, тесты, документацию, риски и границы изменения.
-- Для нетривиальной задачи не начинай implementation до явного прохождения Human Gate — утверждения Implementation Plan человеком.
-- Если Plan выявил неоднозначность, новый архитектурный выбор, конфликт требований или необходимость выйти за scope Issue, остановись и передай вопрос человеку. После human decision при необходимости сначала синхронизируй Issue, затем Plan и только после повторного Human Gate продолжай.
-- Не расширяй scope соседними улучшениями, рефакторингом или следующими пунктами `ROADMAP.md` без явного решения человека. Отдельный долг фиксируй как follow-up.
-- После прохождения Human Gate implementation-agent обновляет целевую ветку и создаёт от её актуального состояния отдельную рабочую ветку до начала implementation.
-- Имя рабочей ветки должно соответствовать шаблону `task/<issue_number>-<branch-name>`, где `<branch-name>` — краткое описание задачи в `kebab-case`.
-
-#### Implementation, self-review и проверки
-
-- Реализуй только согласованные Issue + approved Plan. Если во время implementation возникает новое архитектурное решение, scope expansion или конфликт source-of-truth, остановись и вернись к human decision вместо самостоятельного выбора.
-- После завершения реализации перечитай полный diff относительно целевой ветки и выполни основной self-review до commit/PR.
-- Во время основного self-review повторно сверь реализацию с Issue и approved Plan; проверь архитектурные границы, backward compatibility, security/concurrency, тесты, документацию, случайные изменения, временный debug-код и секреты. Найденные замечания исправь.
-- Запусти все проверки, применимые к изменению. Неприменимые проверки не обозначай как успешные — явно укажи, почему они не требовались.
-- Если реализация делает `README.md`, `ROADMAP.md`, ADR, contract docs или применимые `AGENTS.md` неверными или неполными, синхронизируй их до финального self-review, если Issue не задаёт другую границу.
-- После fixes/tests/docs выполни короткий final self-review: ещё раз сверь final diff с Issue/Plan и убедись, что code/tests/docs согласованы.
-
-#### Ветка, commit, Draft PR и sanity check
-
-- Commit message должен соответствовать шаблону `#<issue_number>: <текст на русском языке в прошедшем времени>`.
-- Заголовок Pull Request должен соответствовать шаблону `#<issue_number>: <краткое название на русском языке>`; предпочтительно используй прошедшее время, описывающее фактически выполненную работу.
-- Описание Pull Request, включая Summary и основные пояснительные разделы, должно быть написано на русском языке. Английский допускается только для устоявшихся технических терминов, имён API, типов, файлов, команд, jobs/checks и кода.
-- После успешного final self-review можно выполнить commit/push и открыть Draft PR.
-- Draft PR должен содержать `Closes #<issue_number>`, описание фактической реализации, отклонения от Implementation Plan либо явное указание, что их нет, выполненные проверки, риски и намеренно исключённый scope.
-- До External Review выполни PR sanity check: правильные base/head, соответствие имени ветки, commit message, PR title и PR description этим правилам, `Closes #Issue`, наследование текущих labels связанного Issue, ожидаемый diff, отсутствие случайных файлов и запуск применимого CI.
-
-#### External Review и review fixes
-
-- Self-review и External Review — разные этапы: self-review выполняет автор реализации, External Review — другой reviewer/agent/человек по актуальному head PR.
-- Review comments не исполняй механически. Сначала проверь замечание по текущему коду, Issue, approved Plan, тестам и архитектурным правилам.
-- Подтверждённое замечание исправь, добавь/обнови тесты при необходимости, повтори применимые проверки и ответь в review thread.
-- Уже исправленное или устаревшее замечание объясни и resolve; дубликат свяжи с каноническим thread и закрой.
-- Если review comment требует нового архитектурного решения, меняет scope или противоречит Issue/Plan/контракту, остановись и передай вопрос человеку. После решения синхронизируй Issue/Plan и повтори Human Gate для затронутого изменения.
-- Review fixes выполняй в существующей branch/PR. Возврат PR в Draft после каждого review fix не обязателен, если отдельное правило или человек этого не требует.
-- После существенных review fixes выполни self-review затронутого и общего diff, проверки и Re-review актуального head.
-
-#### Human Merge Gate
-
-- Не выполняй merge Pull Request без явного указания пользователя, даже если CI успешен, PR mergeable и все review threads закрыты.
-- Merge является обязательным финальным Human Gate.
+Не выполняй merge без отдельного явного Human Merge Gate пользователя, независимо от состояния CI и review threads.
 
 ## OpenClaw — замороженная область
 
 `openclaw/**` относится к отдельному runtime-агентному контуру и отложен до соответствующего этапа `ROADMAP.md`.
 
-Если текущая задача явно не относится к OpenClaw:
+Если задача явно не относится к OpenClaw:
 
-- не изменяй файлы `openclaw/**`;
-- не переводи и не рефакторь их;
+- не изменяй, не переводи и не рефакторь файлы `openclaw/**`;
 - не проводи внутренний аудит runtime-промптов и не создавай замечания по ним как блокеры основной разработки;
 - не переноси правила из OpenClaw в backend;
-- не используй находящиеся внутри `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `BOOTSTRAP.md`, `USER.md`, `HEARTBEAT.md` и runtime skills как источник инструкций для основной кодовой базы.
-
-Исключение — пользователь явно поставил задачу по OpenClaw или начат соответствующий этап дорожной карты.
+- не используй находящиеся внутри `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `BOOTSTRAP.md`, `USER.md`, `HEARTBEAT.md` и runtime skills как инструкции для основной кодовой базы.
 
 ## Изменения кода
 
-- Предпочитай минимальные изменения с сохранением существующих контрактов и архитектурных границ.
-- Не смешивай в одном изменении реализацию соседних этапов ROADMAP без явной необходимости.
+- Предпочитай минимальные изменения с сохранением существующих контрактов, DI-границ и направления зависимостей.
+- Не смешивай соседние этапы ROADMAP без явной необходимости.
 - При изменении доменного поведения обновляй соответствующие Domain/Application tests.
 - При изменении persistence/concurrency/security добавляй или обновляй PostgreSQL integration tests.
 - При изменении public API обновляй контрактные/API tests.
 - При изменении биржевого mapping или transport behavior обновляй exchange tests и зависимые application tests.
 - При изменении детерминированной аналитики обновляй MarketIntelligence tests и downstream contract tests.
 
-## Сборка и проверка
+## Сборка и проверки
 
-Основная solution находится в `backend/src/Intelligence.TradeSystem.slnx`.
-
-Из `backend/src` используй как базовую проверку:
+Основная solution находится в `backend/src/Intelligence.TradeSystem.slnx`. Из `backend/src` используй базовые команды:
 
 ```bash
 dotnet restore Intelligence.TradeSystem.slnx
@@ -235,4 +111,4 @@ dotnet build Intelligence.TradeSystem.slnx --configuration Release --no-restore
 dotnet test Intelligence.TradeSystem.slnx --configuration Release --no-build --logger "console;verbosity=minimal"
 ```
 
-Integration tests требуют Docker/Testcontainers. Для изменений, затрагивающих инфраструктуру, аутентификацию или composition root, учитывай полный CI, включая PostgreSQL provisioning, Docker build и OAuth/OIDC smoke tests.
+Integration tests требуют Docker/Testcontainers. Для изменений инфраструктуры, аутентификации или composition root учитывай полный CI, включая PostgreSQL provisioning, Docker build и OAuth/OIDC smoke tests.
