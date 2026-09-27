@@ -1,6 +1,8 @@
 using Intelligence.TradeSystem.Api.Configuration;
+using Intelligence.TradeSystem.Api.Errors;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Intelligence.TradeSystem.Api.Authentication;
@@ -76,6 +78,20 @@ public static class AuthenticationServiceCollectionExtensions
                     RoleClaimType = "role",
                     ClockSkew = TimeSpan.FromSeconds(5),
                 };
+                options.Events = new JwtBearerEvents
+                {
+                    OnChallenge = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments("/api/v1"))
+                        {
+                            context.Error = null;
+                            context.ErrorDescription = null;
+                            context.ErrorUri = null;
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                };
             });
 
         services.AddAuthorization(options =>
@@ -94,6 +110,10 @@ public static class AuthenticationServiceCollectionExtensions
             options.AddPolicy(TradeAuthorization.ApiPolicy, tradeApi);
             options.AddPolicy(TradeAuthorization.UserPolicy, tradeUser);
         });
+
+        services.AddSingleton<
+            IAuthorizationMiddlewareResultHandler,
+            V1AuthorizationMiddlewareResultHandler>();
 
         return services;
     }

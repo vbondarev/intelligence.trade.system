@@ -438,12 +438,14 @@ public sealed class SnapshotEndpointTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
-    public async Task Snapshot_Returns_BadRequest_When_Service_Throws_ArgumentException()
+    public async Task Snapshot_Returns_InternalError_When_Service_Throws_ArgumentException()
     {
+        const string exceptionMessage =
+            "Symbol 'BTCUSDT' is invalid for snapshot analysis.";
         var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ArgumentException("Symbol 'BTCUSDT' is invalid for snapshot analysis."));
+            .ThrowsAsync(new ArgumentException(exceptionMessage));
 
         using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
@@ -456,18 +458,27 @@ public sealed class SnapshotEndpointTests : IClassFixture<ApiWebApplicationFacto
 
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            "invalid for snapshot analysis");
+            HttpStatusCode.InternalServerError,
+            "An unexpected error occurred.",
+            null,
+            "internal_error");
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(exceptionMessage);
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
-    public async Task Snapshot_Returns_BadRequest_When_Service_Throws_NotSupportedException()
+    public async Task Snapshot_Returns_InternalError_When_Service_Throws_NotSupportedException()
     {
+        const string exceptionMessage =
+            "Exchange 'Bybit' is not supported in this environment.";
         var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
         marketAnalysisService
             .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new NotSupportedException("Exchange 'Bybit' is not supported in this environment."));
+            .ThrowsAsync(new NotSupportedException(exceptionMessage));
 
         using var client = _factory.CreateClientWithMarketSnapshotService(marketAnalysisService.Object);
 
@@ -480,9 +491,16 @@ public sealed class SnapshotEndpointTests : IClassFixture<ApiWebApplicationFacto
 
         await ProblemDetailsAssertions.AssertProblemAsync(
             response,
-            HttpStatusCode.BadRequest,
-            "Request validation failed.",
-            "not supported");
+            HttpStatusCode.InternalServerError,
+            "An unexpected error occurred.",
+            null,
+            "internal_error");
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(exceptionMessage);
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("detail", out var detail))
+            detail.ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]

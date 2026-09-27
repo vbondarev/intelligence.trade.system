@@ -60,6 +60,36 @@ public sealed class ApiExceptionHandlerTests
             Times.Once);
     }
 
+    [Theory]
+    [InlineData("argument")]
+    [InlineData("not-supported")]
+    public async Task Generic_framework_exceptions_use_internal_error_without_exposing_details(
+        string exceptionKind)
+    {
+        var problemDetailsService = new Mock<IProblemDetailsService>(MockBehavior.Strict);
+        ProblemDetailsContext? capturedContext = null;
+        problemDetailsService
+            .Setup(service => service.WriteAsync(It.IsAny<ProblemDetailsContext>()))
+            .Callback<ProblemDetailsContext>(context => capturedContext = context)
+            .Returns(ValueTask.CompletedTask);
+        var handler = new ApiExceptionHandler(problemDetailsService.Object);
+        var httpContext = new DefaultHttpContext();
+        var exception = exceptionKind switch
+        {
+            "argument" => (Exception)new ArgumentException("sensitive internal detail"),
+            "not-supported" => new NotSupportedException("sensitive internal detail"),
+            _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind)),
+        };
+
+        await handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        capturedContext!.ProblemDetails.Extensions["code"].Should().Be("internal_error");
+        capturedContext.ProblemDetails.Detail.Should().BeNull();
+        ApiExceptionHandler.ShouldSuppressDiagnostics(exception, requestAborted: false)
+            .Should().BeFalse();
+    }
+
     [Fact]
     public async Task Concurrency_and_market_failures_use_stable_v1_problem_codes()
     {
@@ -107,12 +137,6 @@ public sealed class ApiExceptionHandlerTests
         ApiExceptionHandler.ShouldSuppressDiagnostics(
             new DataSourceException("invalid upstream data"),
             requestAborted: false).Should().BeTrue();
-        ApiExceptionHandler.ShouldSuppressDiagnostics(
-            new ArgumentException("invalid request"),
-            requestAborted: false).Should().BeTrue();
-        ApiExceptionHandler.ShouldSuppressDiagnostics(
-            new NotSupportedException("unsupported request"),
-            requestAborted: false).Should().BeTrue();
     }
 
     [Fact]
@@ -131,6 +155,12 @@ public sealed class ApiExceptionHandlerTests
             requestAborted: false).Should().BeFalse();
         ApiExceptionHandler.ShouldSuppressDiagnostics(
             new OperationCanceledException("not request aborted"),
+            requestAborted: false).Should().BeFalse();
+        ApiExceptionHandler.ShouldSuppressDiagnostics(
+            new ArgumentException("invalid request"),
+            requestAborted: false).Should().BeFalse();
+        ApiExceptionHandler.ShouldSuppressDiagnostics(
+            new NotSupportedException("unsupported request"),
             requestAborted: false).Should().BeFalse();
         ApiExceptionHandler.ShouldSuppressDiagnostics(
             new OperationCanceledException("request aborted"),

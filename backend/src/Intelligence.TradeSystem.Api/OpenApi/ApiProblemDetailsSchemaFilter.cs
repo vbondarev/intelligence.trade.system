@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -23,5 +24,9 @@ internal sealed class ApiProblemDetailsSchemaFilter : ISchemaFilter
             Type = JsonSchemaType.String,
             Description = "Request trace identifier.",
         };
+        schema.Properties["reason"] =
+            context.SchemaGenerator.GenerateSchema(
+                typeof(PositionNotEvaluableReasonV1),
+                context.SchemaRepository);
     }
 }

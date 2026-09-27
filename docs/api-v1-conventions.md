@@ -61,12 +61,40 @@ runtime wire values.
 Ошибки используют существующий pipeline ASP.NET Core `ProblemDetails`.
 Стабильными полями являются `type`, `title`, `status`, `detail`, `instance`,
 `code` и `traceId`; существующие коды ошибок остаются неизменными.
-OpenAPI описывает `code` и `traceId` как расширения `ProblemDetails`. Поле
-`errors` может присутствовать в validation response, но не является
-обязательной частью стабильного ядра. Для каждой user-owned v1 operation
+Явные request/model validation errors возвращают `400 validation_failed`.
+`ArgumentException` и `NotSupportedException`, выброшенные
+`IMarketSnapshotService` после API validation, не являются ошибками
+пользовательского ввода: они проходят через `ApiExceptionHandler` и возвращают
+безопасный `500 internal_error` с `detail = null`, сохраняя server diagnostics.
+Прочие framework/programming exceptions также не классифицируются по CLR type
+как validation errors и обрабатываются централизованно как `500 internal_error`.
+Внутренние exception messages и stack traces не входят в HTTP response.
+OpenAPI описывает `code`, `traceId` и используемое отдельными ошибками
+`reason` как расширения `ProblemDetails`. Поле `errors` может присутствовать
+в validation response со структурированными ошибками model binding, но не
+является обязательной частью остальных ответов. Клиенты определяют обработку
+по HTTP status и машинным полям, а не по `detail`, `title` или тексту исключения.
 OpenAPI фиксирует Bearer security requirement и статусы `401`/`403`.
-`401`/`403`, сформированные auth middleware, не обязаны иметь тот же body,
-что и application-level `ProblemDetails`; F-08 не вводит новый error protocol.
+
+Для каждой user-owned v1 operation OpenAPI описывает `application/problem+json`
+для `401` и `403`. Authentication challenge возвращает `401` с
+`code = authentication_required`, `type =
+urn:intelligence-trade:error:authentication-required` и
+`title = Authentication required.` Стандартный `WWW-Authenticate: Bearer`
+сохраняется; token validation details в ответ не включаются. Authorization
+policy forbid возвращает `403` с `code = access_forbidden`, `type =
+urn:intelligence-trade:error:access-forbidden` и `title = Access forbidden.`.
+Этот код отличается от `exchange_permissions_rejected`, обозначающего отказ
+прав у внешнего exchange API key; application/business `403` сохраняет
+собственный код.
+
+`POST /api/v1/positions/{id}/evaluation` при `409 position_not_evaluable`
+возвращает `reason` как одно из типизированных стабильных v1 значений:
+`closedPosition`, `portfolioUnavailable`, `portfolioInconsistent` или
+`temporalInconsistency`. Wire values задаются явным mapping и не зависят от
+имён Application enum. В общей OpenAPI `ProblemDetails` schema свойство
+`reason` optional и связано с `PositionNotEvaluableReasonV1`; в указанном
+ответе `409` оно всегда заполнено.
 
 Endpoints для пользовательских данных используют проверенный user principal и
 аутентификацию Bearer/OIDC. Отсутствующий ресурс и ресурс, принадлежащий
