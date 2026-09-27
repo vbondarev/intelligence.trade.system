@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.36
-Дата актуализации: 26 сентября 2026 года
-Проверенная база: `develop` после реализации Issue #156 (`f4fe7e45d116ee8ae6c374932096af2ffb546763`)
-Последняя учтённая задача: Issue #158 «Нормализовать error contract пользовательского API перед React»
+Версия документа: 3.37
+Дата актуализации: 27 сентября 2026 года
+Проверенная база: `develop` после реализации Issue #158 (`5486644a261470263b5af1bbf925ebc4af3d9d4b`)
+Последняя учтённая задача: Issue #160 «Актуализировать ROADMAP по развитию agent-first инфраструктуры»
 Текущий этап: **G — основной React-клиент**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -101,7 +101,9 @@
 - **Tech-G04** ✅ (Issue #148): `Authentication.IntegrationTests` используют один PostgreSQL Testcontainer с отдельными `TradeSystem` и `TradeSystemIdentity` databases; migrations, hosts, certificates и базовый Identity/OpenIddict seed выполняются на fixture lifecycle, а mutable state явно очищается между сценариями. Сохранены реальные OAuth/OIDC, JwtBearer, PostgreSQL и SignalR проверки. В сопоставимом Release/no-build benchmark с одной warm-up итерацией и пятью успешными измерениями все прогоны дали 32/32: before median — 266.81s (267.39 / 266.25 / 266.65 / 266.81 / 266.94), after median — 28.30s (28.17 / 28.29 / 28.30 / 28.43 / 28.52), improvement — 89.4%. Инициализация `AuthenticationIntegrationFixture` — 9.16s; самый медленный оставшийся сценарий `Updates_hub_closes_an_authenticated_websocket_when_the_token_expires` — 9.02s.
 - **Tech-G05** ✅ (Issue #150): production EF Core read path списка позиций подтверждён opt-in PostgreSQL benchmark на `postgres:16-alpine` с deterministic seed из 250 000 positions, 8 users и 24 accounts. Финальный путь сохраняет single-query first page/explicit-account и использует bounded continuation: lookup owned accounts, один bounded query для одного account и bounded per-account fan-out для нескольких accounts с deterministic merge. Cursor predicate разделён на взаимоисключающие timestamp/UUID ranges, поэтому PostgreSQL использует seek conditions в deep continuation plans; Closed на 25/50/75/95% показал 90/92/90/92 removed rows. После исправления parser root `Plan` counters доступны: AFTER matrix зафиксировала `read=0` и фактические shared-hit counters для каждого query/depth. В AFTER-прогоне 3-account continuation выполнял 4 round trips и возвращал 153 bounded candidates; 12-account engineering probe — 13 round trips и 607 candidates. Mandatory first-page scenarios оставались representative (94–28 029 candidates), а `Rows Removed by Filter` агрегируется с учётом `Actual Loops`; total buffers не суммируются по дереву. Финальный набор indexes: `ix_positions_list_order`, `ix_positions_list_account_order`, partial `ix_positions_list_closed_order` по `(exchange_account_id, first_detected_at DESC, position_id DESC)` и SQL-managed `lower(instrument_id)` index. Benchmark не входит в обычный CI test loop и включается только через `ITS_RUN_POSITION_LIST_PERFORMANCE=1`.
 - **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
-- **Tech-G07** ✅ (Issue #158): стабилизирован error contract `/api/v1`: generic framework exceptions больше не считаются validation failures и неожиданные ошибки сохраняют `500 internal_error` с diagnostics; явные validation failures остаются `400`; REST authentication/authorization возвращают `401 authentication_required` и `403 access_forbidden`; `position_not_evaluable` содержит явную машинную причину; OpenAPI и contract documentation синхронизированы. Следующий шаг — G-01.
+- **Tech-G07** ✅ (Issue #158): стабилизирован error contract `/api/v1`: generic framework exceptions больше не считаются validation failures и неожиданные ошибки сохраняют `500 internal_error` с diagnostics; явные validation failures остаются `400`; REST authentication/authorization возвращают `401 authentication_required` и `403 access_forbidden`; `position_not_evaluable` содержит явную машинную причину; OpenAPI и contract documentation синхронизированы.
+- **Tech-G08** ⬜: нормализовать agent-development context: разделить долговечные repository instructions и специализированные agent workflows, сократить ненужное дублирование между instruction surfaces, локализовать специфичные правила по областям применения и определить однозначную структуру project-owned и external Agent Skills. Результат: агент получает минимальный применимый контекст при сохранении иерархии source-of-truth и архитектурных ограничений проекта.
+- **Tech-G09** ⬜: обеспечить воспроизводимость agent-first lifecycle между независимыми AI-сессиями: GitHub Issue остаётся source of truth для согласованного WHAT, Approved Implementation Plan — для HOW; утверждённый HOW доступен как долговечный GitHub-артефакт, а Pull Request сохраняет восстанавливаемую связь с Issue и Plan. Новый агент может восстановить согласованное состояние без доступа к предыдущей AI-сессии. Структура repository instructions, path-specific instructions и Agent Skills автоматически проверяется на объективные структурные ошибки.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -344,7 +346,7 @@ GET    /api/v1/auth/me
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
-| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ⬜ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript |
+| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ⬜ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript. Вместе с фактически принятой архитектурой React/BFF создаются или синхронизируются локальные frontend agent instructions, фиксирующие только долговечные принятые решения и не вводящие несогласованные технологии или architecture patterns |
 | G-02 | Реализовать управление подключением Bybit только для чтения | ⬜ | Пользователь может добавить, проверить, безопасно заменить credentials и отключить аккаунт |
 | G-03 | Реализовать сводку account-scoped портфеля и список позиций | ⬜ | Видны PnL, риск, свежесть, состояние синхронизации, позиции под наблюдением и критические позиции выбранного подключения; список использует фильтры v1 API и не смешивает закрытую историю с активными позициями по умолчанию |
 | G-04 | Реализовать страницу позиции | ⬜ | Видны параметры сделки, график, market context, ключевые уровни, evaluation, рекомендация, причины, временная валидность и условия пересмотра; UI способен отличить свежий market context от более старого evaluation |
@@ -472,15 +474,16 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Нормализовать error contract пользовательского API перед React | Tech-G07 |
-| 2 | Создать адаптивную React-панель | G-01 — G-08 |
-| 3 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
-| 4 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 5 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 6 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 7 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Нормализовать agent-development context | Tech-G08 |
+| 2 | Обеспечить воспроизводимость agent-first delivery | Tech-G09 |
+| 3 | Создать адаптивную React-панель | G-01 — G-08 |
+| 4 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
+| 5 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 6 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 7 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 8 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и технические задачи Tech-G01 — Tech-G07 завершены; следующим шагом является G-01. Последовательность перехода к клиенту: Tech-G05 → Tech-G06 → Tech-G07 → G-01. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G07 завершены. Перед началом React обязательна последовательность: Tech-G07 ✅ → Tech-G08 → Tech-G09 → G-01. Далее сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -561,6 +564,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-09-27 | 3.37 | Issue #160 добавил Tech-G08 и Tech-G09 перед G-01 и уточнил критерий G-01 о синхронизации frontend agent instructions с фактически принятой архитектурой. Последовательность agent-first подготовки отражена в ROADMAP и README; этап G остаётся текущим. AI-инструкции, skills, templates, CI и runtime в этой задаче не изменялись. |
 | 2026-09-26 | 3.36 | Issue #158 завершает Tech-G07 перед G-01: generic framework/programming exceptions больше не превращаются в validation failures и сохраняют `500 internal_error` diagnostics; явные `/api/v1` auth failures получили стабильные ProblemDetails и Bearer challenge semantics; `position_not_evaluable` публикует явную machine-readable reason; OpenAPI, API contract documentation и README синхронизированы. Этап F и SignalR auth contract не изменялись. |
 | 2026-09-26 | 3.35 | Issue #156 синхронизировал ROADMAP с аудитом обработки ошибок и эксплуатационной наблюдаемости: этап F сохранён завершённым, перед G-01 добавлен Tech-G07 для нормализации error contract, в H добавлена отдельная terminal failure/poison-event semantics для application events, а L-01/L-02/L-03/L-04/L-07 получили измеримые требования к structured logging, telemetry, health/degraded semantics, resilience и operational alerts. Runtime и contract documentation в этой задаче не изменены. |
 | 2026-09-25 | 3.34 | Issue #152 завершает Tech-G06: API composition root разделён по concerns с явным HTTP pipeline в `Program.cs`, добавлены regression-проверка shared realtime singleton и Compose smoke для повторного seeding/password mismatch; `Authentication.TestSeeder` нормализован без изменения OAuth/OIDC semantics, `Api/AGENTS.md` синхронизирован. Следующим функциональным шагом остаётся G-01 — основной React-клиент. |
