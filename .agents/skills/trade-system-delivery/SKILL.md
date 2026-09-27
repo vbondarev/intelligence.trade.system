@@ -11,7 +11,7 @@ description: Выполняет согласованную Issue-задачу о
 
 `Issue → Implementation Plan → Human Gate → branch → implementation → self-review → checks → docs → final self-review → commit → push → Draft PR → PR sanity`
 
-После PR sanity передай работу в `.agents/skills/trade-system-pr-review/SKILL.md`. Не дублируй здесь External Review и review fixes.
+После PR sanity передай работу в `.agents/skills/trade-system-pr-review/SKILL.md`; там выполняется полный цикл `External Review → Review fixes → Re-review → Human Merge Gate`. Не дублируй здесь детали этого цикла.
 
 ## Plan и Human Gate
 
@@ -32,4 +32,5 @@ description: Выполняет согласованную Issue-задачу о
 - Commit message: `#<issue>: <текст на русском языке в прошедшем времени>`.
 - PR title: `#<issue>: <краткое название на русском языке>`.
 - PR description пиши по-русски; включи `Closes #<issue>`, фактическую реализацию, отклонения от Approved Plan или явное указание об их отсутствии, выполненные проверки, риски и намеренно исключённый scope.
-- До External Review проверь base/head, branch name, commit message, PR title/body, `Closes`, labels связанного Issue, полный diff, случайные файлы и применимый CI.
+- Pull Request наследует актуальные classification labels связанного Issue и не вводит другую классификацию самостоятельно. Если новая область означает scope expansion или новое architecture decision, остановись и верни вопрос на Human Gate до изменения Issue/labels.
+- До External Review проверь base/head, branch name, commit message, PR title/body, `Closes`, совпадение labels с Issue, полный diff, случайные файлы и применимый CI.

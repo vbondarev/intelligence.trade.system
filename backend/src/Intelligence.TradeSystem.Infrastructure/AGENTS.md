@@ -21,6 +21,7 @@
 - Сохраняй согласованные transaction boundaries для persistence изменений и атомарность связанных записей.
 - Persistence-side optimistic concurrency/CAS и version tokens остаются деталями Infrastructure; не протаскивай их в Domain только ради хранения.
 - PostgreSQL locks и conditional writes должны реализовывать общие lock-order, state re-read, conflict и bounded-retry invariants из `../AGENTS.md`, а не вводить собственный порядок блокировок.
+- Для account serialization используй минимально необходимую силу PostgreSQL lock. Усиление до `FOR UPDATE` требует отдельного анализа взаимодействия с FK `KEY SHARE` и риска lock-upgrade deadlock; не усиливай lock без такого обоснования.
 - При обновлении после lock повторно проверяй актуальное состояние, чтобы исключить stale writes.
 
 ## Credentials и outbox
