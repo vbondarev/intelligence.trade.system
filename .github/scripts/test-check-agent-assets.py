@@ -147,6 +147,49 @@ class AgentAssetsValidatorTests(unittest.TestCase):
                     )
                 )
 
+    def test_indented_frontmatter_mapping_entry_fails(self) -> None:
+        path = self.skill_file()
+        path.write_text(
+            "---\n"
+            "name: trade-system-delivery\n"
+            "description: Описание workflow.\n"
+            "  unexpected: value\n"
+            "---\n"
+            "# Процесс\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("вложенные записи frontmatter не поддерживаются" in error for error in self.errors())
+        )
+
+    def test_indented_frontmatter_scalar_fails(self) -> None:
+        path = self.skill_file()
+        path.write_text(
+            "---\n"
+            "name: trade-system-delivery\n"
+            "  malformed\n"
+            "description: Описание workflow.\n"
+            "---\n"
+            "# Процесс\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("вложенные записи frontmatter не поддерживаются" in error for error in self.errors())
+        )
+
+    def test_blank_frontmatter_line_is_allowed(self) -> None:
+        path = self.skill_file()
+        path.write_text(
+            "---\n"
+            "name: trade-system-delivery\n"
+            "\n"
+            "description: Описание workflow.\n"
+            "---\n"
+            "# Процесс\n",
+            encoding="utf-8",
+        )
+        self.assertEqual([], self.errors())
+
     def test_valid_quoted_frontmatter_scalars_pass(self) -> None:
         path = self.skill_file()
         path.write_text(

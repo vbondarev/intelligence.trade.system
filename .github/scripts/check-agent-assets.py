@@ -59,7 +59,13 @@ def parse_frontmatter(
 
     values: dict[str, str] = {}
     for line_number, line in enumerate(lines[1:closing_line], start=2):
-        if not line.strip() or line[0].isspace():
+        if not line.strip():
+            continue
+        if line[0].isspace():
+            errors.append(
+                f"{relative_path}:{line_number}: "
+                "вложенные записи frontmatter не поддерживаются."
+            )
             continue
 
         match = FRONTMATTER_KEY.fullmatch(line)

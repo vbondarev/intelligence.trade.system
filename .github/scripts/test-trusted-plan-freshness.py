@@ -523,34 +523,66 @@ class TrustedPlanFreshnessTests(TestCase):
             with self.assertRaises(HandlerError):
                 write_status(REPOSITORY, HEAD_SHA, "pending", "pending", "token")
 
-    def test_workflow_file_uses_trusted_main_and_no_pull_request_target(self) -> None:
+    def test_trusted_workflow_only_handles_authenticated_events(self) -> None:
         workflow = (
             Path(__file__).resolve().parent.parent
             / "workflows"
             / "trusted-plan-freshness.yml"
         ).read_text(encoding="utf-8")
-        candidate_job_match = re.search(
-            r"(?ms)^  test-pr-head:\n(?P<job>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        self.assertRegex(workflow, r"(?m)^  workflow_run:\s*$")
+        self.assertRegex(workflow, r"(?m)^  issue_comment:\s*$")
+        self.assertNotRegex(workflow, r"(?m)^  pull_request(?:_target)?:\s*$")
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("test-pr-head", workflow)
+        self.assertNotIn("refs/pull/", workflow)
+        self.assertNotIn("PR_NUMBER", workflow)
+        self.assertNotIn("EXPECTED_HEAD_SHA", workflow)
+        self.assertNotIn("test-check-pr-approved-plan.py", workflow)
+        self.assertNotIn("test-trusted-plan-freshness.py", workflow)
+        self.assertNotIn("test-pr-workflow-security.py", workflow)
+
+        events_match = re.search(
+            r"(?ms)^on:\n(?P<events>.*?)(?=^permissions:)",
             workflow,
         )
-        self.assertIsNotNone(candidate_job_match)
-        candidate_job = candidate_job_match.group("job")
-        self.assertIn("workflow_run:", workflow)
-        self.assertIn("types: [ requested, completed ]", workflow)
-        self.assertIn("issue_comment:", workflow)
+        self.assertIsNotNone(events_match)
+        events = re.findall(
+            r"(?m)^  ([A-Za-z0-9_-]+):\s*$",
+            events_match.group("events"),
+        )
+        self.assertEqual(["workflow_run", "issue_comment"], events)
+        self.assertIn("types: [ requested, completed ]", events_match.group("events"))
+        self.assertIn(
+            "types: [ created, edited, deleted ]",
+            events_match.group("events"),
+        )
+
+        self.assertIn("jobs:\n  validate-workflow-run:", workflow)
+        self.assertIn("  validate-issue-comment:", workflow)
+        self.assertNotIn("  test-pr-head:", workflow)
         self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
         self.assertIn("permissions: {}", workflow)
         self.assertIn("statuses: write", workflow)
         self.assertIn("issues: write", workflow)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", workflow)
-        self.assertNotIn("pull_request_target:", workflow)
-        self.assertIn("permissions: {}", candidate_job)
-        self.assertIn("refs/pull/${PR_NUMBER}/head", candidate_job)
-        self.assertIn('"$fetched_sha" != "$EXPECTED_HEAD_SHA"', candidate_job)
-        self.assertNotIn("actions/checkout", candidate_job)
-        self.assertNotIn("GITHUB_TOKEN", candidate_job)
-        self.assertNotIn("github.token", candidate_job)
-        self.assertEqual(1, workflow.count("github.event.pull_request.head.sha"))
+        self.assertIn("contents: read\n      issues: read\n      pull-requests: read\n      statuses: write", workflow)
+        self.assertIn("contents: read\n      issues: write\n      pull-requests: read\n      statuses: write", workflow)
+        self.assertNotIn("github.event.pull_request.head.sha", workflow)
+        self.assertNotIn("download-artifact", workflow)
+
+        checkout_steps = re.findall(
+            r"(?ms)^      - name: Checkout trusted default branch\n"
+            r"(?P<step>.*?)(?=^      - name:|\Z)",
+            workflow,
+        )
+        self.assertEqual(2, len(checkout_steps))
+        for step in checkout_steps:
+            self.assertIn(
+                "ref: ${{ github.event.repository.default_branch }}",
+                step,
+            )
+            self.assertIn("persist-credentials: false", step)
         self.assertNotIn("download-artifact", workflow)
 
 
