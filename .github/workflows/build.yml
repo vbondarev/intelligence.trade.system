@@ -242,11 +242,18 @@ jobs:
             "https://github.com/${GITHUB_REPOSITORY}.git" \
             "refs/pull/${PR_NUMBER}/head"
 
+          verify_expected_head() {
+            local fetched_sha="$1"
+            local expected_sha="$2"
+
+            if [[ "$fetched_sha" != "$expected_sha" ]]; then
+              echo "Fetched pull request SHA не совпадает с event head SHA." >&2
+              return 1
+            fi
+          }
+
           fetched_sha="$(git rev-parse FETCH_HEAD)"
-          if [[ "$fetched_sha" != "$EXPECTED_HEAD_SHA" ]]; then
-            echo "Fetched pull request SHA не совпадает с event head SHA." >&2
-            exit 1
-          fi
+          verify_expected_head "$fetched_sha" "$EXPECTED_HEAD_SHA"
 
           git checkout --detach "$EXPECTED_HEAD_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"

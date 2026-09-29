@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -52,16 +57,74 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
         )
         self.assertIn('"refs/pull/${PR_NUMBER}/head"', self.job)
 
+    def _sha_helper_source(self) -> str:
+        match = re.search(
+            r"(?ms)^          verify_expected_head\(\) \{\n.*?^          \}\n",
+            self.job,
+        )
+        self.assertIsNotNone(match)
+        return textwrap.dedent(match.group(0))
+
+    def _run_sha_helper_fixture(
+        self,
+        fetched_sha: str,
+        expected_sha: str,
+    ) -> tuple[subprocess.CompletedProcess[str], bool]:
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("Для executable SHA-gate regression test требуется bash.")
+
+        helper = self._sha_helper_source()
+        with tempfile.TemporaryDirectory() as temp_directory:
+            sentinel = Path(temp_directory) / "candidate-validation-ran"
+            script = (
+                "set -euo pipefail\n"
+                f"{helper}\n"
+                'verify_expected_head "$FETCHED_SHA" "$EXPECTED_SHA"\n'
+                'printf "candidate validation ran" > "$CANDIDATE_SENTINEL"\n'
+            )
+            environment = {
+                **os.environ,
+                "FETCHED_SHA": fetched_sha,
+                "EXPECTED_SHA": expected_sha,
+                "CANDIDATE_SENTINEL": str(sentinel),
+            }
+            result = subprocess.run(
+                [bash, "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result, sentinel.exists()
+
     def test_fetched_head_must_match_event_sha_before_validation(self) -> None:
-        sha_check = 'if [[ "$fetched_sha" != "$EXPECTED_HEAD_SHA" ]]; then'
+        sha_check = 'verify_expected_head "$fetched_sha" "$EXPECTED_HEAD_SHA"'
         checkout = 'git checkout --detach "$EXPECTED_HEAD_SHA"'
         self.assertIn(sha_check, self.job)
         self.assertIn(checkout, self.job)
+        self.assertNotIn("continue-on-error:", self.job)
         self.assertLess(self.job.index(sha_check), self.job.index(checkout))
         self.assertLess(
             self.job.index(checkout),
             self.job.index("python3 .github/scripts/test-check-pr-approved-plan.py"),
         )
+
+    def test_sha_mismatch_fails_before_candidate_validation(self) -> None:
+        result, candidate_validation_ran = self._run_sha_helper_fixture(
+            "a" * 40,
+            "b" * 40,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(candidate_validation_ran)
+
+    def test_sha_match_allows_candidate_validation(self) -> None:
+        sha = "a" * 40
+        result, candidate_validation_ran = self._run_sha_helper_fixture(sha, sha)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(candidate_validation_ran)
 
     def test_pull_request_target_is_not_used(self) -> None:
         self.assertNotIn("pull_request_target:", self.workflow)
