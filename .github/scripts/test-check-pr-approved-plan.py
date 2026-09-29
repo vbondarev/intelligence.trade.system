@@ -137,13 +137,20 @@ class PullRequestPlanValidatorTests(TestCase):
 
         self.assertIn("0 amendment(s)", result)
 
-    def test_html_comment_inside_amendments_section_fails(self) -> None:
+    def test_html_comment_inside_amendments_section_is_ignored(self) -> None:
         body = make_body().replace(
             "Approved Plan Amendments:\n- Нет\n",
             "Approved Plan Amendments:\n- Нет\n<!-- Инструкция внутри секции. -->\n",
         )
 
-        self.assert_invalid(body, [make_base_plan()])
+        result = validate_pull_request(
+            body,
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan()],
+        )
+
+        self.assertIn("0 amendment(s)", result)
 
     def test_valid_trusted_immutable_base_plan(self) -> None:
         result = validate_pull_request(
