@@ -1,5 +1,3 @@
-## Связанная задача
-
 Closes #
 
 ## Утверждённый Implementation Plan

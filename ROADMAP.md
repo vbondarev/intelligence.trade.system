@@ -1,8 +1,8 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
 Версия документа: 3.43
-Дата актуализации: 28 сентября 2026 года
-Проверенная реализация Tech-G09: PR #166, head `d2593dcb6146c97b0fc366353426db917029a360`, целевая ветка `develop`
+Дата актуализации: 29 сентября 2026 года
+Проверенная реализация Tech-G09: PR #166, целевая ветка `develop`
 Последняя учтённая задача: Issue #165 «Tech-G09: Обеспечить воспроизводимость agent-first lifecycle» — завершена
 Текущий этап: **G — основной React-клиент**; следующий шаг — **G-01: React-панель и BFF**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
@@ -103,7 +103,7 @@
 - **Tech-G06** ✅ (Issue #152): нормализованы API composition root и concern-based host configuration без изменения runtime-поведения; authentication, realtime, error handling и serialization перенесены в focused registrations, `Authentication.TestSeeder` разделён на composition и one-shot operation с idempotency/password-mismatch smoke coverage. `Identity` и `Identity.Migrations` оставлены без искусственного structural refactor.
 - **Tech-G07** ✅ (Issue #158): стабилизирован error contract `/api/v1`: generic framework exceptions больше не считаются validation failures и неожиданные ошибки сохраняют `500 internal_error` с diagnostics; явные validation failures остаются `400`; REST authentication/authorization возвращают `401 authentication_required` и `403 access_forbidden`; `position_not_evaluable` содержит явную машинную причину; OpenAPI и contract documentation синхронизированы.
 - **Tech-G08** ✅ (Issue #162): нормализован agent-development context: root `AGENTS.md` стал repository control plane, Discovery/Delivery/PR Review разделены на project-owned skills, а Infrastructure и Identity получили локальные instructions. Project-owned и external skills явно разграничены; архитектурные invariants, Human Gates и source-of-truth hierarchy сохранены.
-- **Tech-G09** ✅ (Issue #165): durable Approved Plan lifecycle, structural agent-assets validation, zero-permission PR workflow validation и cleanup по второму Approved Amendment реализованы; exact-head CI зелёный, final live External Re-review пройден, valid blockers отсутствуют, review threads закрыты. Следующий шаг — G-01.
+- **Tech-G09** ✅ (Issue #165): реализованы durable Approved Plan lifecycle, append-only Amendments, structural agent-assets validation и zero-permission PR workflow validation. Следующий шаг — G-01.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -481,7 +481,7 @@ GET    /api/v1/auth/me
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G09 завершены. Для Tech-G09 implementation cleanup, exact-head CI и final live External Re-review завершены; valid blockers отсутствуют, review threads закрыты. Следующий шаг — G-01, затем сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G09 завершены. Следующий шаг — G-01, затем сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 

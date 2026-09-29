@@ -43,18 +43,19 @@ class PullRequestValidation:
 
 
 def linked_issue_number(body: str) -> int:
-    close_lines = [
-        line for line in body.splitlines() if ISSUE_CLOSE_START.match(line)
-    ]
+    lines = body.splitlines()
+    first_content_line = next((line for line in lines if line.strip()), "")
+    match = ISSUE_CLOSE_LINE.fullmatch(first_content_line)
+    if match is None:
+        raise ValidationError(
+            "Первая непустая строка PR body должна иметь точный вид "
+            "'Closes #<issue>'."
+        )
+
+    close_lines = [line for line in lines if ISSUE_CLOSE_START.match(line)]
     if len(close_lines) != 1:
         raise ValidationError(
             "В PR body должна быть ровно одна primary-ссылка вида 'Closes #<issue>'."
-        )
-
-    match = ISSUE_CLOSE_LINE.fullmatch(close_lines[0])
-    if match is None:
-        raise ValidationError(
-            "Primary Issue link должна иметь точный вид 'Closes #<issue>'."
         )
     return int(match.group(1))
 

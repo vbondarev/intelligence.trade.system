@@ -190,6 +190,40 @@ class PullRequestPlanValidatorTests(TestCase):
             ],
         )
 
+    def test_leading_blank_lines_before_closes_succeed(self) -> None:
+        result = validate_pull_request(
+            "\n\n" + make_body(),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan()],
+        )
+
+        self.assertIn("0 amendment(s)", result)
+
+    def test_closes_inside_html_comment_fails(self) -> None:
+        body = make_body().replace(
+            f"Closes #{ISSUE_NUMBER}",
+            f"<!--\nCloses #{ISSUE_NUMBER}\n-->",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
+    def test_closes_inside_fenced_code_fails(self) -> None:
+        body = make_body().replace(
+            f"Closes #{ISSUE_NUMBER}",
+            f"```text\nCloses #{ISSUE_NUMBER}\n```",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
+    def test_content_before_primary_closes_fails(self) -> None:
+        self.assert_invalid(
+            "## Связанная задача\n\n" + make_body(),
+            [make_base_plan()],
+        )
+
     def test_missing_closes_fails(self) -> None:
         self.assert_invalid(
             make_body().replace(f"Closes #{ISSUE_NUMBER}\n", ""),
