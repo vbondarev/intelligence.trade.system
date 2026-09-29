@@ -118,6 +118,33 @@ class PullRequestPlanValidatorTests(TestCase):
                 comments,
             )
 
+    def test_real_pr_template_is_compatible_with_amendment_parser(self) -> None:
+        template_path = Path(__file__).resolve().parents[1] / "pull_request_template.md"
+        body = template_path.read_text(encoding="utf-8")
+        body = body.replace("Closes #", f"Closes #{ISSUE_NUMBER}", 1)
+        body = body.replace(
+            "Approved Implementation Plan: <permalink или N/A>",
+            f"Approved Implementation Plan: {BASE_PERMALINK}",
+            1,
+        )
+
+        result = validate_pull_request(
+            body,
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan()],
+        )
+
+        self.assertIn("0 amendment(s)", result)
+
+    def test_html_comment_inside_amendments_section_fails(self) -> None:
+        body = make_body().replace(
+            "Approved Plan Amendments:\n- Нет\n",
+            "Approved Plan Amendments:\n- Нет\n<!-- Инструкция внутри секции. -->\n",
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
     def test_valid_trusted_immutable_base_plan(self) -> None:
         result = validate_pull_request(
             make_body(),

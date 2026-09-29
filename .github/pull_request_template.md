@@ -6,10 +6,9 @@ Closes #
 
 Approved Implementation Plan: <permalink или N/A>
 
+<!-- Перечисли все current trusted Amendments ровно один раз в порядке комментариев связанной Issue. -->
 Approved Plan Amendments:
 - Нет
-
-<!-- Перечисли все current trusted Amendments ровно один раз в порядке комментариев связанной Issue. -->
 
 ## Что реализовано
 
