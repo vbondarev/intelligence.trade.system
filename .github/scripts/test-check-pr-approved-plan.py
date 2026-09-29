@@ -262,6 +262,46 @@ class PullRequestPlanValidatorTests(TestCase):
     def test_closes_to_pull_request_fails(self) -> None:
         self.assert_invalid(make_body(), [make_base_plan()], make_issue(is_pull_request=True))
 
+    def test_hidden_plan_field_fails(self) -> None:
+        body = make_body().replace(
+            f"Approved Implementation Plan: {BASE_PERMALINK}",
+            (
+                "<!--\n"
+                f"Approved Implementation Plan: {BASE_PERMALINK}\n"
+                "-->"
+            ),
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
+    def test_hidden_amendments_section_fails(self) -> None:
+        body = make_body().replace(
+            "Approved Plan Amendments:\n- Нет",
+            "<!--\nApproved Plan Amendments:\n- Нет\n-->",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
+    def test_hidden_duplicate_metadata_is_ignored(self) -> None:
+        body = (
+            make_body()
+            + "\n<!--\n"
+            + "Approved Implementation Plan: N/A\n"
+            + "Approved Plan Amendments:\n- Нет\n"
+            + "-->\n"
+        )
+
+        result = validate_pull_request(
+            body,
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan()],
+        )
+
+        self.assertIn("0 amendment(s)", result)
+
     def test_missing_plan_field_fails(self) -> None:
         self.assert_invalid(
             make_body().replace(f"Approved Implementation Plan: {BASE_PERMALINK}\n", ""),

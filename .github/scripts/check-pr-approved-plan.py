@@ -165,7 +165,7 @@ def parse_issue_comment_permalink(
 def plan_field_value(body: str) -> str:
     values = [
         match.group(1)
-        for line in body.splitlines()
+        for line in visible_markdown_lines(body)
         if (match := PLAN_FIELD_LINE.fullmatch(line)) is not None
     ]
     if len(values) != 1 or not values[0]:
@@ -177,7 +177,7 @@ def plan_field_value(body: str) -> str:
 
 
 def amendment_values(body: str) -> list[str]:
-    lines = body.splitlines()
+    lines = visible_markdown_lines(body)
     section_indices = [
         index for index, line in enumerate(lines) if line.strip() == AMENDMENTS_FIELD
     ]

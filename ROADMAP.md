@@ -562,7 +562,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-09-29 | 3.44 | Усилена проверка primary Issue metadata в PR: реальный `Closes #<issue>` отделён от примеров в HTML comments и fenced code, PR template синхронизирован со строгим форматом, а активная документация больше не хранит быстро устаревающий reviewed-state fingerprint. |
+| 2026-09-29 | 3.44 | Усилена проверка machine-readable PR metadata: реальные `Closes #<issue>`, Approved Plan и Amendments отделены от примеров в HTML comments и fenced code, PR template синхронизирован со строгим форматом, а активная документация больше не хранит быстро устаревающий reviewed-state fingerprint. |
 | 2026-09-29 | 3.43 | Tech-G09 финализирован после исправления последнего review finding по совместимости PR template с validator: exact-head CI зелёный, final live External Re-review не выявил valid blockers, review threads закрыты. Статус Tech-G09 — ✅; следующим шагом назначен G-01 — React-панель и BFF. |
 | 2026-09-28 | 3.42 | По явному Human Decision опубликован третий Approved Plan Amendment: Tech-G09 разрешено зафиксировать как ✅ после успешных pre-merge проверок до ручного merge PR #166. Implementation cleanup завершён, exact-head CI зелёный, final live External Re-review пройден, valid blockers отсутствуют и review threads закрыты; отдельный Human Merge Gate и ручной merge по-прежнему обязательны. |
 | 2026-09-28 | 3.41 | Final live External Re-review PR #166 завершён: cleanup второго Approved Amendment проверен, exact-head CI зелёный, valid blocker findings отсутствуют, review threads закрыты. Tech-G09 остаётся в работе до Human Merge Gate и merge PR #166. |
