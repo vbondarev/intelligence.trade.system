@@ -218,6 +218,26 @@ class PullRequestPlanValidatorTests(TestCase):
 
         self.assert_invalid(body, [make_base_plan()])
 
+    def test_hidden_additional_closes_do_not_count(self) -> None:
+        body = make_body().replace(
+            f"Closes #{ISSUE_NUMBER}\n\n",
+            (
+                f"Closes #{ISSUE_NUMBER}\n\n"
+                "<!--\nCloses #164\n-->\n\n"
+                "```text\nCloses #163\n```\n\n"
+            ),
+            1,
+        )
+
+        result = validate_pull_request(
+            body,
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan()],
+        )
+
+        self.assertIn("0 amendment(s)", result)
+
     def test_content_before_primary_closes_fails(self) -> None:
         self.assert_invalid(
             "## Связанная задача\n\n" + make_body(),

@@ -22,6 +22,7 @@ BASE_AMENDMENT_LINK_FIELD = "Base Approved Implementation Plan:"
 TRUSTED_PLAN_AUTHOR = "vbondarev"
 ISSUE_CLOSE_LINE = re.compile(r"^\s*Closes\s+#([1-9][0-9]*)\s*$", re.IGNORECASE)
 ISSUE_CLOSE_START = re.compile(r"^\s*Closes\b", re.IGNORECASE)
+FENCE_START = re.compile(r"^\s*(`{3,}|~{3,})")
 PLAN_FIELD_LINE = re.compile(r"^\s*Approved Implementation Plan:\s*(.*?)\s*$")
 BASE_AMENDMENT_LINK_LINE = re.compile(
     r"^\s*Base Approved Implementation Plan:\s*(.*?)\s*$"
@@ -42,6 +43,57 @@ class PullRequestValidation:
     head_sha: str
 
 
+def visible_markdown_lines(body: str) -> list[str]:
+    visible_lines: list[str] = []
+    in_html_comment = False
+    fence_character = ""
+    fence_length = 0
+
+    for raw_line in body.splitlines():
+        parts: list[str] = []
+        cursor = 0
+        while cursor < len(raw_line):
+            if in_html_comment:
+                comment_end = raw_line.find("-->", cursor)
+                if comment_end < 0:
+                    cursor = len(raw_line)
+                    break
+                in_html_comment = False
+                cursor = comment_end + 3
+                continue
+
+            comment_start = raw_line.find("<!--", cursor)
+            if comment_start < 0:
+                parts.append(raw_line[cursor:])
+                break
+            parts.append(raw_line[cursor:comment_start])
+            in_html_comment = True
+            cursor = comment_start + 4
+
+        line = "".join(parts)
+        stripped = line.lstrip()
+
+        if fence_character:
+            if re.fullmatch(
+                rf"{re.escape(fence_character)}{{{fence_length},}}\s*",
+                stripped,
+            ):
+                fence_character = ""
+                fence_length = 0
+            continue
+
+        fence_match = FENCE_START.match(line)
+        if fence_match is not None:
+            marker = fence_match.group(1)
+            fence_character = marker[0]
+            fence_length = len(marker)
+            continue
+
+        visible_lines.append(line)
+
+    return visible_lines
+
+
 def linked_issue_number(body: str) -> int:
     lines = body.splitlines()
     first_content_line = next((line for line in lines if line.strip()), "")
@@ -52,7 +104,9 @@ def linked_issue_number(body: str) -> int:
             "'Closes #<issue>'."
         )
 
-    close_lines = [line for line in lines if ISSUE_CLOSE_START.match(line)]
+    close_lines = [
+        line for line in visible_markdown_lines(body) if ISSUE_CLOSE_START.match(line)
+    ]
     if len(close_lines) != 1:
         raise ValidationError(
             "В PR body должна быть ровно одна primary-ссылка вида 'Closes #<issue>'."
