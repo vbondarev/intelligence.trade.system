@@ -1,10 +1,9 @@
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Errors;
+using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
-using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Users;
-using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -18,14 +17,14 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
     IExchangeAccountSyncService syncService,
-    ICurrentUserContext currentUserContext,
-    PortfolioReadService portfolioReadService) : ControllerBase
+    ICurrentUserContext currentUserContext) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ExchangeAccountListResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ExchangeAccountListResponse>> List(CancellationToken cancellationToken) =>
-        Ok(new ExchangeAccountListResponse((await accountService.ListActiveAsync(
-            currentUserContext.UserId, cancellationToken).ConfigureAwait(false)).Select(ToResponse).ToArray()));
+        Ok(ExchangeAccountMapper.ToListResponse(await accountService.ListActiveAsync(
+            currentUserContext.UserId,
+            cancellationToken).ConfigureAwait(false)));
 
     [HttpPost]
     [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status201Created)]
@@ -43,7 +42,10 @@ public sealed class ExchangeAccountsController(
             new ExchangeAccountCredentialSecret(request.ApiKey.Trim(), request.ApiSecret.Trim()), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
-            ExchangeAccountConnectionOutcome.Connected when result.Account is not null => StatusCode(StatusCodes.Status201Created, ToResponse(result.Account)),
+            ExchangeAccountConnectionOutcome.Connected when result.Account is not null =>
+                StatusCode(
+                    StatusCodes.Status201Created,
+                    ExchangeAccountMapper.ToResponse(result.Account)),
             ExchangeAccountConnectionOutcome.InvalidCredentials => Error(ApiErrorDescriptors.ExchangeCredentialsInvalid),
             ExchangeAccountConnectionOutcome.PermissionsRejected => Error(ApiErrorDescriptors.ExchangePermissionsRejected),
             ExchangeAccountConnectionOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),
@@ -79,7 +81,8 @@ public sealed class ExchangeAccountsController(
             new ExchangeAccountCredentialSecret(request.ApiKey.Trim(), request.ApiSecret.Trim()), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
-            ExchangeAccountCredentialRotationOutcome.Succeeded when result.Account is not null => Ok(ToResponse(result.Account)),
+            ExchangeAccountCredentialRotationOutcome.Succeeded when result.Account is not null =>
+                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
             ExchangeAccountCredentialRotationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountCredentialRotationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch =>
@@ -104,7 +107,9 @@ public sealed class ExchangeAccountsController(
         var result = await syncService.SynchronizeAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
-            ExchangeAccountSyncOutcome.Synchronized or ExchangeAccountSyncOutcome.AlreadyApplied or ExchangeAccountSyncOutcome.Superseded when result.Account is not null => Ok(ToResponse(result.Account)),
+            ExchangeAccountSyncOutcome.Synchronized or ExchangeAccountSyncOutcome.AlreadyApplied or
+                ExchangeAccountSyncOutcome.Superseded when result.Account is not null =>
+                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
             ExchangeAccountSyncOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountSyncOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
@@ -124,37 +129,6 @@ public sealed class ExchangeAccountsController(
         return account is null ? NotFoundProblem() : NoContent();
     }
 
-    [HttpGet("{id}/portfolio")]
-    [ProducesResponseType(typeof(PortfolioResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<PortfolioResponse>> Portfolio(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        if (id == Guid.Empty)
-        {
-            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
-        }
-
-        var result = await portfolioReadService
-            .GetLatestAsync(
-                currentUserContext.UserId,
-                ExchangeAccountId.FromGuid(id),
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!result.AccountExists)
-        {
-            return NotFoundProblem();
-        }
-
-        return result.Summary is null
-            ? NoContent()
-            : Ok(ToPortfolioResponse(result.Summary));
-    }
-
     private async Task<ActionResult<ExchangeAccountResponse>> ExecuteVerification(Guid id, CancellationToken cancellationToken)
     {
         if (id == Guid.Empty)
@@ -162,7 +136,8 @@ public sealed class ExchangeAccountsController(
         var result = await accountService.VerifyAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
-            ExchangeAccountVerificationOutcome.Succeeded when result.Account is not null => Ok(ToResponse(result.Account)),
+            ExchangeAccountVerificationOutcome.Succeeded when result.Account is not null =>
+                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
             ExchangeAccountVerificationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountVerificationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             ExchangeAccountVerificationOutcome.ProviderIdentityMismatch =>
@@ -178,56 +153,4 @@ public sealed class ExchangeAccountsController(
         StatusCode(descriptor.StatusCode, ApiProblemDetails.Create(HttpContext, descriptor, detail));
     private ObjectResult NotFoundProblem() => Error(ApiErrorDescriptors.ResourceNotFound, "The requested resource was not found.");
     private BadRequestObjectResult BadRequestProblem(string detail) => BadRequest(ApiProblemDetails.CreateValidation(HttpContext, detail));
-
-    private static ExchangeAccountResponse ToResponse(ExchangeAccount account) => new(
-        account.Id.Value, ToWireProvider(account.ExchangeId), ToWireStatus(account.ConnectionStatus),
-        ToWireCapabilities(account.Capabilities), account.LastSyncedAt);
-
-    private static ExchangeProvider ToWireProvider(ExchangeId exchangeId) => exchangeId switch
-    {
-        ExchangeId.Bybit => ExchangeProvider.Bybit,
-        _ => throw new NotSupportedException($"Exchange '{exchangeId}' is not mapped to a v1 wire contract."),
-    };
-
-    private static ExchangeAccountStatus ToWireStatus(ExchangeAccountConnectionStatus status) => status switch
-    {
-        ExchangeAccountConnectionStatus.Unknown => ExchangeAccountStatus.Unknown,
-        ExchangeAccountConnectionStatus.Connected => ExchangeAccountStatus.Connected,
-        ExchangeAccountConnectionStatus.Unavailable => ExchangeAccountStatus.Unavailable,
-        ExchangeAccountConnectionStatus.Disabled => ExchangeAccountStatus.Disabled,
-        _ => throw new NotSupportedException($"Connection status '{status}' is not mapped to a v1 wire contract."),
-    };
-
-    private static ExchangeAccountCapability[] ToWireCapabilities(ExchangeAccountCapabilities capabilities)
-    {
-        var result = new List<ExchangeAccountCapability>(2);
-        if (capabilities.HasFlag(ExchangeAccountCapabilities.ReadBalance))
-            result.Add(ExchangeAccountCapability.ReadBalance);
-        if (capabilities.HasFlag(ExchangeAccountCapabilities.ReadPositions))
-            result.Add(ExchangeAccountCapability.ReadPositions);
-        return result.ToArray();
-    }
-
-    private static PortfolioResponse ToPortfolioResponse(PortfolioReadSummary summary) => new(
-        summary.ExchangeAccountId.Value,
-        summary.CalculatedAt,
-        new PortfolioCapitalResponse(
-            summary.TotalEquity,
-            summary.AvailableCapital,
-            summary.TotalWalletBalance,
-            summary.CapitalObservedAt),
-        summary.GrossExposure,
-        summary.LongExposure,
-        summary.ShortExposure,
-        summary.NetExposure,
-        summary.TotalUnrealizedPnl,
-        summary.UsedCapital,
-        summary.FreeCapital,
-        summary.FreeCapitalPercent,
-        summary.GrossExposureToEquityPercent,
-        summary.LargestPositionConcentrationPercent,
-        summary.LargestPositionId?.Value,
-        summary.PositionsFullyReconciled,
-        summary.IsComplete,
-        summary.IsFresh);
 }

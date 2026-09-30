@@ -1,9 +1,7 @@
-using Intelligence.TradeSystem.Api.Contracts.V1.Common;
-using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
+using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
-using Intelligence.TradeSystem.Api.RequestParsing;
-using Intelligence.TradeSystem.Application.Portfolio.Timeline;
+using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -12,46 +10,41 @@ using Microsoft.AspNetCore.Mvc;
 namespace Intelligence.TradeSystem.Api.Controllers;
 
 [ApiController]
-[Route("api/v1/positions")]
+[Route("api/v1/exchange-accounts")]
 [Authorize(Policy = "TradeUser")]
-public sealed class PositionTimelineController(
-    PositionTimelineService positionTimelineService,
+public sealed class ExchangeAccountPortfolioController(
+    PortfolioReadService portfolioReadService,
     ICurrentUserContext currentUserContext) : ControllerBase
 {
-    [HttpGet("{id}/timeline")]
-    [ProducesResponseType(typeof(CursorPage<PositionTimelineItemResponse>), StatusCodes.Status200OK)]
+    [HttpGet("{id}/portfolio")]
+    [ProducesResponseType(typeof(PortfolioResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<CursorPage<PositionTimelineItemResponse>>> Get(
+    public async Task<ActionResult<PortfolioResponse>> Get(
         [FromRoute] Guid id,
-        [FromQuery] int? pageSize,
-        [FromQuery(Name = "type")] string[]? types,
-        [FromQuery] string? cursor,
         CancellationToken cancellationToken)
     {
         if (id == Guid.Empty)
-            return BadRequestProblem("The position id must be a non-empty GUID.");
-
-        if (!PositionTimelineQueryParser.TryParse(
-                PositionId.FromGuid(id),
-                pageSize,
-                types,
-                cursor,
-                Request.Query,
-                out var query,
-                out var error))
         {
-            return BadRequestProblem(error!);
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         }
 
-        var page = await positionTimelineService
-            .GetAsync(currentUserContext.UserId, query!, cancellationToken)
+        var result = await portfolioReadService
+            .GetLatestAsync(
+                currentUserContext.UserId,
+                ExchangeAccountId.FromGuid(id),
+                cancellationToken)
             .ConfigureAwait(false);
-        if (page is null)
+        if (!result.AccountExists)
+        {
             return NotFoundProblem();
+        }
 
-        return Ok(PositionTimelineMapper.ToResponse(page));
+        return result.Summary is null
+            ? NoContent()
+            : Ok(PortfolioMapper.ToResponse(result.Summary));
     }
 
     private BadRequestObjectResult BadRequestProblem(string detail) =>

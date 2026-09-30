@@ -7,7 +7,6 @@ using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
-using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -559,10 +558,6 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
                 services.AddSingleton(service);
                 services.RemoveAll<IExchangeAccountSyncService>();
                 services.AddSingleton(syncService ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict).Object);
-                services.RemoveAll<PortfolioReadService>();
-                services.AddSingleton(new PortfolioReadService(
-                    new Mock<IPortfolioReadStore>(MockBehavior.Strict).Object));
-
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName, _ => { });

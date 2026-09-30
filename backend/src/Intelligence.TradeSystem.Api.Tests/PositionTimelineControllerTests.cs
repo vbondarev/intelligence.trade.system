@@ -182,6 +182,34 @@ public sealed class PositionTimelineControllerTests : IClassFixture<ApiWebApplic
         store.VerifyAll();
     }
 
+    [Fact]
+    public async Task Get_rejects_cursor_excluded_by_type_filter_without_calling_application()
+    {
+        var userId = UserId.New();
+        var cursor = new PositionTimelineCursor(
+            new DateTimeOffset(2026, 9, 21, 12, 0, 0, TimeSpan.Zero),
+            PositionTimelineItemKind.Evaluation,
+            Guid.NewGuid(),
+            null);
+        var store = new Mock<IPositionTimelineReadStore>(MockBehavior.Strict);
+        using var client = CreateClient(userId, store.Object);
+
+        var encodedCursor = PositionTimelineCursorCodec.Encode(cursor);
+        using var response = await client.GetAsync(
+            $"/api/v1/positions/{PositionId.New().Value}/timeline?type=positionChange&cursor={encodedCursor}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        problem.Detail.Should().Be("The cursor is incompatible with the selected timeline types.");
+        store.Verify(
+            x => x.ReadCandidatesAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<PositionTimelineQuery>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Theory]
     [InlineData("not-a-guid", "")]
     [InlineData("00000000-0000-0000-0000-000000000000", "")]

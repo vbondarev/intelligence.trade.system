@@ -1,11 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Common;
-using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Support;
-using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -82,6 +80,32 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
             PositionTrackingState.Stale);
         capturedQuery.ExchangeAccountId.Should().BeNull();
         capturedQuery.PageSize.Should().Be(CursorPagination.DefaultPageSize);
+    }
+
+    [Fact]
+    public async Task List_uses_first_values_for_duplicate_symbol_and_cursor()
+    {
+        var userId = UserId.New();
+        var positionId = PositionId.New();
+        var cursor = new PositionReadCursor(
+            new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero),
+            positionId);
+        var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
+        PositionReadQuery? capturedQuery = null;
+        store.Setup(x => x.ListAsync(userId, It.IsAny<PositionReadQuery>(), It.IsAny<CancellationToken>()))
+            .Callback<UserId, PositionReadQuery, CancellationToken>((_, query, _) => capturedQuery = query)
+            .ReturnsAsync(new PositionReadPage([], null, false));
+        using var client = CreateClient(userId, store.Object);
+
+        var encodedCursor = PositionCursorCodec.Encode(cursor);
+        using var response = await client.GetAsync(
+            $"/api/v1/positions?symbol=first&symbol=second&cursor={encodedCursor}&cursor=invalid");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        capturedQuery.Should().NotBeNull();
+        capturedQuery!.Symbol.Should().Be("first");
+        capturedQuery.Cursor.Should().Be(cursor);
+        store.VerifyAll();
     }
 
     [Theory]
@@ -178,106 +202,7 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
     }
 
-    [Fact]
-    public async Task Portfolio_returns_summary_without_embedded_positions()
-    {
-        var userId = UserId.New();
-        var accountId = ExchangeAccountId.New();
-        var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
-        var portfolioStore = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
-        portfolioStore.Setup(x => x.GetLatestAsync(userId, accountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PortfolioReadResult(true, new PortfolioReadSummary(
-                accountId,
-                new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero),
-                1000m,
-                800m,
-                1000m,
-                new DateTimeOffset(2026, 9, 20, 9, 59, 0, TimeSpan.Zero),
-                200m,
-                120m,
-                80m,
-                40m,
-                10m,
-                200m,
-                800m,
-                80m,
-                20m,
-                60m,
-                null,
-                true,
-                true,
-                true)));
-        using var client = CreateClient(userId, store.Object, portfolioStore.Object);
-
-        using var response = await client.GetAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/portfolio");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await response.Content.ReadFromJsonAsync<PortfolioResponse>(
-            V1JsonSerializerOptions.Default);
-        body!.ExchangeAccountId.Should().Be(accountId.Value);
-        body.Capital.TotalEquity.Should().Be(1000m);
-        body.LargestPositionId.Should().BeNull();
-        var raw = await response.Content.ReadAsStringAsync();
-        raw.Should().NotContainAny("\"positions\"", "staleAfter");
-    }
-
-    [Fact]
-    public async Task Portfolio_returns_no_content_when_owned_account_has_no_snapshot()
-    {
-        var userId = UserId.New();
-        var accountId = ExchangeAccountId.New();
-        var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
-        var portfolioStore = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
-        portfolioStore.Setup(x => x.GetLatestAsync(userId, accountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PortfolioReadResult(true, null));
-        using var client = CreateClient(userId, store.Object, portfolioStore.Object);
-
-        using var response = await client.GetAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/portfolio");
-
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
-    }
-
-    [Fact]
-    public async Task Portfolio_hides_missing_and_foreign_accounts()
-    {
-        var userId = UserId.New();
-        var accountId = ExchangeAccountId.New();
-        var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
-        var portfolioStore = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
-        portfolioStore.Setup(x => x.GetLatestAsync(userId, accountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PortfolioReadResult(false, null));
-        using var client = CreateClient(userId, store.Object, portfolioStore.Object);
-
-        using var response = await client.GetAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/portfolio");
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        problem!.Extensions["code"]!.ToString().Should().Be("resource_not_found");
-    }
-
-    [Fact]
-    public async Task Portfolio_rejects_malformed_account_guid()
-    {
-        var userId = UserId.New();
-        var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
-        var portfolioStore = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
-        using var client = CreateClient(userId, store.Object, portfolioStore.Object);
-
-        using var response = await client.GetAsync(
-            "/api/v1/exchange-accounts/not-a-guid/portfolio");
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
-    }
-
-    private HttpClient CreateClient(
-        UserId userId,
-        IPositionReadStore positionStore,
-        IPortfolioReadStore? portfolioStore = null)
+    private HttpClient CreateClient(UserId userId, IPositionReadStore positionStore)
     {
         var factory = _factory.WithWebHostBuilder(builder =>
         {
@@ -285,13 +210,6 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
             {
                 services.RemoveAll<PositionReadService>();
                 services.AddSingleton(new PositionReadService(positionStore));
-                services.RemoveAll<PortfolioReadService>();
-                services.AddSingleton(new PortfolioReadService(
-                    portfolioStore ?? new Mock<IPortfolioReadStore>(MockBehavior.Strict).Object));
-                services.RemoveAll<IExchangeAccountService>();
-                services.AddSingleton(new Mock<IExchangeAccountService>(MockBehavior.Strict).Object);
-                services.RemoveAll<IExchangeAccountSyncService>();
-                services.AddSingleton(new Mock<IExchangeAccountSyncService>(MockBehavior.Strict).Object);
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName,
