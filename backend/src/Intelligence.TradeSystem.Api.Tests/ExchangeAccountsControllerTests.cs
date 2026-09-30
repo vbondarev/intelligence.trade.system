@@ -226,6 +226,41 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
     }
 
+    [Theory]
+    [InlineData("verify", "POST")]
+    [InlineData("credentials", "PUT")]
+    [InlineData("sync", "POST")]
+    [InlineData("", "DELETE")]
+    public async Task Guid_empty_lifecycle_route_ids_return_a_400_validation_problem_without_application_calls(
+        string suffix,
+        string method)
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object, sync.Object);
+        var path = $"/api/v1/exchange-accounts/{Guid.Empty:D}";
+        if (!string.IsNullOrEmpty(suffix))
+            path += $"/{suffix}";
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (method == "PUT")
+            request.Content = JsonContent.Create(new { apiKey = "new-key", apiSecret = "new-secret" });
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Type.Should().Be("urn:intelligence-trade:error:validation-failed");
+        problem.Title.Should().Be("Request validation failed.");
+        problem.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        problem.Detail.Should().Be("The exchange account id must be a non-empty GUID.");
+        problem.Extensions["traceId"]!.ToString().Should().NotBeNullOrWhiteSpace();
+        service.Invocations.Should().BeEmpty();
+        sync.Invocations.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Verify_returns_200_on_success()
     {

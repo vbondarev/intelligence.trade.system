@@ -73,6 +73,8 @@ public sealed class ExchangeAccountsController(
     {
         if (request is null || string.IsNullOrWhiteSpace(request.ApiKey) || string.IsNullOrWhiteSpace(request.ApiSecret))
             return BadRequestProblem("Both apiKey and apiSecret are required.");
+        if (id == Guid.Empty)
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         var result = await accountService.RotateCredentialsAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id),
             new ExchangeAccountCredentialSecret(request.ApiKey.Trim(), request.ApiSecret.Trim()), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
@@ -97,6 +99,8 @@ public sealed class ExchangeAccountsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ExchangeAccountResponse>> Synchronize([FromRoute] Guid id, CancellationToken cancellationToken)
     {
+        if (id == Guid.Empty)
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         var result = await syncService.SynchronizeAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
@@ -114,6 +118,8 @@ public sealed class ExchangeAccountsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Disconnect([FromRoute] Guid id, CancellationToken cancellationToken)
     {
+        if (id == Guid.Empty)
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         var account = await accountService.DisconnectAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
         return account is null ? NotFoundProblem() : NoContent();
     }
@@ -151,6 +157,8 @@ public sealed class ExchangeAccountsController(
 
     private async Task<ActionResult<ExchangeAccountResponse>> ExecuteVerification(Guid id, CancellationToken cancellationToken)
     {
+        if (id == Guid.Empty)
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         var result = await accountService.VerifyAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
