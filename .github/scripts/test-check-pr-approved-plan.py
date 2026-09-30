@@ -225,6 +225,15 @@ class PullRequestPlanValidatorTests(TestCase):
 
         self.assert_invalid(body, [make_base_plan()])
 
+    def test_indented_closes_fails(self) -> None:
+        body = make_body().replace(
+            f"Closes #{ISSUE_NUMBER}",
+            f"    Closes #{ISSUE_NUMBER}",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
     def test_hidden_additional_closes_do_not_count(self) -> None:
         body = make_body().replace(
             f"Closes #{ISSUE_NUMBER}\n\n",
@@ -282,10 +291,28 @@ class PullRequestPlanValidatorTests(TestCase):
 
         self.assert_invalid(body, [make_base_plan()])
 
+    def test_indented_plan_field_fails(self) -> None:
+        body = make_body().replace(
+            f"Approved Implementation Plan: {BASE_PERMALINK}",
+            f"    Approved Implementation Plan: {BASE_PERMALINK}",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
     def test_hidden_amendments_section_fails(self) -> None:
         body = make_body().replace(
             "Approved Plan Amendments:\n- Нет",
             "<!--\nApproved Plan Amendments:\n- Нет\n-->",
+            1,
+        )
+
+        self.assert_invalid(body, [make_base_plan()])
+
+    def test_indented_amendments_section_fails(self) -> None:
+        body = make_body().replace(
+            "Approved Plan Amendments:",
+            "    Approved Plan Amendments:",
             1,
         )
 
@@ -391,6 +418,29 @@ class PullRequestPlanValidatorTests(TestCase):
             ],
         )
 
+    def test_missing_comment_timestamps_fail(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        for missing_field in ("created_at", "updated_at"):
+            with self.subTest(missing_field=missing_field):
+                amendment = make_amendment(amendment_id)
+                amendment.pop(missing_field)
+                self.assert_invalid(
+                    make_body(
+                        amendment_permalinks=[issue_permalink(amendment_id)]
+                    ),
+                    [make_base_plan(), amendment],
+                )
+
+    def test_malformed_comment_html_url_fails(self) -> None:
+        base_plan = make_base_plan()
+        base_plan["html_url"] = "not-a-permalink"
+        self.assert_invalid(make_body(), [base_plan])
+
+    def test_comment_id_must_match_permalink_id(self) -> None:
+        base_plan = make_base_plan()
+        base_plan["id"] = BASE_COMMENT_ID + 1
+        self.assert_invalid(make_body(), [base_plan])
+
     def test_multiple_trusted_base_plans_fail(self) -> None:
         self.assert_invalid(
             make_body(),
@@ -403,6 +453,118 @@ class PullRequestPlanValidatorTests(TestCase):
         self.assert_invalid(
             make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
             [make_base_plan(), make_amendment(amendment_id, wrong_base)],
+        )
+
+    def test_wrong_amendment_marker_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            AMENDMENT_MARKER,
+            "# Not an Approved Implementation Plan Amendment",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_amendment_missing_base_link_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}\n",
+            "",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_amendment_hidden_base_link_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}",
+            f"<!--\nBase Approved Implementation Plan: {BASE_PERMALINK}\n-->",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_amendment_fenced_base_link_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}",
+            f"```\nBase Approved Implementation Plan: {BASE_PERMALINK}\n```",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_amendment_indented_base_link_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}",
+            f"    Base Approved Implementation Plan: {BASE_PERMALINK}",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_amendment_base_permalink_to_another_issue_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_issue_permalink = BASE_PERMALINK.replace("/165#", "/164#")
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(amendment_id, wrong_issue_permalink),
+            ],
+        )
+
+    def test_amendment_base_permalink_to_another_repository_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_repository_permalink = BASE_PERMALINK.replace(
+            REPOSITORY,
+            "other/repo",
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(amendment_id, wrong_repository_permalink),
+            ],
+        )
+
+    def test_amendment_permalink_to_another_issue_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_issue_permalink = issue_permalink(amendment_id).replace(
+            "/165#",
+            "/164#",
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[wrong_issue_permalink]),
+            [make_base_plan(), make_amendment(amendment_id)],
+        )
+
+    def test_amendment_permalink_to_another_repository_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_repository_permalink = issue_permalink(amendment_id).replace(
+            REPOSITORY,
+            "other/repo",
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[wrong_repository_permalink]),
+            [make_base_plan(), make_amendment(amendment_id)],
         )
 
     def test_amendment_template_placeholder_is_not_a_second_base_link(self) -> None:

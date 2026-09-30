@@ -20,12 +20,12 @@ BASE_PLAN_FIELD = "Approved Implementation Plan:"
 AMENDMENTS_FIELD = "Approved Plan Amendments:"
 BASE_AMENDMENT_LINK_FIELD = "Base Approved Implementation Plan:"
 TRUSTED_PLAN_AUTHOR = "vbondarev"
-ISSUE_CLOSE_LINE = re.compile(r"^\s*Closes\s+#([1-9][0-9]*)\s*$", re.IGNORECASE)
-ISSUE_CLOSE_START = re.compile(r"^\s*Closes\b", re.IGNORECASE)
+ISSUE_CLOSE_LINE = re.compile(r"^Closes\s+#([1-9][0-9]*)\s*$", re.IGNORECASE)
+ISSUE_CLOSE_START = re.compile(r"^Closes\b", re.IGNORECASE)
 FENCE_START = re.compile(r"^\s*(`{3,}|~{3,})")
-PLAN_FIELD_LINE = re.compile(r"^\s*Approved Implementation Plan:\s*(.*?)\s*$")
+PLAN_FIELD_LINE = re.compile(r"^Approved Implementation Plan:\s*(.*?)\s*$")
 BASE_AMENDMENT_LINK_LINE = re.compile(
-    r"^\s*Base Approved Implementation Plan:\s*(.*?)\s*$"
+    r"^Base Approved Implementation Plan:\s*(.*?)\s*$"
 )
 COMMENT_ID_FRAGMENT = re.compile(r"^issuecomment-([1-9][0-9]*)$")
 API_VERSION = "2022-11-28"
@@ -179,7 +179,7 @@ def plan_field_value(body: str) -> str:
 def amendment_values(body: str) -> list[str]:
     lines = visible_markdown_lines(body)
     section_indices = [
-        index for index, line in enumerate(lines) if line.strip() == AMENDMENTS_FIELD
+        index for index, line in enumerate(lines) if line == AMENDMENTS_FIELD
     ]
     if len(section_indices) != 1:
         raise ValidationError(
@@ -286,7 +286,7 @@ def comment_url(
 def amendment_base_permalink(comment: dict[str, object]) -> str:
     values = [
         match.group(1)
-        for line in comment_body(comment).splitlines()
+        for line in visible_markdown_lines(comment_body(comment))
         if (match := BASE_AMENDMENT_LINK_LINE.fullmatch(line)) is not None
     ]
     values = [

@@ -248,7 +248,7 @@ jobs:
 
             if [[ "$fetched_sha" != "$expected_sha" ]]; then
               echo "Fetched pull request SHA не совпадает с event head SHA." >&2
-              return 1
+              exit 1
             fi
           }
 
