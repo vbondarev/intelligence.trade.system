@@ -147,7 +147,7 @@ def is_nonempty_frontmatter_value(value: str) -> bool:
 
 
 def project_owned_registry_names(text: str) -> list[str]:
-    lines = text.splitlines()
+    lines = visible_markdown_lines(text)
     start = next(
         (
             index
@@ -169,21 +169,58 @@ def project_owned_registry_names(text: str) -> list[str]:
     return names
 
 
-def strip_fenced_code_blocks(text: str) -> str:
-    result: list[str] = []
-    fence: str | None = None
-    for line in text.splitlines():
-        marker = line.lstrip()
-        if marker.startswith("```") or marker.startswith("~~~"):
-            current_fence = marker[:3]
-            if fence is None:
-                fence = current_fence
-            elif current_fence == fence:
-                fence = None
+def visible_markdown_lines(text: str) -> list[str]:
+    visible_lines: list[str] = []
+    in_html_comment = False
+    fence_character = ""
+    fence_length = 0
+
+    for raw_line in text.splitlines():
+        if fence_character:
+            closing_fence = re.fullmatch(
+                rf" {{0,3}}{re.escape(fence_character)}"
+                rf"{{{fence_length},}}[ \t]*",
+                raw_line,
+            )
+            if closing_fence is not None:
+                fence_character = ""
+                fence_length = 0
             continue
-        if fence is None:
-            result.append(line)
-    return "\n".join(result)
+
+        parts: list[str] = []
+        cursor = 0
+        while cursor < len(raw_line):
+            if in_html_comment:
+                comment_end = raw_line.find("-->", cursor)
+                if comment_end < 0:
+                    cursor = len(raw_line)
+                    break
+                in_html_comment = False
+                cursor = comment_end + 3
+                continue
+
+            comment_start = raw_line.find("<!--", cursor)
+            if comment_start < 0:
+                parts.append(raw_line[cursor:])
+                break
+            parts.append(raw_line[cursor:comment_start])
+            in_html_comment = True
+            cursor = comment_start + 4
+
+        line = "".join(parts)
+        fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence_match is not None:
+            marker = fence_match.group(1)
+            fence_character = marker[0]
+            fence_length = len(marker)
+            continue
+
+        if re.match(r"^(?: {4,}| {0,3}\t)", line):
+            continue
+
+        visible_lines.append(line)
+
+    return visible_lines
 
 
 def validate_markdown_references(
@@ -193,7 +230,7 @@ def validate_markdown_references(
     errors: list[str],
 ) -> set[str]:
     relative_path = source_path.relative_to(root).as_posix()
-    text = strip_fenced_code_blocks(text)
+    text = "\n".join(visible_markdown_lines(text))
     skill_references: set[str] = set()
 
     for match in MARKDOWN_LINK.finditer(text):

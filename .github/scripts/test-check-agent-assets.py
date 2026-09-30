@@ -257,6 +257,20 @@ class AgentAssetsValidatorTests(unittest.TestCase):
         )
         self.assertTrue(any("внутренняя ссылка не существует" in error for error in self.errors()))
 
+    def test_visible_markdown_link_passes(self) -> None:
+        self.assertEqual([], self.errors())
+
+    def test_hidden_markdown_links_are_ignored(self) -> None:
+        path = self.root / "AGENTS.md"
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "\n<!--\n[Скрытая ссылка](missing-hidden.md)\n-->\n"
+            "```text\n[Ссылка в коде](missing-fenced.md)\n```\n"
+            "    [Ссылка в indented code](missing-indented.md)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual([], self.errors())
+
     def test_broken_skill_routing_reference_fails(self) -> None:
         path = self.root / ".github" / "copilot-instructions.md"
         path.write_text(
@@ -284,6 +298,131 @@ class AgentAssetsValidatorTests(unittest.TestCase):
                 for error in self.errors()
             )
         )
+
+    def test_control_file_route_inside_html_comment_fails(self) -> None:
+        path = self.root / "AGENTS.md"
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                route,
+                f"<!--\n{route}\n-->",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_control_file_route_inside_fenced_code_fails(self) -> None:
+        path = self.root / "AGENTS.md"
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                route,
+                f"```text\n{route}\n```",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_control_file_route_inside_indented_code_fails(self) -> None:
+        path = self.root / "AGENTS.md"
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                route,
+                f"    {route}",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_tab_indented_control_file_route_fails(self) -> None:
+        path = self.root / "AGENTS.md"
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                route,
+                f"\t{route}",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_shorter_fence_does_not_close_longer_fence(self) -> None:
+        path = self.root / "AGENTS.md"
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        content = path.read_text(encoding="utf-8").replace(route, "", 1)
+        path.write_text(
+            content
+            + "\n````text\n"
+            + ".agents/skills/trade-system-pr-review/SKILL.md\n"
+            + "```\n"
+            + route
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "обязательная routing-ссылка" in error and "trade-system-delivery" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_matching_or_longer_fence_closes_longer_fence(self) -> None:
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        for closing_fence in ("````", "`````"):
+            with self.subTest(closing_fence=closing_fence):
+                path = self.root / "AGENTS.md"
+                content = path.read_text(encoding="utf-8").replace(route, "", 1)
+                path.write_text(
+                    content
+                    + "\n````text\n"
+                    + ".agents/skills/trade-system-pr-review/SKILL.md\n"
+                    + closing_fence
+                    + "\n"
+                    + route
+                    + "\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual([], self.errors())
+
+    def test_tilde_fence_closes_with_same_character_and_length(self) -> None:
+        route = ".agents/skills/trade-system-delivery/SKILL.md"
+        path = self.root / "AGENTS.md"
+        content = path.read_text(encoding="utf-8").replace(route, "", 1)
+        path.write_text(
+            content
+            + "\n~~~~text\n"
+            + ".agents/skills/trade-system-pr-review/SKILL.md\n"
+            + "~~~~~\n"
+            + route
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual([], self.errors())
 
     def test_control_file_missing_all_required_routes_fails(self) -> None:
         path = self.root / ".github" / "copilot-instructions.md"
@@ -336,6 +475,48 @@ class AgentAssetsValidatorTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("не указан" in error for error in self.errors()))
+
+    def _registry_with_delivery_row(self, hidden_row: str) -> None:
+        path = self.root / ".agents" / "skills" / "README.md"
+        text = path.read_text(encoding="utf-8")
+        row = "| `trade-system-delivery` | Процесс |"
+        path.write_text(
+            text.replace(row + "\n", "", 1) + "\n" + hidden_row + "\n",
+            encoding="utf-8",
+        )
+
+    def test_registry_row_inside_html_comment_is_ignored(self) -> None:
+        self._registry_with_delivery_row(
+            "<!--\n| `trade-system-delivery` | Процесс |\n-->"
+        )
+        self.assertTrue(
+            any(
+                "обязательный skill 'trade-system-delivery' не указан" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_registry_row_inside_fenced_code_is_ignored(self) -> None:
+        self._registry_with_delivery_row(
+            "```\n| `trade-system-delivery` | Процесс |\n```"
+        )
+        self.assertTrue(
+            any(
+                "обязательный skill 'trade-system-delivery' не указан" in error
+                for error in self.errors()
+            )
+        )
+
+    def test_registry_row_inside_indented_code_is_ignored(self) -> None:
+        self._registry_with_delivery_row(
+            "    | `trade-system-delivery` | Процесс |"
+        )
+        self.assertTrue(
+            any(
+                "обязательный skill 'trade-system-delivery' не указан" in error
+                for error in self.errors()
+            )
+        )
 
     def test_openclaw_is_excluded(self) -> None:
         write_text(
