@@ -53,6 +53,9 @@ assignees: ""
 ## Definition of Done
 
 - [ ] После фиксации Issue агент подготовил Implementation Plan, а для нетривиальной задачи он прошёл Human Gate до начала implementation.
+- [ ] После Human Gate Approved Implementation Plan сохранён отдельным GitHub Issue comment с marker `# Approved Implementation Plan`; implementation начат только после получения permalink.
+- [ ] Base Plan и Amendments опубликованы только trusted owner-автором и после публикации не редактируются; утверждённые изменения HOW после нового Human Gate сохраняются отдельными append-only Approved Plan Amendments.
+- [ ] Canonical Approved Plan и Amendments остаются immutable; edit/delete или невозможность восстановить effective HOW приводит к STOP → Human Decision.
 - [ ] Реализация соответствует всем требованиям Issue и, если для задачи требовался Implementation Plan, утверждённому Implementation Plan; изменение не выходит за согласованный scope.
 - [ ] Если во время Implementation Plan / Implementation / External Review возникло новое архитектурное решение или изменение scope, Issue/Implementation Plan были синхронизированы после human decision и изменение прошло повторный Human Gate.
 - [ ] Выполнен основной self-review полного diff относительно целевой ветки.
@@ -60,7 +63,8 @@ assignees: ""
 - [ ] Добавлены или обновлены необходимые тесты либо в разделе «Тестирование» явно обосновано, почему дополнительные тесты неприменимы.
 - [ ] Документация синхронизирована с фактическим поведением, если это требуется задачей.
 - [ ] После fixes/tests/docs выполнен короткий final self-review.
-- [ ] Commit и Draft Pull Request ссылаются на этот Issue; выполнен PR sanity check.
+- [ ] Commit и Draft Pull Request ссылаются на этот Issue; PR содержит permalink на Approved Plan и все применимые amendments либо явное `- Нет`; выполнен PR sanity check.
+- [ ] После изменения PR head/base/effective HOW предыдущий Re-review недействителен; перед Human Merge Gate выполнен live Re-review актуального GitHub state.
 - [ ] Выполнен External Review актуального head; подтверждённые замечания исправлены, устаревшие/дублирующие — явно разрешены.
 - [ ] После существенных review fixes выполнен Re-review актуального head.
 - [ ] Merge выполняется только после явного Human Merge Gate.

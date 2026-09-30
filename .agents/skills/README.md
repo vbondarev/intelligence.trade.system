@@ -5,6 +5,7 @@
 ## Project-owned skills
 
 Эти skills задают отдельные стадии agent-first workflow и не заменяют долговечные правила из применимых `AGENTS.md`.
+Имена в этом реестре должны совпадать с каталогами и frontmatter project-owned skills; CI проверяет эту структуру и обязательные routing-ссылки.
 
 | Skill | Ответственность |
 | --- | --- |

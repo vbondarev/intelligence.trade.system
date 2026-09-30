@@ -1,6 +1,12 @@
-## Связанная задача
-
 Closes #
+
+## Утверждённый Implementation Plan
+
+Approved Implementation Plan: <permalink или N/A>
+
+<!-- Перечисли все current trusted Amendments ровно один раз в порядке комментариев связанной Issue. -->
+Approved Plan Amendments:
+- Нет
 
 ## Что реализовано
 
@@ -16,7 +22,7 @@ Closes #
 
 ## Архитектурные решения
 
-<!-- Укажи существенные решения и отклонения от implementation plan. Если новых решений нет, напиши «Нет». -->
+<!-- Сверь фактический diff с effective Approved Plan, включая amendments. Укажи существенные решения и отклонения. Если новых решений и отклонений нет, напиши «Нет». -->
 
 - 
 
