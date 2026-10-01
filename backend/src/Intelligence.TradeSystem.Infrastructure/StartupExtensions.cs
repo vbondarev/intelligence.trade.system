@@ -185,7 +185,7 @@ public static class StartupExtensions
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} configuration is required.");
+                $"ConnectionStrings:{ConnectionStringName} должен быть задан.");
         }
 
         try
@@ -195,7 +195,7 @@ public static class StartupExtensions
         catch (ArgumentException exception)
         {
             throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} configuration is malformed.",
+                $"ConnectionStrings:{ConnectionStringName} конфигурация некорректна.",
                 exception);
         }
 
