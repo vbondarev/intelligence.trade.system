@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.48
+Версия документа: 3.49
 Дата актуализации: 1 октября 2026 года
-Проверенная база: `develop` @ `4f1670e8c07f194b54d0604bd57bd084e6378ba3`; Tech-G11: Issue #174 / PR #175
-Последняя учтённая задача: Issue #174 «Tech-G11. Унифицировать загрузку и валидацию runtime-конфигурации»
-Текущий этап: **G — основной React-клиент**; перед G-01 обязательны **Tech-G12 → Tech-G13**, следующий обязательный шаг — **Tech-G12**
+Проверенная база: `develop` @ `1eb76115795dd22462e1ca699e8f0fb78da5ab01`; Tech-G12: Issue #176 / PR #177
+Последняя учтённая задача: Issue #176 «Tech-G12. Усилить fail-fast проверку критичной infrastructure/security-конфигурации»
+Текущий этап: **G — основной React-клиент**; перед G-01 обязателен **Tech-G13**, следующий обязательный шаг — **Tech-G13**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -106,7 +106,7 @@
 - **Tech-G09** ✅ (Issue #165): реализованы durable Approved Plan lifecycle, append-only Amendments, structural agent-assets validation и zero-permission PR workflow validation.
 - **Tech-G10** ✅ (Issue #164): нормализованы границы ответственности API-контроллеров: response mapping и сложный query parsing вынесены в API-local components, v1 enum mapping сделан explicit, account-scoped portfolio endpoint отделён от lifecycle controller. HTTP, wire, OpenAPI и security contracts не изменены.
 - **Tech-G11** ✅ (Issue #174 / PR #175): `SnapshotFreshness` переведён на стандартный Options pipeline с обязательным binding и `ValidateOnStart`, удалён скрытый fallback `SnapshotFreshnessOptions.Default`, добавлена строгая валидация обязательных секций, freshness thresholds и `StalenessProximityFactor`; host-level и focused regression tests закрепили fail-fast startup contract и существующее поведение operational runtime options без изменения публичных API-контрактов.
-- **Tech-G12** ⬜: усилить fail-fast проверку критичной инфраструктурной и security-конфигурации: валидировать обязательный непустой `Authentication:Audience`, унифицировать проверку PostgreSQL connection strings между API и Identity, сохранить строгую проверку security settings и покрыть startup configuration tests без изменения публичных и бизнес-контрактов.
+- **Tech-G12** ✅ (Issue #176 / PR #177): `Authentication:Audience` сделан обязательной runtime-конфигурацией без скрытого fallback; API и Identity получили согласованную fail-fast проверку PostgreSQL connection strings без startup connectivity gate; regression tests закрепили `CredentialProtection` и production Identity security invariants, а parser exceptions больше не переносят потенциально секретные значения в exception chain. OAuth/OIDC, readiness/liveness, public REST/realtime и business contracts не изменены.
 - **Tech-G13** ⬜: унифицировать конфигурацию служебных процессов и design-time tooling: согласовать способ чтения настроек в Identity migrations и `IdentityDbContextFactory`, проверить и явно зафиксировать исключения для `Authentication.TestSeeder`, закрепить startup-only lifecycle конфигурации — изменение настроек требует restart, если отдельный runtime reload явно не предусмотрен, — и синхронизировать применимую документацию.
 
 ## 4. Подтверждённое состояние проекта

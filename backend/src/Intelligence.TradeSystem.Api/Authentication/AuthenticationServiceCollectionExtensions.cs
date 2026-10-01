@@ -18,7 +18,13 @@ public static class AuthenticationServiceCollectionExtensions
             .GetSection(AuthenticationOptions.SectionName)
             .Get<AuthenticationOptions>() ?? new AuthenticationOptions();
         var issuer = authentication.Issuer ?? "http://localhost:5001";
-        var audience = authentication.Audience ?? "intelligence-trade-api";
+        if (string.IsNullOrWhiteSpace(authentication.Audience))
+        {
+            throw new InvalidOperationException(
+                "Authentication:Audience должен быть задан.");
+        }
+
+        var audience = authentication.Audience;
 
         if (!Uri.TryCreate(issuer, UriKind.Absolute, out var issuerUri)
             || issuerUri is null

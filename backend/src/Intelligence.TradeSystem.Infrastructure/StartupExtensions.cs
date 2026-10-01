@@ -192,11 +192,12 @@ public static class StartupExtensions
         {
             _ = new NpgsqlConnectionStringBuilder(connectionString);
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
+            // Исключение parser не переносится в цепочку: вложенные ошибки преобразования
+            // могут содержать исходное значение connection string вместе с secrets.
             throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} configuration is malformed.",
-                exception);
+                $"ConnectionStrings:{ConnectionStringName} configuration is malformed.");
         }
 
         return connectionString;
