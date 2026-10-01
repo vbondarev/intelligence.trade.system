@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.49
-Дата актуализации: 1 октября 2026 года
-Проверенная база: `develop` @ `1eb76115795dd22462e1ca699e8f0fb78da5ab01`; Tech-G12: Issue #176 / PR #177
-Последняя учтённая задача: Issue #176 «Tech-G12. Усилить fail-fast проверку критичной infrastructure/security-конфигурации»
-Текущий этап: **G — основной React-клиент**; перед G-01 обязателен **Tech-G13**, следующий обязательный шаг — **Tech-G13**
+Версия документа: 3.50
+Дата актуализации: 2 октября 2026 года
+Проверенная база: `develop` @ `4d9ad3ad9213b82cef795a1cfdbf7021a70e86df`; Tech-G13: Issue #178 / PR #179
+Последняя учтённая задача: Issue #178 «Tech-G13. Унифицировать конфигурацию служебных процессов и design-time tooling»
+Текущий этап: **G — основной React-клиент**; техническая подготовка Tech-G01 — Tech-G13 завершена, следующий обязательный шаг — **G-01**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -107,7 +107,7 @@
 - **Tech-G10** ✅ (Issue #164): нормализованы границы ответственности API-контроллеров: response mapping и сложный query parsing вынесены в API-local components, v1 enum mapping сделан explicit, account-scoped portfolio endpoint отделён от lifecycle controller. HTTP, wire, OpenAPI и security contracts не изменены.
 - **Tech-G11** ✅ (Issue #174 / PR #175): `SnapshotFreshness` переведён на стандартный Options pipeline с обязательным binding и `ValidateOnStart`, удалён скрытый fallback `SnapshotFreshnessOptions.Default`, добавлена строгая валидация обязательных секций, freshness thresholds и `StalenessProximityFactor`; host-level и focused regression tests закрепили fail-fast startup contract и существующее поведение operational runtime options без изменения публичных API-контрактов.
 - **Tech-G12** ✅ (Issue #176 / PR #177): `Authentication:Audience` сделан обязательной runtime-конфигурацией без скрытого fallback; API и Identity получили согласованную fail-fast проверку PostgreSQL connection strings без startup connectivity gate; regression tests закрепили `CredentialProtection` и production Identity security invariants, а parser exceptions больше не переносят потенциально секретные значения в exception chain. OAuth/OIDC, readiness/liveness, public REST/realtime и business contracts не изменены.
-- **Tech-G13** ⬜: унифицировать конфигурацию служебных процессов и design-time tooling: согласовать способ чтения настроек в Identity migrations и `IdentityDbContextFactory`, проверить и явно зафиксировать исключения для `Authentication.TestSeeder`, закрепить startup-only lifecycle конфигурации — изменение настроек требует restart, если отдельный runtime reload явно не предусмотрен, — и синхронизировать применимую документацию.
+- **Tech-G13** ✅ (Issue #178 / PR #179): унифицирован configuration contract служебных и design-time процессов: Identity migrations и обе EF Core design-time factory используют явный environment-only contract с fail-fast и secret-safe PostgreSQL validation без connectivity gate; `Authentication.TestSeeder` сохранён как one-shot процесс поверх стандартного `IConfiguration` без дублирования Identity persistence configuration; startup-only lifecycle закреплён тестами, `AGENTS.md` и README. Runtime API/Identity configuration, schema/migrations, OAuth/OIDC и публичные contracts не изменены.
 
 ## 4. Подтверждённое состояние проекта
 
@@ -478,16 +478,14 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Усилить fail-fast проверку критичной infrastructure/security-конфигурации | Tech-G12 |
-| 2 | Унифицировать конфигурацию migrations и design-time tooling | Tech-G13 |
-| 3 | Создать адаптивную React-панель | G-01 — G-08 |
-| 4 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
-| 5 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 6 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 7 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 8 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Создать адаптивную React-панель | G-01 — G-08 |
+| 2 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
+| 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G11 завершены. Следующий обязательный шаг — Tech-G12; затем выполняются Tech-G13 → G-01, после чего сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G13 завершены. Следующий обязательный шаг — G-01; после него сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -568,6 +566,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-02 | 3.50 | По Human Decision Tech-G13 отмечен завершённым перед ручным merge PR #179: migrations и EF Core design-time tooling получили явный environment-only configuration contract с fail-fast/secret-safe validation без connectivity gate; `Authentication.TestSeeder` закреплён как one-shot исключение поверх стандартного `IConfiguration`; startup-only lifecycle и документация синхронизированы. External Review и live Human Merge Gate check не выявили blocker findings, exact-head CI текущего implementation head был зелёным; после documentation commit требуется новый exact-head Re-review перед merge. Следующий обязательный шаг — G-01. |
 | 2026-10-01 | 3.48 | По Human Decision Tech-G11 отмечен завершённым перед ручным merge PR #175: `SnapshotFreshness` переведён на стандартный Options pipeline с `ValidateOnStart`, удалён production fallback `SnapshotFreshnessOptions.Default`, добавлена строгая startup validation и regression coverage operational runtime options. External Review и live Re-review не выявили blocker findings, exact-head CI был зелёным; публичные API contracts и runtime semantics валидной конфигурации сохранены. Следующий обязательный шаг — Tech-G12. |
 | 2026-10-01 | 3.47 | Issue #172 добавил перед G-01 три последовательные задачи по унификации конфигурации: Tech-G11 для runtime Options и startup validation, Tech-G12 для fail-fast проверки критичной infrastructure/security configuration, Tech-G13 для migrations/design-time tooling и startup-only lifecycle. Tech-G01 — Tech-G10 остаются завершёнными; следующий обязательный шаг — Tech-G11. Production/runtime code, публичные API contracts, OpenClaw и CI в этой задаче не изменялись. |
 | 2026-09-30 | 3.46 | Issue #164 завершает Tech-G10: response mapping и сложный query parsing вынесены из API controllers, v1 enum mappings стали explicit, account-scoped portfolio переведён в отдельный controller. Characterization, API/OpenAPI и architecture tests подтвердили сохранение HTTP/wire/security contracts; Tech-G10 отмечен завершённым по Human Decision после успешных pre-merge checks, следующим шагом назначен G-01. |
