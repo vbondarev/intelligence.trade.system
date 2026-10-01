@@ -10,6 +10,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Authentication:Audience", "intelligence-trade-api");
         builder.UseSetting(
             "ConnectionStrings:TradeSystem",
             "Host=127.0.0.1;Port=1;Database=tradesystem;Timeout=1;Command Timeout=1");

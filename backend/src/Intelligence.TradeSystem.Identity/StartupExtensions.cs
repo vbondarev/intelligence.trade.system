@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Identity.Identity;
 using Intelligence.TradeSystem.Identity.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace Intelligence.TradeSystem.Identity;
@@ -16,12 +17,7 @@ public static class StartupExtensions
 
     public static IServiceCollection AddIdentityPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString(IdentityConnectionStringName);
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                $"ConnectionStrings:{IdentityConnectionStringName} must be configured for the Identity host.");
-        }
+        var connectionString = GetRequiredIdentityConnectionString(configuration);
 
         services.AddDbContext<IdentityDbContext>(options =>
             options.UseNpgsql(
@@ -147,6 +143,29 @@ public static class StartupExtensions
             });
 
         return services;
+    }
+
+    private static string GetRequiredIdentityConnectionString(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString(IdentityConnectionStringName);
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{IdentityConnectionStringName} must be configured for the Identity host.");
+        }
+
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{IdentityConnectionStringName} configuration is malformed.",
+                exception);
+        }
+
+        return connectionString;
     }
 
     private static Uri ResolveIssuer(IdentityServerOptions options, IHostEnvironment environment)

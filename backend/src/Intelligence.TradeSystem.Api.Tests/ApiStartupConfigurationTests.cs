@@ -47,6 +47,16 @@ public sealed class ApiStartupConfigurationTests
             .WithMessage("*ConnectionStrings:TradeSystem*");
     }
 
+    [Fact]
+    public void Valid_connection_string_to_unreachable_database_does_not_fail_host_creation()
+    {
+        using var factory = new ApiWebApplicationFactory();
+
+        var act = () => factory.CreateClient().Dispose();
+
+        act.Should().NotThrow();
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         KeyValuePair<string, string?> connectionString)
     {
