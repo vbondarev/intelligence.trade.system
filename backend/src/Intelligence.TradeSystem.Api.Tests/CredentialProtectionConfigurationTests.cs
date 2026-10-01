@@ -44,6 +44,7 @@ public sealed class CredentialProtectionConfigurationTests
             ("CredentialProtection:Keys:test", keyMaterial));
 
         exception.Message.Should().NotContain(keyMaterial);
+        exception.ToString().Should().NotContain(keyMaterial);
     }
 
     [Fact]
