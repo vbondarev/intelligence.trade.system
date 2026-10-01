@@ -32,7 +32,7 @@ public static class AuthenticationServiceCollectionExtensions
             || (environment.IsProduction() && issuerUri.Scheme != Uri.UriSchemeHttps))
         {
             throw new InvalidOperationException(
-                "Authentication:Issuer должен быть абсолютным HTTPS URL в Production.");
+                "Authentication:Issuer must be an absolute HTTPS URL in Production.");
         }
 
         var canonicalIssuer = issuerUri.AbsoluteUri;

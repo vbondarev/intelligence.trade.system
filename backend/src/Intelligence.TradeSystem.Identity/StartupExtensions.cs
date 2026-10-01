@@ -158,11 +158,12 @@ public static class StartupExtensions
         {
             _ = new NpgsqlConnectionStringBuilder(connectionString);
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
+            // Исключение parser не переносится в цепочку: вложенные ошибки преобразования
+            // могут содержать исходное значение connection string вместе с secrets.
             throw new InvalidOperationException(
-                $"ConnectionStrings:{IdentityConnectionStringName} конфигурация некорректна.",
-                exception);
+                $"ConnectionStrings:{IdentityConnectionStringName} содержит некорректную конфигурацию.");
         }
 
         return connectionString;
@@ -176,7 +177,7 @@ public static class StartupExtensions
             if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
             {
                 throw new InvalidOperationException(
-                    "Identity:Issuer должен быть задан с абсолютным HTTPS URL вне Development и Testing.");
+                    "Identity:Issuer must be configured with a stable HTTPS URL outside Development and Testing.");
             }
 
             value = "http://localhost:5001";
@@ -188,7 +189,7 @@ public static class StartupExtensions
             || (!environment.IsDevelopment() && !environment.IsEnvironment("Testing") && issuer.Scheme != Uri.UriSchemeHttps))
         {
             throw new InvalidOperationException(
-                "Identity:Issuer должен быть абсолютным HTTPS URL в Production.");
+                "Identity:Issuer must be an absolute HTTPS URL in Production.");
         }
 
         return issuer;
@@ -227,7 +228,7 @@ public static class StartupExtensions
             || string.IsNullOrWhiteSpace(serverOptions.EncryptionCertificatePath))
         {
             throw new InvalidOperationException(
-                "Production Identity требует постоянные подписи и путь к сертификату шифрования.");
+                "Production Identity requires persistent signing certificates and an encryption certificate path.");
         }
 
         options
@@ -242,13 +243,13 @@ public static class StartupExtensions
         if (string.IsNullOrWhiteSpace(options.Path))
         {
             throw new InvalidOperationException(
-                "Каждая запись Identity:SigningCertificates должна указывать путь к сертификату.");
+                "Every Identity:SigningCertificates entry must specify a certificate Path.");
         }
 
         if (!File.Exists(options.Path))
         {
             throw new InvalidOperationException(
-                $"Конфигурируемый Identity сертификат не найден: {options.Path}");
+                $"Configured Identity certificate was not found: {options.Path}");
         }
 
         var certificate = X509CertificateLoader.LoadPkcs12FromFile(
@@ -274,7 +275,7 @@ public static class StartupExtensions
         if (!certificate.HasPrivateKey)
         {
             throw new InvalidOperationException(
-                $"Конфигурируемый Identity сертификат не имеет private key: {path}");
+                $"Configured Identity signing certificate has no private key: {path}");
         }
 
         var now = DateTime.UtcNow;
@@ -282,7 +283,7 @@ public static class StartupExtensions
             || certificate.NotAfter.ToUniversalTime() <= now)
         {
             throw new InvalidOperationException(
-                $"Конфигурируемый Identity сертификат вне срока действия: {path}");
+                $"Configured Identity signing certificate is outside its validity period: {path}");
         }
     }
 }

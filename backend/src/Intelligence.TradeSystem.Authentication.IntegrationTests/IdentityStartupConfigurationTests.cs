@@ -47,7 +47,8 @@ public sealed class IdentityStartupConfigurationTests
     public void Malformed_identity_connection_string_fails_without_disclosing_it()
     {
         const string secret = "identity-secret-marker";
-        var connectionString = $"Password={secret};ThisIsNotAKeyValue";
+        var connectionString =
+            $"Host=localhost;Database=test;Username=test;Password=safe;Timeout={secret}";
         using var factory = CreateFactory(
             "Testing",
             ("ConnectionStrings:TradeSystemIdentity", connectionString));
@@ -56,9 +57,10 @@ public sealed class IdentityStartupConfigurationTests
 
         var exception = act.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*ConnectionStrings:TradeSystemIdentity*")
+            .WithMessage("*ConnectionStrings:TradeSystemIdentity*некорректн*")
             .Which;
         exception.Message.Should().NotContain(secret);
+        exception.ToString().Should().NotContain(secret);
     }
 
     [Fact]

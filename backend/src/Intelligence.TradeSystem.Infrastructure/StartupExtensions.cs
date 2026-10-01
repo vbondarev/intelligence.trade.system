@@ -185,18 +185,19 @@ public static class StartupExtensions
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} должен быть задан.");
+                $"ConnectionStrings:{ConnectionStringName} configuration is required.");
         }
 
         try
         {
             _ = new NpgsqlConnectionStringBuilder(connectionString);
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
+            // Исключение parser не переносится в цепочку: вложенные ошибки преобразования
+            // могут содержать исходное значение connection string вместе с secrets.
             throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} конфигурация некорректна.",
-                exception);
+                $"ConnectionStrings:{ConnectionStringName} configuration is malformed.");
         }
 
         return connectionString;
