@@ -36,6 +36,14 @@ XML documentation (`summary`, `remarks`, `param`, `returns`, `exception`, `value
 - Для синхронизации сохраняй монотонность observation state и идемпотентность повторных наблюдений.
 - Изменения Identity persistence schema должны синхронизироваться с отдельным sibling project `Intelligence.TradeSystem.Identity.Migrations`; `Identity/AGENTS.md` не распространяется на него автоматически.
 
+## Конфигурация служебных и design-time процессов
+
+- EF Core design-time factories и `Intelligence.TradeSystem.Identity.Migrations` получают connection strings только из environment variables: `ConnectionStrings__TradeSystemIdentity` для Identity и `ConnectionStrings__TradeSystem` для business persistence. Implicit fallback на `appsettings*.json`, generic host или command-line providers не добавляй.
+- Missing, blank и синтаксически некорректная PostgreSQL connection string отклоняются fail-fast до database operation; design-time validation не проверяет доступность PostgreSQL.
+- Configuration diagnostics не должны содержать connection strings, passwords и другой secret material, в том числе через `InnerException`.
+- `Intelligence.TradeSystem.Authentication.TestSeeder` — явное исключение: он использует стандартный `IConfiguration` host, сам валидирует только `TestSeeder:*`, а Identity persistence configuration валидирует `AddIdentityPersistence`.
+- Configuration этих one-shot/service процессов — startup-only snapshot: изменение environment/configuration применяется только restart/re-run. Runtime reload, hot reload и `IOptionsMonitor` вводятся только отдельным решением.
+
 ## Concurrency и порядок блокировок
 
 - Workflows, которые одновременно сериализуют `Position` и `ExchangeAccount`, сохраняют единый порядок блокировок `position(s) → account`; не вводи обратный порядок `account → position(s)`.

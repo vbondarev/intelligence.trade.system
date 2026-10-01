@@ -9,7 +9,7 @@ public static class IdentityMigrationRunner
         string connectionString,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        IdentityDesignTimeConnectionString.Validate(connectionString);
 
         var options = new DbContextOptionsBuilder<IdentityDbContext>()
             .UseNpgsql(

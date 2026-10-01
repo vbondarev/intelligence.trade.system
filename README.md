@@ -550,6 +550,8 @@ postgres → identity-db-init → identity-migrations → identity → api
 
 Для CI OAuth smoke используется отдельный профиль `ci`: `auth-test-seeder` создаёт тестового пользователя и public client через стандартные Identity/OpenIddict managers, после чего workflow получает настоящий токен Authorization Code + PKCE (`S256`). Password grant, Client Credentials и custom token endpoints не используются.
 
+`auth-test-seeder` — одноразовый процесс поверх стандартного .NET `IConfiguration`: он требует непустые `TestSeeder__Username`, `TestSeeder__Password`, `TestSeeder__ClientId` и абсолютный `TestSeeder__RedirectUri`, а Identity connection string проверяется тем же persistence contract, что и в Identity host. Configuration читается один раз при старте, поэтому после изменения settings seeder нужно запустить заново.
+
 Полный локальный сброс — отдельная destructive операция, удаляющая локальные PostgreSQL данные:
 
 ```bash
@@ -561,6 +563,8 @@ docker compose down -v
 ### Миграции PostgreSQL
 
 Production schema развивается только через EF Core migrations. Ни один production host не применяет миграции автоматически при старте. Business и Identity используют отдельные migration streams.
+
+EF Core design-time factories и `Identity.Migrations` runner получают connection string только из environment variables `ConnectionStrings__TradeSystem` и `ConnectionStrings__TradeSystemIdentity`; `appsettings*.json` для них fallback не являются. Отсутствующее, пустое или синтаксически некорректное значение приводит к ошибке до обращения к базе данных, а текст ошибки не содержит connection string. Значение читается при запуске, поэтому после изменения environment команду или runner нужно запустить заново.
 
 ```bash
 cd backend/src
