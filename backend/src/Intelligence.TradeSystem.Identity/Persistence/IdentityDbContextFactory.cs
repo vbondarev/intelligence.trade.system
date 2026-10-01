@@ -7,12 +7,7 @@ public sealed class IdentityDbContextFactory : IDesignTimeDbContextFactory<Ident
 {
     public IdentityDbContext CreateDbContext(string[] args)
     {
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__TradeSystemIdentity");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "Set ConnectionStrings__TradeSystemIdentity before running EF Core migrations.");
-        }
+        var connectionString = IdentityDesignTimeConnectionString.ReadRequiredFromEnvironment();
 
         var options = new DbContextOptionsBuilder<IdentityDbContext>()
             .UseNpgsql(

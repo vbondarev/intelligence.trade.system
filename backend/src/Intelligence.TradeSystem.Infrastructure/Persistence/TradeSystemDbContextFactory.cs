@@ -7,12 +7,7 @@ public sealed class TradeSystemDbContextFactory : IDesignTimeDbContextFactory<Tr
 {
     public TradeSystemDbContext CreateDbContext(string[] args)
     {
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__TradeSystem");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "Set ConnectionStrings__TradeSystem before running EF Core migrations.");
-        }
+        var connectionString = TradeSystemDesignTimeConnectionString.ReadRequiredFromEnvironment();
 
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
             .UseNpgsql(
