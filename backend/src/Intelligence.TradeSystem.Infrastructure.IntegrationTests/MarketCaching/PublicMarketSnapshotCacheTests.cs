@@ -303,6 +303,44 @@ public sealed class PublicMarketSnapshotCacheTests
                 .Value);
     }
 
+    [Theory]
+    [InlineData("00:00:00")]
+    [InlineData("-00:00:01")]
+    [InlineData("00:00:02.0000001")]
+    public void EntryLifetime_Outside_Allowed_Range_Is_Rejected(string entryLifetime)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [$"{PublicMarketSnapshotCacheOptions.SectionName}:EntryLifetime"] =
+                    entryLifetime,
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddPublicMarketSnapshotCaching(configuration);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Throws<OptionsValidationException>(
+            () => provider
+                .GetRequiredService<IOptions<PublicMarketSnapshotCacheOptions>>()
+                .Value);
+    }
+
+    [Fact]
+    public void Default_Options_Are_Valid()
+    {
+        var services = new ServiceCollection();
+        services.AddPublicMarketSnapshotCaching(new ConfigurationBuilder().Build());
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider
+            .GetRequiredService<IOptions<PublicMarketSnapshotCacheOptions>>()
+            .Value;
+
+        Assert.Equal(PublicMarketSnapshotCacheOptions.DefaultEntryLifetime, options.EntryLifetime);
+    }
+
     [Fact]
     public async Task Shared_Build_Outlives_The_Initiating_Request_Scope()
     {

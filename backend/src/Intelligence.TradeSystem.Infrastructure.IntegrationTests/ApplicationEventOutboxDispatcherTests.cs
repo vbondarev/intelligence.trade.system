@@ -49,6 +49,65 @@ public sealed class ApplicationEventOutboxDispatcherTests
     }
 
     [Fact]
+    public void Options_validation_accepts_defaults()
+    {
+        var result = new ApplicationEventOutboxDispatcherOptionsValidator().Validate(
+            Options.DefaultName,
+            new ApplicationEventOutboxDispatcherOptions());
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void Options_validation_rejects_non_positive_values()
+    {
+        var result = new ApplicationEventOutboxDispatcherOptionsValidator().Validate(
+            Options.DefaultName,
+            new ApplicationEventOutboxDispatcherOptions
+            {
+                PollingInterval = TimeSpan.Zero,
+                BatchSize = 0,
+                MaxConcurrency = 0,
+                ClaimDuration = TimeSpan.Zero,
+                RetryBaseDelay = TimeSpan.Zero,
+            });
+
+        Assert.Equal(ValidateOptionsResult.Fail(
+            [
+                "ApplicationEventOutboxDispatcher:PollingInterval must be greater than zero.",
+                "ApplicationEventOutboxDispatcher:BatchSize must be greater than zero.",
+                "ApplicationEventOutboxDispatcher:MaxConcurrency must be greater than zero.",
+                "ApplicationEventOutboxDispatcher:ClaimDuration must be greater than zero.",
+                "ApplicationEventOutboxDispatcher:RetryBaseDelay must be greater than zero.",
+            ]).FailureMessage,
+            result.FailureMessage);
+    }
+
+    [Fact]
+    public void Options_validation_rejects_values_above_maximums()
+    {
+        var result = new ApplicationEventOutboxDispatcherOptionsValidator().Validate(
+            Options.DefaultName,
+            new ApplicationEventOutboxDispatcherOptions
+            {
+                PollingInterval = ApplicationEventOutboxDispatcherOptions.MaximumPollingInterval.Add(
+                    TimeSpan.FromTicks(1)),
+                ClaimDuration = ApplicationEventOutboxDispatcherOptions.MaximumClaimDuration.Add(
+                    TimeSpan.FromTicks(1)),
+                RetryBaseDelay = ApplicationEventOutboxDispatcherOptions.MaximumRetryBaseDelay.Add(
+                    TimeSpan.FromTicks(1)),
+            });
+
+        Assert.Equal(ValidateOptionsResult.Fail(
+            [
+                "ApplicationEventOutboxDispatcher:PollingInterval must not exceed fifteen minutes.",
+                "ApplicationEventOutboxDispatcher:ClaimDuration must not exceed one hour.",
+                "ApplicationEventOutboxDispatcher:RetryBaseDelay must not exceed one hour.",
+            ]).FailureMessage,
+            result.FailureMessage);
+    }
+
+    [Fact]
     public async Task Success_dispatches_typed_event_and_marks_it_processed()
     {
         var store = new InMemoryOutboxStore();
