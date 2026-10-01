@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.47
+Версия документа: 3.48
 Дата актуализации: 1 октября 2026 года
-Проверенная база: `develop` @ `da184adce158c7279b61d64a95395d9ce1c81cd8`; Tech-G10: Issue #164
-Последняя учтённая задача: Issue #172 «Добавить Tech-G11–Tech-G13 для унификации механизма конфигурации»
-Текущий этап: **G — основной React-клиент**; перед G-01 обязательны **Tech-G11 → Tech-G12 → Tech-G13**, следующий обязательный шаг — **Tech-G11**
+Проверенная база: `develop` @ `4f1670e8c07f194b54d0604bd57bd084e6378ba3`; Tech-G11: Issue #174 / PR #175
+Последняя учтённая задача: Issue #174 «Tech-G11. Унифицировать загрузку и валидацию runtime-конфигурации»
+Текущий этап: **G — основной React-клиент**; перед G-01 обязательны **Tech-G12 → Tech-G13**, следующий обязательный шаг — **Tech-G12**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -105,7 +105,7 @@
 - **Tech-G08** ✅ (Issue #162): нормализован agent-development context: root `AGENTS.md` стал repository control plane, Discovery/Delivery/PR Review разделены на project-owned skills, а Infrastructure и Identity получили локальные instructions. Project-owned и external skills явно разграничены; архитектурные invariants, Human Gates и source-of-truth hierarchy сохранены.
 - **Tech-G09** ✅ (Issue #165): реализованы durable Approved Plan lifecycle, append-only Amendments, structural agent-assets validation и zero-permission PR workflow validation.
 - **Tech-G10** ✅ (Issue #164): нормализованы границы ответственности API-контроллеров: response mapping и сложный query parsing вынесены в API-local components, v1 enum mapping сделан explicit, account-scoped portfolio endpoint отделён от lifecycle controller. HTTP, wire, OpenAPI и security contracts не изменены.
-- **Tech-G11** ⬜: унифицировать загрузку и валидацию runtime-конфигурации: перевести `SnapshotFreshness` на стандартный Options pipeline с обязательным binding и startup validation, убрать скрытый production fallback на кодовые defaults, строго валидировать обязательные секции и допустимые диапазоны и дополнить configuration-focused regression tests для runtime options.
+- **Tech-G11** ✅ (Issue #174 / PR #175): `SnapshotFreshness` переведён на стандартный Options pipeline с обязательным binding и `ValidateOnStart`, удалён скрытый fallback `SnapshotFreshnessOptions.Default`, добавлена строгая валидация обязательных секций, freshness thresholds и `StalenessProximityFactor`; host-level и focused regression tests закрепили fail-fast startup contract и существующее поведение operational runtime options без изменения публичных API-контрактов.
 - **Tech-G12** ⬜: усилить fail-fast проверку критичной инфраструктурной и security-конфигурации: валидировать обязательный непустой `Authentication:Audience`, унифицировать проверку PostgreSQL connection strings между API и Identity, сохранить строгую проверку security settings и покрыть startup configuration tests без изменения публичных и бизнес-контрактов.
 - **Tech-G13** ⬜: унифицировать конфигурацию служебных процессов и design-time tooling: согласовать способ чтения настроек в Identity migrations и `IdentityDbContextFactory`, проверить и явно зафиксировать исключения для `Authentication.TestSeeder`, закрепить startup-only lifecycle конфигурации — изменение настроек требует restart, если отдельный runtime reload явно не предусмотрен, — и синхронизировать применимую документацию.
 
@@ -192,7 +192,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G10 завершены. Перед G-01 запланированы Tech-G11 — Tech-G13; следующий обязательный шаг — Tech-G11.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G11 завершены. Перед G-01 остаются Tech-G12 — Tech-G13; следующий обязательный шаг — Tech-G12.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -478,17 +478,16 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Унифицировать загрузку и startup validation runtime-конфигурации | Tech-G11 |
-| 2 | Усилить fail-fast проверку критичной infrastructure/security-конфигурации | Tech-G12 |
-| 3 | Унифицировать конфигурацию migrations и design-time tooling | Tech-G13 |
-| 4 | Создать адаптивную React-панель | G-01 — G-08 |
-| 5 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
-| 6 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
-| 7 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
-| 8 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
-| 9 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
+| 1 | Усилить fail-fast проверку критичной infrastructure/security-конфигурации | Tech-G12 |
+| 2 | Унифицировать конфигурацию migrations и design-time tooling | Tech-G13 |
+| 3 | Создать адаптивную React-панель | G-01 — G-08 |
+| 4 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
+| 5 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
+| 6 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
+| 7 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
+| 8 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G10 завершены. Следующий обязательный шаг — Tech-G11; затем выполняются Tech-G12 → Tech-G13 → G-01, после чего сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F и Tech-G01 — Tech-G11 завершены. Следующий обязательный шаг — Tech-G12; затем выполняются Tech-G13 → G-01, после чего сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -569,6 +568,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-01 | 3.48 | По Human Decision Tech-G11 отмечен завершённым перед ручным merge PR #175: `SnapshotFreshness` переведён на стандартный Options pipeline с `ValidateOnStart`, удалён production fallback `SnapshotFreshnessOptions.Default`, добавлена строгая startup validation и regression coverage operational runtime options. External Review и live Re-review не выявили blocker findings, exact-head CI был зелёным; публичные API contracts и runtime semantics валидной конфигурации сохранены. Следующий обязательный шаг — Tech-G12. |
 | 2026-10-01 | 3.47 | Issue #172 добавил перед G-01 три последовательные задачи по унификации конфигурации: Tech-G11 для runtime Options и startup validation, Tech-G12 для fail-fast проверки критичной infrastructure/security configuration, Tech-G13 для migrations/design-time tooling и startup-only lifecycle. Tech-G01 — Tech-G10 остаются завершёнными; следующий обязательный шаг — Tech-G11. Production/runtime code, публичные API contracts, OpenClaw и CI в этой задаче не изменялись. |
 | 2026-09-30 | 3.46 | Issue #164 завершает Tech-G10: response mapping и сложный query parsing вынесены из API controllers, v1 enum mappings стали explicit, account-scoped portfolio переведён в отдельный controller. Characterization, API/OpenAPI и architecture tests подтвердили сохранение HTTP/wire/security contracts; Tech-G10 отмечен завершённым по Human Decision после успешных pre-merge checks, следующим шагом назначен G-01. |
 | 2026-09-30 | 3.45 | Issue #167 добавил Tech-G10 перед G-01 как отдельный behavior-preserving refactoring API-контроллеров и синхронизировал ближайшую очередь разработки с Issue #164. Tech-G09 остаётся завершённым, Tech-G10 становится следующим обязательным шагом; production code, API contracts, agent workflow и runtime в этой задаче не изменялись. |

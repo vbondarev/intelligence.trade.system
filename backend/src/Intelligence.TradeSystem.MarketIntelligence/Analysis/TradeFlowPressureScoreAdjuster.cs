@@ -16,7 +16,7 @@ internal static class TradeFlowPressureScoreAdjuster
 
     /// <summary>
     /// Значение по умолчанию для maxTradeFlowAgeMs.
-    /// Совпадает с <c>SnapshotFreshnessOptions.Default.Intraday.TradeFlowMaxAge</c> (5 с) —
+    /// Совпадает с текущим значением <c>SnapshotFreshness:Intraday:TradeFlowMaxAge</c> в конфигурации API (5 с) —
     /// наиболее строгим порогом из всех режимов.
     /// При вызове из Application-слоя это значение используется как консервативный fallback;
     /// точный порог, зависящий от режима, передаётся из <c>SectionFreshnessOptions</c> в API-слое.

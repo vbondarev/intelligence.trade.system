@@ -34,43 +34,4 @@ public sealed record SnapshotFreshnessOptions
     /// По умолчанию <c>0.8</c> — предупреждение появляется при достижении 80% порога.
     /// </summary>
     public decimal StalenessProximityFactor { get; init; } = 0.8m;
-
-    /// <summary>Возвращает экземпляр с значениями по умолчанию.</summary>
-    public static SnapshotFreshnessOptions Default => new()
-    {
-        Intraday = new SectionFreshnessOptions
-        {
-            PriceMaxAge = TimeSpan.FromSeconds(2),
-            DerivativesMaxAge = TimeSpan.FromSeconds(30),
-            OrderBookMaxAge = TimeSpan.FromSeconds(2),
-            TradeFlowMaxAge = TimeSpan.FromSeconds(5),
-            M15MaxAge = TimeSpan.FromSeconds(60),
-            H1MaxAge = TimeSpan.FromSeconds(60),
-            H4MaxAge = TimeSpan.FromSeconds(60),
-            D1MaxAge = TimeSpan.FromSeconds(60),
-        },
-        Swing = new SectionFreshnessOptions
-        {
-            PriceMaxAge = TimeSpan.FromSeconds(10),
-            DerivativesMaxAge = TimeSpan.FromMinutes(2),
-            OrderBookMaxAge = TimeSpan.FromSeconds(15),
-            TradeFlowMaxAge = TimeSpan.FromSeconds(30),
-            M15MaxAge = TimeSpan.FromMinutes(5),
-            H1MaxAge = TimeSpan.FromMinutes(5),
-            H4MaxAge = TimeSpan.FromMinutes(5),
-            D1MaxAge = TimeSpan.FromMinutes(5),
-        },
-        Portfolio = new SectionFreshnessOptions
-        {
-            PriceMaxAge = TimeSpan.FromSeconds(5),
-            DerivativesMaxAge = TimeSpan.FromMinutes(1),
-            OrderBookMaxAge = TimeSpan.FromSeconds(5),
-            TradeFlowMaxAge = TimeSpan.FromSeconds(10),
-            M15MaxAge = TimeSpan.FromMinutes(5),
-            H1MaxAge = TimeSpan.FromMinutes(5),
-            H4MaxAge = TimeSpan.FromMinutes(5),
-            D1MaxAge = TimeSpan.FromMinutes(5),
-            PortfolioMaxAge = TimeSpan.FromSeconds(30),
-        },
-    };
 }

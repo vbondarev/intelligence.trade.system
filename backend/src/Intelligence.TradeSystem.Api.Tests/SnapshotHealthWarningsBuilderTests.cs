@@ -12,8 +12,17 @@ namespace Intelligence.TradeSystem.Api.Tests;
 public sealed class SnapshotHealthWarningsBuilderTests
 {
     // ─── Intraday-пороги: OB=2s=2000ms, TF=5s=5000ms, Der=30s=30000ms ──────
-    private static readonly SectionFreshnessOptions _intradayThresholds =
-        SnapshotFreshnessOptions.Default.Intraday;
+    private static readonly SectionFreshnessOptions _intradayThresholds = new()
+    {
+        PriceMaxAge = TimeSpan.FromSeconds(2),
+        DerivativesMaxAge = TimeSpan.FromSeconds(30),
+        OrderBookMaxAge = TimeSpan.FromSeconds(2),
+        TradeFlowMaxAge = TimeSpan.FromSeconds(5),
+        M15MaxAge = TimeSpan.FromMinutes(1),
+        H1MaxAge = TimeSpan.FromMinutes(1),
+        H4MaxAge = TimeSpan.FromMinutes(1),
+        D1MaxAge = TimeSpan.FromMinutes(1),
+    };
 
     // ─── Вспомогательные методы ───────────────────────────────────────────────
 

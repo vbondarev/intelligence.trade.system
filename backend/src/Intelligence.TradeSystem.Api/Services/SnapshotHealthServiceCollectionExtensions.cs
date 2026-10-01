@@ -9,14 +9,13 @@ public static class SnapshotHealthServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var freshnessOptions = configuration
-            .GetSection(SnapshotFreshnessOptions.SectionName)
-            .Get<SnapshotFreshnessOptions>() ?? SnapshotFreshnessOptions.Default;
-
-        services.AddOptions<SnapshotFreshnessOptions>().Configure(_ => { });
-        services.AddSingleton(freshnessOptions);
-        services.AddSingleton<IOptions<SnapshotFreshnessOptions>>(serviceProvider =>
-            Options.Create(serviceProvider.GetRequiredService<SnapshotFreshnessOptions>()));
+        services.AddSingleton<
+            IValidateOptions<SnapshotFreshnessOptions>,
+            SnapshotFreshnessOptionsValidator>();
+        services
+            .AddOptions<SnapshotFreshnessOptions>()
+            .Bind(configuration.GetSection(SnapshotFreshnessOptions.SectionName))
+            .ValidateOnStart();
         services.AddSingleton<ISnapshotHealthEvaluator, SnapshotHealthEvaluator>();
 
         return services;
