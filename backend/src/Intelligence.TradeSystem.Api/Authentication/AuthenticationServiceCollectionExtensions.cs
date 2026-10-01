@@ -21,7 +21,7 @@ public static class AuthenticationServiceCollectionExtensions
         if (string.IsNullOrWhiteSpace(authentication.Audience))
         {
             throw new InvalidOperationException(
-                "Authentication:Audience must be configured.");
+                "Authentication:Audience должен быть задан.");
         }
 
         var audience = authentication.Audience;
@@ -32,7 +32,7 @@ public static class AuthenticationServiceCollectionExtensions
             || (environment.IsProduction() && issuerUri.Scheme != Uri.UriSchemeHttps))
         {
             throw new InvalidOperationException(
-                "Authentication:Issuer must be an absolute HTTPS URL in Production.");
+                "Authentication:Issuer должен быть абсолютным HTTPS URL в Production.");
         }
 
         var canonicalIssuer = issuerUri.AbsoluteUri;
