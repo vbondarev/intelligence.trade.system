@@ -22,7 +22,7 @@ internal static class PositionMarketMapper
             identity.PositionId.Value,
             ToWireExchange(identity.ExchangeId),
             identity.Symbol,
-            ToWireMarketCategory(identity.MarketCategory),
+            PositionV1EnumMapper.ToWire(identity.MarketCategory),
             snapshot.CapturedAtUtc,
             ToPriceResponse(snapshot.Price),
             ToDerivativesResponse(snapshot.Derivatives),
@@ -45,7 +45,7 @@ internal static class PositionMarketMapper
             identity.PositionId.Value,
             ToWireExchange(identity.ExchangeId),
             identity.Symbol,
-            ToWireMarketCategory(identity.MarketCategory),
+            PositionV1EnumMapper.ToWire(identity.MarketCategory),
             CandleIntervalV1Codec.ToWireValue(candles.Interval),
             [.. candles.Items.Select(ToCandleResponse)]);
     }
@@ -153,14 +153,6 @@ internal static class PositionMarketMapper
         ExchangeId.Bybit => ExchangeProvider.Bybit,
         _ => throw new NotSupportedException(
             $"Exchange '{exchangeId}' is not mapped to a v1 wire contract."),
-    };
-
-    private static MarketCategoryV1 ToWireMarketCategory(MarketCategory category) => category switch
-    {
-        MarketCategory.Linear => MarketCategoryV1.Linear,
-        MarketCategory.Inverse => MarketCategoryV1.Inverse,
-        _ => throw new NotSupportedException(
-            $"Market category '{category}' is not mapped to a v1 wire contract."),
     };
 
     private static MarketTrendV1 ToWireTrend(MarketTrend trend) => trend switch

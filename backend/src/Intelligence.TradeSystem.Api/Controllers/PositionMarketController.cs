@@ -1,7 +1,7 @@
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions.Market;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
-using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Api.RequestParsing;
 using Intelligence.TradeSystem.Application.Market.Positions;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
@@ -62,19 +62,15 @@ public sealed class PositionMarketController(
             return BadRequestProblem("The position id must be a non-empty GUID.");
         }
 
-        if (Request.Query["interval"].Count != 1 ||
-            string.IsNullOrWhiteSpace(interval) ||
-            !CandleIntervalV1Codec.TryParse(interval, out var parsedInterval))
+        if (!PositionCandlesQueryParser.TryParse(
+                interval,
+                limit,
+                Request.Query,
+                out var parsedInterval,
+                out var parsedLimit,
+                out var error))
         {
-            return BadRequestProblem("The interval value is invalid.");
-        }
-
-        if (Request.Query["limit"].Count > 1 ||
-            (Request.Query.ContainsKey("limit") && limit is null) ||
-            limit is < 1 or > PositionMarketService.MaxCandleLimit)
-        {
-            return BadRequestProblem(
-                $"The limit must be between 1 and {PositionMarketService.MaxCandleLimit}.");
+            return BadRequestProblem(error!);
         }
 
         var result = await positionMarketService
@@ -82,7 +78,7 @@ public sealed class PositionMarketController(
                 currentUserContext.UserId,
                 PositionId.FromGuid(id),
                 parsedInterval,
-                limit ?? PositionMarketService.DefaultCandleLimit,
+                parsedLimit,
                 cancellationToken)
             .ConfigureAwait(false);
 

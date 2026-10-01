@@ -1,14 +1,7 @@
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Domain.Assessments;
-using Intelligence.TradeSystem.Domain.Decisions;
 using Intelligence.TradeSystem.Domain.Recommendations;
-using DomainAddDecision = Intelligence.TradeSystem.Domain.Decisions.AddDecision;
-using DomainPositionAction = Intelligence.TradeSystem.Domain.Decisions.PositionAction;
-using DomainRecommendationPriority = Intelligence.TradeSystem.Domain.Recommendations.RecommendationPriority;
-using DomainRecommendationStatus = Intelligence.TradeSystem.Domain.Recommendations.RecommendationStatus;
-using DomainRiskIncreaseDecision = Intelligence.TradeSystem.Domain.Decisions.RiskIncreaseDecision;
-using DomainPositionSide = Intelligence.TradeSystem.Domain.Snapshots.PositionSide;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
@@ -44,8 +37,8 @@ internal static class PositionEvaluationMapper
                 input.MarketCapturedAt),
             ToResponse(input.BasePolicyConfigurationIdentity),
             ToResponse(input.PolicyConfigurationIdentity),
-            ToWire(assessment.PortfolioRiskDecision),
-            assessment.ReasonCodes.Select(ToWire).ToArray(),
+            PositionV1EnumMapper.ToWire(assessment.PortfolioRiskDecision),
+            assessment.ReasonCodes.Select(PositionV1EnumMapper.ToWire).ToArray(),
             ToResponse(assessment.Result.DataQuality),
             assessment.Result.IsLegacy ? null : ToResponse(assessment.Result));
     }
@@ -56,16 +49,18 @@ internal static class PositionEvaluationMapper
             recommendation.AssessmentId.Value,
             recommendation.CreatedAt,
             recommendation.ValidUntil,
-            ToWire(recommendation.Status),
+            PositionV1EnumMapper.ToWire(recommendation.Status),
             ToResponse(recommendation.PolicyIdentity),
             new(
-                ToWire(recommendation.ActionDecision.Action),
+                PositionV1EnumMapper.ToWire(recommendation.ActionDecision.Action),
                 recommendation.Confidence,
-                recommendation.Priority is { } priority ? ToWire(priority) : null,
-                recommendation.ActionReasonCodes.Select(ToWire).ToArray()),
+                recommendation.Priority is { } priority
+                    ? PositionV1EnumMapper.ToWire(priority)
+                    : null,
+                recommendation.ActionReasonCodes.Select(PositionV1EnumMapper.ToWire).ToArray()),
             new(
-                ToWire(recommendation.AddDecisionResult.Decision),
-                recommendation.AddReasonCodes.Select(ToWire).ToArray(),
+                PositionV1EnumMapper.ToWire(recommendation.AddDecisionResult.Decision),
+                recommendation.AddReasonCodes.Select(PositionV1EnumMapper.ToWire).ToArray(),
                 recommendation.MaximumAdditionalPositionValue,
                 recommendation.MaximumAdditionalQuantity,
                 recommendation.AddConditions is { } conditions
@@ -75,7 +70,7 @@ internal static class PositionEvaluationMapper
                         conditions.ProtectiveStopRequired,
                         conditions.MinimumLiquidationDistancePercent)
                     : null),
-            recommendation.ReasonCodes.Select(ToWire).ToArray(),
+            recommendation.ReasonCodes.Select(PositionV1EnumMapper.ToWire).ToArray(),
             recommendation.ContinuationPlan is { } continuation
                 ? new(
                     continuation.NextEvaluationAt,
@@ -90,7 +85,7 @@ internal static class PositionEvaluationMapper
     private static PositionAssessmentResultResponse ToResponse(
         PositionAssessmentResult result) =>
         new(
-            ToWire(result.PositionSide),
+            PositionV1EnumMapper.ToWire(result.PositionSide),
             result.CurrentPrice,
             new(
                 ToWire(result.Trend.MarketTrend),
@@ -141,7 +136,7 @@ internal static class PositionEvaluationMapper
                 result.Liquidation.DistanceFromCurrentPercent,
                 ToWire(result.Liquidation.State)),
             new(
-                ToWire(result.PortfolioRisk.PolicyDecision),
+                PositionV1EnumMapper.ToWire(result.PortfolioRisk.PolicyDecision),
                 result.PortfolioRisk.FreeCapitalPercent,
                 result.PortfolioRisk.GrossExposureToEquityPercent,
                 result.PortfolioRisk.LargestPositionConcentrationPercent,
@@ -160,10 +155,10 @@ internal static class PositionEvaluationMapper
     private static PositionAssessmentDataQualityResponse ToResponse(
         PositionAssessmentDataQualityContext quality) =>
         new(
-            ToWire(quality.Market),
-            ToWire(quality.Portfolio),
-            ToWire(quality.Overall),
-            ToWire(quality.SafetyState));
+            PositionV1EnumMapper.ToWire(quality.Market),
+            PositionV1EnumMapper.ToWire(quality.Portfolio),
+            PositionV1EnumMapper.ToWire(quality.Overall),
+            PositionV1EnumMapper.ToWire(quality.SafetyState));
 
     private static PositionRecommendationConditionResponse ToResponse(
         RecommendationContinuationCondition condition) =>
@@ -174,33 +169,6 @@ internal static class PositionEvaluationMapper
     private static PolicyIdentityResponse ToResponse(
         PolicyConfigurationIdentity identity) =>
         new(identity.Version, identity.Hash);
-
-    private static RiskIncreaseDecisionV1 ToWire(
-        DomainRiskIncreaseDecision value) => value switch
-    {
-        DomainRiskIncreaseDecision.Allowed => RiskIncreaseDecisionV1.Allowed,
-        DomainRiskIncreaseDecision.Blocked => RiskIncreaseDecisionV1.Blocked,
-        _ => throw new NotSupportedException($"Risk decision '{value}' is not mapped to v1."),
-    };
-
-    private static AssessmentDataQualityV1 ToWire(
-        AssessmentDataQuality value) => value switch
-    {
-        AssessmentDataQuality.FreshCompleteReliable => AssessmentDataQualityV1.FreshCompleteReliable,
-        AssessmentDataQuality.Stale => AssessmentDataQualityV1.Stale,
-        AssessmentDataQuality.Partial => AssessmentDataQualityV1.Partial,
-        AssessmentDataQuality.Uncertain => AssessmentDataQualityV1.Uncertain,
-        _ => throw new NotSupportedException($"Assessment data quality '{value}' is not mapped to v1."),
-    };
-
-    private static AssessmentSafetyStateV1 ToWire(
-        AssessmentSafetyState value) => value switch
-    {
-        AssessmentSafetyState.NotEvaluated => AssessmentSafetyStateV1.NotEvaluated,
-        AssessmentSafetyState.Allowed => AssessmentSafetyStateV1.Allowed,
-        AssessmentSafetyState.Blocked => AssessmentSafetyStateV1.Blocked,
-        _ => throw new NotSupportedException($"Assessment safety state '{value}' is not mapped to v1."),
-    };
 
     private static AssessmentTrendDirectionV1 ToWire(
         AssessmentTrendDirection value) => value switch
@@ -261,54 +229,6 @@ internal static class PositionEvaluationMapper
         _ => throw new NotSupportedException($"Liquidation state '{value}' is not mapped to v1."),
     };
 
-    private static PositionSideV1 ToWire(DomainPositionSide value) => value switch
-    {
-        DomainPositionSide.Long => PositionSideV1.Long,
-        DomainPositionSide.Short => PositionSideV1.Short,
-        _ => throw new NotSupportedException($"Position side '{value}' is not mapped to v1."),
-    };
-
-    private static PositionActionV1 ToWire(DomainPositionAction value) => value switch
-    {
-        DomainPositionAction.Hold => PositionActionV1.Hold,
-        DomainPositionAction.Watch => PositionActionV1.Watch,
-        DomainPositionAction.ProtectProfit => PositionActionV1.ProtectProfit,
-        DomainPositionAction.Reduce => PositionActionV1.Reduce,
-        DomainPositionAction.Close => PositionActionV1.Close,
-        DomainPositionAction.MoveStop => PositionActionV1.MoveStop,
-        DomainPositionAction.TakePartialProfit => PositionActionV1.TakePartialProfit,
-        _ => throw new NotSupportedException($"Position action '{value}' is not mapped to v1."),
-    };
-
-    private static AddDecisionV1 ToWire(DomainAddDecision value) => value switch
-    {
-        DomainAddDecision.NotEvaluated => AddDecisionV1.NotEvaluated,
-        DomainAddDecision.DoNotAdd => AddDecisionV1.DoNotAdd,
-        DomainAddDecision.AddAllowed => AddDecisionV1.AddAllowed,
-        _ => throw new NotSupportedException($"Add decision '{value}' is not mapped to v1."),
-    };
-
-    private static RecommendationPriorityV1 ToWire(
-        DomainRecommendationPriority value) => value switch
-    {
-        DomainRecommendationPriority.Low => RecommendationPriorityV1.Low,
-        DomainRecommendationPriority.Normal => RecommendationPriorityV1.Normal,
-        DomainRecommendationPriority.High => RecommendationPriorityV1.High,
-        DomainRecommendationPriority.Critical => RecommendationPriorityV1.Critical,
-        _ => throw new NotSupportedException($"Recommendation priority '{value}' is not mapped to v1."),
-    };
-
-    private static RecommendationStatusV1 ToWire(
-        DomainRecommendationStatus value) => value switch
-    {
-        DomainRecommendationStatus.Active => RecommendationStatusV1.Active,
-        DomainRecommendationStatus.Acknowledged => RecommendationStatusV1.Acknowledged,
-        DomainRecommendationStatus.Dismissed => RecommendationStatusV1.Dismissed,
-        DomainRecommendationStatus.Superseded => RecommendationStatusV1.Superseded,
-        DomainRecommendationStatus.Expired => RecommendationStatusV1.Expired,
-        _ => throw new NotSupportedException($"Recommendation status '{value}' is not mapped to v1."),
-    };
-
     private static RecommendationConditionScopeV1 ToWire(
         RecommendationContinuationConditionScope value) => value switch
     {
@@ -355,66 +275,4 @@ internal static class PositionEvaluationMapper
         _ => throw new NotSupportedException($"Continuation kind '{value}' is not mapped to v1."),
     };
 
-    private static ReasonCodeV1 ToWire(ReasonCode value) => value switch
-    {
-        ReasonCode.PortfolioDataIncomplete => ReasonCodeV1.PortfolioDataIncomplete,
-        ReasonCode.PortfolioDataStale => ReasonCodeV1.PortfolioDataStale,
-        ReasonCode.InsufficientFreeCapital => ReasonCodeV1.InsufficientFreeCapital,
-        ReasonCode.GrossExposureLimitExceeded => ReasonCodeV1.GrossExposureLimitExceeded,
-        ReasonCode.ConcentrationLimitExceeded => ReasonCodeV1.ConcentrationLimitExceeded,
-        ReasonCode.RiskWithinLimits => ReasonCodeV1.RiskWithinLimits,
-        ReasonCode.MarketDataStale => ReasonCodeV1.MarketDataStale,
-        ReasonCode.MarketDataPartial => ReasonCodeV1.MarketDataPartial,
-        ReasonCode.MarketDataUncertain => ReasonCodeV1.MarketDataUncertain,
-        ReasonCode.PortfolioDataUncertain => ReasonCodeV1.PortfolioDataUncertain,
-        ReasonCode.RiskIncreaseBlockedByDataQuality => ReasonCodeV1.RiskIncreaseBlockedByDataQuality,
-        ReasonCode.TrendAligned => ReasonCodeV1.TrendAligned,
-        ReasonCode.TrendAdverse => ReasonCodeV1.TrendAdverse,
-        ReasonCode.TrendFlatOrUnknown => ReasonCodeV1.TrendFlatOrUnknown,
-        ReasonCode.MomentumNormal => ReasonCodeV1.MomentumNormal,
-        ReasonCode.MomentumOverbought => ReasonCodeV1.MomentumOverbought,
-        ReasonCode.MomentumOversold => ReasonCodeV1.MomentumOversold,
-        ReasonCode.MomentumUnavailable => ReasonCodeV1.MomentumUnavailable,
-        ReasonCode.MomentumExhaustion => ReasonCodeV1.MomentumExhaustion,
-        ReasonCode.VolatilityUnavailable => ReasonCodeV1.VolatilityUnavailable,
-        ReasonCode.SupportAvailable => ReasonCodeV1.SupportAvailable,
-        ReasonCode.ResistanceAvailable => ReasonCodeV1.ResistanceAvailable,
-        ReasonCode.SupportNearby => ReasonCodeV1.SupportNearby,
-        ReasonCode.ResistanceNearby => ReasonCodeV1.ResistanceNearby,
-        ReasonCode.LowVolume => ReasonCodeV1.LowVolume,
-        ReasonCode.PnlPositive => ReasonCodeV1.PnlPositive,
-        ReasonCode.PnlNegative => ReasonCodeV1.PnlNegative,
-        ReasonCode.PnlUnavailable => ReasonCodeV1.PnlUnavailable,
-        ReasonCode.PnlFlat => ReasonCodeV1.PnlFlat,
-        ReasonCode.StopProtective => ReasonCodeV1.StopProtective,
-        ReasonCode.StopNonProtective => ReasonCodeV1.StopNonProtective,
-        ReasonCode.StopMissing => ReasonCodeV1.StopMissing,
-        ReasonCode.StopUnknown => ReasonCodeV1.StopUnknown,
-        ReasonCode.TrailingStopDistanceAvailable => ReasonCodeV1.TrailingStopDistanceAvailable,
-        ReasonCode.BreakevenProfitable => ReasonCodeV1.BreakevenProfitable,
-        ReasonCode.BreakevenUnprofitable => ReasonCodeV1.BreakevenUnprofitable,
-        ReasonCode.BreakevenUnavailable => ReasonCodeV1.BreakevenUnavailable,
-        ReasonCode.BreakevenAt => ReasonCodeV1.BreakevenAt,
-        ReasonCode.LiquidationFar => ReasonCodeV1.LiquidationFar,
-        ReasonCode.LiquidationNearby => ReasonCodeV1.LiquidationNearby,
-        ReasonCode.LiquidationInvalid => ReasonCodeV1.LiquidationInvalid,
-        ReasonCode.LiquidationUnavailable => ReasonCodeV1.LiquidationUnavailable,
-        ReasonCode.RecommendationLimitedByDataQuality => ReasonCodeV1.RecommendationLimitedByDataQuality,
-        ReasonCode.CloseConditionMet => ReasonCodeV1.CloseConditionMet,
-        ReasonCode.LossReductionConditionMet => ReasonCodeV1.LossReductionConditionMet,
-        ReasonCode.PartialProfitConditionMet => ReasonCodeV1.PartialProfitConditionMet,
-        ReasonCode.ProfitProtectionNeeded => ReasonCodeV1.ProfitProtectionNeeded,
-        ReasonCode.MoveStopConditionMet => ReasonCodeV1.MoveStopConditionMet,
-        ReasonCode.StopNotProtectingProfit => ReasonCodeV1.StopNotProtectingProfit,
-        ReasonCode.AddBlockedByAction => ReasonCodeV1.AddBlockedByAction,
-        ReasonCode.AddBlockedByPortfolioRisk => ReasonCodeV1.AddBlockedByPortfolioRisk,
-        ReasonCode.AddBlockedByLiquidation => ReasonCodeV1.AddBlockedByLiquidation,
-        ReasonCode.AddBlockedByTrend => ReasonCodeV1.AddBlockedByTrend,
-        ReasonCode.AddBlockedByMomentum => ReasonCodeV1.AddBlockedByMomentum,
-        ReasonCode.AddBlockedByVolume => ReasonCodeV1.AddBlockedByVolume,
-        ReasonCode.AddBlockedByStop => ReasonCodeV1.AddBlockedByStop,
-        ReasonCode.AddMaximumSizeUnavailable => ReasonCodeV1.AddMaximumSizeUnavailable,
-        ReasonCode.AddAllowedWithinLimits => ReasonCodeV1.AddAllowedWithinLimits,
-        _ => throw new NotSupportedException($"Reason code '{value}' is not mapped to v1."),
-    };
 }
