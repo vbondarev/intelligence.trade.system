@@ -610,20 +610,19 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–F** и технические задачи **Tech-G01 — Tech-G11** завершены. Tech-G09 завершил воспроизводимый agent-first lifecycle с durable Approved Plan, Amendments и обязательной проверкой PR workflow. Tech-G10 нормализовал HTTP boundary API-контроллеров без изменения публичных контрактов. Tech-G11 унифицировал загрузку и startup validation runtime-конфигурации `SnapshotFreshness` без изменения публичных API-контрактов. Перед G-01 остаются **Tech-G12 — Tech-G13** для усиления fail-fast critical configuration и унификации служебной/design-time конфигурации. Следующий обязательный шаг — **Tech-G12**; после Tech-G13 начинается **G-01: React-панель и BFF**. Подробный scope и дальнейшая последовательность определяются `ROADMAP.md`.
+Этапы **A–F** и технические задачи **Tech-G01 — Tech-G12** завершены. Tech-G09 завершил воспроизводимый agent-first lifecycle с durable Approved Plan, Amendments и обязательной проверкой PR workflow. Tech-G10 нормализовал HTTP boundary API-контроллеров без изменения публичных контрактов. Tech-G11 унифицировал загрузку и startup validation runtime-конфигурации `SnapshotFreshness` без изменения публичных API-контрактов. Tech-G12 усилил fail-fast проверку критичной authentication/persistence/security-конфигурации без изменения публичных и бизнес-контрактов. Перед G-01 остаётся **Tech-G13** для унификации служебной/design-time конфигурации. Следующий обязательный шаг — **Tech-G13**; после него начинается **G-01: React-панель и BFF**. Подробный scope и дальнейшая последовательность определяются `ROADMAP.md`.
 
 Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 
 Основная ближайшая последовательность:
 
-1. Tech-G12: fail-fast проверка критичной infrastructure/security-конфигурации;
-2. Tech-G13: унификация конфигурации migrations и design-time tooling;
-3. G-01: React-панель и BFF;
-4. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
-5. Telegram-уведомления и детерминированные объяснения;
-6. подготовка пилотной эксплуатации;
-7. измерение качества рекомендаций;
-8. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
+1. Tech-G13: унификация конфигурации migrations и design-time tooling;
+2. G-01: React-панель и BFF;
+3. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
+4. Telegram-уведомления и детерминированные объяснения;
+5. подготовка пилотной эксплуатации;
+6. измерение качества рекомендаций;
+7. переосмысление OpenClaw и расширенного ИИ-контура — после проверки первого MVP.
 
 ---
 
