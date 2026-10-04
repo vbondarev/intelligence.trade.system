@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Intelligence.TradeSystem.Web.Authentication;
 using Intelligence.TradeSystem.Web.Configuration;
@@ -81,6 +82,94 @@ public sealed class InMemoryAuthenticationTicketStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Renew_after_remove_does_not_recreate_session()
+    {
+        var key = await store.StoreAsync(CreateTicket("access-1"));
+        var stale = await store.RetrieveAsync(key);
+        await store.RemoveAsync(key);
+
+        await store.RenewAsync(key, stale!);
+
+        (await store.RetrieveAsync(key)).Should().BeNull();
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Renew_of_unknown_key_does_not_create_session()
+    {
+        await store.RenewAsync("unknown-key", CreateTicket("access-1"));
+
+        (await store.RetrieveAsync("unknown-key")).Should().BeNull();
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Renew_of_expired_session_does_not_recreate_it()
+    {
+        var ticket = CreateTicket("access-1");
+        ticket.Properties.ExpiresUtc = time.GetUtcNow().AddMinutes(5);
+        var key = await store.StoreAsync(ticket);
+        var stale = await store.RetrieveAsync(key);
+        time.Advance(TimeSpan.FromMinutes(5));
+
+        stale!.Properties.ExpiresUtc = time.GetUtcNow().AddMinutes(30);
+        await store.RenewAsync(key, stale);
+
+        (await store.RetrieveAsync(key)).Should().BeNull();
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Stale_renew_keeps_active_logout_intent()
+    {
+        var key = await store.StoreAsync(CreateTicket("access-1"));
+        var stale = await store.RetrieveAsync(key);
+        var withIntent = await store.RetrieveAsync(key);
+        var intent = FormatInstant(time.GetUtcNow().AddMinutes(2));
+        withIntent!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem] = intent;
+        await store.RenewAsync(key, withIntent);
+
+        await store.RenewAsync(key, stale!);
+
+        (await store.RetrieveAsync(key))!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem]
+            .Should().Be(intent);
+    }
+
+    [Fact]
+    public async Task Stale_renew_with_older_logout_intent_keeps_newer_intent()
+    {
+        var key = await store.StoreAsync(CreateTicket("access-1"));
+        var stale = await store.RetrieveAsync(key);
+        stale!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem] =
+            FormatInstant(time.GetUtcNow().AddMinutes(1));
+        var newer = await store.RetrieveAsync(key);
+        var newerIntent = FormatInstant(time.GetUtcNow().AddMinutes(2));
+        newer!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem] = newerIntent;
+        await store.RenewAsync(key, newer);
+
+        await store.RenewAsync(key, stale);
+
+        (await store.RetrieveAsync(key))!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem]
+            .Should().Be(newerIntent);
+    }
+
+    [Fact]
+    public async Task Expired_logout_intent_is_not_carried_over_by_renew()
+    {
+        var key = await store.StoreAsync(CreateTicket("access-1"));
+        var withIntent = await store.RetrieveAsync(key);
+        withIntent!.Properties.Items[InMemoryAuthenticationTicketStore.LogoutIntentItem] =
+            FormatInstant(time.GetUtcNow().AddMinutes(2));
+        await store.RenewAsync(key, withIntent);
+        time.Advance(TimeSpan.FromMinutes(3));
+
+        await store.RenewAsync(key, CreateTicket("access-1"));
+
+        (await store.RetrieveAsync(key))!.Properties.Items
+            .Should().NotContainKey(InMemoryAuthenticationTicketStore.LogoutIntentItem);
+    }
+
+    [Fact]
     public async Task Remove_deletes_ticket()
     {
         var key = await store.StoreAsync(CreateTicket("access-1"));
@@ -127,6 +216,8 @@ public sealed class InMemoryAuthenticationTicketStoreTests : IDisposable
     }
 
     public void Dispose() => cache.Dispose();
+
+    private static string FormatInstant(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
 
     private static AuthenticationTicket CreateTicket(string accessToken, string refreshToken = "refresh-1")
     {

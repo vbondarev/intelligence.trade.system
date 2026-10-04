@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using Intelligence.TradeSystem.Web.Configuration;
@@ -13,6 +14,11 @@ namespace Intelligence.TradeSystem.Web.Authentication;
 /// session key, а OIDC tokens остаются в памяти процесса BFF. Restart процесса завершает
 /// все browser sessions.
 /// </summary>
+/// <remarks>
+/// Новую session создаёт только <see cref="StoreAsync"/>. <see cref="RenewAsync"/> обновляет
+/// лишь существующую запись, поэтому запрос, прочитавший ticket до logout, не может
+/// восстановить удалённую session.
+/// </remarks>
 internal sealed class InMemoryAuthenticationTicketStore(
     IMemoryCache cache,
     WebSessionOptions sessionOptions,
@@ -20,6 +26,7 @@ internal sealed class InMemoryAuthenticationTicketStore(
 {
     internal const string SessionKeyItem = ".bff.session_key";
     internal const string TokenGenerationItem = ".bff.token_generation";
+    internal const string LogoutIntentItem = "logout_intent_expires_at";
 
     private const string CacheKeyPrefix = "bff-session:";
     private const int SessionKeyBytes = 32;
@@ -31,7 +38,12 @@ internal sealed class InMemoryAuthenticationTicketStore(
         ArgumentNullException.ThrowIfNull(ticket);
 
         var key = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(SessionKeyBytes));
-        Save(key, ticket);
+        var copy = Prepare(key, ticket);
+        lock (gate)
+        {
+            Set(key, copy);
+        }
+
         return Task.FromResult(key);
     }
 
@@ -40,33 +52,58 @@ internal sealed class InMemoryAuthenticationTicketStore(
         ArgumentException.ThrowIfNullOrEmpty(key);
         ArgumentNullException.ThrowIfNull(ticket);
 
-        Save(key, ticket);
+        var copy = Prepare(key, ticket);
+        lock (gate)
+        {
+            if (!TryGetLiveTicket(key, out var existing))
+            {
+                return Task.CompletedTask;
+            }
+
+            // Cookie handler может продлить session копией ticket, прочитанной до параллельного
+            // token refresh. Более новое поколение tokens не откатывается таким renew.
+            if (GetTokenGeneration(existing.Properties) > GetTokenGeneration(copy.Properties))
+            {
+                copy.Properties.StoreTokens(existing.Properties.GetTokens());
+                SetTokenGeneration(copy.Properties, GetTokenGeneration(existing.Properties));
+            }
+
+            // Копия, прочитанная до POST /bff/auth/logout, не должна стереть подтверждённый
+            // logout intent: иначе logout/complete отклонит уже подтверждённый logout.
+            if (TryGetLogoutIntentExpiry(existing.Properties, out var storedIntent)
+                && storedIntent > timeProvider.GetUtcNow()
+                && (!TryGetLogoutIntentExpiry(copy.Properties, out var incomingIntent) || incomingIntent < storedIntent))
+            {
+                copy.Properties.Items[LogoutIntentItem] = existing.Properties.Items[LogoutIntentItem];
+            }
+
+            Set(key, copy);
+        }
+
         return Task.CompletedTask;
     }
 
     public Task<AuthenticationTicket?> RetrieveAsync(string key)
     {
-        if (string.IsNullOrEmpty(key)
-            || !cache.TryGetValue(CacheKey(key), out AuthenticationTicket? ticket)
-            || ticket is null)
+        if (string.IsNullOrEmpty(key))
         {
             return Task.FromResult<AuthenticationTicket?>(null);
         }
 
-        if (ticket.Properties.ExpiresUtc is { } expiresUtc && expiresUtc <= timeProvider.GetUtcNow())
+        lock (gate)
         {
-            cache.Remove(CacheKey(key));
-            return Task.FromResult<AuthenticationTicket?>(null);
+            return Task.FromResult(TryGetLiveTicket(key, out var ticket) ? Copy(ticket) : null);
         }
-
-        return Task.FromResult<AuthenticationTicket?>(Copy(ticket));
     }
 
     public Task RemoveAsync(string key)
     {
         if (!string.IsNullOrEmpty(key))
         {
-            cache.Remove(CacheKey(key));
+            lock (gate)
+            {
+                cache.Remove(CacheKey(key));
+            }
         }
 
         return Task.CompletedTask;
@@ -81,31 +118,43 @@ internal sealed class InMemoryAuthenticationTicketStore(
     internal static void SetTokenGeneration(AuthenticationProperties properties, long generation) =>
         properties.Items[TokenGenerationItem] = generation.ToString(CultureInfo.InvariantCulture);
 
-    private void Save(string key, AuthenticationTicket ticket)
+    internal static bool TryGetLogoutIntentExpiry(AuthenticationProperties properties, out DateTimeOffset expiresAt)
+    {
+        expiresAt = default;
+        return properties.Items.TryGetValue(LogoutIntentItem, out var value)
+            && DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out expiresAt);
+    }
+
+    private bool TryGetLiveTicket(string key, [NotNullWhen(true)] out AuthenticationTicket? ticket)
+    {
+        if (!cache.TryGetValue(CacheKey(key), out ticket) || ticket is null)
+        {
+            ticket = null;
+            return false;
+        }
+
+        if (ticket.Properties.ExpiresUtc is { } expiresUtc && expiresUtc <= timeProvider.GetUtcNow())
+        {
+            cache.Remove(CacheKey(key));
+            ticket = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static AuthenticationTicket Prepare(string key, AuthenticationTicket ticket)
     {
         var copy = Copy(ticket);
         copy.Properties.Items[SessionKeyItem] = key;
+        return copy;
+    }
 
-        var expiresUtc = copy.Properties.ExpiresUtc
+    private void Set(string key, AuthenticationTicket ticket)
+    {
+        var expiresUtc = ticket.Properties.ExpiresUtc
             ?? timeProvider.GetUtcNow().Add(sessionOptions.Lifetime);
-
-        lock (gate)
-        {
-            // Cookie handler может продлить session копией ticket, прочитанной до параллельного
-            // token refresh. Более новое поколение tokens не откатывается таким renew.
-            if (cache.TryGetValue(CacheKey(key), out AuthenticationTicket? existing)
-                && existing is not null
-                && GetTokenGeneration(existing.Properties) > GetTokenGeneration(copy.Properties))
-            {
-                copy.Properties.StoreTokens(existing.Properties.GetTokens());
-                SetTokenGeneration(copy.Properties, GetTokenGeneration(existing.Properties));
-            }
-
-            cache.Set(
-                CacheKey(key),
-                copy,
-                new MemoryCacheEntryOptions { AbsoluteExpiration = expiresUtc });
-        }
+        cache.Set(CacheKey(key), ticket, new MemoryCacheEntryOptions { AbsoluteExpiration = expiresUtc });
     }
 
     private static string CacheKey(string key) => CacheKeyPrefix + key;

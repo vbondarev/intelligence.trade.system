@@ -140,6 +140,7 @@ public static class StartupExtensions
                         new Uri(issuer, "/connect/endsession"),
                         new Uri("/connect/endsession", UriKind.Relative)
                     });
+                options.AddEventHandler(RequireEndSessionLogoutContextHandler.Descriptor);
                 options.AllowAuthorizationCodeFlow();
                 options.AllowRefreshTokenFlow();
                 options.RegisterScopes(ApiScope);

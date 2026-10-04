@@ -22,6 +22,7 @@ React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer �
 - Access token, refresh token и id token хранятся только в server-side ticket и не возвращаются browser.
 - Session store находится в памяти процесса (`IMemoryCache`): restart Web завершает все browser sessions, а несколько replicas без sticky sessions не поддерживаются. Durable/distributed session store не входит в текущий контракт.
 - Lifetime session задаётся `Web:Session:Lifetime` (по умолчанию 8 часов, не больше 24 часов) и продлевается скользяще.
+- Session создаётся только при успешном OIDC sign-in. Продление ticket (`RenewAsync`), запись logout intent и сохранение обновлённых tokens изменяют только существующую session: запрос, прочитавший ticket до logout или истечения session, не может её восстановить.
 
 ## Browser-facing endpoints
 
@@ -60,7 +61,8 @@ React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer �
 Первая фаза logout:
 
 - требует authenticated session (`401` без неё) и centralized CSRF-проверку;
-- записывает в server-side ticket logout intent `logout_intent_expires_at` со сроком 2 минуты;
+- записывает в server-side ticket logout intent `logout_intent_expires_at` со сроком 2 минуты; если session уже завершена параллельным запросом, возвращает `401`;
+- действующий intent не стирается параллельным продлением ticket, прочитанного до logout;
 - возвращает только same-origin адрес второй фазы: `{ "redirectUrl": "/bff/auth/logout/complete" }`.
 
 ### `GET /bff/auth/logout/complete`
@@ -84,11 +86,13 @@ React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer �
 - `invalid_grant` завершает BFF session.
 - Network error, timeout, недоступный discovery, `5xx` и другие ответы token endpoint возвращают `503` и сохраняют session для следующей попытки.
 - Если `Api` отвечает `401` на ещё не истёкший token, BFF выполняет один принудительный refresh и один повтор запроса; повторный `401` завершает BFF session.
+- Logout имеет приоритет над refresh и продлением session: если session удалена, пока refresh ожидал token endpoint, полученные tokens не сохраняются, session не восстанавливается, а запрос возвращает `authenticated: false`.
 
 ## Full SSO logout
 
 - Logout завершает BFF session и через standard OIDC end-session (`/connect/endsession`) — собственную SSO session Identity. После него новый authorization request требует повторного ввода credentials.
 - Identity принимает только `post_logout_redirect_uri`, зарегистрированный у client (`Identity:WebBffClient:PostLogoutRedirectUris`); незарегистрированный адрес отклоняется. BFF использует `/signout-callback-oidc` и затем возвращает browser на `/`.
+- Identity завершает SSO session только для end-session request, прошедшего валидацию OpenIddict, с валидным `id_token_hint` и зарегистрированным `post_logout_redirect_uri`. Request без любого из них, в том числе «голый» `/connect/endsession` по внешней ссылке, отклоняется standard OAuth error `invalid_request` и SSO session не завершает. Поэтому full logout возможен только через CSRF-защищённую цепочку BFF.
 - Logout не означает мгновенный отзыв уже выданных JWT access tokens: они остаются валидными для `Api` до истечения срока. Token introspection, blacklist и immediate revocation не входят в контракт.
 
 ## `prompt=login`

@@ -161,6 +161,75 @@ public sealed class LogoutAndAntiforgeryTests
         complete.Headers.Location!.OriginalString.Should().Be("/");
     }
 
+    [Fact]
+    public async Task Logout_during_in_flight_refresh_is_not_undone_by_refresh_completion()
+    {
+        using var factory = CreateFactoryWithApi();
+        var refresh = BlockTokenEndpoint(factory);
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(30));
+        var token = await browser.GetAntiforgeryTokenAsync();
+        var sessionKey = browser.GetSessionKey();
+
+        var inFlight = browser.Client.GetAsync("/bff/auth/session");
+        await refresh.Received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        using (var logout = await browser.PostLogoutAsync(token))
+        {
+            logout.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        using (var complete = await browser.Client.GetAsync("/bff/auth/logout/complete"))
+        {
+            complete.Headers.Location!.GetLeftPart(UriPartial.Path)
+                .Should().Be(WebBffApplicationFactory.OidcConfiguration.EndSessionEndpoint);
+        }
+
+        refresh.Release.SetResult();
+        using (var refreshed = await inFlight)
+        {
+            refreshed.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var document = JsonDocument.Parse(await refreshed.Content.ReadAsStringAsync());
+            document.RootElement.GetProperty("authenticated").GetBoolean().Should().BeFalse();
+        }
+
+        (await factory.Services.GetTicketStore().RetrieveAsync(sessionKey!)).Should().BeNull();
+        var session = await browser.GetSessionAsync();
+        session.GetProperty("authenticated").GetBoolean().Should().BeFalse();
+        factory.Api.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Refresh_completed_after_logout_post_keeps_logout_intent()
+    {
+        using var factory = CreateFactoryWithApi();
+        var refresh = BlockTokenEndpoint(factory);
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(30));
+        var token = await browser.GetAntiforgeryTokenAsync();
+        var sessionKey = browser.GetSessionKey();
+
+        var inFlight = browser.Client.GetAsync("/bff/auth/session");
+        await refresh.Received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        using (var logout = await browser.PostLogoutAsync(token))
+        {
+            logout.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        refresh.Release.SetResult();
+        using (var refreshed = await inFlight)
+        {
+            refreshed.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        (await browser.GetStoredTicketAsync())!.Properties.Items
+            .Should().ContainKey("logout_intent_expires_at");
+        using var complete = await browser.Client.GetAsync("/bff/auth/logout/complete");
+        complete.Headers.Location!.GetLeftPart(UriPartial.Path)
+            .Should().Be(WebBffApplicationFactory.OidcConfiguration.EndSessionEndpoint);
+        (await factory.Services.GetTicketStore().RetrieveAsync(sessionKey!)).Should().BeNull();
+    }
+
     [Theory]
     [InlineData("PUT")]
     [InlineData("PATCH")]
@@ -183,5 +252,24 @@ public sealed class LogoutAndAntiforgeryTests
         var factory = new WebBffApplicationFactory();
         factory.Api.Responder = (_, _) => Task.FromResult(UpstreamResponses.CurrentUser());
         return factory;
+    }
+
+    private static BlockedTokenEndpoint BlockTokenEndpoint(WebBffApplicationFactory factory)
+    {
+        var blocked = new BlockedTokenEndpoint();
+        factory.TokenEndpoint.Responder = async (_, cancellationToken) =>
+        {
+            blocked.Received.TrySetResult();
+            await blocked.Release.Task.WaitAsync(cancellationToken);
+            return UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2");
+        };
+        return blocked;
+    }
+
+    private sealed class BlockedTokenEndpoint
+    {
+        public TaskCompletionSource Received { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

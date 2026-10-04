@@ -5,6 +5,7 @@ using Intelligence.TradeSystem.Web.Contracts.Auth;
 using Intelligence.TradeSystem.Web.Security;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace Intelligence.TradeSystem.Web.Endpoints;
 
@@ -14,7 +15,7 @@ namespace Intelligence.TradeSystem.Web.Endpoints;
 /// </summary>
 internal static partial class AuthEndpoints
 {
-    internal const string LogoutIntentItem = "logout_intent_expires_at";
+    internal const string LogoutIntentItem = InMemoryAuthenticationTicketStore.LogoutIntentItem;
     internal const string LogoutCompletePath = "/bff/auth/logout/complete";
 
     internal static readonly TimeSpan LogoutIntentLifetime = TimeSpan.FromMinutes(2);
@@ -124,22 +125,34 @@ internal static partial class AuthEndpoints
         return Results.Ok(new AntiforgeryTokenResponse(tokens.RequestToken!));
     }
 
-    private static async Task<IResult> BeginLogoutAsync(HttpContext httpContext, TimeProvider timeProvider)
+    private static async Task<IResult> BeginLogoutAsync(
+        HttpContext httpContext,
+        ITicketStore ticketStore,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
     {
         var authentication = await httpContext.AuthenticateAsync(WebAuthenticationExtensions.SessionScheme);
-        if (!authentication.Succeeded || authentication.Ticket is null)
+        if (!authentication.Succeeded
+            || authentication.Ticket is null
+            || !authentication.Ticket.Properties.Items.TryGetValue(
+                InMemoryAuthenticationTicketStore.SessionKeyItem,
+                out var sessionKey)
+            || string.IsNullOrEmpty(sessionKey))
         {
             return Results.Unauthorized();
         }
 
-        var properties = authentication.Ticket.Properties;
-        properties.Items[LogoutIntentItem] = timeProvider.GetUtcNow()
+        // Intent записывается в существующий server-side ticket без нового sign-in, чтобы
+        // параллельно завершённая session не была создана заново.
+        var ticket = authentication.Ticket;
+        ticket.Properties.Items[LogoutIntentItem] = timeProvider.GetUtcNow()
             .Add(LogoutIntentLifetime)
             .ToString("o", CultureInfo.InvariantCulture);
-        await httpContext.SignInAsync(
-            WebAuthenticationExtensions.SessionScheme,
-            authentication.Ticket.Principal,
-            properties);
+        await ticketStore.RenewAsync(sessionKey, ticket, httpContext, cancellationToken);
+        if (await ticketStore.RetrieveAsync(sessionKey, httpContext, cancellationToken) is null)
+        {
+            return Results.Unauthorized();
+        }
 
         return Results.Ok(new LogoutResponse(LogoutCompletePath));
     }
@@ -161,12 +174,7 @@ internal static partial class AuthEndpoints
     }
 
     private static bool HasActiveLogoutIntent(AuthenticationProperties properties, TimeProvider timeProvider) =>
-        properties.Items.TryGetValue(LogoutIntentItem, out var value)
-        && DateTimeOffset.TryParse(
-            value,
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.RoundtripKind,
-            out var expiresAt)
+        InMemoryAuthenticationTicketStore.TryGetLogoutIntentExpiry(properties, out var expiresAt)
         && expiresAt > timeProvider.GetUtcNow();
 
     [LoggerMessage(Level = LogLevel.Information, Message = "API повторно отклонил обновлённый access token; BFF session завершена.")]

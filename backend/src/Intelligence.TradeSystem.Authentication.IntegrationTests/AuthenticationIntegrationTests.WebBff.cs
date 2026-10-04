@@ -241,6 +241,61 @@ public sealed partial class AuthenticationIntegrationTests
     }
 
     [Fact]
+    public async Task End_session_without_parameters_keeps_identity_session()
+    {
+        using var client = CreateIdentityClient();
+        await AuthorizeWebBffAsync(client);
+
+        using var response = await client.GetAsync("/connect/endsession");
+
+        await AssertEndSessionRejectedAsync(response);
+        await AssertIdentitySessionIsReusedAsync(client);
+    }
+
+    [Fact]
+    public async Task End_session_with_registered_post_logout_redirect_but_without_id_token_hint_keeps_identity_session()
+    {
+        using var client = CreateIdentityClient();
+        await AuthorizeWebBffAsync(client);
+
+        using var response = await client.GetAsync(
+            QueryHelpers.AddQueryString("/connect/endsession", new Dictionary<string, string?>
+            {
+                ["post_logout_redirect_uri"] = WebBffPostLogoutRedirectUri,
+                ["state"] = WebBffState,
+            }));
+
+        await AssertEndSessionRejectedAsync(response);
+        await AssertIdentitySessionIsReusedAsync(client);
+    }
+
+    [Fact]
+    public async Task End_session_with_id_token_hint_but_without_post_logout_redirect_keeps_identity_session()
+    {
+        using var client = CreateIdentityClient();
+        var idToken = await IssueWebBffIdTokenAsync(client);
+
+        using var response = await client.GetAsync(
+            QueryHelpers.AddQueryString("/connect/endsession", "id_token_hint", idToken));
+
+        await AssertEndSessionRejectedAsync(response);
+        await AssertIdentitySessionIsReusedAsync(client);
+    }
+
+    [Fact]
+    public async Task End_session_with_forged_id_token_hint_keeps_identity_session()
+    {
+        using var client = CreateIdentityClient();
+        var idToken = await IssueWebBffIdTokenAsync(client);
+        var forged = idToken[..^4] + (idToken.EndsWith("AAAA", StringComparison.Ordinal) ? "BBBB" : "AAAA");
+
+        using var response = await client.GetAsync(BuildEndSessionUri(forged, WebBffPostLogoutRedirectUri));
+
+        await AssertEndSessionRejectedAsync(response);
+        await AssertIdentitySessionIsReusedAsync(client);
+    }
+
+    [Fact]
     public async Task Authorize_after_end_session_requires_login_again()
     {
         using var client = CreateIdentityClient();
@@ -347,6 +402,27 @@ public sealed partial class AuthenticationIntegrationTests
             scopeFactory,
             new DevelopmentUserOptions { Enabled = true, Username = username, Password = password },
             NullLogger<DevelopmentUserSeeder>.Instance);
+
+    private static async Task AssertEndSessionRejectedAsync(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Headers.Location.Should().BeNull();
+        (await response.Content.ReadAsStringAsync()).Should().Contain(Errors.InvalidRequest);
+        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
+        {
+            cookies.Should().NotContain(cookie => cookie.StartsWith("TradeSystem.Identity=", StringComparison.Ordinal));
+        }
+    }
+
+    private static async Task AssertIdentitySessionIsReusedAsync(HttpClient client)
+    {
+        using var authorize = await client.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(CreateCodeVerifier())));
+
+        authorize.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        QueryHelpers.ParseQuery(authorize.Headers.Location.Query)["code"].ToString()
+            .Should().NotBeNullOrWhiteSpace();
+    }
 
     private async Task<string> IssueWebBffIdTokenAsync(HttpClient client)
     {

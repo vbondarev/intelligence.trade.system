@@ -104,11 +104,15 @@ internal sealed partial class BffTokenService(
                     return BffAccessTokenResult.TemporarilyUnavailable;
             }
 
+            // Tokens сохраняются в существующий server-side ticket без нового sign-in: если
+            // параллельный logout уже удалил session, RenewAsync её не восстановит.
             ApplyRefreshedTokens(current.Properties, refresh);
-            await httpContext.SignInAsync(
-                WebAuthenticationExtensions.SessionScheme,
-                current.Principal,
-                current.Properties);
+            await ticketStore.RenewAsync(sessionKey, current, httpContext, cancellationToken);
+            if (await ticketStore.RetrieveAsync(sessionKey, httpContext, cancellationToken) is null)
+            {
+                await EndSessionAsync(httpContext);
+                return BffAccessTokenResult.SessionEnded;
+            }
 
             return BffAccessTokenResult.Available(refresh.AccessToken!);
         }
