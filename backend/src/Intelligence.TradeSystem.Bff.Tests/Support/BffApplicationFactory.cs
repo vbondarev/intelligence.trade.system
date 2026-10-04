@@ -27,18 +27,26 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
     public const string ApiBaseAddress = "http://api.test/";
     public const string ClientId = "trade-web-bff-test";
     public const string SignInPath = "/test/sign-in";
-    public const string SpaIndexMarker = "bff-spa-index";
+    public const string FrontendIndexMarker = "bff-frontend-index";
 
     public static readonly Uri BaseAddress = new("http://localhost/");
     public static readonly string ClientSecret = "bff-test-secret-" + Guid.NewGuid().ToString("N");
 
-    public BffApplicationFactory()
+    private readonly IReadOnlyDictionary<string, string?> settings;
+
+    /// <param name="settings">Дополнительные configuration values конкретного теста.</param>
+    /// <remarks>
+    /// Web root с frontend <c>index.html</c> создаётся намеренно: тесты доказывают, что BFF не
+    /// раздаёт React assets, даже если файлы оказались рядом с ним.
+    /// </remarks>
+    public BffApplicationFactory(IReadOnlyDictionary<string, string?>? settings = null)
     {
+        this.settings = settings ?? new Dictionary<string, string?>();
         WebRoot = Path.Combine(Path.GetTempPath(), "bff-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(WebRoot);
         File.WriteAllText(
             Path.Combine(WebRoot, "index.html"),
-            $"<!doctype html><html><body>{SpaIndexMarker}</body></html>");
+            $"<!doctype html><html><body>{FrontendIndexMarker}</body></html>");
     }
 
     public MutableTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
@@ -66,6 +74,11 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Bff:Oidc:ClientId", ClientId);
         builder.UseSetting("Bff:Oidc:ClientSecret", ClientSecret);
         builder.UseSetting("Bff:Api:BaseAddress", ApiBaseAddress);
+        foreach (var (key, value) in settings)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.UseWebRoot(WebRoot);
 
         builder.ConfigureTestServices(services =>

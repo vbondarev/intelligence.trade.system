@@ -14,18 +14,20 @@ public partial class Program
 
         builder.AddServiceDefaults();
         var configuration = BffConfiguration.Load(builder.Configuration, builder.Environment);
+        builder.Services.AddBffForwardedHeaders(configuration);
         builder.Services.AddBffAuthentication(configuration, builder.Environment);
         builder.Services.AddBffAntiforgery(builder.Environment);
         builder.Services.AddBffHttpClients(configuration);
 
         var app = builder.Build();
 
+        // OIDC redirect URIs строятся из request scheme/host, поэтому public context frontend
+        // proxy должен быть применён до authentication middleware.
+        app.UseForwardedHeaders();
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseMiddleware<BffAntiforgeryMiddleware>();
         app.MapAuthEndpoints();
-        app.UseStaticFiles();
-        app.MapFallbackToFile("index.html");
         app.MapDefaultEndpoints();
 
         app.Run();

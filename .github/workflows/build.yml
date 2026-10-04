@@ -300,7 +300,7 @@ jobs:
           python3 .github/scripts/check-nuget-vulnerabilities.py "$report"
 
       - name: Build
-        run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore -p:BuildClientAssets=false
+        run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
 
   frontend:
     runs-on: ubuntu-latest
@@ -360,7 +360,7 @@ jobs:
         run: python3 .github/scripts/test-check-coverage.py
 
       - name: Test
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore -p:BuildClientAssets=false --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
 
       - name: Verify coverage
         shell: bash
@@ -408,8 +408,20 @@ jobs:
       - name: Docker build Identity migrations
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
+      # BFF и frontend собираются из разных contexts: ни один image не может получить файлы другого.
       - name: Docker build BFF
-        run: docker build -f backend/src/Intelligence.TradeSystem.Bff/Dockerfile -t intelligence-trade-system-bff:ci .
+        run: docker build -f backend/src/Intelligence.TradeSystem.Bff/Dockerfile -t intelligence-trade-system-bff:ci backend
+
+      - name: Docker build frontend
+        run: docker build -t intelligence-trade-web:ci frontend/intelligence-trade-web
+
+      - name: Verify BFF and frontend image contents
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh intelligence-trade-system-bff:ci -c \
+            'test -f /app/Intelligence.TradeSystem.Bff.dll && test ! -e /app/wwwroot && ! command -v node && ! command -v npm'
+          docker run --rm --entrypoint sh intelligence-trade-web:ci -c \
+            'test -f /usr/share/nginx/html/index.html && ! command -v dotnet && ! command -v node && ! command -v npm && ! find / -xdev -name "*.dll" 2>/dev/null | grep -q .'
 
       - name: Generate disposable credential protection key
         run: |
@@ -439,7 +451,7 @@ jobs:
           docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem_identity'\''" | grep -q 1'
 
       - name: Start Compose authentication stack
-        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api bff auth-test-seeder
+        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api bff frontend auth-test-seeder
 
       - name: Smoke test Compose OAuth/OIDC and protected API
         run: bash .github/scripts/compose-auth-smoke.sh
@@ -457,16 +469,20 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Wait for BFF
+      # Frontend и BFF проверяются раздельно: healthy frontend не означает доступный BFF и наоборот.
+      - name: Wait for frontend and BFF
         shell: bash
         run: |
           for _ in {1..60}; do
-            if curl --silent --fail --output /dev/null http://localhost:8082/bff/auth/session; then
+            frontend_health="$(docker inspect --format '{{.State.Health.Status}}' intelligence-trade-web 2>/dev/null || true)"
+            if [[ "$frontend_health" == "healthy" ]] \
+              && docker compose -f backend/compose.yaml exec -T frontend wget -q -O /dev/null http://bff:8080/healthz \
+              && curl --silent --fail --output /dev/null http://localhost:8082/bff/auth/session; then
               exit 0
             fi
             sleep 2
           done
-          echo "BFF не стал доступен." >&2
+          echo "Frontend или BFF не стали доступны." >&2
           exit 1
 
       - name: Browser E2E Web login, session and logout
@@ -479,7 +495,7 @@ jobs:
 
       - name: Show Compose authentication logs on failure
         if: failure()
-        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api bff auth-test-seeder
+        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api bff frontend auth-test-seeder
 
       - name: Stop authentication stack
         if: always()

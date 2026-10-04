@@ -6,7 +6,7 @@
 
 ## Ответственность
 
-- `Bff` — только ASP.NET Core browser boundary и host собранного React-клиента: browser session, OIDC login/logout и посредничество с OAuth tokens.
+- `Bff` — только ASP.NET Core browser boundary: browser session, OIDC login/logout и посредничество с OAuth tokens. BFF обслуживает только `/bff/**`, OIDC callbacks (`/signin-oidc`, `/signout-callback-oidc`) и service endpoints (`/alive`, `/healthz`).
 - Business logic, торговые вычисления, рекомендации и правила риска здесь не реализуются: источник бизнес-истины — `Intelligence.TradeSystem.Api`.
 - `Bff` не обращается к PostgreSQL и Bybit и не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api и Identity.
 - К `Api` обращайся только по HTTP с `Authorization: Bearer`; cookie authentication в `Api` не переносится.
@@ -14,11 +14,12 @@
 - Точное поведение browser-facing endpoints описано в [Web BFF contract](../../../docs/web-bff-contract.md); протокольные решения — в ADR-0002 и ADR-0003.
 - OIDC client BFF в Identity называется `trade-web-bff`; имя .NET-проекта на него не влияет, client id не переименовывай.
 
-## Frontend artifact
+## Независимость от frontend
 
-- Исходники React-клиента находятся в `frontend/intelligence-trade-web`; BFF получает только готовый artifact `dist` и размещает его в runtime `wwwroot`.
-- Путь к frontend задаётся единственным MSBuild property `FrontendRoot` в `Intelligence.TradeSystem.Bff.csproj`; не дублируй его в других targets и конфигурациях.
-- `wwwroot` генерируется сборкой и не коммитится. Docker image собирает frontend отдельным stage из repository-root context.
+- BFF и React-клиент (`frontend/intelligence-trade-web`) — отдельные build, container и deployment units. BFF не является static frontend host: не добавляй React assets, `UseStaticFiles`/SPA fallback для React, npm/Vite targets в `.csproj` и Node stages или frontend файлы в Dockerfile.
+- BFF Docker image собирается из context `backend/` и не должен требовать файлов из `frontend/`.
+- Browser обращается к BFF только через frontend service на едином public origin; BFF не публикуется как отдельный browser endpoint.
+- BFF работает за frontend reverse proxy: forwarded headers применяются до authentication, чтобы OIDC redirect URIs строились от public origin. Они принимаются только от loopback и сетей из `Bff:ForwardedHeaders:KnownNetworks`; не доверяй им безусловно.
 
 ## Tokens и session
 
@@ -42,4 +43,4 @@ Browser SignalR integration через BFF относится к этапу G-06
 
 ## Проверки
 
-Изменения `Bff` проверяй через `Intelligence.TradeSystem.Bff.Tests`. При изменении OIDC, session, CSRF или logout учитывай Playwright E2E в CI и `Intelligence.TradeSystem.Authentication.IntegrationTests` для Identity-стороны.
+Изменения `Bff` проверяй через `Intelligence.TradeSystem.Bff.Tests`. При изменении OIDC, session, CSRF, logout или forwarded headers учитывай Playwright E2E через frontend service в CI и `Intelligence.TradeSystem.Authentication.IntegrationTests` для Identity-стороны.

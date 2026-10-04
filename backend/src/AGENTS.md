@@ -21,7 +21,7 @@ XML documentation (`summary`, `remarks`, `param`, `returns`, `exception`, `value
 - `Intelligence.TradeSystem.Exchanges` — адаптеры бирж;
 - `Intelligence.TradeSystem.Api` — HTTP boundary и composition root;
 - `Intelligence.TradeSystem.Identity` — отдельный OAuth/OIDC authorization server;
-- `Intelligence.TradeSystem.Bff` — ASP.NET Core browser boundary и host собранного frontend artifact: browser session и посредничество с OAuth tokens без business logic;
+- `Intelligence.TradeSystem.Bff` — ASP.NET Core browser boundary за frontend reverse proxy: browser session и посредничество с OAuth tokens без business logic; frontend assets не раздаёт и собирается без Node.js/npm;
 - `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost` — общая эксплуатационная и Aspire-обвязка.
 
 `Domain` не зависит от persistence/HTTP/Bybit. `MarketIntelligence` не выполняет IO. `Application` не зависит от EF Core или конкретного exchange SDK. Bybit transport types не должны выходить за exchange adapter. `Bff` не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api и Identity и обращается к `Api` только по HTTP.

@@ -73,26 +73,41 @@ public sealed class ProductionProjectDependencyTests
     }
 
     [Fact]
-    public void Frontend_Source_Lives_Outside_Backend_And_Bff_Consumes_Its_Artifact()
+    public void Frontend_And_Bff_Are_Independent_Build_Units()
     {
         var sourceRoot = FindSourceRoot();
         var frontendRoot = Path.GetFullPath(Path.Combine(sourceRoot, "..", "..", "frontend", "intelligence-trade-web"));
-        var bffProject = XDocument.Load(Path.Combine(
-            sourceRoot,
-            "Intelligence.TradeSystem.Bff",
-            "Intelligence.TradeSystem.Bff.csproj"));
+        var bffRoot = Path.Combine(sourceRoot, "Intelligence.TradeSystem.Bff");
 
         File.Exists(Path.Combine(frontendRoot, "package.json")).Should().BeTrue();
         Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web")).Should().BeFalse();
         Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web.Tests")).Should().BeFalse();
-        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Bff", "ClientApp")).Should().BeFalse();
-
-        var frontendRootProperty = bffProject.Descendants("FrontendRoot").Should().ContainSingle().Subject;
-        frontendRootProperty.Value.Should().Contain("'frontend', 'intelligence-trade-web'");
+        Directory.Exists(Path.Combine(bffRoot, "ClientApp")).Should().BeFalse();
 
         var viteConfig = File.ReadAllText(Path.Combine(frontendRoot, "vite.config.ts"));
         viteConfig.Should().NotContain("wwwroot").And.NotContain("backend");
+
+        // Frontend image собирается из context frontend/intelligence-trade-web и не копирует backend.
+        DockerInstructions(Path.Combine(frontendRoot, "Dockerfile"))
+            .Should().AllSatisfy(instruction => instruction.Should()
+                .NotContainAny("..", "backend", "Intelligence.TradeSystem", "dotnet"));
+
+        // BFF собирается без Node.js/npm и не получает frontend source или dist.
+        var bffProject = File.ReadAllText(Path.Combine(bffRoot, "Intelligence.TradeSystem.Bff.csproj"));
+        bffProject.Should().NotContainAny("npm", "frontend", "FrontendRoot", "BuildClientAssets", "wwwroot");
+        DockerInstructions(Path.Combine(bffRoot, "Dockerfile"))
+            .Should().AllSatisfy(instruction => instruction.Should()
+                .NotContainAny("..", "node", "npm", "frontend", "wwwroot"));
     }
+
+    private static List<string> DockerInstructions(string dockerfilePath) =>
+        File.ReadAllLines(dockerfilePath)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("COPY ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("ADD ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("RUN ", StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
     [Theory]
     [InlineData(@"..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj")]

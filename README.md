@@ -83,7 +83,7 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`. В рамках G-01 появились React-клиент `frontend/intelligence-trade-web` с адаптивной оболочкой и отдельный BFF host `Intelligence.TradeSystem.Bff`: OAuth/OIDC login, server-side browser session и full SSO logout; browser SignalR integration относится к G-06. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`. В рамках G-01 появились React-клиент `frontend/intelligence-trade-web` с адаптивной оболочкой и отдельный BFF `Intelligence.TradeSystem.Bff` — независимые deployment units за единым browser-facing origin: OAuth/OIDC login, server-side browser session и full SSO logout; browser SignalR integration относится к G-06. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
 F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 завершён: user-scoped SignalR invalidation boundary `/hubs/v1/updates` сообщает об изменении account, portfolio, position и evaluation, а актуальное состояние восстанавливается через REST. F-08 завершён: OpenAPI и contract tests защищают полную границу F и пригодность контракта для будущей генерации клиента. Пользовательские экраны React поверх `/api/v1` и browser realtime integration относятся к последующим задачам этапа G.
 
@@ -97,7 +97,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 - отдельный модуль `Intelligence.TradeSystem.MarketIntelligence`;
 - отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
 - `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
-- адаптивная dark-first React-оболочка `frontend/intelligence-trade-web` и `Intelligence.TradeSystem.Bff` как её same-origin host и BFF: confidential OIDC client `trade-web-bff` с Authorization Code + PKCE, server-side browser session без выдачи tokens JavaScript, refresh access token, CSRF-защита unsafe `/bff/**` и full SSO logout через standard OIDC end-session ([Web BFF contract](docs/web-bff-contract.md));
+- адаптивная dark-first React-оболочка `frontend/intelligence-trade-web` (nginx frontend service, проксирующий `/bff/**` и OIDC callbacks) и `Intelligence.TradeSystem.Bff` как внутренний BFF: confidential OIDC client `trade-web-bff` с Authorization Code + PKCE, server-side browser session без выдачи tokens JavaScript, refresh access token, CSRF-защита unsafe `/bff/**` и full SSO logout через standard OIDC end-session ([Web BFF contract](docs/web-bff-contract.md));
 - `Intelligence.TradeSystem.Api` требует PostgreSQL и запускается только в полноценном DB-backed runtime-режиме: обязательная конфигурация проверяется при startup, `/alive` отражает liveness процесса, а `/healthz` — readiness зависимостей, включая PostgreSQL;
 - integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - сопоставление user-delegated OIDC `sub` со стабильным Domain `UserId` и явная маркировка user principal;
@@ -292,11 +292,11 @@ Secure HttpOnly cookie может использоваться только ме
 | `Intelligence.TradeSystem.Identity` | Отдельный ASP.NET Core Identity + OpenIddict Authorization Server |
 | `Intelligence.TradeSystem.Identity.Migrations` | Одноразовый deployment runner для Identity/OpenIddict migrations |
 | `Intelligence.TradeSystem.Api` | HTTP API и composition root |
-| `Intelligence.TradeSystem.Bff` | ASP.NET Core BFF и host собранного React-клиента: browser session и посредничество с tokens без business logic |
+| `Intelligence.TradeSystem.Bff` | ASP.NET Core BFF за frontend reverse proxy: browser session и посредничество с tokens без business logic; React assets не раздаёт |
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
 
-React-клиент (Web client) находится вне .NET-решения, в `frontend/intelligence-trade-web`.
+React-клиент (Web client) находится вне .NET-решения, в `frontend/intelligence-trade-web`, и собирается, упаковывается в собственный nginx image и развёртывается независимо от BFF.
 
 Тестовые проекты отдельно проверяют архитектурные зависимости, чистый домен, API-контракты, прикладную логику, persistence/concurrency, биржевые адаптеры и Market Intelligence.
 
@@ -426,7 +426,7 @@ Endpoint сохраняется ради совместимости и отла�
 ### Требования
 
 - .NET 10 SDK; конкретная версия зафиксирована в корневом `global.json`;
-- Node.js 24 и npm — для сборки React-клиента `frontend/intelligence-trade-web`; версия Node.js зафиксирована в `frontend/intelligence-trade-web/.nvmrc`;
+- Node.js 24 и npm — только для локальной сборки и проверок React-клиента `frontend/intelligence-trade-web`; версия Node.js зафиксирована в `frontend/intelligence-trade-web/.nvmrc`. Backend build Node.js не требует;
 - доступ к интернету для получения публичных данных Bybit;
 - Docker — для контейнерного запуска и integration tests на Testcontainers;
 - внешний или локальный PostgreSQL — только если backend запускается без Docker Compose, Aspire или Testcontainers;
@@ -476,7 +476,7 @@ dotnet restore backend/src/Intelligence.TradeSystem.slnx
 dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release
 ```
 
-Исходники React-клиента находятся в `frontend/intelligence-trade-web` и собираются в собственный `dist`. Сборка `Intelligence.TradeSystem.Bff` по умолчанию выполняет там `npm ci` и `npm run build` и копирует `dist` в `wwwroot` BFF, поэтому `dotnet build` даёт runnable BFF с React assets. Если frontend собирается отдельно (как в CI и Docker), передайте `-p:BuildClientAssets=false`. В runtime BFF обслуживает React-клиент и `/bff/**` с одного origin.
+Backend build собирает только .NET-решение и не запускает npm. React-клиент — отдельная build unit (см. «Frontend»).
 
 ### Frontend
 
@@ -489,6 +489,8 @@ npm run lint
 npm run test:unit
 npm run build
 ```
+
+Vite собирает artifact в `frontend/intelligence-trade-web/dist`. Production image собирается из того же каталога (`docker build frontend/intelligence-trade-web`): Node.js stage строит `dist`, nginx runtime раздаёт React и проксирует `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` во внутренний BFF по адресу из `BFF_UPSTREAM`.
 
 Browser E2E (`npm run test:e2e`) выполняется против запущенного Compose stack: `E2E_PASSWORD` должен совпадать с `TRADE_WEB_DEV_PASSWORD`, а `WEB_BASE_URL`, `IDENTITY_BASE_URL` и `E2E_USERNAME` по умолчанию указывают на `http://localhost:8082`, `http://localhost:8081` и `trade-dev-user`.
 
@@ -544,7 +546,7 @@ cd backend/src
 dotnet run --project Intelligence.TradeSystem.AppHost
 ```
 
-AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически. Secret parameters `tradeCredentialKey`, `tradeWebBffClientSecret` и `tradeWebDevelopmentPassword` задаются через Aspire parameters (например, user secrets AppHost) и не коммитятся. AppHost публикует BFF (resource `bff`, React-клиент и `/bff/**`) на `http://localhost:8082`, Identity — на `http://localhost:8081`.
+AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически. Secret parameters `tradeCredentialKey`, `tradeWebBffClientSecret` и `tradeWebDevelopmentPassword` задаются через Aspire parameters (например, user secrets AppHost) и не коммитятся. AppHost запускает frontend как отдельный Dockerfile resource `frontend` (public origin `http://localhost:8082`; адрес BFF передаётся через `BFF_UPSTREAM`), BFF — как внутренний project resource `bff` без public endpoint, Identity — на `http://localhost:8081`. Для resource `frontend` нужен Docker.
 
 ### Docker
 
@@ -573,19 +575,27 @@ cd backend
 docker compose up --build -d
 ```
 
-Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity, API и BFF:
+Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity, API, BFF и frontend:
 
 ```text
-postgres → identity-db-init → identity-migrations → identity → api → bff
+postgres → identity-db-init → identity-migrations → identity → api → bff → frontend
 ```
 
-BFF image собирается из корня репозитория (`context: ..`), потому что объединяет `backend/src` и frontend artifact `frontend/intelligence-trade-web`.
+Frontend и BFF — независимые images: frontend собирается из `frontend/intelligence-trade-web`, BFF — из `backend`. Browser обращается только к frontend; BFF не публикует host port и доступен frontend по внутренней сети (`BFF_UPSTREAM=http://bff:8080`):
+
+```text
+Browser → frontend (http://localhost:8082)
+            ├── React SPA
+            └── /bff/**, /signin-oidc, /signout-callback-oidc → bff:8080
+                                                               ├── OIDC → identity
+                                                               └── Bearer → api
+```
 
 Локальные адреса:
 
 | Сервис | Адрес |
 |---|---|
-| Web client через BFF (React + `/bff/**`) | `http://localhost:8082` |
+| Web client (frontend: React + proxy `/bff/**` в BFF) | `http://localhost:8082` |
 | Identity | `http://localhost:8081` |
 | API | `http://localhost:8080` |
 
@@ -644,11 +654,11 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - PostgreSQL migrations и persistence через Testcontainers;
 - PostgreSQL credential security tests: authenticated encryption, tamper/AAD protection, CAS rotation/revocation, key rollover and cascade deletion;
 - PostgreSQL user-isolation and real Bearer OAuth/OIDC E2E tests;
-- BFF: session, refresh, CSRF, logout и SPA hosting; React unit/component tests (Vitest) и browser E2E (Playwright);
+- BFF: session, refresh, CSRF, logout, forwarded headers и отсутствие frontend hosting; React unit/component tests (Vitest) и browser E2E (Playwright) через frontend service;
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
-CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. Отдельный frontend job на Node.js 24 выполняет `npm ci`, typecheck, lint, unit tests и Vite build React-клиента. После тестов workflow собирает Docker-образы API, Identity, migration runner и BFF (из корня репозитория), запускает Compose auth stack с disposable secrets и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness, API readiness, настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke и Playwright browser E2E: login, сохранение session без выдачи tokens JavaScript, full SSO logout, `prompt=login` и адаптивную вёрстку.
+CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. Отдельный frontend job на Node.js 24 выполняет `npm ci`, typecheck, lint, unit tests и Vite build React-клиента. После тестов workflow собирает Docker-образы API, Identity, migration runner, BFF (context `backend`) и frontend (context `frontend/intelligence-trade-web`), проверяет их взаимную независимость, запускает Compose auth stack с disposable secrets и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness, API readiness, настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke и Playwright browser E2E через public origin frontend: same-origin routing, login, сохранение session без выдачи tokens JavaScript, full SSO logout, `prompt=login` и адаптивную вёрстку.
 
 Release-сборка настроена с `TreatWarningsAsErrors=true` для проектных предупреждений; известные SDK/tooling warnings оцениваются отдельно и не скрываются отключением анализаторов.
 

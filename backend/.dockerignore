@@ -19,9 +19,6 @@
 **/node_modules
 **/npm-debug.log
 **/obj
-**/playwright-report
-**/test-results
-**/Intelligence.TradeSystem.Bff/wwwroot
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE

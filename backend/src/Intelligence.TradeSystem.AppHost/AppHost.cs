@@ -4,6 +4,7 @@ public static class Program
 {
     private const string PublicIdentityIssuer = "http://localhost:8081";
     private const string PublicWebOrigin = "http://localhost:8082";
+    private const string FrontendContextPath = "../../../frontend/intelligence-trade-web";
 
     public static void Main(string[] args)
     {
@@ -66,17 +67,14 @@ public static class Program
             .WithExternalHttpEndpoints()
             .WithUrl("/swagger", "Swagger");
 
-        builder
+        // BFF — internal service: public origin принадлежит frontend, который проксирует в BFF
+        // /bff/** и OIDC callbacks.
+        var bff = builder
             .AddProject<Projects.Intelligence_TradeSystem_Bff>("bff")
             .WithReference(identity)
             .WithReference(api)
             .WaitFor(identity)
             .WaitFor(api)
-            .WithEndpoint("http", endpoint =>
-            {
-                endpoint.Port = 8082;
-                endpoint.TargetPort = 8080;
-            })
             .WithEnvironment("Bff__Oidc__Authority", PublicIdentityIssuer)
             .WithEnvironment(
                 "Bff__Oidc__MetadataAddress",
@@ -84,7 +82,13 @@ public static class Program
             .WithEnvironment("Bff__Oidc__BackchannelBaseAddress", identityEndpoint)
             .WithEnvironment("Bff__Oidc__ClientId", "trade-web-bff")
             .WithEnvironment("Bff__Oidc__ClientSecret", webBffClientSecret)
-            .WithEnvironment("Bff__Api__BaseAddress", api.GetEndpoint("http"))
+            .WithEnvironment("Bff__Api__BaseAddress", api.GetEndpoint("http"));
+
+        builder
+            .AddDockerfile("frontend", FrontendContextPath)
+            .WaitFor(bff)
+            .WithHttpEndpoint(port: 8082, targetPort: 8080)
+            .WithEnvironment("BFF_UPSTREAM", bff.GetEndpoint("http"))
             .WithExternalHttpEndpoints();
 
         builder.Build().Run();

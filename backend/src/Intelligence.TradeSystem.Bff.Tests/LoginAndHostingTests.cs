@@ -1,12 +1,18 @@
 using System.Net;
 using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Tests.Support;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 
 namespace Intelligence.TradeSystem.Bff.Tests;
 
 public sealed class LoginAndHostingTests
 {
+    private static readonly Dictionary<string, string?> TrustedProxyNetwork = new()
+    {
+        ["Bff:ForwardedHeaders:KnownNetworks:0"] = "10.20.0.0/16",
+    };
+
     [Fact]
     public async Task Login_starts_authorization_code_flow_with_pkce_and_required_scopes()
     {
@@ -97,7 +103,7 @@ public sealed class LoginAndHostingTests
         using var response = await browser.Client.GetAsync("/bff/unknown");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.SpaIndexMarker);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.FrontendIndexMarker);
     }
 
     [Theory]
@@ -105,28 +111,102 @@ public sealed class LoginAndHostingTests
     [InlineData("/alive")]
     [InlineData("/signin-oidc")]
     [InlineData("/signout-callback-oidc")]
-    public async Task Health_and_oidc_callback_paths_are_not_served_by_spa_fallback(string path)
+    public async Task Service_and_oidc_callback_paths_do_not_return_frontend_html(string path)
     {
         using var factory = new BffApplicationFactory();
         using var browser = factory.CreateBrowser();
 
         using var response = await browser.Client.GetAsync(path);
 
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.SpaIndexMarker);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.FrontendIndexMarker);
     }
 
     [Theory]
     [InlineData("/")]
+    [InlineData("/index.html")]
     [InlineData("/app")]
     [InlineData("/app/nested/route")]
-    public async Task Spa_routes_fall_back_to_index(string path)
+    public async Task Bff_does_not_host_react_application(string path)
     {
         using var factory = new BffApplicationFactory();
         using var browser = factory.CreateBrowser();
 
         using var response = await browser.Client.GetAsync(path);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).Should().Contain(BffApplicationFactory.SpaIndexMarker);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.FrontendIndexMarker);
+    }
+
+    [Fact]
+    public async Task Login_uses_public_host_passed_by_frontend_proxy()
+    {
+        using var factory = new BffApplicationFactory();
+
+        var context = await SendLoginAsync(factory, remoteIp: "127.0.0.1", host: "localhost:8082");
+
+        RedirectUri(context).Should().Be("http://localhost:8082/signin-oidc");
+    }
+
+    [Fact]
+    public async Task Login_applies_forwarded_scheme_and_host_from_trusted_proxy_network()
+    {
+        using var factory = new BffApplicationFactory(TrustedProxyNetwork);
+
+        var context = await SendLoginAsync(
+            factory,
+            remoteIp: "10.20.0.5",
+            host: "bff:8080",
+            forwardedProto: "https",
+            forwardedHost: "trade.example");
+
+        RedirectUri(context).Should().Be("https://trade.example/signin-oidc");
+    }
+
+    [Theory]
+    [InlineData("198.51.100.7")]
+    [InlineData("192.0.2.10")]
+    public async Task Login_ignores_forwarded_headers_from_untrusted_client(string remoteIp)
+    {
+        using var factory = new BffApplicationFactory(TrustedProxyNetwork);
+
+        var context = await SendLoginAsync(
+            factory,
+            remoteIp: remoteIp,
+            host: "localhost:8082",
+            forwardedProto: "https",
+            forwardedHost: "evil.example");
+
+        RedirectUri(context).Should().Be("http://localhost:8082/signin-oidc");
+    }
+
+    private static Task<HttpContext> SendLoginAsync(
+        BffApplicationFactory factory,
+        string remoteIp,
+        string host,
+        string? forwardedProto = null,
+        string? forwardedHost = null) =>
+        factory.Server.SendAsync(context =>
+        {
+            context.Connection.RemoteIpAddress = IPAddress.Parse(remoteIp);
+            context.Request.Method = HttpMethods.Get;
+            context.Request.Path = "/bff/auth/login";
+            context.Request.QueryString = new QueryString("?returnUrl=/app");
+            context.Request.Host = new HostString(host);
+            if (forwardedProto is not null)
+            {
+                context.Request.Headers["X-Forwarded-Proto"] = forwardedProto;
+            }
+
+            if (forwardedHost is not null)
+            {
+                context.Request.Headers["X-Forwarded-Host"] = forwardedHost;
+            }
+        });
+
+    private static string RedirectUri(HttpContext context)
+    {
+        context.Response.StatusCode.Should().Be(StatusCodes.Status302Found);
+        var location = new Uri(context.Response.Headers.Location.ToString());
+        return QueryHelpers.ParseQuery(location.Query)["redirect_uri"].ToString();
     }
 }

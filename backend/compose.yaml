@@ -112,13 +112,12 @@
         aliases:
           - intelligence-trade-identity
 
+  # BFF не публикует host port: browser обращается к нему только через frontend на том же origin.
   bff:
     container_name: intelligence-trade-bff
     build:
-      context: ..
-      dockerfile: backend/src/Intelligence.TradeSystem.Bff/Dockerfile
-    ports:
-      - "8082:8080"
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Bff/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
@@ -128,6 +127,8 @@
       - Bff__Oidc__ClientId=trade-web-bff
       - Bff__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
       - Bff__Api__BaseAddress=http://api:8080
+      # Private range Docker bridge networks: forwarded headers принимаются только от container proxy.
+      - Bff__ForwardedHeaders__KnownNetworks__0=172.16.0.0/12
     depends_on:
       identity:
         condition: service_started
@@ -137,6 +138,22 @@
       trade-agent-network:
         aliases:
           - intelligence-trade-bff
+
+  frontend:
+    container_name: intelligence-trade-web
+    build:
+      context: ../frontend/intelligence-trade-web
+    ports:
+      - "8082:8080"
+    environment:
+      - BFF_UPSTREAM=http://bff:8080
+    depends_on:
+      bff:
+        condition: service_started
+    networks:
+      trade-agent-network:
+        aliases:
+          - intelligence-trade-web
 
   auth-test-seeder:
     profiles: ["ci"]

@@ -9,15 +9,18 @@
 - React + TypeScript + Vite; package manager — npm, lock-file — `package-lock.json`, версия Node.js — `.nvmrc`.
 - UI framework или design system не добавляй без отдельного решения: стили — собственный CSS.
 
-## Build boundary
+## Build и deployment boundary
 
-- Frontend собирает собственный artifact в `dist/`; каталог generated и не коммитится.
-- Frontend не знает физического расположения `Intelligence.TradeSystem.Bff`: не указывай в Vite и других конфигурациях пути в backend или BFF `wwwroot`. BFF build и Docker получают готовый `dist` и размещают его в runtime `wwwroot`.
-- В runtime клиент обслуживается BFF с того же origin; отдельный frontend origin, CORS и CDN не используются.
+- Frontend — самостоятельная build, container и deployment unit. Vite собирает artifact в `dist/`; каталог generated и не коммитится.
+- Frontend не знает физического расположения backend: не указывай в Vite, Dockerfile и других конфигурациях пути в `backend/`, BFF project или его output.
+- Production image (`Dockerfile`, context — этот каталог): Node.js stage собирает `dist`, nginx runtime раздаёт только `dist` и `nginx/default.conf.template`. Image не содержит .NET, backend source/binaries и server secrets.
+- nginx — единый browser-facing origin: React static assets и SPA fallback, а `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` проксируются во внутренний BFF. Эти paths никогда не попадают в SPA fallback.
+- Адрес BFF задаётся только deployment setting `BFF_UPSTREAM` (`scheme://host[:port]`) и не попадает в React bundle. Server secrets (client secret, dev password, tokens, credential keys) frontend container не получает.
+- Отдельный browser origin для BFF, CORS и CDN не используются.
 
 ## Граница с backend
 
-- Browser общается только с BFF того же origin (`/bff/**`); прямые запросы к `Api` или Identity token endpoint не выполняй.
+- Browser общается с BFF только через relative URLs того же origin (`/bff/**`); internal адрес BFF, прямые запросы к `Api` и Identity token endpoint в клиенте не используются.
 - Access и refresh tokens никогда не попадают в JavaScript.
 - Auth state не хранится в `localStorage`, `sessionStorage`, IndexedDB или cookies, доступных JavaScript; источник истины — `GET /bff/auth/session`.
 - Business rules, торговые вычисления и правила риска не реализуются на клиенте: клиент отображает состояние, полученное от backend.
@@ -29,4 +32,4 @@
 
 ## Проверки
 
-Из `frontend/intelligence-trade-web`: `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run build`. Browser E2E (`npm run test:e2e`) выполняется против запущенного Compose stack.
+Из `frontend/intelligence-trade-web`: `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run build`; image — `docker build .`. Browser E2E (`npm run test:e2e`) выполняется против запущенного Compose stack через public origin frontend service.

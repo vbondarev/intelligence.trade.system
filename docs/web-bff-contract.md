@@ -2,25 +2,56 @@
 
 ## Граница
 
-`Intelligence.TradeSystem.Bff` — ASP.NET Core Backend-for-Frontend (BFF) для browser и host собранного React-клиента. Он не содержит business logic, не обращается к PostgreSQL и Bybit и не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api или Identity.
+`Intelligence.TradeSystem.Bff` — ASP.NET Core Backend-for-Frontend (BFF) для browser. Он не содержит business logic, не раздаёт React assets, не обращается к PostgreSQL и Bybit и не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api или Identity.
 
-Поток запросов:
+Topology:
 
 ```text
-React (browser) → same-origin /bff/** → BFF → Authorization: Bearer → Api
+Browser
+   ↓
+Frontend service (единый public origin)
+   ├── React SPA
+   └── /bff/**, /signin-oidc, /signout-callback-oidc → BFF
+                                                        ├── OIDC → Identity
+                                                        └── Bearer → Api
 ```
 
-- Browser общается только с BFF того же origin.
+- Browser обращается к BFF только через frontend service того же origin, по relative URLs.
 - BFF выполняет OAuth 2.0 / OpenID Connect Authorization Code + PKCE как confidential client `trade-web-bff` отдельного `Identity`.
 - `Api` остаётся client-agnostic resource server и принимает только Bearer access token; cookie authentication в `Api` не используется.
 - Generic reverse proxy к `Api` отсутствует: BFF вызывает только явно реализованные операции.
 
-## Source layout и runtime
+## Разделение frontend и BFF
 
-- Frontend source — `frontend/intelligence-trade-web` (React + TypeScript + Vite + npm). Frontend собирает собственный artifact `dist/` и не знает расположения BFF.
-- BFF source — `backend/src/Intelligence.TradeSystem.Bff`. `dotnet build` по умолчанию собирает frontend и копирует `dist` в `wwwroot` BFF; CI и Docker собирают frontend отдельным job/stage и передают `-p:BuildClientAssets=false`. BFF Docker image собирается из корня репозитория и размещает frontend `dist` в `wwwroot`.
-- Same-origin runtime — BFF обслуживает React static assets, SPA fallback и `/bff/**` с одного origin (`http://localhost:8082` в Compose и Aspire). Отдельный frontend origin, CORS и CDN не используются.
-- Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`; environment `Bff__*`). Логическое имя OIDC client в Identity остаётся `trade-web-bff`.
+Frontend и BFF — независимые units на всех уровнях; их стабильный контракт — same-origin `/bff/**` и OIDC callback paths.
+
+- Source: frontend — `frontend/intelligence-trade-web` (React + TypeScript + Vite + npm); BFF — `backend/src/Intelligence.TradeSystem.Bff`.
+- Build: Vite собирает `frontend/intelligence-trade-web/dist` и не знает расположения backend; `dotnet build` собирает BFF без Node.js/npm и без frontend assets.
+- Container: frontend image собирается из context `frontend/intelligence-trade-web` (Node.js build stage → nginx runtime только с `dist` и nginx config); BFF image — из context `backend` (.NET SDK → ASP.NET Core runtime). Ни один image не содержит source или artifacts другого; изменение одного не требует rebuild другого.
+- Deployment: Compose services `frontend` и `bff`, Aspire resources `frontend` (Dockerfile) и `bff` (project). Public port `8082` принадлежит frontend; BFF не публикуется как browser endpoint.
+- Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`, `Bff:ForwardedHeaders:KnownNetworks`; environment `Bff__*`). Логическое имя OIDC client в Identity остаётся `trade-web-bff`.
+
+## Same-origin routing
+
+Frontend service (nginx) — единственный browser-facing origin (`http://localhost:8082` в Compose и Aspire):
+
+| Path | Обработчик |
+|---|---|
+| `/bff/**`, `/bff` | BFF |
+| `/signin-oidc`, `/signout-callback-oidc` (exact) | BFF |
+| `/assets/**` | static assets frontend; отсутствующий файл — `404` |
+| остальные paths (`/`, `/app/**`, …) | React SPA, fallback на `index.html` |
+
+- BFF paths никогда не попадают в SPA fallback. Сам BFF не раздаёт React: `GET /app` напрямую к BFF возвращает `404`.
+- Internal адрес BFF задаётся deployment setting frontend `BFF_UPSTREAM` (например, `http://bff:8080`) и не попадает в React bundle. CORS, `SameSite=None` и отдельный browser origin для BFF не используются.
+- Frontend container не получает server secrets: client secret, dev password, tokens и credential-protection keys передаются только BFF/Identity/Api.
+- Health: frontend проверяется собственным container healthcheck (nginx отдаёт `index.html`), BFF — своими `/alive` и `/healthz` во внутренней сети. Готовность одного service не означает готовность другого.
+
+## Forwarded request context
+
+- Frontend proxy передаёт BFF `Host` и `X-Forwarded-Host` исходного запроса, `X-Forwarded-Proto` и `X-Forwarded-For`; значения `X-Forwarded-Host`/`X-Forwarded-Proto` proxy задаёт сам, а не пересылает от client.
+- BFF применяет forwarded headers до authentication/OIDC middleware, поэтому OIDC `redirect_uri` и `post_logout_redirect_uri` строятся от public origin (`http://localhost:8082/...`), а не от internal endpoint BFF.
+- Forwarded headers принимаются только от loopback и CIDR-сетей `Bff:ForwardedHeaders:KnownNetworks`; от остальных адресов они игнорируются. Учитывается только последнее значение `X-Forwarded-For` (ForwardLimit = 1). Compose доверяет private range Docker bridge networks (`172.16.0.0/12`); production deployment указывает фактическую сеть reverse proxy.
 
 ## Server-side browser session
 
@@ -31,9 +62,10 @@ React (browser) → same-origin /bff/** → BFF → Authorization: Bearer → Ap
 - Lifetime session задаётся `Bff:Session:Lifetime` (по умолчанию 8 часов, не больше 24 часов) и продлевается скользяще.
 - Session создаётся только при успешном OIDC sign-in. Продление ticket (`RenewAsync`), запись logout intent и сохранение обновлённых tokens изменяют только существующую session: запрос, прочитавший ticket до logout или истечения session, не может её восстановить.
 - Удаление session (`RemoveAsync`: logout, завершение session при ошибке refresh, истечение lifetime) терминально. Создание, продление и удаление выполняются под одной блокировкой store, поэтому продление, начатое до удаления, не воскрешает session.
+
 ## Browser-facing endpoints
 
-Все ответы `/bff/auth/**` содержат `Cache-Control: no-store`. Неизвестные пути `/bff/**` возвращают `404` и не попадают в SPA fallback.
+Все ответы `/bff/auth/**` содержат `Cache-Control: no-store`. Неизвестные пути `/bff/**` возвращают `404` BFF и не попадают в SPA fallback frontend.
 
 ### `GET /bff/auth/session`
 

@@ -21,6 +21,23 @@ public sealed class BffConfigurationTests
         configuration.Oidc.ClientSecret.Should().Be(Secret);
         configuration.ApiBaseAddress.Should().Be(new Uri("http://localhost:8080/"));
         configuration.Session.Lifetime.Should().Be(TimeSpan.FromHours(8));
+        configuration.TrustedProxyNetworks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Trusted_proxy_networks_are_parsed_from_cidr()
+    {
+        var configuration = BffConfiguration.Load(
+            Build(new Dictionary<string, string?>
+            {
+                ["Bff:ForwardedHeaders:KnownNetworks:0"] = "172.16.0.0/12",
+                ["Bff:ForwardedHeaders:KnownNetworks:1"] = " fd00::/8 ",
+            }),
+            Environment("Development"));
+
+        configuration.TrustedProxyNetworks.Should().Equal(
+            System.Net.IPNetwork.Parse("172.16.0.0/12"),
+            System.Net.IPNetwork.Parse("fd00::/8"));
     }
 
     [Fact]
@@ -72,6 +89,8 @@ public sealed class BffConfigurationTests
         { "Bff:Api:BaseAddress", "http://api.example/", "Staging", "Bff:Api:BaseAddress" },
         { "Bff:Session:Lifetime", "00:00:00", "Development", "Bff:Session:Lifetime" },
         { "Bff:Session:Lifetime", "1.00:00:01", "Development", "Bff:Session:Lifetime" },
+        { "Bff:ForwardedHeaders:KnownNetworks:0", "proxy", "Development", "Bff:ForwardedHeaders:KnownNetworks" },
+        { "Bff:ForwardedHeaders:KnownNetworks:0", "10.0.0.0/33", "Development", "Bff:ForwardedHeaders:KnownNetworks" },
     };
 
     [Theory]

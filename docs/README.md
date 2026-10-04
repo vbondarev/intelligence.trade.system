@@ -12,7 +12,7 @@
 - [ROADMAP](../ROADMAP.md) — единственный актуальный источник статуса разработки и утверждённой последовательности этапов.
 - [ADR](adr/) — принятые архитектурные решения и причины их выбора.
 - [API v1 conventions](api-v1-conventions.md) и другие контрактные документы — точное поведение конкретных подсистем.
-- [Web BFF contract](web-bff-contract.md) — граница React → BFF → API, server-side browser session, CSRF, refresh и full SSO logout.
+- [Web BFF contract](web-bff-contract.md) — граница React → frontend service → BFF → API: разделение source/build/container/deployment, same-origin routing, server-side browser session, CSRF, refresh и full SSO logout.
 - GitHub Issue — согласованный WHAT конкретной задачи.
 - Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only Amendments. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, требуется `STOP → Human Decision`.
 - [AGENTS.md](../AGENTS.md) — долговечные правила работы coding agents в репозитории.
