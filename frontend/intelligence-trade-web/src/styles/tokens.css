@@ -7,8 +7,9 @@
   --color-border: #253041;
   --color-text: #e6edf3;
   --color-text-muted: #8b98a8;
-  --color-accent: #3b82f6;
-  --color-accent-hover: #2563eb;
+  /* Белый текст кнопки на accent должен сохранять контраст WCAG AA 4.5:1. */
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
   --color-danger: #f87171;
   --color-danger-surface: #2a1517;
 

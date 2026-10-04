@@ -20,28 +20,41 @@ public sealed class BffConfigurationTests
         configuration.Oidc.Authority.Should().Be(new Uri("http://localhost:8081/"));
         configuration.Oidc.MetadataAddress.Should().Be(new Uri("http://localhost:8081/.well-known/openid-configuration"));
         configuration.Oidc.BackchannelBaseAddress.Should().Be(new Uri("http://localhost:8081"));
-        configuration.Oidc.ClientId.Should().Be("custom-web-bff");
+        configuration.Oidc.ClientId.Should().Be(BffOidcOptions.CanonicalClientId);
         configuration.Oidc.ClientSecret.Should().Be(Secret);
         configuration.ApiBaseAddress.Should().Be(new Uri("http://localhost:8080/"));
         configuration.Session.Lifetime.Should().Be(TimeSpan.FromHours(8));
-        configuration.Token.RefreshSkew.Should().Be(TimeSpan.FromMinutes(1));
         configuration.Token.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(10));
         configuration.TrustedProxyNetworks.Should().BeEmpty();
     }
 
     [Fact]
-    public void Zero_refresh_skew_is_distinguished_from_missing_value()
+    public void Canonical_client_id_is_accepted()
     {
         var configuration = BffConfiguration.Load(
             Build(new Dictionary<string, string?>
             {
-                ["Bff:Token:RefreshSkew"] = "00:00:00",
-                ["Bff:Token:EndpointTimeout"] = "00:00:03",
+                ["Bff:Oidc:ClientId"] = BffOidcOptions.CanonicalClientId,
             }),
             Environment("Development"));
 
-        configuration.Token.RefreshSkew.Should().Be(TimeSpan.Zero);
-        configuration.Token.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(3));
+        configuration.Oidc.ClientId.Should().Be("trade-web-bff");
+    }
+
+    [Fact]
+    public void Non_canonical_client_id_fails_fast_without_secret_disclosure()
+    {
+        var act = () => BffConfiguration.Load(
+            Build(new Dictionary<string, string?>
+            {
+                ["Bff:Oidc:ClientId"] = "other-client",
+            }),
+            Environment("Development"));
+
+        var exception = act.Should().Throw<InvalidOperationException>().Which;
+        exception.Message.Should().Contain("Bff:Oidc:ClientId").And.Contain("trade-web-bff");
+        exception.Message.Should().NotContain(Secret).And.NotContain("other-client");
+        exception.InnerException.Should().BeNull();
     }
 
     [Fact]
@@ -95,6 +108,7 @@ public sealed class BffConfigurationTests
     {
         { "Bff:Oidc:ClientId", null, "Development", "Bff:Oidc:ClientId" },
         { "Bff:Oidc:ClientId", " ", "Development", "Bff:Oidc:ClientId" },
+        { "Bff:Oidc:ClientId", "other-client", "Development", "Bff:Oidc:ClientId" },
         { "Bff:Oidc:ClientSecret", null, "Development", "Bff:Oidc:ClientSecret" },
         { "Bff:Oidc:Authority", null, "Development", "Bff:Oidc:Authority" },
         { "Bff:Oidc:Authority", "identity", "Development", "Bff:Oidc:Authority" },
@@ -109,8 +123,6 @@ public sealed class BffConfigurationTests
         { "Bff:Api:BaseAddress", "http://api.example/", "Staging", "Bff:Api:BaseAddress" },
         { "Bff:Session:Lifetime", "00:00:00", "Development", "Bff:Session:Lifetime" },
         { "Bff:Session:Lifetime", "1.00:00:01", "Development", "Bff:Session:Lifetime" },
-        { "Bff:Token:RefreshSkew", null, "Development", "Bff:Token:RefreshSkew" },
-        { "Bff:Token:RefreshSkew", "-00:00:01", "Development", "Bff:Token:RefreshSkew" },
         { "Bff:Token:EndpointTimeout", null, "Development", "Bff:Token:EndpointTimeout" },
         { "Bff:Token:EndpointTimeout", "00:00:00", "Development", "Bff:Token:EndpointTimeout" },
         { "Bff:Token:EndpointTimeout", "-00:00:01", "Development", "Bff:Token:EndpointTimeout" },
@@ -154,7 +166,6 @@ public sealed class BffConfigurationTests
             .GetRequiredService<IHttpClientFactory>()
             .CreateClient(OAuthTokenRefreshClient.HttpClientName);
 
-        tokenSettings.RefreshSkew.Should().Be(TimeSpan.FromMinutes(1));
         tokenSettings.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(10));
         tokenClient.Timeout.Should().Be(TimeSpan.FromSeconds(10));
     }
@@ -188,10 +199,9 @@ public sealed class BffConfigurationTests
         var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
             ["Bff:Oidc:Authority"] = "http://localhost:8081/",
-            ["Bff:Oidc:ClientId"] = "custom-web-bff",
+            ["Bff:Oidc:ClientId"] = BffOidcOptions.CanonicalClientId,
             ["Bff:Oidc:ClientSecret"] = Secret,
             ["Bff:Api:BaseAddress"] = "http://localhost:8080/",
-            ["Bff:Token:RefreshSkew"] = "00:01:00",
             ["Bff:Token:EndpointTimeout"] = "00:00:10",
         };
         foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())

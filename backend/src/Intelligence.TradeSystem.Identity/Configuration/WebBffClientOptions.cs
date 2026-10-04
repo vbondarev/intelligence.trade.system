@@ -7,10 +7,15 @@ public sealed class WebBffClientOptions
 {
     public const string SectionName = "Identity:WebBffClient";
 
+    /// <summary>
+    /// Канонический OIDC client id G-01. Это invariant, а не environment-specific setting.
+    /// </summary>
+    public const string CanonicalClientId = "trade-web-bff";
+
     public bool Enabled { get; init; }
 
     /// <summary>
-    /// Client id задаётся deployment configuration и должен совпадать с <c>Bff:Oidc:ClientId</c>.
+    /// Должен быть равен <see cref="CanonicalClientId"/> и совпадать с <c>Bff:Oidc:ClientId</c>.
     /// </summary>
     public string? ClientId { get; init; }
 
@@ -33,6 +38,12 @@ public sealed class WebBffClientOptions
         if (string.IsNullOrWhiteSpace(ClientId))
         {
             throw new InvalidOperationException("Identity:WebBffClient:ClientId должен быть задан.");
+        }
+
+        if (!string.Equals(ClientId, CanonicalClientId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Identity:WebBffClient:ClientId должен быть равен {CanonicalClientId}.");
         }
 
         if (string.IsNullOrWhiteSpace(ClientSecret))

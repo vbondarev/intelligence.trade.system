@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Configuration;
 using Intelligence.TradeSystem.Bff.Tests.Support;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
@@ -39,6 +40,8 @@ public sealed class OAuthTokenRefreshClientTests
     [InlineData("""{"token_type":"Bearer","expires_in":60}""")]
     [InlineData("""{"access_token":"a","expires_in":0}""")]
     [InlineData("""{"access_token":"a","expires_in":"60"}""")]
+    [InlineData("""{"access_token":"a","expires_in":922337203686}""")]
+    [InlineData("""{"access_token":"a","expires_in":9223372036854775807}""")]
     [InlineData("""{"access_token":"a"}""")]
     [InlineData("[]")]
     public async Task Malformed_success_response_is_unavailable(string json)
@@ -83,7 +86,7 @@ public sealed class OAuthTokenRefreshClientTests
     }
 
     [Fact]
-    public async Task Caller_cancellation_is_propagated()
+    public async Task Caller_cancellation_before_grant_is_propagated()
     {
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
@@ -95,6 +98,28 @@ public sealed class OAuthTokenRefreshClientTests
         var act = () => CreateClient(handler).RefreshAsync("refresh-1", cancellation.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+        handler.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_after_grant_starts_does_not_abort_token_request()
+    {
+        using var caller = new CancellationTokenSource();
+        var handler = new RecordingHttpHandler
+        {
+            Responder = (_, token) =>
+            {
+                caller.Cancel();
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult(UpstreamResponses.TokenSuccess("access-2", "refresh-2", 600, "id-2"));
+            },
+        };
+
+        var result = await CreateClient(handler).RefreshAsync("refresh-1", caller.Token);
+
+        result.Status.Should().Be(OAuthTokenRefreshStatus.Succeeded);
+        result.RefreshToken.Should().Be("refresh-2");
+        caller.IsCancellationRequested.Should().BeTrue();
     }
 
     [Fact]
@@ -147,9 +172,23 @@ public sealed class OAuthTokenRefreshClientTests
                 new Uri("http://identity.test/"),
                 new Uri("http://identity.test/.well-known/openid-configuration"),
                 new Uri("http://identity.test/"),
-                "client",
+                BffOidcOptions.CanonicalClientId,
                 "secret"),
+            new NeverStoppingLifetime(),
             NullLogger<OAuthTokenRefreshClient>.Instance);
+
+    private sealed class NeverStoppingLifetime : IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+
+        public void StopApplication()
+        {
+        }
+    }
 
     private sealed class StaticHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {

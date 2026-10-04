@@ -16,6 +16,7 @@
 - Стабильный user subject должен быть совместим с Domain `UserId`; email и username не являются business identity.
 - Не создавай ad-hoc login, JWT или refresh-token protocol.
 - Не меняй принятые OAuth/OIDC, token, grant или PKCE semantics без отдельного architecture decision.
+- Logical OIDC client id G-01 — `trade-web-bff`. Это invariant, а не environment-specific setting: `Identity:WebBffClient:ClientId` не подменяется другим значением.
 - Browser/BFF решения не расширяй за пределы принятых ADR и [Web BFF contract](../../../docs/web-bff-contract.md): full browser logout выполняется только через standard OIDC end-session, а `prompt=login` остаётся явной возможностью повторной аутентификации.
 
 ## Persistence и secrets

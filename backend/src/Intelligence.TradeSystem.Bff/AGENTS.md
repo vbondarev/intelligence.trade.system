@@ -12,7 +12,7 @@
 - К `Api` обращайся только по HTTP с `Authorization: Bearer`; cookie authentication в `Api` не переносится.
 - Generic reverse proxy к `Api` автоматически не добавляй: каждая browser-facing операция BFF — явное решение со своим контрактом.
 - Точное поведение browser-facing endpoints описано в [Web BFF contract](../../../docs/web-bff-contract.md); протокольные решения — в ADR-0002 и ADR-0003.
-- OIDC client BFF в Identity называется `trade-web-bff`; имя .NET-проекта на него не влияет, client id не переименовывай.
+- Logical OIDC client id G-01 — `trade-web-bff`. Это invariant, а не environment-specific setting; client id не переименовывай и не подменяй deployment configuration. Имя .NET-проекта на client id не влияет.
 
 ## Независимость от frontend
 
@@ -27,7 +27,10 @@
 - Browser получает только opaque HttpOnly session cookie.
 - Server-side session создаёт только `ITicketStore.StoreAsync` при sign-in. `RenewAsync` обновляет лишь существующую запись, `RemoveAsync` удаляет её окончательно; все mutations store выполняются под одним process-local lock.
 - Изменение tokens или logout intent существующей session выполняй через `ITicketStore.RenewAsync` по текущему session key с повторной проверкой наличия session, а не через `SignInAsync`: stale request не должен воскрешать удалённую session.
+- Порог refresh access token — 60 секунд и не выносится в configuration.
 - Refresh token grant не повторяется автоматически: повтор может израсходовать ротируемый refresh token. Не подключай для него retry/resilience handlers.
+- До отправки refresh grant отмена browser request допустима. После начала grant получение ответа и запись новых tokens в существующий ticket не следуют за `RequestAborted`: их отменяют timeout token endpoint и остановка host.
+- Lock refresh одного subject не снимается, пока grant выполняется или его ожидают. Не храни его в cache с истечением по lifetime session.
 - Client secret передаётся только через environment/secret store и не попадает в checked-in configuration.
 
 ## CSRF и logout

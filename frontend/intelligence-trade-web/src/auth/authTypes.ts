@@ -13,6 +13,7 @@ export interface AuthState {
   authenticated: boolean;
   user: SessionUser | null;
   error: string | null;
+  logoutAvailable: boolean;
 }
 
 export interface AuthContextValue extends AuthState {

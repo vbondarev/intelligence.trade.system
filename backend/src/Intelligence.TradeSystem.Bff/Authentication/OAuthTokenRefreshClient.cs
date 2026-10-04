@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Intelligence.TradeSystem.Bff.Configuration;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace Intelligence.TradeSystem.Bff.Authentication;
@@ -14,21 +15,31 @@ internal sealed partial class OAuthTokenRefreshClient(
     IHttpClientFactory httpClientFactory,
     IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptions,
     BffOidcSettings oidcSettings,
+    IHostApplicationLifetime applicationLifetime,
     ILogger<OAuthTokenRefreshClient> logger)
 {
     public const string HttpClientName = "OidcToken";
+
+    /// <summary>
+    /// Верхняя граница <c>expires_in</c>, которую <see cref="TimeSpan.FromSeconds(double)"/> принимает без исключения.
+    /// </summary>
+    private static readonly long MaxExpiresInSeconds = TimeSpan.MaxValue.Ticks / TimeSpan.TicksPerSecond;
 
     public async Task<OAuthTokenRefreshResult> RefreshAsync(
         string refreshToken,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(refreshToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var tokenEndpoint = await GetTokenEndpointAsync(cancellationToken);
         if (tokenEndpoint is null)
         {
             return OAuthTokenRefreshResult.Unavailable;
         }
+
+        // До отправки non-idempotent grant отмена browser request ещё допустима.
+        cancellationToken.ThrowIfCancellationRequested();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint)
         {
@@ -41,17 +52,21 @@ internal sealed partial class OAuthTokenRefreshClient(
             ]),
         };
 
+        // Дальше lifetime принадлежит BFF: timeout HttpClient и остановка host.
+        // RequestAborted browser сюда не входит, иначе Identity может ротировать refresh token,
+        // а ticket сохранит уже погашенное значение.
+        var grantCancellation = applicationLifetime.ApplicationStopping;
         HttpResponseMessage response;
         try
         {
-            response = await httpClientFactory.CreateClient(HttpClientName).SendAsync(request, cancellationToken);
+            response = await httpClientFactory.CreateClient(HttpClientName).SendAsync(request, grantCancellation);
         }
         catch (HttpRequestException exception)
         {
             LogTokenEndpointUnreachable(exception.GetType().Name);
             return OAuthTokenRefreshResult.Unavailable;
         }
-        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!grantCancellation.IsCancellationRequested)
         {
             LogTokenEndpointUnreachable(exception.GetType().Name);
             return OAuthTokenRefreshResult.Unavailable;
@@ -61,12 +76,12 @@ internal sealed partial class OAuthTokenRefreshClient(
         {
             if (response.IsSuccessStatusCode)
             {
-                return await ReadTokenResponseAsync(response, cancellationToken);
+                return await ReadTokenResponseAsync(response, grantCancellation);
             }
 
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
             {
-                var error = await ReadErrorCodeAsync(response, cancellationToken);
+                var error = await ReadErrorCodeAsync(response, grantCancellation);
                 if (string.Equals(error, "invalid_grant", StringComparison.Ordinal))
                 {
                     LogRefreshRejected();
@@ -124,7 +139,8 @@ internal sealed partial class OAuthTokenRefreshClient(
                 || !root.TryGetProperty("expires_in", out var expiresInElement)
                 || expiresInElement.ValueKind != JsonValueKind.Number
                 || !expiresInElement.TryGetInt64(out var expiresInSeconds)
-                || expiresInSeconds <= 0)
+                || expiresInSeconds <= 0
+                || expiresInSeconds > MaxExpiresInSeconds)
             {
                 LogMalformedTokenResponse();
                 return OAuthTokenRefreshResult.Unavailable;

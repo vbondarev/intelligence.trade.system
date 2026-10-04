@@ -3,7 +3,7 @@ import { useAuth } from '../auth/authContext';
 import { LoadingScreen } from '../layout/LoadingScreen';
 
 export function LandingPage() {
-  const { loading, authenticated, error, login, retry } = useAuth();
+  const { loading, authenticated, error, logoutAvailable, login, logout, retry } = useAuth();
 
   if (loading) {
     return <LoadingScreen />;
@@ -23,9 +23,16 @@ export function LandingPage() {
             <p className="alert" role="alert">
               {error}
             </p>
-            <button type="button" className="button" onClick={retry}>
-              Повторить
-            </button>
+            <div className="landing-actions">
+              <button type="button" className="button" onClick={retry}>
+                Повторить
+              </button>
+              {logoutAvailable && (
+                <button type="button" className="button button-secondary" onClick={() => void logout()}>
+                  Выйти
+                </button>
+              )}
+            </div>
           </>
         ) : (
           <button type="button" className="button" onClick={login}>

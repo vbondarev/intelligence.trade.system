@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Net;
 using Intelligence.TradeSystem.Bff.Tests.Support;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Bff.Tests;
 
@@ -59,16 +61,14 @@ public sealed class TokenRefreshTests
     }
 
     [Theory]
-    [InlineData(18, false)]
-    [InlineData(17, true)]
-    public async Task Configured_refresh_skew_decides_whether_access_token_is_refreshed(
+    [InlineData(61, false)]
+    [InlineData(60, true)]
+    [InlineData(59, true)]
+    public async Task Fixed_refresh_skew_of_60_seconds_decides_whether_access_token_is_refreshed(
         int accessTokenLifetimeSeconds,
         bool refreshExpected)
     {
-        using var factory = CreateFactoryWithApi(new Dictionary<string, string?>
-        {
-            ["Bff:Token:RefreshSkew"] = "00:00:17",
-        });
+        using var factory = CreateFactoryWithApi();
         factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
             UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2"));
         using var browser = factory.CreateBrowser();
@@ -288,6 +288,74 @@ public sealed class TokenRefreshTests
                 response.Dispose();
             }
         }
+    }
+
+    [Fact]
+    public async Task Active_refresh_lock_is_not_stored_in_the_expiring_session_cache()
+    {
+        using var factory = CreateFactoryWithApi();
+        var tokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.TokenEndpoint.Responder = async (_, _) =>
+        {
+            tokenRequestReceived.TrySetResult();
+            await releaseTokenResponse.Task;
+            return UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2");
+        };
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: NearExpiry);
+
+        var inFlight = browser.Client.GetAsync("/bff/auth/session");
+        await tokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        factory.Services.GetRequiredService<IMemoryCache>()
+            .TryGetValue("bff-refresh-lock:user-subject", out _)
+            .Should().BeFalse();
+
+        releaseTokenResponse.SetResult();
+        using var response = await inFlight;
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        factory.TokenEndpoint.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Browser_disconnect_during_refresh_still_stores_rotated_tokens()
+    {
+        using var factory = CreateFactoryWithApi();
+        var tokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.TokenEndpoint.Responder = async (_, cancellationToken) =>
+        {
+            tokenRequestReceived.TrySetResult();
+            await releaseTokenResponse.Task.WaitAsync(cancellationToken);
+            return UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2");
+        };
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: NearExpiry);
+        using var disconnect = new CancellationTokenSource();
+
+        var inFlight = browser.Client.GetAsync("/bff/auth/session", disconnect.Token);
+        await tokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await disconnect.CancelAsync();
+        releaseTokenResponse.SetResult();
+        await inFlight.Awaiting(task => task).Should().ThrowAsync<OperationCanceledException>();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        AuthenticationTicket? stored = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            stored = await browser.GetStoredTicketAsync();
+            if (stored?.Properties.GetTokenValue("refresh_token") == "refresh-2")
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        stored.Should().NotBeNull();
+        stored!.Properties.GetTokenValue("access_token").Should().Be("access-2");
+        stored.Properties.GetTokenValue("refresh_token").Should().Be("refresh-2");
     }
 
     [Fact]

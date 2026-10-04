@@ -53,25 +53,7 @@ public sealed partial class AuthenticationIntegrationTests
         (await manager.GetRedirectUrisAsync(application!)).Should().Equal(WebBffRedirectUri);
         (await manager.GetPostLogoutRedirectUrisAsync(application!)).Should().Equal(WebBffPostLogoutRedirectUri);
         (await manager.ValidateClientSecretAsync(application!, WebBffClientSecret)).Should().BeTrue();
-        (await manager.FindByClientIdAsync("trade-web-bff")).Should().BeNull();
-    }
-
-    [Fact]
-    public async Task Web_bff_client_is_registered_under_configured_client_id()
-    {
-        const string customClientId = "custom-web-bff";
-        await using var customFactory = identityFactory.WithWebHostBuilder(builder =>
-            builder.UseSetting("Identity:WebBffClient:ClientId", customClientId));
-
-        using var scope = customFactory.Services.CreateScope();
-        var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-
-        var application = await manager.FindByClientIdAsync(customClientId);
-
-        application.Should().NotBeNull();
-        (await manager.GetClientTypeAsync(application!)).Should().Be(ClientTypes.Confidential);
-        (await manager.GetRedirectUrisAsync(application!)).Should().Equal(WebBffRedirectUri);
-        (await manager.ValidateClientSecretAsync(application!, WebBffClientSecret)).Should().BeTrue();
+        WebBffClientId.Should().Be("trade-web-bff");
     }
 
     [Fact]

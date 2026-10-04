@@ -76,6 +76,39 @@ describe('App routing and session bootstrap', () => {
     expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=/app');
   });
 
+  it.each([403, 503])('offers full logout when session bootstrap returns %s', async (status) => {
+    const assign = stubLocationAssign();
+    const requests = mockFetch({
+      '/bff/auth/session': () => jsonResponse({}, status),
+      '/bff/auth/antiforgery': () => jsonResponse({ requestToken: 'csrf-token' }),
+      '/bff/auth/logout': () => jsonResponse({ redirectUrl: '/bff/auth/logout/complete' }),
+    });
+    renderAt('/');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось проверить сессию');
+    await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+
+    expect(requests.map((request) => request.url)).toEqual([
+      '/bff/auth/session',
+      '/bff/auth/antiforgery',
+      '/bff/auth/logout',
+    ]);
+    expect(assign).toHaveBeenCalledWith('/bff/auth/logout/complete');
+  });
+
+  it('does not offer logout when session bootstrap fails without a preserved session', async () => {
+    mockFetch({
+      '/bff/auth/session': () => {
+        throw new Error('network down');
+      },
+    });
+    renderAt('/');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось проверить сессию');
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Выйти' })).not.toBeInTheDocument();
+  });
+
   it('offers retry after a session bootstrap error and recovers', async () => {
     let attempts = 0;
     mockFetch({
@@ -127,7 +160,13 @@ describe('App routing and session bootstrap', () => {
   });
 
   it('keeps auth state free of token fields', () => {
-    const state: AuthState = { loading: false, authenticated: true, user: authenticatedSession.user, error: null };
+    const state: AuthState = {
+      loading: false,
+      authenticated: true,
+      user: authenticatedSession.user,
+      error: null,
+      logoutAvailable: false,
+    };
 
     expect(Object.keys(state).join(',')).not.toMatch(/token/i);
     expect(Object.keys(state.user ?? {}).join(',')).not.toMatch(/token/i);

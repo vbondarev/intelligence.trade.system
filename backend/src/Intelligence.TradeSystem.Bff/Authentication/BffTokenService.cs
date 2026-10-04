@@ -1,8 +1,7 @@
 using System.Globalization;
-using Intelligence.TradeSystem.Bff.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Bff.Authentication;
 
@@ -13,10 +12,8 @@ namespace Intelligence.TradeSystem.Bff.Authentication;
 internal sealed partial class BffTokenService(
     ITicketStore ticketStore,
     OAuthTokenRefreshClient refreshClient,
-    IMemoryCache cache,
-    BffSessionOptions sessionOptions,
-    BffTokenSettings tokenSettings,
     TimeProvider timeProvider,
+    IHostApplicationLifetime applicationLifetime,
     ILogger<BffTokenService> logger)
 {
     private const string AccessTokenName = "access_token";
@@ -24,9 +21,15 @@ internal sealed partial class BffTokenService(
     private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
     private const string SubjectClaim = "sub";
-    private const string RefreshLockCacheKeyPrefix = "bff-refresh-lock:";
+
+    /// <summary>
+    /// Access token используется, только если до истечения остаётся больше этой величины.
+    /// Порог — внутренний invariant, а не deployment setting.
+    /// </summary>
+    private static readonly TimeSpan RefreshSkew = TimeSpan.FromMinutes(1);
 
     private readonly Lock refreshLockGate = new();
+    private readonly Dictionary<string, RefreshGate> refreshGates = [];
 
     /// <summary>
     /// Возвращает access token, пригодный для вызова API.
@@ -36,7 +39,7 @@ internal sealed partial class BffTokenService(
     /// Token, отклонённый API с 401. Если session всё ещё содержит именно его, выполняется
     /// принудительный refresh; если token уже обновил параллельный запрос, возвращается новый.
     /// </param>
-    /// <param name="cancellationToken">Токен отмены запроса.</param>
+    /// <param name="cancellationToken">Токен отмены запроса. После начала refresh grant не используется.</param>
     public async Task<BffAccessTokenResult> GetAccessTokenAsync(
         HttpContext httpContext,
         string? rejectedAccessToken,
@@ -65,10 +68,13 @@ internal sealed partial class BffTokenService(
             return BffAccessTokenResult.Available(cachedAccessToken);
         }
 
-        var refreshLock = GetRefreshLock(subject);
-        await refreshLock.WaitAsync(cancellationToken);
+        var refreshLock = AcquireRefreshGate(subject);
+        var refreshLockAcquired = false;
         try
         {
+            await refreshLock.Semaphore.WaitAsync(cancellationToken);
+            refreshLockAcquired = true;
+
             // Параллельный запрос той же session мог уже обновить или завершить её, пока этот ждал lock.
             var current = await ticketStore.RetrieveAsync(sessionKey, httpContext, cancellationToken);
             if (current is null)
@@ -93,7 +99,11 @@ internal sealed partial class BffTokenService(
                 return BffAccessTokenResult.SessionEnded;
             }
 
+            // До grant отмена browser request ещё допустима. Дальше lifetime принадлежит BFF:
+            // rotated refresh token нужно записать, даже если browser уже отключился.
+            cancellationToken.ThrowIfCancellationRequested();
             var refresh = await refreshClient.RefreshAsync(refreshToken, cancellationToken);
+            var persistenceCancellation = applicationLifetime.ApplicationStopping;
             switch (refresh.Status)
             {
                 case OAuthTokenRefreshStatus.Rejected:
@@ -106,8 +116,8 @@ internal sealed partial class BffTokenService(
             // Tokens сохраняются в существующий server-side ticket без нового sign-in: если
             // параллельный logout уже удалил session, RenewAsync её не восстановит.
             ApplyRefreshedTokens(current.Properties, refresh);
-            await ticketStore.RenewAsync(sessionKey, current, httpContext, cancellationToken);
-            if (await ticketStore.RetrieveAsync(sessionKey, httpContext, cancellationToken) is null)
+            await ticketStore.RenewAsync(sessionKey, current, httpContext, persistenceCancellation);
+            if (await ticketStore.RetrieveAsync(sessionKey, httpContext, persistenceCancellation) is null)
             {
                 await EndSessionAsync(httpContext);
                 return BffAccessTokenResult.SessionEnded;
@@ -117,25 +127,41 @@ internal sealed partial class BffTokenService(
         }
         finally
         {
-            refreshLock.Release();
+            if (refreshLockAcquired)
+            {
+                refreshLock.Semaphore.Release();
+            }
+
+            ReleaseRefreshGate(subject, refreshLock);
         }
     }
 
-    private SemaphoreSlim GetRefreshLock(string subject)
+    private RefreshGate AcquireRefreshGate(string subject)
     {
-        // GetOrCreate не атомарен: без gate параллельные запросы могли бы получить разные
-        // semaphore и выполнить два refresh одного ротируемого refresh token.
+        // Cache с истечением по lifetime session может вытеснить semaphore, пока refresh ещё
+        // выполняется, и второй запрос того же subject отправит ещё один rotating grant.
         lock (refreshLockGate)
         {
-            return cache.GetOrCreate(
-                RefreshLockCacheKeyPrefix + subject,
-                entry =>
-                {
-                    // Sliding lifetime session не даёт вытеснить semaphore, пока session активна,
-                    // а refresh удерживает его не дольше timeout token endpoint.
-                    entry.SlidingExpiration = sessionOptions.Lifetime;
-                    return new SemaphoreSlim(1, 1);
-                })!;
+            if (!refreshGates.TryGetValue(subject, out var gate))
+            {
+                gate = new RefreshGate();
+                refreshGates.Add(subject, gate);
+            }
+
+            gate.Users++;
+            return gate;
+        }
+    }
+
+    private void ReleaseRefreshGate(string subject, RefreshGate gate)
+    {
+        lock (refreshLockGate)
+        {
+            gate.Users--;
+            if (gate.Users == 0)
+            {
+                refreshGates.Remove(subject);
+            }
         }
     }
 
@@ -178,7 +204,7 @@ internal sealed partial class BffTokenService(
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind,
                 out var expiresAtValue)
-            && expiresAtValue > timeProvider.GetUtcNow().Add(tokenSettings.RefreshSkew);
+            && expiresAtValue > timeProvider.GetUtcNow().Add(RefreshSkew);
     }
 
     private static Task EndSessionAsync(HttpContext httpContext) =>
@@ -186,6 +212,13 @@ internal sealed partial class BffTokenService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BFF session не содержит refresh token и будет завершена.")]
     private partial void LogRefreshTokenMissing();
+
+    private sealed class RefreshGate
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+        public int Users { get; set; }
+    }
 }
 
 internal enum BffAccessTokenStatus

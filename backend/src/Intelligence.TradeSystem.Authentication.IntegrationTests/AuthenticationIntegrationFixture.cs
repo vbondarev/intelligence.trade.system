@@ -36,7 +36,7 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
     internal const string SecondUsername = "integration-user-b";
     internal const string SecondPassword = "Integration-password-456";
     internal const string CertificatePassword = "integration-certificate-password";
-    internal const string WebBffClientId = "trade-web-bff-test";
+    internal const string WebBffClientId = "trade-web-bff";
     internal const string WebBffRedirectUri = "http://web.test/signin-oidc";
     internal const string WebBffPostLogoutRedirectUri = "http://web.test/signout-callback-oidc";
     internal static readonly string WebBffClientSecret =

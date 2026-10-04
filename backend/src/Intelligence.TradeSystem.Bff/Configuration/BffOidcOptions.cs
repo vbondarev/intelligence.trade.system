@@ -8,6 +8,11 @@ public sealed class BffOidcOptions
     public const string SectionName = "Bff:Oidc";
 
     /// <summary>
+    /// Канонический OIDC client id G-01. Это invariant, а не environment-specific setting.
+    /// </summary>
+    public const string CanonicalClientId = "trade-web-bff";
+
+    /// <summary>
     /// Публичный issuer Identity, который видит browser и который проверяется в id_token.
     /// </summary>
     public string? Authority { get; init; }
@@ -49,6 +54,12 @@ public sealed class BffOidcOptions
         if (string.IsNullOrWhiteSpace(ClientId))
         {
             throw new InvalidOperationException("Bff:Oidc:ClientId должен быть задан.");
+        }
+
+        if (!string.Equals(ClientId, CanonicalClientId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Bff:Oidc:ClientId должен быть равен {CanonicalClientId}.");
         }
 
         if (string.IsNullOrWhiteSpace(ClientSecret))

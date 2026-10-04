@@ -115,6 +115,12 @@ h1 {
   background: var(--color-surface);
 }
 
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
 /* Mobile-first: topbar над основным содержимым, навигация скрыта до desktop breakpoint. */
 .app-shell {
   display: grid;

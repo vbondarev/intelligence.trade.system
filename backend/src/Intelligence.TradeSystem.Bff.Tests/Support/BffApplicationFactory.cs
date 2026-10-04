@@ -4,6 +4,7 @@ using System.Security.Claims;
 using Intelligence.TradeSystem.Bff.Api;
 using Intelligence.TradeSystem.Bff.Authentication;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -25,7 +26,7 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
 {
     public const string Authority = "http://identity.test/";
     public const string ApiBaseAddress = "http://api.test/";
-    public const string ClientId = "trade-web-bff-test";
+    public const string ClientId = "trade-web-bff";
     public const string SignInPath = "/test/sign-in";
     public const string FrontendIndexMarker = "bff-frontend-index";
 
@@ -85,6 +86,8 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
+            services.AddOptions<CookieAuthenticationOptions>(BffAuthenticationExtensions.SessionScheme)
+                .PostConfigure(options => options.TimeProvider = Time);
 
             services.PostConfigure<OpenIdConnectOptions>(
                 BffAuthenticationExtensions.OidcScheme,

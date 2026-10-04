@@ -30,8 +30,8 @@ Frontend и BFF — независимые units на всех уровнях; �
 - Container: frontend image собирается из context `frontend/intelligence-trade-web` (Node.js build stage → nginx runtime только с `dist` и nginx config); BFF image — из context `backend` (.NET SDK → ASP.NET Core runtime). Ни один image не содержит source или artifacts другого; изменение одного не требует rebuild другого.
 - Deployment: Compose services `frontend` и `bff`, Aspire resources `frontend` (Dockerfile) и `bff` (project). Public port `8082` принадлежит frontend; BFF не публикуется как browser endpoint.
 - Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`, `Bff:Token:*`, `Bff:ForwardedHeaders:KnownNetworks`; environment `Bff__*`). Configuration читается и проверяется один раз при старте; изменение применяется только restart.
-- `Bff:Token:RefreshSkew` — насколько заранее до истечения access token BFF выполняет refresh (по умолчанию `00:01:00`, не может быть отрицательным); `Bff:Token:EndpointTimeout` — timeout server-to-server запроса BFF к OIDC token endpoint Identity (по умолчанию `00:00:10`, больше нуля). Значения по умолчанию заданы в `appsettings.json` BFF.
-- Логическое имя OIDC client в Identity остаётся `trade-web-bff`. Client id не имеет значения по умолчанию в коде и задаётся deployment configuration одним значением для обеих сторон: `Identity:WebBffClient:ClientId` и `Bff:Oidc:ClientId`. Compose берёт его из необязательной переменной хоста `TRADE_WEB_BFF_CLIENT_ID` (по умолчанию `trade-web-bff`), Aspire AppHost — из единой константы.
+- `Bff:Token:EndpointTimeout` — timeout server-to-server запроса BFF к OIDC token endpoint Identity (по умолчанию `00:00:10`, больше нуля). Значение по умолчанию задано в `appsettings.json` BFF. Порог refresh access token — внутренний invariant 60 секунд и deployment setting не является.
+- Logical OIDC client id G-01 — `trade-web-bff`. Это invariant, а не environment-specific setting. `Identity:WebBffClient:ClientId` и `Bff:Oidc:ClientId` обязаны быть равны `trade-web-bff`; отсутствующее, пустое или другое значение останавливает запуск и не раскрывает client secret. Compose и Aspire задают это значение константой. Переменной окружения для подмены client id нет.
 
 ## Same-origin routing
 
@@ -86,8 +86,8 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 ```
 
 - Для authenticated session BFF получает актуальный access token и вызывает `GET /api/v1/auth/me`; `userId` берётся только из ответа `Api`.
-- `403` — `Api` отклонил principal как не допущенный к user-owned данным.
-- `503` — Identity token endpoint или `Api` временно недоступны; session при этом сохраняется.
+- `403` — `Api` отклонил principal как не допущенный к user-owned данным. Server-side session сохраняется, и browser UI оставляет full logout доступным.
+- `503` — Identity token endpoint или `Api` временно недоступны; session при этом сохраняется, full logout остаётся доступным.
 - Завершённая или отклонённая session возвращается как `authenticated: false`, а не как `401`.
 
 ### `GET /bff/auth/login?returnUrl=<local-path>`
@@ -125,8 +125,9 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 
 ## Access token и refresh
 
-- Access token считается пригодным, если до его истечения остаётся больше `Bff:Token:RefreshSkew` (по умолчанию 1 минута); иначе BFF выполняет `refresh_token` grant к token endpoint из discovery Identity. Запрос к token endpoint ограничен `Bff:Token:EndpointTimeout` (по умолчанию 10 секунд).
-- Refresh одного пользователя сериализуется: параллельные запросы ожидают один refresh и используют его результат, а не расходуют ротируемый refresh token повторно.
+- Access token считается пригодным, если до его истечения остаётся больше 60 секунд; иначе BFF выполняет `refresh_token` grant к token endpoint из discovery Identity. Запрос к token endpoint ограничен `Bff:Token:EndpointTimeout` (по умолчанию 10 секунд).
+- До отправки grant отмена browser request прерывает refresh. После начала отправки `grant_type=refresh_token` получение ответа, запись новых tokens и повторное чтение ticket завершаются независимо от отключения browser. Эту часть отменяют только timeout token endpoint и остановка host.
+- Refresh одного subject выполняется по одному. Lock не снимается, пока grant выполняется или его ожидают другие запросы. Параллельные запросы используют результат одного refresh и не расходуют ротируемый refresh token повторно.
 - Automatic retry для `refresh_token` grant не выполняется: повтор может израсходовать уже ротированный refresh token.
 - `invalid_grant` завершает BFF session.
 - Network error, timeout, недоступный discovery, `5xx` и другие ответы token endpoint возвращают `503` и сохраняют session для следующей попытки.
