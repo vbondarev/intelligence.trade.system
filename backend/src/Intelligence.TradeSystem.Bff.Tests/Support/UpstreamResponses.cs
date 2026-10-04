@@ -15,7 +15,7 @@ internal static class UpstreamResponses
     public static HttpResponseMessage TokenSuccess(
         string accessToken,
         string? refreshToken = null,
-        int expiresIn = 3600,
+        long expiresIn = 3600,
         string? idToken = null)
     {
         var payload = new Dictionary<string, object>

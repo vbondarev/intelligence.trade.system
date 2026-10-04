@@ -41,6 +41,14 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
     internal const string WebBffPostLogoutRedirectUri = "http://web.test/signout-callback-oidc";
     internal static readonly string WebBffClientSecret =
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    // Protocol tests работают с отдельным client, чтобы production registration trade-web-bff
+    // проверялась только через WebBffClientSeeder и не зависела от protocol scenarios.
+    internal const string WebBffTestClientId = "trade-web-bff-test";
+    internal const string WebBffTestRedirectUri = "http://web-bff-test.test/signin-oidc";
+    internal const string WebBffTestPostLogoutRedirectUri = "http://web-bff-test.test/signout-callback-oidc";
+    internal static readonly string WebBffTestClientSecret =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     private static readonly string CredentialProtectionKey =
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
@@ -193,6 +201,27 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
                 Permissions.GrantTypes.AuthorizationCode,
                 Permissions.ResponseTypes.Code,
                 Permissions.Prefixes.Scope + Scopes.OpenId,
+                Permissions.Prefixes.Scope + StartupExtensions.ApiScope
+            },
+            Requirements = { Requirements.Features.ProofKeyForCodeExchange }
+        });
+
+        await applicationManager.CreateAsync(new OpenIddict.Abstractions.OpenIddictApplicationDescriptor
+        {
+            ClientId = WebBffTestClientId,
+            ClientSecret = WebBffTestClientSecret,
+            ClientType = ClientTypes.Confidential,
+            DisplayName = "Web BFF protocol integration test client",
+            RedirectUris = { new Uri(WebBffTestRedirectUri) },
+            PostLogoutRedirectUris = { new Uri(WebBffTestPostLogoutRedirectUri) },
+            Permissions =
+            {
+                Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.EndSession,
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
+                Permissions.ResponseTypes.Code,
                 Permissions.Prefixes.Scope + StartupExtensions.ApiScope
             },
             Requirements = { Requirements.Features.ProofKeyForCodeExchange }

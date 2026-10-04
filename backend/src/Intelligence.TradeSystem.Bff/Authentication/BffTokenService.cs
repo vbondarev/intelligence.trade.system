@@ -165,13 +165,11 @@ internal sealed partial class BffTokenService(
         }
     }
 
-    private void ApplyRefreshedTokens(AuthenticationProperties properties, OAuthTokenRefreshResult refresh)
+    private static void ApplyRefreshedTokens(AuthenticationProperties properties, OAuthTokenRefreshResult refresh)
     {
         var tokens = properties.GetTokens().ToDictionary(token => token.Name, token => token.Value, StringComparer.Ordinal);
         tokens[AccessTokenName] = refresh.AccessToken!;
-        tokens[ExpiresAtName] = timeProvider.GetUtcNow()
-            .Add(refresh.ExpiresIn)
-            .ToString("o", CultureInfo.InvariantCulture);
+        tokens[ExpiresAtName] = refresh.ExpiresAt.ToString("o", CultureInfo.InvariantCulture);
 
         if (!string.IsNullOrEmpty(refresh.RefreshToken))
         {

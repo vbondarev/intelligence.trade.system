@@ -15,6 +15,14 @@ public sealed class OAuthTokenRefreshClientTests
 {
     private const string TokenEndpoint = "http://identity.test/connect/token";
 
+    /// <summary>
+    /// Помещается в <see cref="TimeSpan"/> (около 15 800 лет), но <see cref="Now"/> + это значение
+    /// выходит за <see cref="DateTimeOffset.MaxValue"/>.
+    /// </summary>
+    private const long ExpiresInBeyondDateTimeOffsetRange = 500_000_000_000;
+
+    private static readonly DateTimeOffset Now = new(2026, 10, 5, 0, 0, 0, TimeSpan.Zero);
+
     [Fact]
     public async Task Successful_response_returns_all_issued_tokens()
     {
@@ -30,7 +38,7 @@ public sealed class OAuthTokenRefreshClientTests
         result.AccessToken.Should().Be("access-2");
         result.RefreshToken.Should().Be("refresh-2");
         result.IdToken.Should().Be("id-2");
-        result.ExpiresIn.Should().Be(TimeSpan.FromMinutes(10));
+        result.ExpiresAt.Should().Be(Now.AddMinutes(10));
         result.ToString().Should().NotContain("access-2").And.NotContain("refresh-2");
         handler.Requests.Single().RequestUri.AbsoluteUri.Should().Be(TokenEndpoint);
     }
@@ -54,6 +62,45 @@ public sealed class OAuthTokenRefreshClientTests
         var result = await CreateClient(handler).RefreshAsync("refresh-1", CancellationToken.None);
 
         result.Status.Should().Be(OAuthTokenRefreshStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task Expires_in_within_time_span_but_beyond_date_time_offset_range_is_unavailable()
+    {
+        var fitsTimeSpan = () => TimeSpan.FromSeconds(ExpiresInBeyondDateTimeOffsetRange);
+        fitsTimeSpan.Should().NotThrow();
+        TimeSpan.FromSeconds(ExpiresInBeyondDateTimeOffsetRange).Should().BeGreaterThan(DateTimeOffset.MaxValue - Now);
+        var handler = new RecordingHttpHandler
+        {
+            Responder = (_, _) => Task.FromResult(
+                UpstreamResponses.TokenSuccess("access-2", "refresh-2", ExpiresInBeyondDateTimeOffsetRange)),
+        };
+
+        var result = await CreateClient(handler).RefreshAsync("refresh-1", CancellationToken.None);
+
+        result.Status.Should().Be(OAuthTokenRefreshStatus.Unavailable);
+        result.AccessToken.Should().BeNull();
+        result.RefreshToken.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Expires_in_is_bounded_by_date_time_offset_range_relative_to_current_time()
+    {
+        var maxExpiresInSeconds = (DateTimeOffset.MaxValue - Now).Ticks / TimeSpan.TicksPerSecond;
+        var expiresIn = maxExpiresInSeconds;
+        var handler = new RecordingHttpHandler
+        {
+            Responder = (_, _) => Task.FromResult(UpstreamResponses.TokenSuccess("access-2", expiresIn: expiresIn)),
+        };
+        var client = CreateClient(handler);
+
+        var atBoundary = await client.RefreshAsync("refresh-1", CancellationToken.None);
+        expiresIn = maxExpiresInSeconds + 1;
+        var beyondBoundary = await client.RefreshAsync("refresh-1", CancellationToken.None);
+
+        atBoundary.Status.Should().Be(OAuthTokenRefreshStatus.Succeeded);
+        atBoundary.ExpiresAt.Should().Be(Now.AddTicks(maxExpiresInSeconds * TimeSpan.TicksPerSecond));
+        beyondBoundary.Status.Should().Be(OAuthTokenRefreshStatus.Unavailable);
     }
 
     [Theory]
@@ -175,6 +222,7 @@ public sealed class OAuthTokenRefreshClientTests
                 BffOidcOptions.CanonicalClientId,
                 "secret"),
             new NeverStoppingLifetime(),
+            new MutableTimeProvider(Now),
             NullLogger<OAuthTokenRefreshClient>.Instance);
 
     private sealed class NeverStoppingLifetime : IHostApplicationLifetime

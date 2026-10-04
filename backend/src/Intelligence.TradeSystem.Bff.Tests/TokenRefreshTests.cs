@@ -134,6 +134,24 @@ public sealed class TokenRefreshTests
     }
 
     [Fact]
+    public async Task Expires_in_beyond_date_time_offset_range_keeps_session_and_returns_service_unavailable()
+    {
+        using var factory = CreateFactoryWithApi();
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
+            UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2", expiresIn: 500_000_000_000));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: NearExpiry);
+
+        await browser.GetSessionAsync(HttpStatusCode.ServiceUnavailable);
+
+        factory.TokenEndpoint.Count.Should().Be(1);
+        browser.SessionCookie.Should().NotBeNull();
+        var stored = await browser.GetStoredTicketAsync();
+        stored!.Properties.GetTokenValue("access_token").Should().Be("access-1");
+        factory.Api.Count.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Identity_network_error_keeps_session_and_is_not_retried()
     {
         using var factory = CreateFactoryWithApi();

@@ -16,14 +16,10 @@ internal sealed partial class OAuthTokenRefreshClient(
     IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptions,
     BffOidcSettings oidcSettings,
     IHostApplicationLifetime applicationLifetime,
+    TimeProvider timeProvider,
     ILogger<OAuthTokenRefreshClient> logger)
 {
     public const string HttpClientName = "OidcToken";
-
-    /// <summary>
-    /// Верхняя граница <c>expires_in</c>, которую <see cref="TimeSpan.FromSeconds(double)"/> принимает без исключения.
-    /// </summary>
-    private static readonly long MaxExpiresInSeconds = TimeSpan.MaxValue.Ticks / TimeSpan.TicksPerSecond;
 
     public async Task<OAuthTokenRefreshResult> RefreshAsync(
         string refreshToken,
@@ -134,13 +130,19 @@ internal sealed partial class OAuthTokenRefreshClient(
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var root = document.RootElement;
 
+            // Refresh token к этому моменту уже погашен Identity, поэтому expiry, который нельзя
+            // представить как now + expires_in, отклоняется здесь, а не исключением при сохранении ticket.
+            // Остаток до DateTimeOffset.MaxValue всегда меньше TimeSpan.MaxValue, поэтому эта
+            // граница покрывает и переполнение TimeSpan.
+            var now = timeProvider.GetUtcNow();
+            var maxExpiresInSeconds = (DateTimeOffset.MaxValue - now).Ticks / TimeSpan.TicksPerSecond;
             var accessToken = GetString(root, "access_token");
             if (string.IsNullOrEmpty(accessToken)
                 || !root.TryGetProperty("expires_in", out var expiresInElement)
                 || expiresInElement.ValueKind != JsonValueKind.Number
                 || !expiresInElement.TryGetInt64(out var expiresInSeconds)
                 || expiresInSeconds <= 0
-                || expiresInSeconds > MaxExpiresInSeconds)
+                || expiresInSeconds > maxExpiresInSeconds)
             {
                 LogMalformedTokenResponse();
                 return OAuthTokenRefreshResult.Unavailable;
@@ -148,7 +150,7 @@ internal sealed partial class OAuthTokenRefreshClient(
 
             return OAuthTokenRefreshResult.Succeeded(
                 accessToken,
-                TimeSpan.FromSeconds(expiresInSeconds),
+                now.AddTicks(expiresInSeconds * TimeSpan.TicksPerSecond),
                 GetString(root, "refresh_token"),
                 GetString(root, "id_token"));
         }
@@ -223,7 +225,10 @@ internal sealed class OAuthTokenRefreshResult
 
     public string? AccessToken { get; private init; }
 
-    public TimeSpan ExpiresIn { get; private init; }
+    /// <summary>
+    /// Абсолютный момент истечения access token, вычисленный при разборе ответа.
+    /// </summary>
+    public DateTimeOffset ExpiresAt { get; private init; }
 
     public string? RefreshToken { get; private init; }
 
@@ -231,13 +236,13 @@ internal sealed class OAuthTokenRefreshResult
 
     public static OAuthTokenRefreshResult Succeeded(
         string accessToken,
-        TimeSpan expiresIn,
+        DateTimeOffset expiresAt,
         string? refreshToken,
         string? idToken) =>
         new(OAuthTokenRefreshStatus.Succeeded)
         {
             AccessToken = accessToken,
-            ExpiresIn = expiresIn,
+            ExpiresAt = expiresAt,
             RefreshToken = refreshToken,
             IdToken = idToken,
         };

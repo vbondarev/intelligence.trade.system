@@ -28,6 +28,11 @@ public sealed partial class AuthenticationIntegrationTests
     private static string WebBffRedirectUri => AuthenticationIntegrationFixture.WebBffRedirectUri;
     private static string WebBffPostLogoutRedirectUri => AuthenticationIntegrationFixture.WebBffPostLogoutRedirectUri;
 
+    private static string WebBffTestClientId => AuthenticationIntegrationFixture.WebBffTestClientId;
+    private static string WebBffTestClientSecret => AuthenticationIntegrationFixture.WebBffTestClientSecret;
+    private static string WebBffTestRedirectUri => AuthenticationIntegrationFixture.WebBffTestRedirectUri;
+    private static string WebBffTestPostLogoutRedirectUri => AuthenticationIntegrationFixture.WebBffTestPostLogoutRedirectUri;
+
     [Fact]
     public async Task Web_bff_client_is_registered_as_confidential_pkce_client_with_refresh_and_end_session()
     {
@@ -57,12 +62,38 @@ public sealed partial class AuthenticationIntegrationTests
     }
 
     [Fact]
+    public async Task Protocol_test_client_is_a_separate_registration_from_the_production_web_bff_client()
+    {
+        using var scope = identityFactory.Services.CreateScope();
+        var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+
+        var production = await manager.FindByClientIdAsync(WebBffClientId);
+        var test = await manager.FindByClientIdAsync(WebBffTestClientId);
+        var publicClient = await manager.FindByClientIdAsync(ClientId);
+
+        production.Should().NotBeNull();
+        test.Should().NotBeNull();
+        publicClient.Should().NotBeNull();
+        WebBffTestClientId.Should().Be("trade-web-bff-test").And.NotBe(WebBffClientId);
+        (await manager.GetIdAsync(test!)).Should().NotBe(await manager.GetIdAsync(production!));
+        (await manager.GetClientTypeAsync(test!)).Should().Be(ClientTypes.Confidential);
+        (await manager.GetPermissionsAsync(test!)).Should().BeEquivalentTo(await manager.GetPermissionsAsync(production!));
+        (await manager.GetRequirementsAsync(test!)).Should().Equal(Requirements.Features.ProofKeyForCodeExchange);
+        (await manager.GetRedirectUrisAsync(test!)).Should().Equal(WebBffTestRedirectUri);
+        (await manager.GetPostLogoutRedirectUrisAsync(test!)).Should().Equal(WebBffTestPostLogoutRedirectUri);
+        (await manager.ValidateClientSecretAsync(test!, WebBffTestClientSecret)).Should().BeTrue();
+        (await manager.ValidateClientSecretAsync(test!, WebBffClientSecret)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Web_bff_client_seeder_synchronizes_only_its_own_client_and_keeps_the_secret()
     {
         using var scope = identityFactory.Services.CreateScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
         var publicClient = await manager.FindByClientIdAsync(ClientId);
         var publicPermissionsBefore = await manager.GetPermissionsAsync(publicClient!);
+        var testClient = await manager.FindByClientIdAsync(WebBffTestClientId);
+        var testPermissionsBefore = await manager.GetPermissionsAsync(testClient!);
         var webClient = await manager.FindByClientIdAsync(WebBffClientId);
         var drifted = new OpenIddictApplicationDescriptor();
         await manager.PopulateAsync(drifted, webClient!);
@@ -94,6 +125,12 @@ public sealed partial class AuthenticationIntegrationTests
         var publicClientAfter = await verificationManager.FindByClientIdAsync(ClientId);
         (await verificationManager.GetPermissionsAsync(publicClientAfter!))
             .Should().BeEquivalentTo(publicPermissionsBefore);
+        var testClientAfter = await verificationManager.FindByClientIdAsync(WebBffTestClientId);
+        (await verificationManager.GetPermissionsAsync(testClientAfter!)).Should().BeEquivalentTo(testPermissionsBefore);
+        (await verificationManager.GetRedirectUrisAsync(testClientAfter!)).Should().Equal(WebBffTestRedirectUri);
+        (await verificationManager.GetPostLogoutRedirectUrisAsync(testClientAfter!))
+            .Should().Equal(WebBffTestPostLogoutRedirectUri);
+        (await verificationManager.ValidateClientSecretAsync(testClientAfter!, WebBffTestClientSecret)).Should().BeTrue();
     }
 
     [Fact]
@@ -105,7 +142,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var tokenResponse = await RedeemWebBffCodeAsync(
             authorization.Code,
             authorization.CodeVerifier,
-            WebBffClientSecret);
+            WebBffTestClientSecret);
 
         tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
@@ -138,7 +175,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var tokenResponse = await RedeemWebBffCodeAsync(
             authorization.Code,
             authorization.CodeVerifier,
-            "wrong-" + WebBffClientSecret);
+            "wrong-" + WebBffTestClientSecret);
 
         await AssertTokenErrorAsync(tokenResponse, Errors.InvalidClient);
     }
@@ -163,7 +200,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var tokenResponse = await RedeemWebBffCodeAsync(
             authorization.Code,
             authorization.CodeVerifier,
-            WebBffClientSecret);
+            WebBffTestClientSecret);
         using var tokens = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         var originalAccessToken = tokens.RootElement.GetProperty("access_token").GetString()!;
         var refreshToken = tokens.RootElement.GetProperty("refresh_token").GetString()!;
@@ -174,8 +211,8 @@ public sealed partial class AuthenticationIntegrationTests
             {
                 ["grant_type"] = GrantTypes.RefreshToken,
                 ["refresh_token"] = refreshToken,
-                ["client_id"] = WebBffClientId,
-                ["client_secret"] = WebBffClientSecret,
+                ["client_id"] = WebBffTestClientId,
+                ["client_secret"] = WebBffTestClientSecret,
             }));
 
         refreshResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -216,11 +253,11 @@ public sealed partial class AuthenticationIntegrationTests
         using var client = CreateIdentityClient();
         var idToken = await IssueWebBffIdTokenAsync(client);
 
-        using var response = await client.GetAsync(BuildEndSessionUri(idToken, WebBffPostLogoutRedirectUri));
+        using var response = await client.GetAsync(BuildEndSessionUri(idToken, WebBffTestPostLogoutRedirectUri));
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         var location = response.Headers.Location!;
-        location.GetLeftPart(UriPartial.Path).Should().Be(WebBffPostLogoutRedirectUri);
+        location.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestPostLogoutRedirectUri);
         QueryHelpers.ParseQuery(location.Query)["state"].ToString().Should().Be(WebBffState);
         response.Headers.GetValues("Set-Cookie")
             .Should().Contain(cookie => cookie.StartsWith("TradeSystem.Identity=;", StringComparison.Ordinal));
@@ -238,7 +275,7 @@ public sealed partial class AuthenticationIntegrationTests
         response.Headers.Location.Should().BeNull();
 
         using var authorize = await client.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(CreateCodeVerifier())));
-        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
     }
 
     [Fact]
@@ -262,7 +299,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var response = await client.GetAsync(
             QueryHelpers.AddQueryString("/connect/endsession", new Dictionary<string, string?>
             {
-                ["post_logout_redirect_uri"] = WebBffPostLogoutRedirectUri,
+                ["post_logout_redirect_uri"] = WebBffTestPostLogoutRedirectUri,
                 ["state"] = WebBffState,
             }));
 
@@ -290,7 +327,7 @@ public sealed partial class AuthenticationIntegrationTests
         var idToken = await IssueWebBffIdTokenAsync(client);
         var forged = idToken[..^4] + (idToken.EndsWith("AAAA", StringComparison.Ordinal) ? "BBBB" : "AAAA");
 
-        using var response = await client.GetAsync(BuildEndSessionUri(forged, WebBffPostLogoutRedirectUri));
+        using var response = await client.GetAsync(BuildEndSessionUri(forged, WebBffTestPostLogoutRedirectUri));
 
         await AssertEndSessionRejectedAsync(response);
         await AssertIdentitySessionIsReusedAsync(client);
@@ -306,16 +343,16 @@ public sealed partial class AuthenticationIntegrationTests
         await AuthorizeWebBffAsync(victimClient, SecondUsername, SecondPassword);
 
         using var response = await victimClient.GetAsync(
-            BuildEndSessionUri(attackerIdToken, WebBffPostLogoutRedirectUri));
+            BuildEndSessionUri(attackerIdToken, WebBffTestPostLogoutRedirectUri));
 
         await AssertEndSessionRejectedAsync(response);
         var codeVerifier = CreateCodeVerifier();
         using var authorize = await victimClient.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(codeVerifier)));
         authorize.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
         var code = QueryHelpers.ParseQuery(authorize.Headers.Location.Query)["code"].ToString();
         code.Should().NotBeNullOrWhiteSpace();
-        using var tokenResponse = await RedeemWebBffCodeAsync(code, codeVerifier, WebBffClientSecret);
+        using var tokenResponse = await RedeemWebBffCodeAsync(code, codeVerifier, WebBffTestClientSecret);
         tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var tokens = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         new JwtSecurityTokenHandler()
@@ -330,10 +367,10 @@ public sealed partial class AuthenticationIntegrationTests
         var idToken = await IssueWebBffIdTokenAsync(tokenClient);
         using var anonymousClient = CreateIdentityClient();
 
-        using var response = await anonymousClient.GetAsync(BuildEndSessionUri(idToken, WebBffPostLogoutRedirectUri));
+        using var response = await anonymousClient.GetAsync(BuildEndSessionUri(idToken, WebBffTestPostLogoutRedirectUri));
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffPostLogoutRedirectUri);
+        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestPostLogoutRedirectUri);
         await AssertIdentitySessionIsReusedAsync(tokenClient);
     }
 
@@ -342,7 +379,7 @@ public sealed partial class AuthenticationIntegrationTests
     {
         using var client = CreateIdentityClient();
         var idToken = await IssueWebBffIdTokenAsync(client);
-        using (await client.GetAsync(BuildEndSessionUri(idToken, WebBffPostLogoutRedirectUri)))
+        using (await client.GetAsync(BuildEndSessionUri(idToken, WebBffTestPostLogoutRedirectUri)))
         {
         }
 
@@ -361,7 +398,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var response = await client.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(CreateCodeVerifier())));
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
         QueryHelpers.ParseQuery(response.Headers.Location.Query)["code"].ToString()
             .Should().NotBeNullOrWhiteSpace();
     }
@@ -408,10 +445,10 @@ public sealed partial class AuthenticationIntegrationTests
         var completed = await CompleteLoginAsync(client, challenge.Headers.Location!, Username, Password);
 
         completed.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        completed.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        completed.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
         var code = QueryHelpers.ParseQuery(completed.Headers.Location.Query)["code"].ToString();
         code.Should().NotBeNullOrWhiteSpace();
-        using var tokenResponse = await RedeemWebBffCodeAsync(code, codeVerifier, WebBffClientSecret);
+        using var tokenResponse = await RedeemWebBffCodeAsync(code, codeVerifier, WebBffTestClientSecret);
         tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
@@ -461,7 +498,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var authorize = await client.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(CreateCodeVerifier())));
 
         authorize.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
         QueryHelpers.ParseQuery(authorize.Headers.Location.Query)["code"].ToString()
             .Should().NotBeNullOrWhiteSpace();
     }
@@ -472,7 +509,7 @@ public sealed partial class AuthenticationIntegrationTests
         using var tokenResponse = await RedeemWebBffCodeAsync(
             authorization.Code,
             authorization.CodeVerifier,
-            WebBffClientSecret);
+            WebBffTestClientSecret);
         tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         return body.RootElement.GetProperty("id_token").GetString()!;
@@ -493,7 +530,7 @@ public sealed partial class AuthenticationIntegrationTests
         var completed = await CompleteLoginAsync(client, challenge.Headers.Location!, username, password);
         completed.StatusCode.Should().Be(HttpStatusCode.Redirect);
         var callback = completed.Headers.Location!;
-        callback.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        callback.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
         var query = QueryHelpers.ParseQuery(callback.Query);
         query["state"].ToString().Should().Be(WebBffState);
         var code = query["code"].ToString();
@@ -548,9 +585,9 @@ public sealed partial class AuthenticationIntegrationTests
         var parameters = new Dictionary<string, string>
         {
             ["grant_type"] = GrantTypes.AuthorizationCode,
-            ["client_id"] = WebBffClientId,
+            ["client_id"] = WebBffTestClientId,
             ["code"] = code,
-            ["redirect_uri"] = WebBffRedirectUri,
+            ["redirect_uri"] = WebBffTestRedirectUri,
             ["code_verifier"] = codeVerifier,
         };
         if (clientSecret is not null)
@@ -574,8 +611,8 @@ public sealed partial class AuthenticationIntegrationTests
     {
         var query = new Dictionary<string, string?>
         {
-            ["client_id"] = WebBffClientId,
-            ["redirect_uri"] = WebBffRedirectUri,
+            ["client_id"] = WebBffTestClientId,
+            ["redirect_uri"] = WebBffTestRedirectUri,
             ["response_type"] = ResponseTypes.Code,
             ["scope"] = WebBffScope,
             ["state"] = WebBffState,
