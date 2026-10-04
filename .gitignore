@@ -142,6 +142,10 @@ bld/
 .vs/
 # Uncomment if you have tasks that create the project's static files in wwwroot
 #wwwroot/
+# Vite собирает React-клиент в wwwroot Web BFF; результат сборки не хранится в Git.
+backend/src/Intelligence.TradeSystem.Web/wwwroot/
+playwright-report/
+backend/src/Intelligence.TradeSystem.Web/ClientApp/test-results/
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/

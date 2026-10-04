@@ -31,11 +31,13 @@ public sealed class ProductionProjectDependencyTests
             ["Intelligence.TradeSystem.Identity"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.Identity.Migrations"] = ["Intelligence.TradeSystem.Identity"],
             ["Intelligence.TradeSystem.ServiceDefaults"] = [],
+            ["Intelligence.TradeSystem.Web"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.AppHost"] =
                 [
                     "Intelligence.TradeSystem.Api",
                     "Intelligence.TradeSystem.Identity",
-                    "Intelligence.TradeSystem.Identity.Migrations"
+                    "Intelligence.TradeSystem.Identity.Migrations",
+                    "Intelligence.TradeSystem.Web"
                 ],
         };
 
@@ -47,6 +49,27 @@ public sealed class ProductionProjectDependencyTests
             actualReferences.Should().NotContain(reference => reference.EndsWith(".Tests", StringComparison.Ordinal));
             actualReferences.Should().BeEquivalentTo(expectedReferences);
         }
+    }
+
+    [Fact]
+    public void Web_Bff_Does_Not_Reference_Business_Persistence_Or_Exchange_Projects()
+    {
+        var sourceRoot = FindSourceRoot();
+        var webReferences = GetProjectReferences(Path.Combine(
+            sourceRoot,
+            "Intelligence.TradeSystem.Web",
+            "Intelligence.TradeSystem.Web.csproj"));
+
+        webReferences.Should().NotContain(
+        [
+            "Intelligence.TradeSystem.Domain",
+            "Intelligence.TradeSystem.MarketIntelligence",
+            "Intelligence.TradeSystem.Application",
+            "Intelligence.TradeSystem.Infrastructure",
+            "Intelligence.TradeSystem.Exchanges",
+            "Intelligence.TradeSystem.Api",
+            "Intelligence.TradeSystem.Identity"
+        ]);
     }
 
     [Theory]

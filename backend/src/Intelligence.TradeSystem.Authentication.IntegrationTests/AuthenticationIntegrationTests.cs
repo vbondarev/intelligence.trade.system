@@ -37,7 +37,7 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace Intelligence.TradeSystem.Authentication.IntegrationTests;
 
-public sealed class AuthenticationIntegrationTests(
+public sealed partial class AuthenticationIntegrationTests(
     AuthenticationIntegrationFixture fixture) : IAsyncLifetime, IDisposable, IClassFixture<AuthenticationIntegrationFixture>
 {
     private const string PrincipalTypeClaim = "trade_principal_type";

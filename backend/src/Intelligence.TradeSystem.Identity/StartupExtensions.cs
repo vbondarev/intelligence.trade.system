@@ -42,6 +42,16 @@ public static class StartupExtensions
             .Get<IdentityServerOptions>() ?? new IdentityServerOptions();
         serverOptions.Validate();
 
+        var webBffClientOptions = configuration
+            .GetSection(WebBffClientOptions.SectionName)
+            .Get<WebBffClientOptions>() ?? new WebBffClientOptions();
+        webBffClientOptions.Validate(environment);
+
+        var developmentUserOptions = configuration
+            .GetSection(DevelopmentUserOptions.SectionName)
+            .Get<DevelopmentUserOptions>() ?? new DevelopmentUserOptions();
+        developmentUserOptions.Validate(environment);
+
         services
             .AddIdentityCore<ApplicationUser>(options =>
             {
@@ -64,6 +74,18 @@ public static class StartupExtensions
             })
             .AddIdentityCookies();
         services.AddHostedService<IdentityScopeSeeder>();
+
+        if (webBffClientOptions.Enabled)
+        {
+            services.AddSingleton(webBffClientOptions);
+            services.AddHostedService<WebBffClientSeeder>();
+        }
+
+        if (developmentUserOptions.Enabled)
+        {
+            services.AddSingleton(developmentUserOptions);
+            services.AddHostedService<DevelopmentUserSeeder>();
+        }
 
         services.ConfigureApplicationCookie(options =>
         {
@@ -112,6 +134,12 @@ public static class StartupExtensions
                         new Uri(issuer, "/.well-known/jwks"),
                         new Uri("/.well-known/jwks", UriKind.Relative)
                     });
+                options.SetEndSessionEndpointUris(
+                    new[]
+                    {
+                        new Uri(issuer, "/connect/endsession"),
+                        new Uri("/connect/endsession", UriKind.Relative)
+                    });
                 options.AllowAuthorizationCodeFlow();
                 options.AllowRefreshTokenFlow();
                 options.RegisterScopes(ApiScope);
@@ -134,7 +162,8 @@ public static class StartupExtensions
                 }
 
                 options.UseAspNetCore()
-                    .EnableAuthorizationEndpointPassthrough();
+                    .EnableAuthorizationEndpointPassthrough()
+                    .EnableEndSessionEndpointPassthrough();
 
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {

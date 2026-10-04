@@ -300,7 +300,43 @@ jobs:
           python3 .github/scripts/check-nuget-vulnerabilities.py "$report"
 
       - name: Build
-        run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
+        run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore -p:BuildClientAssets=false
+
+  frontend:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: needs['classify-changes'].outputs.ci_path == 'full'
+    defaults:
+      run:
+        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: backend/src/Intelligence.TradeSystem.Web/ClientApp/.nvmrc
+          cache: npm
+          cache-dependency-path: backend/src/Intelligence.TradeSystem.Web/ClientApp/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Build
+        run: npm run build
 
   test:
     runs-on: ubuntu-latest
@@ -324,7 +360,7 @@ jobs:
         run: python3 .github/scripts/test-check-coverage.py
 
       - name: Test
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore -p:BuildClientAssets=false --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
 
       - name: Verify coverage
         shell: bash
@@ -353,7 +389,9 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-    needs: test
+    needs:
+      - test
+      - frontend
 
     steps:
       - name: Checkout
@@ -370,11 +408,24 @@ jobs:
       - name: Docker build Identity migrations
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
+      - name: Docker build Web
+        run: docker build -f backend/src/Intelligence.TradeSystem.Web/Dockerfile -t intelligence-trade-system-web:ci backend
+
       - name: Generate disposable credential protection key
         run: |
           credential_key="$(openssl rand -base64 32)"
           echo "::add-mask::$credential_key"
           echo "TRADE_CREDENTIAL_KEY=$credential_key" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Generate disposable Web BFF secrets
+        run: |
+          client_secret="$(openssl rand -hex 32)"
+          dev_password="Dev-$(openssl rand -hex 16)-Aa1"
+          echo "::add-mask::$client_secret"
+          echo "::add-mask::$dev_password"
+          echo "TRADE_WEB_BFF_CLIENT_SECRET=$client_secret" >> "$GITHUB_ENV"
+          echo "TRADE_WEB_DEV_PASSWORD=$dev_password" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Start PostgreSQL in existing-business-database shape
@@ -388,14 +439,47 @@ jobs:
           docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem_identity'\''" | grep -q 1'
 
       - name: Start Compose authentication stack
-        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api auth-test-seeder
+        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api web auth-test-seeder
 
       - name: Smoke test Compose OAuth/OIDC and protected API
         run: bash .github/scripts/compose-auth-smoke.sh
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: backend/src/Intelligence.TradeSystem.Web/ClientApp/.nvmrc
+          cache: npm
+          cache-dependency-path: backend/src/Intelligence.TradeSystem.Web/ClientApp/package-lock.json
+
+      - name: Install Playwright
+        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Wait for Web
+        shell: bash
+        run: |
+          for _ in {1..60}; do
+            if curl --silent --fail --output /dev/null http://localhost:8082/bff/auth/session; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Web BFF не стал доступен." >&2
+          exit 1
+
+      - name: Browser E2E Web login, session and logout
+        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+        env:
+          WEB_BASE_URL: http://localhost:8082
+          IDENTITY_BASE_URL: http://localhost:8081
+          E2E_USERNAME: trade-dev-user
+        run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" npm run test:e2e
+
       - name: Show Compose authentication logs on failure
         if: failure()
-        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api auth-test-seeder
+        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api web auth-test-seeder
 
       - name: Stop authentication stack
         if: always()
@@ -407,6 +491,7 @@ jobs:
       - classify-changes
       - docs-validation
       - build
+      - frontend
       - test
       - docker-build
       - agent-assets-validation
@@ -422,6 +507,7 @@ jobs:
           CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
           DOCS_VALIDATION_RESULT: ${{ needs['docs-validation'].result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
           TEST_RESULT: ${{ needs.test.result }}
           DOCKER_BUILD_RESULT: ${{ needs['docker-build'].result }}
           AGENT_ASSETS_VALIDATION_RESULT: ${{ needs['agent-assets-validation'].result }}
@@ -435,6 +521,7 @@ jobs:
             echo "- classify-changes: \`$CLASSIFIER_RESULT\`"
             echo "- docs-validation: \`$DOCS_VALIDATION_RESULT\`"
             echo "- build: \`$BUILD_RESULT\`"
+            echo "- frontend: \`$FRONTEND_RESULT\`"
             echo "- test: \`$TEST_RESULT\`"
             echo "- docker-build: \`$DOCKER_BUILD_RESULT\`"
             echo "- agent-assets-validation: \`$AGENT_ASSETS_VALIDATION_RESULT\`"
@@ -463,12 +550,14 @@ jobs:
             docs)
               [[ "$DOCS_VALIDATION_RESULT" == "success" ]]
               [[ "$BUILD_RESULT" == "skipped" ]]
+              [[ "$FRONTEND_RESULT" == "skipped" ]]
               [[ "$TEST_RESULT" == "skipped" ]]
               [[ "$DOCKER_BUILD_RESULT" == "skipped" ]]
               ;;
             full)
               [[ "$DOCS_VALIDATION_RESULT" == "skipped" ]]
               [[ "$BUILD_RESULT" == "success" ]]
+              [[ "$FRONTEND_RESULT" == "success" ]]
               [[ "$TEST_RESULT" == "success" ]]
               [[ "$DOCKER_BUILD_RESULT" == "success" ]]
               ;;

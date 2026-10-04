@@ -32,6 +32,7 @@
 - `Exchanges` — адаптеры внешних бирж и нормализация transport-моделей.
 - `Api` — HTTP boundary и composition root без торговых вычислений.
 - `Identity` — отдельный authorization server.
+- `Web` — host React-клиента и BFF: browser session и посредничество с OAuth tokens без business logic; к `Api` обращается только по HTTP с Bearer token.
 - `ServiceDefaults` / `AppHost` — общая эксплуатационная и Aspire-обвязка.
 
 Не переноси EF Core entities в Domain/Application и не протаскивай типы Bybit.Net за границу exchange adapter.

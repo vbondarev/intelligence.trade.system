@@ -36,6 +36,11 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
     internal const string SecondUsername = "integration-user-b";
     internal const string SecondPassword = "Integration-password-456";
     internal const string CertificatePassword = "integration-certificate-password";
+    internal const string WebBffClientId = "trade-web-bff-test";
+    internal const string WebBffRedirectUri = "http://web.test/signin-oidc";
+    internal const string WebBffPostLogoutRedirectUri = "http://web.test/signout-callback-oidc";
+    internal static readonly string WebBffClientSecret =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     private static readonly string CredentialProtectionKey =
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
@@ -251,6 +256,11 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
             builder.UseSetting("Identity:MaxFailedAccessAttempts", "3");
             builder.UseSetting("Identity:DefaultLockoutTimeSpan", "00:00:30");
             builder.UseSetting("Identity:AllowedForNewUsers", "true");
+            builder.UseSetting("Identity:WebBffClient:Enabled", "true");
+            builder.UseSetting("Identity:WebBffClient:ClientId", WebBffClientId);
+            builder.UseSetting("Identity:WebBffClient:ClientSecret", WebBffClientSecret);
+            builder.UseSetting("Identity:WebBffClient:RedirectUris:0", WebBffRedirectUri);
+            builder.UseSetting("Identity:WebBffClient:PostLogoutRedirectUris:0", WebBffPostLogoutRedirectUri);
         }
     }
 

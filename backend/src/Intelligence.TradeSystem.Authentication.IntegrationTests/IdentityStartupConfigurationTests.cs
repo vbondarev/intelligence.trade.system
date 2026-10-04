@@ -145,6 +145,118 @@ public sealed class IdentityStartupConfigurationTests
         exception.Message.Should().NotContain(certificatePassword);
     }
 
+    [Fact]
+    public void Enabled_web_bff_client_requires_a_secret()
+    {
+        using var factory = CreateFactory(
+            "Testing",
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:ClientSecret*");
+    }
+
+    [Theory]
+    [InlineData("Testing", "not-a-uri")]
+    [InlineData("Testing", "http://web.test/signin-oidc#fragment")]
+    [InlineData("Production", "http://web.example/signin-oidc")]
+    public void Web_bff_client_rejects_invalid_redirect_uris_without_disclosing_the_secret(
+        string environment,
+        string redirectUri)
+    {
+        const string secret = "web-bff-client-secret-marker";
+        using var factory = CreateFactory(
+            environment,
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientSecret", secret),
+            ("Identity:WebBffClient:RedirectUris:0", redirectUri),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "https://web.example/signout-callback-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:RedirectUris*")
+            .Which;
+        exception.ToString().Should().NotContain(secret);
+    }
+
+    [Fact]
+    public void Enabled_web_bff_client_requires_post_logout_redirect_uris()
+    {
+        using var factory = CreateFactory(
+            "Testing",
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientSecret", "web-bff-client-secret"),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:PostLogoutRedirectUris*");
+    }
+
+    [Theory]
+    [InlineData("Testing")]
+    [InlineData("Production")]
+    public void Development_user_is_rejected_outside_development_without_disclosing_the_password(
+        string environment)
+    {
+        const string password = "development-password-marker";
+        using var factory = CreateFactory(
+            environment,
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:DevelopmentUser:Enabled", "true"),
+            ("Identity:DevelopmentUser:Username", "trade-dev-user"),
+            ("Identity:DevelopmentUser:Password", password));
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:DevelopmentUser*Development*")
+            .Which;
+        exception.ToString().Should().NotContain(password);
+    }
+
+    [Theory]
+    [InlineData("Username")]
+    [InlineData("Password")]
+    public void Development_user_requires_username_and_password(string missingSetting)
+    {
+        var settings = new List<(string Key, string Value)>
+        {
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:DevelopmentUser:Enabled", "true"),
+        };
+        if (missingSetting != "Username")
+        {
+            settings.Add(("Identity:DevelopmentUser:Username", "trade-dev-user"));
+        }
+
+        if (missingSetting != "Password")
+        {
+            settings.Add(("Identity:DevelopmentUser:Password", "Development-password-123"));
+        }
+
+        using var factory = CreateFactory(Environments.Development, settings.ToArray());
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage($"*Identity:DevelopmentUser:{missingSetting}*");
+    }
+
     private static WebApplicationFactory<IdentityApplicationMarker> CreateFactory(
         string environment,
         params (string Key, string Value)[] settings)
