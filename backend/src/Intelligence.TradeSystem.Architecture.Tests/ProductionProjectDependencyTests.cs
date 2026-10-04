@@ -31,13 +31,13 @@ public sealed class ProductionProjectDependencyTests
             ["Intelligence.TradeSystem.Identity"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.Identity.Migrations"] = ["Intelligence.TradeSystem.Identity"],
             ["Intelligence.TradeSystem.ServiceDefaults"] = [],
-            ["Intelligence.TradeSystem.Web"] = ["Intelligence.TradeSystem.ServiceDefaults"],
+            ["Intelligence.TradeSystem.Bff"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.AppHost"] =
                 [
                     "Intelligence.TradeSystem.Api",
                     "Intelligence.TradeSystem.Identity",
                     "Intelligence.TradeSystem.Identity.Migrations",
-                    "Intelligence.TradeSystem.Web"
+                    "Intelligence.TradeSystem.Bff"
                 ],
         };
 
@@ -52,15 +52,15 @@ public sealed class ProductionProjectDependencyTests
     }
 
     [Fact]
-    public void Web_Bff_Does_Not_Reference_Business_Persistence_Or_Exchange_Projects()
+    public void Bff_Does_Not_Reference_Business_Persistence_Or_Exchange_Projects()
     {
         var sourceRoot = FindSourceRoot();
-        var webReferences = GetProjectReferences(Path.Combine(
+        var bffReferences = GetProjectReferences(Path.Combine(
             sourceRoot,
-            "Intelligence.TradeSystem.Web",
-            "Intelligence.TradeSystem.Web.csproj"));
+            "Intelligence.TradeSystem.Bff",
+            "Intelligence.TradeSystem.Bff.csproj"));
 
-        webReferences.Should().NotContain(
+        bffReferences.Should().NotContain(
         [
             "Intelligence.TradeSystem.Domain",
             "Intelligence.TradeSystem.MarketIntelligence",
@@ -70,6 +70,28 @@ public sealed class ProductionProjectDependencyTests
             "Intelligence.TradeSystem.Api",
             "Intelligence.TradeSystem.Identity"
         ]);
+    }
+
+    [Fact]
+    public void Frontend_Source_Lives_Outside_Backend_And_Bff_Consumes_Its_Artifact()
+    {
+        var sourceRoot = FindSourceRoot();
+        var frontendRoot = Path.GetFullPath(Path.Combine(sourceRoot, "..", "..", "frontend", "intelligence-trade-web"));
+        var bffProject = XDocument.Load(Path.Combine(
+            sourceRoot,
+            "Intelligence.TradeSystem.Bff",
+            "Intelligence.TradeSystem.Bff.csproj"));
+
+        File.Exists(Path.Combine(frontendRoot, "package.json")).Should().BeTrue();
+        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web")).Should().BeFalse();
+        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web.Tests")).Should().BeFalse();
+        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Bff", "ClientApp")).Should().BeFalse();
+
+        var frontendRootProperty = bffProject.Descendants("FrontendRoot").Should().ContainSingle().Subject;
+        frontendRootProperty.Value.Should().Contain("'frontend', 'intelligence-trade-web'");
+
+        var viteConfig = File.ReadAllText(Path.Combine(frontendRoot, "vite.config.ts"));
+        viteConfig.Should().NotContain("wwwroot").And.NotContain("backend");
     }
 
     [Theory]

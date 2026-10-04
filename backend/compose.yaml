@@ -112,22 +112,22 @@
         aliases:
           - intelligence-trade-identity
 
-  web:
-    container_name: intelligence-trade-web
+  bff:
+    container_name: intelligence-trade-bff
     build:
-      context: .
-      dockerfile: src/Intelligence.TradeSystem.Web/Dockerfile
+      context: ..
+      dockerfile: backend/src/Intelligence.TradeSystem.Bff/Dockerfile
     ports:
       - "8082:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - Web__Oidc__Authority=http://localhost:8081
-      - Web__Oidc__MetadataAddress=http://identity:8080/.well-known/openid-configuration
-      - Web__Oidc__BackchannelBaseAddress=http://identity:8080
-      - Web__Oidc__ClientId=trade-web-bff
-      - Web__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
-      - Web__Api__BaseAddress=http://api:8080
+      - Bff__Oidc__Authority=http://localhost:8081
+      - Bff__Oidc__MetadataAddress=http://identity:8080/.well-known/openid-configuration
+      - Bff__Oidc__BackchannelBaseAddress=http://identity:8080
+      - Bff__Oidc__ClientId=trade-web-bff
+      - Bff__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
+      - Bff__Api__BaseAddress=http://api:8080
     depends_on:
       identity:
         condition: service_started
@@ -136,7 +136,7 @@
     networks:
       trade-agent-network:
         aliases:
-          - intelligence-trade-web
+          - intelligence-trade-bff
 
   auth-test-seeder:
     profiles: ["ci"]

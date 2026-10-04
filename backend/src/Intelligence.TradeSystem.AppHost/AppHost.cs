@@ -67,7 +67,7 @@ public static class Program
             .WithUrl("/swagger", "Swagger");
 
         builder
-            .AddProject<Projects.Intelligence_TradeSystem_Web>("web")
+            .AddProject<Projects.Intelligence_TradeSystem_Bff>("bff")
             .WithReference(identity)
             .WithReference(api)
             .WaitFor(identity)
@@ -77,14 +77,14 @@ public static class Program
                 endpoint.Port = 8082;
                 endpoint.TargetPort = 8080;
             })
-            .WithEnvironment("Web__Oidc__Authority", PublicIdentityIssuer)
+            .WithEnvironment("Bff__Oidc__Authority", PublicIdentityIssuer)
             .WithEnvironment(
-                "Web__Oidc__MetadataAddress",
+                "Bff__Oidc__MetadataAddress",
                 ReferenceExpression.Create($"{identityEndpoint}/.well-known/openid-configuration"))
-            .WithEnvironment("Web__Oidc__BackchannelBaseAddress", identityEndpoint)
-            .WithEnvironment("Web__Oidc__ClientId", "trade-web-bff")
-            .WithEnvironment("Web__Oidc__ClientSecret", webBffClientSecret)
-            .WithEnvironment("Web__Api__BaseAddress", api.GetEndpoint("http"))
+            .WithEnvironment("Bff__Oidc__BackchannelBaseAddress", identityEndpoint)
+            .WithEnvironment("Bff__Oidc__ClientId", "trade-web-bff")
+            .WithEnvironment("Bff__Oidc__ClientSecret", webBffClientSecret)
+            .WithEnvironment("Bff__Api__BaseAddress", api.GetEndpoint("http"))
             .WithExternalHttpEndpoints();
 
         builder.Build().Run();

@@ -2,12 +2,12 @@
 
 ## Граница
 
-`Intelligence.TradeSystem.Web` — host React-клиента и Backend-for-Frontend (BFF) для browser. Он не содержит business logic, не обращается к PostgreSQL и Bybit и не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api или Identity.
+`Intelligence.TradeSystem.Bff` — ASP.NET Core Backend-for-Frontend (BFF) для browser и host собранного React-клиента. Он не содержит business logic, не обращается к PostgreSQL и Bybit и не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api или Identity.
 
 Поток запросов:
 
 ```text
-React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer → Api
+React (browser) → same-origin /bff/** → BFF → Authorization: Bearer → Api
 ```
 
 - Browser общается только с BFF того же origin.
@@ -15,15 +15,22 @@ React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer �
 - `Api` остаётся client-agnostic resource server и принимает только Bearer access token; cookie authentication в `Api` не используется.
 - Generic reverse proxy к `Api` отсутствует: BFF вызывает только явно реализованные операции.
 
+## Source layout и runtime
+
+- Frontend source — `frontend/intelligence-trade-web` (React + TypeScript + Vite + npm). Frontend собирает собственный artifact `dist/` и не знает расположения BFF.
+- BFF source — `backend/src/Intelligence.TradeSystem.Bff`. `dotnet build` по умолчанию собирает frontend и копирует `dist` в `wwwroot` BFF; CI и Docker собирают frontend отдельным job/stage и передают `-p:BuildClientAssets=false`. BFF Docker image собирается из корня репозитория и размещает frontend `dist` в `wwwroot`.
+- Same-origin runtime — BFF обслуживает React static assets, SPA fallback и `/bff/**` с одного origin (`http://localhost:8082` в Compose и Aspire). Отдельный frontend origin, CORS и CDN не используются.
+- Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`; environment `Bff__*`). Логическое имя OIDC client в Identity остаётся `trade-web-bff`.
+
 ## Server-side browser session
 
 - После успешного OIDC callback BFF создаёт server-side authentication ticket.
-- Browser получает только opaque session cookie `TradeSystem.Web.Session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` вне локальных окружений.
+- Browser получает только opaque session cookie `TradeSystem.Bff.Session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` вне локальных окружений.
 - Access token, refresh token и id token хранятся только в server-side ticket и не возвращаются browser.
-- Session store находится в памяти процесса (`IMemoryCache`): restart Web завершает все browser sessions, а несколько replicas без sticky sessions не поддерживаются. Durable/distributed session store не входит в текущий контракт.
-- Lifetime session задаётся `Web:Session:Lifetime` (по умолчанию 8 часов, не больше 24 часов) и продлевается скользяще.
+- Session store находится в памяти процесса (`IMemoryCache`): restart BFF завершает все browser sessions, а несколько replicas без sticky sessions не поддерживаются. Durable/distributed session store не входит в текущий контракт.
+- Lifetime session задаётся `Bff:Session:Lifetime` (по умолчанию 8 часов, не больше 24 часов) и продлевается скользяще.
 - Session создаётся только при успешном OIDC sign-in. Продление ticket (`RenewAsync`), запись logout intent и сохранение обновлённых tokens изменяют только существующую session: запрос, прочитавший ticket до logout или истечения session, не может её восстановить.
-
+- Удаление session (`RemoveAsync`: logout, завершение session при ошибке refresh, истечение lifetime) терминально. Создание, продление и удаление выполняются под одной блокировкой store, поэтому продление, начатое до удаления, не воскрешает session.
 ## Browser-facing endpoints
 
 Все ответы `/bff/auth/**` содержат `Cache-Control: no-store`. Неизвестные пути `/bff/**` возвращают `404` и не попадают в SPA fallback.
@@ -54,7 +61,7 @@ React (browser) → same-origin /bff/** → Web BFF → Authorization: Bearer �
 ### `GET /bff/auth/antiforgery`
 
 - Требует authenticated session, иначе `401`.
-- Возвращает `{ "requestToken": "<token>" }` и устанавливает antiforgery cookie `TradeSystem.Web.Antiforgery` (`HttpOnly`, `SameSite=Strict`).
+- Возвращает `{ "requestToken": "<token>" }` и устанавливает antiforgery cookie `TradeSystem.Bff.Antiforgery` (`HttpOnly`, `SameSite=Strict`).
 
 ### `POST /bff/auth/logout`
 

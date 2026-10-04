@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <BuildClientAssets Condition="'$(BuildClientAssets)' == ''">true</BuildClientAssets>
+    <!-- Единственное место, где BFF знает расположение React-клиента; frontend о BFF не знает. -->
+    <FrontendRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'frontend', 'intelligence-trade-web'))</FrontendRoot>
+    <FrontendDistDirectory>$(FrontendRoot)dist\</FrontendDistDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Intelligence.TradeSystem.ServiceDefaults\Intelligence.TradeSystem.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Intelligence.TradeSystem.Bff.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrontendSource Include="$(FrontendRoot)src\**;$(FrontendRoot)index.html;$(FrontendRoot)package.json;$(FrontendRoot)package-lock.json;$(FrontendRoot)vite.config.ts;$(FrontendRoot)tsconfig*.json" />
+  </ItemGroup>
+
+  <!-- Frontend собирает собственный artifact в dist, BFF копирует его в wwwroot. CI .NET-jobs и
+       Docker publish передают BuildClientAssets=false: frontend собирается отдельным job/stage. -->
+  <Target Name="RestoreFrontendDependencies"
+          Condition="'$(BuildClientAssets)' == 'true'"
+          BeforeTargets="BeforeBuild"
+          Inputs="$(FrontendRoot)package-lock.json"
+          Outputs="$(FrontendRoot)node_modules\.package-lock.json">
+    <Exec Command="npm ci" WorkingDirectory="$(FrontendRoot)" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="BuildFrontend"
+          Condition="'$(BuildClientAssets)' == 'true'"
+          AfterTargets="RestoreFrontendDependencies"
+          BeforeTargets="BeforeBuild"
+          Inputs="@(FrontendSource)"
+          Outputs="$(FrontendDistDirectory)index.html">
+    <Exec Command="npm run build" WorkingDirectory="$(FrontendRoot)" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <!-- wwwroot очищается целиком, чтобы hashed-файлы предыдущей сборки не попали в static assets. -->
+  <Target Name="CopyFrontendArtifact"
+          Condition="'$(BuildClientAssets)' == 'true'"
+          AfterTargets="BuildFrontend"
+          BeforeTargets="BeforeBuild"
+          Inputs="$(FrontendDistDirectory)index.html"
+          Outputs="$(MSBuildProjectDirectory)\wwwroot\index.html">
+    <ItemGroup>
+      <_FrontendDistFile Include="$(FrontendDistDirectory)**" />
+    </ItemGroup>
+    <RemoveDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
+    <Copy SourceFiles="@(_FrontendDistFile)"
+          DestinationFiles="@(_FrontendDistFile->'$(MSBuildProjectDirectory)\wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <!-- Content из wwwroot вычисляется при evaluation, до копирования frontend artifact: без повторного glob
+       static web assets получают устаревшие hashed-файлы или не получают их вовсе. Wildcard Remove внутри
+       target раскрывается по файловой системе и не удаляет items уже стёртых файлов, поэтому фильтруем по FullPath. -->
+  <Target Name="IncludeFrontendAssets"
+          Condition="'$(BuildClientAssets)' == 'true'"
+          AfterTargets="CopyFrontendArtifact"
+          BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_FrontendWebRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot').ToUpperInvariant())</_FrontendWebRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_EvaluatedFrontendContent Include="@(Content)"
+                                 Condition="$([System.String]::Copy('%(Content.FullPath)').ToUpperInvariant().StartsWith('$(_FrontendWebRoot)'))" />
+      <Content Remove="@(_EvaluatedFrontendContent)" />
+      <_EvaluatedFrontendContent Remove="@(_EvaluatedFrontendContent)" />
+      <Content Include="wwwroot\**"
+               Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)"
+               ExcludeFromSingleFile="true"
+               CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

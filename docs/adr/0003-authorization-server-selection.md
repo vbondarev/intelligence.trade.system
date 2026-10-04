@@ -277,6 +277,7 @@ Browser JavaScript не получает access token или refresh token. BFF 
 
 - full browser logout использует standard OIDC end-session: BFF завершает собственную server-side session и перенаправляет browser на end-session endpoint Identity;
 - Identity завершает собственную SSO session, поэтому следующий authorization request требует повторного ввода credentials; post-logout redirect допускается только на URI, зарегистрированный у client;
+- end-session request без валидного `id_token_hint` или без зарегистрированного `post_logout_redirect_uri` отклоняется standard OAuth error и SSO session не завершает, поэтому first-party logout без confirmation UI возможен только через CSRF-защищённую цепочку BFF;
 - `prompt=login` поддерживается как явная возможность повторной аутентификации при действующей SSO session;
 - обычный login не использует `prompt=login` автоматически;
 - logout не означает мгновенный отзыв уже выданных JWT access tokens — действуют правила раздела «Self-contained access-token revocation».

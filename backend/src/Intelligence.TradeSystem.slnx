@@ -18,7 +18,7 @@
   <Project Path="Intelligence.TradeSystem.Identity.Migrations/Intelligence.TradeSystem.Identity.Migrations.csproj" />
   <Project Path="Intelligence.TradeSystem.Authentication.TestSeeder/Intelligence.TradeSystem.Authentication.TestSeeder.csproj" />
   <Project Path="Intelligence.TradeSystem.MarketIntelligence/Intelligence.TradeSystem.MarketIntelligence.csproj" />
-  <Project Path="Intelligence.TradeSystem.Web/Intelligence.TradeSystem.Web.csproj" />
+  <Project Path="Intelligence.TradeSystem.Bff/Intelligence.TradeSystem.Bff.csproj" />
   <Folder Name="/Aspire/">
     <Project Path="Intelligence.TradeSystem.AppHost/Intelligence.TradeSystem.AppHost.csproj" />
     <Project Path="Intelligence.TradeSystem.ServiceDefaults/Intelligence.TradeSystem.ServiceDefaults.csproj" />
@@ -32,7 +32,7 @@
     <Project Path="Intelligence.TradeSystem.Infrastructure.IntegrationTests/Intelligence.TradeSystem.Infrastructure.IntegrationTests.csproj" />
     <Project Path="Intelligence.TradeSystem.Authentication.IntegrationTests/Intelligence.TradeSystem.Authentication.IntegrationTests.csproj" />
     <Project Path="Intelligence.TradeSystem.MarketIntelligence.Tests/Intelligence.TradeSystem.MarketIntelligence.Tests.csproj" />
-    <Project Path="Intelligence.TradeSystem.Web.Tests/Intelligence.TradeSystem.Web.Tests.csproj" />
+    <Project Path="Intelligence.TradeSystem.Bff.Tests/Intelligence.TradeSystem.Bff.Tests.csproj" />
   </Folder>
   <Project Path="Intelligence.TradeSystem.Exchanges/Intelligence.TradeSystem.Exchanges.csproj" />
 </Solution>

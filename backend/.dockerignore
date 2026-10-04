@@ -21,7 +21,7 @@
 **/obj
 **/playwright-report
 **/test-results
-**/Intelligence.TradeSystem.Web/wwwroot
+**/Intelligence.TradeSystem.Bff/wwwroot
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE

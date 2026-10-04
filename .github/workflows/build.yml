@@ -308,7 +308,7 @@ jobs:
     if: needs['classify-changes'].outputs.ci_path == 'full'
     defaults:
       run:
-        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+        working-directory: frontend/intelligence-trade-web
 
     steps:
       - name: Checkout
@@ -319,9 +319,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version-file: backend/src/Intelligence.TradeSystem.Web/ClientApp/.nvmrc
+          node-version-file: frontend/intelligence-trade-web/.nvmrc
           cache: npm
-          cache-dependency-path: backend/src/Intelligence.TradeSystem.Web/ClientApp/package-lock.json
+          cache-dependency-path: frontend/intelligence-trade-web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -408,8 +408,8 @@ jobs:
       - name: Docker build Identity migrations
         run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
-      - name: Docker build Web
-        run: docker build -f backend/src/Intelligence.TradeSystem.Web/Dockerfile -t intelligence-trade-system-web:ci backend
+      - name: Docker build BFF
+        run: docker build -f backend/src/Intelligence.TradeSystem.Bff/Dockerfile -t intelligence-trade-system-bff:ci .
 
       - name: Generate disposable credential protection key
         run: |
@@ -439,7 +439,7 @@ jobs:
           docker compose -f backend/compose.yaml exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname = '\''tradesystem_identity'\''" | grep -q 1'
 
       - name: Start Compose authentication stack
-        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api web auth-test-seeder
+        run: docker compose -f backend/compose.yaml --profile ci up -d --build postgres identity-db-init identity-migrations identity api bff auth-test-seeder
 
       - name: Smoke test Compose OAuth/OIDC and protected API
         run: bash .github/scripts/compose-auth-smoke.sh
@@ -447,17 +447,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version-file: backend/src/Intelligence.TradeSystem.Web/ClientApp/.nvmrc
+          node-version-file: frontend/intelligence-trade-web/.nvmrc
           cache: npm
-          cache-dependency-path: backend/src/Intelligence.TradeSystem.Web/ClientApp/package-lock.json
+          cache-dependency-path: frontend/intelligence-trade-web/package-lock.json
 
       - name: Install Playwright
-        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+        working-directory: frontend/intelligence-trade-web
         run: |
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Wait for Web
+      - name: Wait for BFF
         shell: bash
         run: |
           for _ in {1..60}; do
@@ -466,11 +466,11 @@ jobs:
             fi
             sleep 2
           done
-          echo "Web BFF не стал доступен." >&2
+          echo "BFF не стал доступен." >&2
           exit 1
 
       - name: Browser E2E Web login, session and logout
-        working-directory: backend/src/Intelligence.TradeSystem.Web/ClientApp
+        working-directory: frontend/intelligence-trade-web
         env:
           WEB_BASE_URL: http://localhost:8082
           IDENTITY_BASE_URL: http://localhost:8081
@@ -479,7 +479,7 @@ jobs:
 
       - name: Show Compose authentication logs on failure
         if: failure()
-        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api web auth-test-seeder
+        run: docker compose -f backend/compose.yaml logs identity-db-init identity-migrations identity api bff auth-test-seeder
 
       - name: Stop authentication stack
         if: always()
