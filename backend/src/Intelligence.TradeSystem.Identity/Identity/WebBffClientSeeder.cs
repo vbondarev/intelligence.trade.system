@@ -17,13 +17,14 @@ public sealed partial class WebBffClientSeeder(
     {
         using var scope = scopeFactory.CreateScope();
         var applicationManager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        var clientId = options.ClientId!;
         var descriptor = CreateDescriptor(options);
-        var application = await applicationManager.FindByClientIdAsync(options.ClientId, cancellationToken);
+        var application = await applicationManager.FindByClientIdAsync(clientId, cancellationToken);
 
         if (application is null)
         {
             await applicationManager.CreateAsync(descriptor, cancellationToken);
-            LogClientCreated(options.ClientId);
+            LogClientCreated(clientId);
             return;
         }
 
@@ -37,7 +38,7 @@ public sealed partial class WebBffClientSeeder(
         }
 
         await applicationManager.UpdateAsync(application, descriptor, cancellationToken);
-        LogClientSynchronized(options.ClientId);
+        LogClientSynchronized(clientId);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

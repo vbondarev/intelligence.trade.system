@@ -95,7 +95,7 @@
       - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
       - Identity__Issuer=http://localhost:8081
       - Identity__WebBffClient__Enabled=true
-      - Identity__WebBffClient__ClientId=trade-web-bff
+      - Identity__WebBffClient__ClientId=${TRADE_WEB_BFF_CLIENT_ID:-trade-web-bff}
       - Identity__WebBffClient__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
       - Identity__WebBffClient__RedirectUris__0=http://localhost:8082/signin-oidc
       - Identity__WebBffClient__PostLogoutRedirectUris__0=http://localhost:8082/signout-callback-oidc
@@ -124,7 +124,7 @@
       - Bff__Oidc__Authority=http://localhost:8081
       - Bff__Oidc__MetadataAddress=http://identity:8080/.well-known/openid-configuration
       - Bff__Oidc__BackchannelBaseAddress=http://identity:8080
-      - Bff__Oidc__ClientId=trade-web-bff
+      - Bff__Oidc__ClientId=${TRADE_WEB_BFF_CLIENT_ID:-trade-web-bff}
       - Bff__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
       - Bff__Api__BaseAddress=http://api:8080
       # Private range Docker bridge networks: forwarded headers принимаются только от container proxy.

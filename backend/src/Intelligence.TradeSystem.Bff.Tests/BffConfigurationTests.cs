@@ -20,7 +20,7 @@ public sealed class BffConfigurationTests
         configuration.Oidc.Authority.Should().Be(new Uri("http://localhost:8081/"));
         configuration.Oidc.MetadataAddress.Should().Be(new Uri("http://localhost:8081/.well-known/openid-configuration"));
         configuration.Oidc.BackchannelBaseAddress.Should().Be(new Uri("http://localhost:8081"));
-        configuration.Oidc.ClientId.Should().Be("trade-web-bff");
+        configuration.Oidc.ClientId.Should().Be("custom-web-bff");
         configuration.Oidc.ClientSecret.Should().Be(Secret);
         configuration.ApiBaseAddress.Should().Be(new Uri("http://localhost:8080/"));
         configuration.Session.Lifetime.Should().Be(TimeSpan.FromHours(8));
@@ -188,7 +188,7 @@ public sealed class BffConfigurationTests
         var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
             ["Bff:Oidc:Authority"] = "http://localhost:8081/",
-            ["Bff:Oidc:ClientId"] = "trade-web-bff",
+            ["Bff:Oidc:ClientId"] = "custom-web-bff",
             ["Bff:Oidc:ClientSecret"] = Secret,
             ["Bff:Api:BaseAddress"] = "http://localhost:8080/",
             ["Bff:Token:RefreshSkew"] = "00:01:00",

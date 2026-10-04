@@ -5,6 +5,7 @@ public static class Program
     private const string PublicIdentityIssuer = "http://localhost:8081";
     private const string PublicWebOrigin = "http://localhost:8082";
     private const string FrontendContextPath = "../../../frontend/intelligence-trade-web";
+    private const string WebBffClientId = "trade-web-bff";
 
     public static void Main(string[] args)
     {
@@ -43,7 +44,7 @@ public static class Program
         identity
             .WithEnvironment("Identity__Issuer", PublicIdentityIssuer)
             .WithEnvironment("Identity__WebBffClient__Enabled", "true")
-            .WithEnvironment("Identity__WebBffClient__ClientId", "trade-web-bff")
+            .WithEnvironment("Identity__WebBffClient__ClientId", WebBffClientId)
             .WithEnvironment("Identity__WebBffClient__ClientSecret", webBffClientSecret)
             .WithEnvironment("Identity__WebBffClient__RedirectUris__0", $"{PublicWebOrigin}/signin-oidc")
             .WithEnvironment(
@@ -80,7 +81,7 @@ public static class Program
                 "Bff__Oidc__MetadataAddress",
                 ReferenceExpression.Create($"{identityEndpoint}/.well-known/openid-configuration"))
             .WithEnvironment("Bff__Oidc__BackchannelBaseAddress", identityEndpoint)
-            .WithEnvironment("Bff__Oidc__ClientId", "trade-web-bff")
+            .WithEnvironment("Bff__Oidc__ClientId", WebBffClientId)
             .WithEnvironment("Bff__Oidc__ClientSecret", webBffClientSecret)
             .WithEnvironment("Bff__Api__BaseAddress", api.GetEndpoint("http"));
 

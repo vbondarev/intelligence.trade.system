@@ -561,6 +561,7 @@ export TRADE_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 BFF и Identity дополнительно требуют локальные secrets хоста:
 
 - `TRADE_WEB_BFF_CLIENT_SECRET` — случайный client secret confidential client `trade-web-bff`, общий для Identity и BFF;
+- `TRADE_WEB_BFF_CLIENT_ID` — необязательный client id этого OIDC client, общий для Identity и BFF (по умолчанию `trade-web-bff`);
 - `TRADE_WEB_DEV_PASSWORD` — пароль development-пользователя, которого Identity создаёт только в окружении Development; имя пользователя задаётся необязательной `TRADE_WEB_DEV_USERNAME` (по умолчанию `trade-dev-user`).
 
 Значения генерируются локально, не коммитятся и не выводятся в лог:

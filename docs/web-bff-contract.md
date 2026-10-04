@@ -29,7 +29,9 @@ Frontend и BFF — независимые units на всех уровнях; �
 - Build: Vite собирает `frontend/intelligence-trade-web/dist` и не знает расположения backend; `dotnet build` собирает BFF без Node.js/npm и без frontend assets.
 - Container: frontend image собирается из context `frontend/intelligence-trade-web` (Node.js build stage → nginx runtime только с `dist` и nginx config); BFF image — из context `backend` (.NET SDK → ASP.NET Core runtime). Ни один image не содержит source или artifacts другого; изменение одного не требует rebuild другого.
 - Deployment: Compose services `frontend` и `bff`, Aspire resources `frontend` (Dockerfile) и `bff` (project). Public port `8082` принадлежит frontend; BFF не публикуется как browser endpoint.
-- Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`, `Bff:ForwardedHeaders:KnownNetworks`; environment `Bff__*`). Логическое имя OIDC client в Identity остаётся `trade-web-bff`.
+- Configuration BFF — секция `Bff` (`Bff:Oidc:*`, `Bff:Api:BaseAddress`, `Bff:Session:Lifetime`, `Bff:Token:*`, `Bff:ForwardedHeaders:KnownNetworks`; environment `Bff__*`). Configuration читается и проверяется один раз при старте; изменение применяется только restart.
+- `Bff:Token:RefreshSkew` — насколько заранее до истечения access token BFF выполняет refresh (по умолчанию `00:01:00`, не может быть отрицательным); `Bff:Token:EndpointTimeout` — timeout server-to-server запроса BFF к OIDC token endpoint Identity (по умолчанию `00:00:10`, больше нуля). Значения по умолчанию заданы в `appsettings.json` BFF.
+- Логическое имя OIDC client в Identity остаётся `trade-web-bff`. Client id не имеет значения по умолчанию в коде и задаётся deployment configuration одним значением для обеих сторон: `Identity:WebBffClient:ClientId` и `Bff:Oidc:ClientId`. Compose берёт его из необязательной переменной хоста `TRADE_WEB_BFF_CLIENT_ID` (по умолчанию `trade-web-bff`), Aspire AppHost — из единой константы.
 
 ## Same-origin routing
 
@@ -123,7 +125,7 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 
 ## Access token и refresh
 
-- Access token считается пригодным, если до его истечения остаётся больше 60 секунд; иначе BFF выполняет `refresh_token` grant к token endpoint из discovery Identity.
+- Access token считается пригодным, если до его истечения остаётся больше `Bff:Token:RefreshSkew` (по умолчанию 1 минута); иначе BFF выполняет `refresh_token` grant к token endpoint из discovery Identity. Запрос к token endpoint ограничен `Bff:Token:EndpointTimeout` (по умолчанию 10 секунд).
 - Refresh одного пользователя сериализуется: параллельные запросы ожидают один refresh и используют его результат, а не расходуют ротируемый refresh token повторно.
 - Automatic retry для `refresh_token` grant не выполняется: повтор может израсходовать уже ротированный refresh token.
 - `invalid_grant` завершает BFF session.

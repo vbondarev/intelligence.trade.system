@@ -145,6 +145,37 @@ public sealed class IdentityStartupConfigurationTests
         exception.Message.Should().NotContain(certificatePassword);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Enabled_web_bff_client_requires_a_client_id_without_disclosing_the_secret(string? clientId)
+    {
+        const string secret = "web-bff-client-secret-marker";
+        var settings = new List<(string Key, string Value)>
+        {
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientSecret", secret),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"),
+        };
+        if (clientId is not null)
+        {
+            settings.Add(("Identity:WebBffClient:ClientId", clientId));
+        }
+
+        using var factory = CreateFactory("Testing", settings.ToArray());
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:ClientId*")
+            .Which;
+        exception.ToString().Should().NotContain(secret);
+    }
+
     [Fact]
     public void Enabled_web_bff_client_requires_a_secret()
     {
@@ -152,6 +183,7 @@ public sealed class IdentityStartupConfigurationTests
             "Testing",
             ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
             ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "custom-web-bff"),
             ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
             ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"));
 
@@ -175,6 +207,7 @@ public sealed class IdentityStartupConfigurationTests
             environment,
             ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
             ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "custom-web-bff"),
             ("Identity:WebBffClient:ClientSecret", secret),
             ("Identity:WebBffClient:RedirectUris:0", redirectUri),
             ("Identity:WebBffClient:PostLogoutRedirectUris:0", "https://web.example/signout-callback-oidc"));
@@ -195,6 +228,7 @@ public sealed class IdentityStartupConfigurationTests
             "Testing",
             ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
             ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "custom-web-bff"),
             ("Identity:WebBffClient:ClientSecret", "web-bff-client-secret"),
             ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"));
 

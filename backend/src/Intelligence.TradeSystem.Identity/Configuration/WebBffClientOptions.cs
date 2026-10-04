@@ -9,7 +9,10 @@ public sealed class WebBffClientOptions
 
     public bool Enabled { get; init; }
 
-    public string ClientId { get; init; } = "trade-web-bff";
+    /// <summary>
+    /// Client id задаётся deployment configuration и должен совпадать с <c>Bff:Oidc:ClientId</c>.
+    /// </summary>
+    public string? ClientId { get; init; }
 
     /// <summary>
     /// Client secret передаётся только через environment/secret store и никогда не логируется.
