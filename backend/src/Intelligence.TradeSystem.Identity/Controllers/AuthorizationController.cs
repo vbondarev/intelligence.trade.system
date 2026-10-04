@@ -84,8 +84,8 @@ public sealed class AuthorizationController(
     /// <summary>
     /// Завершает Identity SSO session. До controller доходит только end-session request,
     /// прошедший валидацию OpenIddict и <see cref="RequireEndSessionLogoutContextHandler"/>:
-    /// с проверенным <c>id_token_hint</c> и зарегистрированным <c>post_logout_redirect_uri</c>,
-    /// на который OpenIddict сам выполняет redirect.
+    /// с проверенным <c>id_token_hint</c>, выданным пользователю текущей SSO session (если она есть),
+    /// и зарегистрированным <c>post_logout_redirect_uri</c>, на который OpenIddict сам выполняет redirect.
     /// </summary>
     [HttpGet("~/connect/endsession")]
     [HttpPost("~/connect/endsession")]

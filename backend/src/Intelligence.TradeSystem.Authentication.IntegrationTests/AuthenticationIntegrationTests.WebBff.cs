@@ -296,6 +296,47 @@ public sealed partial class AuthenticationIntegrationTests
     }
 
     [Fact]
+    public async Task End_session_with_id_token_hint_of_another_user_keeps_current_identity_session()
+    {
+        using var attackerClient = CreateIdentityClient();
+        var attackerIdToken = await IssueWebBffIdTokenAsync(attackerClient);
+        new JwtSecurityTokenHandler().ReadJwtToken(attackerIdToken).Subject.Should().Be(userId.ToString());
+        using var victimClient = CreateIdentityClient();
+        await AuthorizeWebBffAsync(victimClient, SecondUsername, SecondPassword);
+
+        using var response = await victimClient.GetAsync(
+            BuildEndSessionUri(attackerIdToken, WebBffPostLogoutRedirectUri));
+
+        await AssertEndSessionRejectedAsync(response);
+        var codeVerifier = CreateCodeVerifier();
+        using var authorize = await victimClient.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(codeVerifier)));
+        authorize.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        authorize.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
+        var code = QueryHelpers.ParseQuery(authorize.Headers.Location.Query)["code"].ToString();
+        code.Should().NotBeNullOrWhiteSpace();
+        using var tokenResponse = await RedeemWebBffCodeAsync(code, codeVerifier, WebBffClientSecret);
+        tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var tokens = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+        new JwtSecurityTokenHandler()
+            .ReadJwtToken(tokens.RootElement.GetProperty("id_token").GetString())
+            .Subject.Should().Be(Fixture.SecondUserId.ToString());
+    }
+
+    [Fact]
+    public async Task End_session_with_valid_id_token_hint_without_identity_session_redirects_to_registered_post_logout_uri()
+    {
+        using var tokenClient = CreateIdentityClient();
+        var idToken = await IssueWebBffIdTokenAsync(tokenClient);
+        using var anonymousClient = CreateIdentityClient();
+
+        using var response = await anonymousClient.GetAsync(BuildEndSessionUri(idToken, WebBffPostLogoutRedirectUri));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffPostLogoutRedirectUri);
+        await AssertIdentitySessionIsReusedAsync(tokenClient);
+    }
+
+    [Fact]
     public async Task Authorize_after_end_session_requires_login_again()
     {
         using var client = CreateIdentityClient();
@@ -436,13 +477,19 @@ public sealed partial class AuthenticationIntegrationTests
         return body.RootElement.GetProperty("id_token").GetString()!;
     }
 
-    private async Task<(string Code, string CodeVerifier)> AuthorizeWebBffAsync(HttpClient client)
+    private Task<(string Code, string CodeVerifier)> AuthorizeWebBffAsync(HttpClient client) =>
+        AuthorizeWebBffAsync(client, Username, Password);
+
+    private static async Task<(string Code, string CodeVerifier)> AuthorizeWebBffAsync(
+        HttpClient client,
+        string username,
+        string password)
     {
         var codeVerifier = CreateCodeVerifier();
         using var challenge = await client.GetAsync(BuildWebBffAuthorizeUri(CreateCodeChallenge(codeVerifier)));
         challenge.StatusCode.Should().Be(HttpStatusCode.Redirect);
 
-        var completed = await CompleteLoginAsync(client, challenge.Headers.Location!, Username, Password);
+        var completed = await CompleteLoginAsync(client, challenge.Headers.Location!, username, password);
         completed.StatusCode.Should().Be(HttpStatusCode.Redirect);
         var callback = completed.Headers.Location!;
         callback.GetLeftPart(UriPartial.Path).Should().Be(WebBffRedirectUri);
