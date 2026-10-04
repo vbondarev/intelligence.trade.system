@@ -18,8 +18,6 @@ public static partial class BffAuthenticationExtensions
     public const string CallbackPath = "/signin-oidc";
     public const string SignedOutCallbackPath = "/signout-callback-oidc";
 
-    private static readonly TimeSpan TokenEndpointTimeout = TimeSpan.FromSeconds(10);
-
     internal static IServiceCollection AddBffAuthentication(
         this IServiceCollection services,
         BffConfiguration configuration,
@@ -31,6 +29,7 @@ public static partial class BffAuthenticationExtensions
 
         services.AddSingleton(oidc);
         services.AddSingleton(configuration.Session);
+        services.AddSingleton(configuration.Token);
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
         services.AddSingleton<ITicketStore, InMemoryAuthenticationTicketStore>();
@@ -141,13 +140,14 @@ public static partial class BffAuthenticationExtensions
         BffConfiguration configuration)
     {
         var oidc = configuration.Oidc;
+        var tokenEndpointTimeout = configuration.Token.EndpointTimeout;
 
         // Повтор refresh_token grant может израсходовать ротируемый refresh token, поэтому
         // default resilience handlers из ServiceDefaults для этого client удаляются.
         // Другого API для удаления handlers из ConfigureHttpClientDefaults нет.
 #pragma warning disable EXTEXP0001
         services
-            .AddHttpClient(OAuthTokenRefreshClient.HttpClientName, client => client.Timeout = TokenEndpointTimeout)
+            .AddHttpClient(OAuthTokenRefreshClient.HttpClientName, client => client.Timeout = tokenEndpointTimeout)
             .AddHttpMessageHandler(() => new PublicIssuerBackchannelHandler(
                 oidc.Authority,
                 oidc.BackchannelBaseAddress))

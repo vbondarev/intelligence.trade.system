@@ -58,6 +58,29 @@ public sealed class TokenRefreshTests
         factory.Api.Requests[^1].AuthorizationParameter.Should().Be("access-2");
     }
 
+    [Theory]
+    [InlineData(18, false)]
+    [InlineData(17, true)]
+    public async Task Configured_refresh_skew_decides_whether_access_token_is_refreshed(
+        int accessTokenLifetimeSeconds,
+        bool refreshExpected)
+    {
+        using var factory = CreateFactoryWithApi(new Dictionary<string, string?>
+        {
+            ["Bff:Token:RefreshSkew"] = "00:00:17",
+        });
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
+            UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2"));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(accessTokenLifetimeSeconds));
+
+        var session = await browser.GetSessionAsync();
+
+        session.GetProperty("authenticated").GetBoolean().Should().BeTrue();
+        factory.TokenEndpoint.Count.Should().Be(refreshExpected ? 1 : 0);
+        factory.Api.Requests.Single().AuthorizationParameter.Should().Be(refreshExpected ? "access-2" : "access-1");
+    }
+
     [Fact]
     public async Task Refresh_without_new_refresh_token_keeps_previous_refresh_token()
     {
@@ -281,9 +304,9 @@ public sealed class TokenRefreshTests
         factory.TokenEndpoint.Count.Should().Be(0);
     }
 
-    private static BffApplicationFactory CreateFactoryWithApi()
+    private static BffApplicationFactory CreateFactoryWithApi(IReadOnlyDictionary<string, string?>? settings = null)
     {
-        var factory = new BffApplicationFactory();
+        var factory = new BffApplicationFactory(settings);
         factory.Api.Responder = (_, _) => Task.FromResult(UpstreamResponses.CurrentUser());
         return factory;
     }

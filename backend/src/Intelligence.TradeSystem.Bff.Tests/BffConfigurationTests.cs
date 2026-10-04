@@ -1,5 +1,8 @@
+using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Configuration;
+using Intelligence.TradeSystem.Bff.Tests.Support;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 
@@ -21,7 +24,24 @@ public sealed class BffConfigurationTests
         configuration.Oidc.ClientSecret.Should().Be(Secret);
         configuration.ApiBaseAddress.Should().Be(new Uri("http://localhost:8080/"));
         configuration.Session.Lifetime.Should().Be(TimeSpan.FromHours(8));
+        configuration.Token.RefreshSkew.Should().Be(TimeSpan.FromMinutes(1));
+        configuration.Token.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(10));
         configuration.TrustedProxyNetworks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Zero_refresh_skew_is_distinguished_from_missing_value()
+    {
+        var configuration = BffConfiguration.Load(
+            Build(new Dictionary<string, string?>
+            {
+                ["Bff:Token:RefreshSkew"] = "00:00:00",
+                ["Bff:Token:EndpointTimeout"] = "00:00:03",
+            }),
+            Environment("Development"));
+
+        configuration.Token.RefreshSkew.Should().Be(TimeSpan.Zero);
+        configuration.Token.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(3));
     }
 
     [Fact]
@@ -89,6 +109,11 @@ public sealed class BffConfigurationTests
         { "Bff:Api:BaseAddress", "http://api.example/", "Staging", "Bff:Api:BaseAddress" },
         { "Bff:Session:Lifetime", "00:00:00", "Development", "Bff:Session:Lifetime" },
         { "Bff:Session:Lifetime", "1.00:00:01", "Development", "Bff:Session:Lifetime" },
+        { "Bff:Token:RefreshSkew", null, "Development", "Bff:Token:RefreshSkew" },
+        { "Bff:Token:RefreshSkew", "-00:00:01", "Development", "Bff:Token:RefreshSkew" },
+        { "Bff:Token:EndpointTimeout", null, "Development", "Bff:Token:EndpointTimeout" },
+        { "Bff:Token:EndpointTimeout", "00:00:00", "Development", "Bff:Token:EndpointTimeout" },
+        { "Bff:Token:EndpointTimeout", "-00:00:01", "Development", "Bff:Token:EndpointTimeout" },
         { "Bff:ForwardedHeaders:KnownNetworks:0", "proxy", "Development", "Bff:ForwardedHeaders:KnownNetworks" },
         { "Bff:ForwardedHeaders:KnownNetworks:0", "10.0.0.0/33", "Development", "Bff:ForwardedHeaders:KnownNetworks" },
     };
@@ -120,6 +145,36 @@ public sealed class BffConfigurationTests
     }
 
     [Fact]
+    public void Host_takes_default_token_settings_from_appsettings()
+    {
+        using var factory = new BffApplicationFactory();
+
+        var tokenSettings = factory.Services.GetRequiredService<BffTokenSettings>();
+        var tokenClient = factory.Services
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(OAuthTokenRefreshClient.HttpClientName);
+
+        tokenSettings.RefreshSkew.Should().Be(TimeSpan.FromMinutes(1));
+        tokenSettings.EndpointTimeout.Should().Be(TimeSpan.FromSeconds(10));
+        tokenClient.Timeout.Should().Be(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Configured_endpoint_timeout_is_applied_to_token_endpoint_client()
+    {
+        using var factory = new BffApplicationFactory(new Dictionary<string, string?>
+        {
+            ["Bff:Token:EndpointTimeout"] = "00:00:07",
+        });
+
+        var tokenClient = factory.Services
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(OAuthTokenRefreshClient.HttpClientName);
+
+        tokenClient.Timeout.Should().Be(TimeSpan.FromSeconds(7));
+    }
+
+    [Fact]
     public void Oidc_settings_do_not_expose_secret_through_to_string()
     {
         var configuration = BffConfiguration.Load(Build(), Environment("Development"));
@@ -136,6 +191,8 @@ public sealed class BffConfigurationTests
             ["Bff:Oidc:ClientId"] = "trade-web-bff",
             ["Bff:Oidc:ClientSecret"] = Secret,
             ["Bff:Api:BaseAddress"] = "http://localhost:8080/",
+            ["Bff:Token:RefreshSkew"] = "00:01:00",
+            ["Bff:Token:EndpointTimeout"] = "00:00:10",
         };
         foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
         {

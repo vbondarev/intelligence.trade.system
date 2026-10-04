@@ -15,11 +15,10 @@ internal sealed partial class BffTokenService(
     OAuthTokenRefreshClient refreshClient,
     IMemoryCache cache,
     BffSessionOptions sessionOptions,
+    BffTokenSettings tokenSettings,
     TimeProvider timeProvider,
     ILogger<BffTokenService> logger)
 {
-    internal static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(60);
-
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
@@ -179,7 +178,7 @@ internal sealed partial class BffTokenService(
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind,
                 out var expiresAtValue)
-            && expiresAtValue > timeProvider.GetUtcNow().Add(RefreshSkew);
+            && expiresAtValue > timeProvider.GetUtcNow().Add(tokenSettings.RefreshSkew);
     }
 
     private static Task EndSessionAsync(HttpContext httpContext) =>

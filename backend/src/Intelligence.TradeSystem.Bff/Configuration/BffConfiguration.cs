@@ -10,6 +10,7 @@ internal sealed class BffConfiguration(
     BffOidcSettings oidc,
     Uri apiBaseAddress,
     BffSessionOptions session,
+    BffTokenSettings token,
     IReadOnlyList<IPNetwork> trustedProxyNetworks)
 {
     public BffOidcSettings Oidc { get; } = oidc;
@@ -17,6 +18,8 @@ internal sealed class BffConfiguration(
     public Uri ApiBaseAddress { get; } = apiBaseAddress;
 
     public BffSessionOptions Session { get; } = session;
+
+    public BffTokenSettings Token { get; } = token;
 
     public IReadOnlyList<IPNetwork> TrustedProxyNetworks { get; } = trustedProxyNetworks;
 
@@ -28,6 +31,8 @@ internal sealed class BffConfiguration(
             ?? new BffApiOptions();
         var sessionOptions = configuration.GetSection(BffSessionOptions.SectionName).Get<BffSessionOptions>()
             ?? new BffSessionOptions();
+        var tokenOptions = configuration.GetSection(BffTokenOptions.SectionName).Get<BffTokenOptions>()
+            ?? new BffTokenOptions();
         var forwardedHeadersOptions = configuration
             .GetSection(BffForwardedHeadersOptions.SectionName)
             .Get<BffForwardedHeadersOptions>()
@@ -36,8 +41,9 @@ internal sealed class BffConfiguration(
         var oidc = oidcOptions.Validate(environment);
         var apiBaseAddress = apiOptions.Validate(environment);
         sessionOptions.Validate();
+        var token = tokenOptions.Validate();
         var trustedProxyNetworks = forwardedHeadersOptions.Validate();
 
-        return new BffConfiguration(oidc, apiBaseAddress, sessionOptions, trustedProxyNetworks);
+        return new BffConfiguration(oidc, apiBaseAddress, sessionOptions, token, trustedProxyNetworks);
     }
 }
