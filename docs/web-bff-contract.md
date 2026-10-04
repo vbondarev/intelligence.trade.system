@@ -44,12 +44,16 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 
 - BFF paths никогда не попадают в SPA fallback. Сам BFF не раздаёт React: `GET /app` напрямую к BFF возвращает `404`.
 - Internal адрес BFF задаётся deployment setting frontend `BFF_UPSTREAM` (например, `http://bff:8080`) и не попадает в React bundle. CORS, `SameSite=None` и отдельный browser origin для BFF не используются.
+- Схема public origin задаётся обязательным deployment setting frontend `PUBLIC_SCHEME` (`http` или `https`, см. «Forwarded request context»). Frontend container без `BFF_UPSTREAM` или с отсутствующим/некорректным `PUBLIC_SCHEME` не стартует.
 - Frontend container не получает server secrets: client secret, dev password, tokens и credential-protection keys передаются только BFF/Identity/Api.
 - Health: frontend проверяется собственным container healthcheck (nginx отдаёт `index.html`), BFF — своими `/alive` и `/healthz` во внутренней сети. Готовность одного service не означает готовность другого.
 
 ## Forwarded request context
 
 - Frontend proxy передаёт BFF `Host` и `X-Forwarded-Host` исходного запроса, `X-Forwarded-Proto` и `X-Forwarded-For`; значения `X-Forwarded-Host`/`X-Forwarded-Proto` proxy задаёт сам, а не пересылает от client.
+- `X-Forwarded-Proto` равен deployment setting `PUBLIC_SCHEME`, а не схеме соединения, которое принял nginx (`$scheme`): за внешним TLS terminator frontend container получает plain HTTP, хотя browser открывает origin по HTTPS. `X-Forwarded-Proto` от browser или внешнего client не пересылается и на OIDC redirect URIs не влияет.
+  - `PUBLIC_SCHEME=http` — browser обращается к frontend напрямую по HTTP (local Compose и Aspire, `http://localhost:8082`).
+  - `PUBLIC_SCHEME=https` — TLS завершается перед frontend container (внешний load balancer/TLS terminator); BFF строит `https://<public host>/signin-oidc`.
 - BFF применяет forwarded headers до authentication/OIDC middleware, поэтому OIDC `redirect_uri` и `post_logout_redirect_uri` строятся от public origin (`http://localhost:8082/...`), а не от internal endpoint BFF.
 - Forwarded headers принимаются только от loopback и CIDR-сетей `Bff:ForwardedHeaders:KnownNetworks`; от остальных адресов они игнорируются. Учитывается только последнее значение `X-Forwarded-For` (ForwardLimit = 1). Compose доверяет private range Docker bridge networks (`172.16.0.0/12`); production deployment указывает фактическую сеть reverse proxy.
 

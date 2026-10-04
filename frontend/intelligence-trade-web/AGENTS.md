@@ -16,6 +16,7 @@
 - Production image (`Dockerfile`, context — этот каталог): Node.js stage собирает `dist`, nginx runtime раздаёт только `dist` и `nginx/default.conf.template`. Image не содержит .NET, backend source/binaries и server secrets.
 - nginx — единый browser-facing origin: React static assets и SPA fallback, а `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` проксируются во внутренний BFF. Эти paths никогда не попадают в SPA fallback.
 - Адрес BFF задаётся только deployment setting `BFF_UPSTREAM` (`scheme://host[:port]`) и не попадает в React bundle. Server secrets (client secret, dev password, tokens, credential keys) frontend container не получает.
+- Public scheme, который nginx передаёт BFF в `X-Forwarded-Proto`, задаётся только обязательным deployment setting `PUBLIC_SCHEME`: `http` при прямом HTTP-доступе browser к frontend (local Compose/Aspire), `https`, если TLS завершается перед frontend container. Не выводи его из `$scheme` и не пересылай `X-Forwarded-Proto` client. Без корректных `BFF_UPSTREAM` и `PUBLIC_SCHEME` container не стартует; envsubst подставляет только эти две переменные.
 - Отдельный browser origin для BFF, CORS и CDN не используются.
 
 ## Граница с backend

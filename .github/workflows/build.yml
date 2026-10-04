@@ -423,6 +423,9 @@ jobs:
           docker run --rm --entrypoint sh intelligence-trade-web:ci -c \
             'test -f /usr/share/nginx/html/index.html && ! command -v dotnet && ! command -v node && ! command -v npm && ! find / -xdev -name "*.dll" 2>/dev/null | grep -q .'
 
+      - name: Verify frontend deployment settings
+        run: bash .github/scripts/frontend-container-settings.sh intelligence-trade-web:ci
+
       - name: Generate disposable credential protection key
         run: |
           credential_key="$(openssl rand -base64 32)"
@@ -484,6 +487,9 @@ jobs:
           done
           echo "Frontend или BFF не стали доступны." >&2
           exit 1
+
+      - name: Smoke test public scheme through frontend proxy
+        run: bash .github/scripts/frontend-public-scheme-smoke.sh
 
       - name: Browser E2E Web login, session and logout
         working-directory: frontend/intelligence-trade-web

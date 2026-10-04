@@ -490,7 +490,7 @@ npm run test:unit
 npm run build
 ```
 
-Vite собирает artifact в `frontend/intelligence-trade-web/dist`. Production image собирается из того же каталога (`docker build frontend/intelligence-trade-web`): Node.js stage строит `dist`, nginx runtime раздаёт React и проксирует `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` во внутренний BFF по адресу из `BFF_UPSTREAM`.
+Vite собирает artifact в `frontend/intelligence-trade-web/dist`. Production image собирается из того же каталога (`docker build frontend/intelligence-trade-web`): Node.js stage строит `dist`, nginx runtime раздаёт React и проксирует `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` во внутренний BFF по адресу из `BFF_UPSTREAM`. Обязательный `PUBLIC_SCHEME` задаёт схему public origin, которую nginx передаёт BFF в `X-Forwarded-Proto`: `http`, когда browser обращается к frontend напрямую по HTTP, и `https`, когда TLS завершается перед frontend container. nginx не определяет схему по входящему соединению и не пересылает `X-Forwarded-Proto` client; без корректных `BFF_UPSTREAM` и `PUBLIC_SCHEME` container не стартует.
 
 Browser E2E (`npm run test:e2e`) выполняется против запущенного Compose stack: `E2E_PASSWORD` должен совпадать с `TRADE_WEB_DEV_PASSWORD`, а `WEB_BASE_URL`, `IDENTITY_BASE_URL` и `E2E_USERNAME` по умолчанию указывают на `http://localhost:8082`, `http://localhost:8081` и `trade-dev-user`.
 
@@ -546,7 +546,7 @@ cd backend/src
 dotnet run --project Intelligence.TradeSystem.AppHost
 ```
 
-AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически. Secret parameters `tradeCredentialKey`, `tradeWebBffClientSecret` и `tradeWebDevelopmentPassword` задаются через Aspire parameters (например, user secrets AppHost) и не коммитятся. AppHost запускает frontend как отдельный Dockerfile resource `frontend` (public origin `http://localhost:8082`; адрес BFF передаётся через `BFF_UPSTREAM`), BFF — как внутренний project resource `bff` без public endpoint, Identity — на `http://localhost:8081`. Для resource `frontend` нужен Docker.
+AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически. Secret parameters `tradeCredentialKey`, `tradeWebBffClientSecret` и `tradeWebDevelopmentPassword` задаются через Aspire parameters (например, user secrets AppHost) и не коммитятся. AppHost запускает frontend как отдельный Dockerfile resource `frontend` (public origin `http://localhost:8082`; адрес BFF передаётся через `BFF_UPSTREAM`, `PUBLIC_SCHEME=http`), BFF — как внутренний project resource `bff` без public endpoint, Identity — на `http://localhost:8081`. Для resource `frontend` нужен Docker.
 
 ### Docker
 
@@ -581,7 +581,7 @@ Compose запускает PostgreSQL, затем идемпотентный `id
 postgres → identity-db-init → identity-migrations → identity → api → bff → frontend
 ```
 
-Frontend и BFF — независимые images: frontend собирается из `frontend/intelligence-trade-web`, BFF — из `backend`. Browser обращается только к frontend; BFF не публикует host port и доступен frontend по внутренней сети (`BFF_UPSTREAM=http://bff:8080`):
+Frontend и BFF — независимые images: frontend собирается из `frontend/intelligence-trade-web`, BFF — из `backend`. Browser обращается только к frontend; BFF не публикует host port и доступен frontend по внутренней сети (`BFF_UPSTREAM=http://bff:8080`). Локально browser открывает frontend по HTTP, поэтому Compose задаёт `PUBLIC_SCHEME=http`; при развёртывании за внешним TLS terminator задаётся `PUBLIC_SCHEME=https`:
 
 ```text
 Browser → frontend (http://localhost:8082)

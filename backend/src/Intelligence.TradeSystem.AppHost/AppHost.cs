@@ -89,6 +89,7 @@ public static class Program
             .WaitFor(bff)
             .WithHttpEndpoint(port: 8082, targetPort: 8080)
             .WithEnvironment("BFF_UPSTREAM", bff.GetEndpoint("http"))
+            .WithEnvironment("PUBLIC_SCHEME", new Uri(PublicWebOrigin).Scheme)
             .WithExternalHttpEndpoints();
 
         builder.Build().Run();
