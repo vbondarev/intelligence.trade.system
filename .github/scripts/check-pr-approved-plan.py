@@ -284,22 +284,31 @@ def comment_url(
 
 
 def amendment_base_permalink(comment: dict[str, object]) -> str:
-    values = [
-        match.group(1)
-        for line in visible_markdown_lines(comment_body(comment))
-        if (match := BASE_AMENDMENT_LINK_LINE.fullmatch(line)) is not None
-    ]
-    values = [
-        value
-        for value in values
-        if value not in {"<permalink>", "<base-permalink>"}
-    ]
-    if len(values) != 1 or not values[0]:
+    lines = visible_markdown_lines(comment_body(comment))
+    fields: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        match = BASE_AMENDMENT_LINK_LINE.fullmatch(line)
+        if match is not None:
+            fields.append((index, match.group(1)))
+
+    value = ""
+    if len(fields) == 1:
+        index, value = fields[0]
+        if not value and index + 1 < len(lines):
+            next_line = lines[index + 1].strip()
+            if next_line:
+                value = next_line
+
+    if (
+        len(fields) != 1
+        or not value
+        or value in {"<permalink>", "<base-permalink>"}
+    ):
         raise ValidationError(
             "Каждый Approved Plan Amendment должен содержать ровно один "
             "permalink в поле 'Base Approved Implementation Plan:'."
         )
-    return values[0]
+    return value
 
 
 def validate_effective_artifacts(
