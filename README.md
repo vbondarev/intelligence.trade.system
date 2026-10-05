@@ -421,226 +421,38 @@ Endpoint сохраняется ради совместимости и отла�
 
 ---
 
-## Запуск backend
+## Локальная разработка
 
-### Требования
+Рекомендуемый способ запуска полного приложения — Docker Compose. Он поднимает PostgreSQL, Identity, API, внутренний BFF и самостоятельный React/nginx frontend в согласованной локальной топологии.
 
-- .NET 10 SDK; конкретная версия зафиксирована в корневом `global.json`;
-- Node.js 24 и npm — только для локальной сборки и проверок React-клиента `frontend/intelligence-trade-web`; версия Node.js зафиксирована в `frontend/intelligence-trade-web/.nvmrc`. Backend build Node.js не требует;
-- доступ к интернету для получения публичных данных Bybit;
-- Docker — для контейнерного запуска и integration tests на Testcontainers;
-- внешний или локальный PostgreSQL — только если backend запускается без Docker Compose, Aspire или Testcontainers;
-- Docker Compose создаёт named network `trade-agent-network` автоматически.
+Для первого запуска:
 
-Публичный рыночный анализ не требует пользовательских API-ключей Bybit. Приватные credentials используются только для подключённого пользователем read-only аккаунта и его ручной/фоновой синхронизации.
-
-### Защита credentials Bybit
-
-Пары `apiKey`/`apiSecret` хранятся только как один authenticated-encrypted payload в PostgreSQL. `ExchangeAccount` не содержит credentials, а master keys не сохраняются в TradeSystem database, логах, ответах API или репозитории. User-scoped store поддерживает создание, чтение, локальную замену пары (`Rotate`), локальный отзыв (`Revoke`) и отдельную перепротекцию существующей строки новым active master key (`Reprotect`). `Revoke` удаляет локальный доступ системы и не удаляет API key на стороне Bybit.
-
-Для локального запуска задайте явный 32-байтный ключ в Base64; ключ не генерируется автоматически при старте:
+1. задайте локальные secrets `TRADE_CREDENTIAL_KEY`, `TRADE_WEB_BFF_CLIENT_SECRET` и `TRADE_WEB_DEV_PASSWORD`;
+2. при необходимости задайте `TRADE_WEB_DEV_USERNAME` (по умолчанию `trade-dev-user`);
+3. из каталога `backend` запустите:
 
 ```bash
-export CredentialProtection__ActiveKeyId=local_v1
-export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
-```
-
-Ключ можно сгенерировать без вывода значения в журнал:
-
-```bash
-export CredentialProtection__Keys__local_v1="$(openssl rand -base64 32)"
-```
-
-Для PowerShell сгенерируйте ключ без вывода значения:
-
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-$env:TRADE_CREDENTIAL_KEY = [Convert]::ToBase64String($bytes)
-```
-
-`TRADE_CREDENTIAL_KEY` — переменная хоста только для mapping в Compose. Для прямого `dotnet run` задаются application configuration keys `CredentialProtection__ActiveKeyId` и `CredentialProtection__Keys__local_v1` напрямую. При rollover добавьте новый key id в deployment configuration, оставьте старый key id доступным для чтения, выполните `Reprotect` для всех строк и только после этого удаляйте старый key из key ring. Удаление старого ключа раньше перепротекции делает соответствующие строки нечитаемыми. CI создаёт disposable 32-байтный ключ во время workflow и маскирует его.
-
-### Восстановление зависимостей
-
-Из корня репозитория:
-
-```bash
-dotnet restore backend/src/Intelligence.TradeSystem.slnx
-```
-
-### Сборка
-
-```bash
-dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release
-```
-
-Backend build собирает только .NET-решение и не запускает npm. React-клиент — отдельная build unit (см. «Frontend»).
-
-### Frontend
-
-Из `frontend/intelligence-trade-web`:
-
-```bash
-npm ci
-npm run typecheck
-npm run lint
-npm run test:unit
-npm run build
-```
-
-Vite собирает artifact в `frontend/intelligence-trade-web/dist`. Production image собирается из того же каталога (`docker build frontend/intelligence-trade-web`): Node.js stage строит `dist`, nginx runtime раздаёт React и проксирует `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` во внутренний BFF по адресу из `BFF_UPSTREAM`. Обязательный `PUBLIC_SCHEME` задаёт схему public origin, которую nginx передаёт BFF в `X-Forwarded-Proto`: `http`, когда browser обращается к frontend напрямую по HTTP, и `https`, когда TLS завершается перед frontend container. nginx не определяет схему по входящему соединению и не пересылает `X-Forwarded-Proto` client; без корректных `BFF_UPSTREAM` и `PUBLIC_SCHEME` container не стартует.
-
-Browser E2E (`npm run test:e2e`) выполняется против запущенного Compose stack: `E2E_PASSWORD` должен совпадать с `TRADE_WEB_DEV_PASSWORD`, а `WEB_BASE_URL`, `IDENTITY_BASE_URL` и `E2E_USERNAME` по умолчанию указывают на `http://localhost:8082`, `http://localhost:8081` и `trade-dev-user`.
-
-### Тесты
-
-```bash
-dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release
-```
-
-### Запуск API
-
-Для прямого запуска API задайте application configuration keys (здесь `TRADE_CREDENTIAL_KEY` не используется):
-
-```bash
-export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-export CredentialProtection__ActiveKeyId=local_v1
-export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
-```
-
-В PowerShell после генерации ключа задайте те же application keys:
-
-```powershell
-$env:ConnectionStrings__TradeSystem = 'Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-$env:CredentialProtection__ActiveKeyId = 'local_v1'
-$env:CredentialProtection__Keys__local_v1 = $env:TRADE_CREDENTIAL_KEY
-```
-
-```bash
-cd backend/src
-dotnet run --project Intelligence.TradeSystem.Api
-```
-
-### Фоновая синхронизация аккаунтов
-
-API host периодически синхронизирует активные Bybit-аккаунты. Параметры задаются в секции `ExchangeAccountBackgroundSync`:
-
-```json
-{
-  "Enabled": true,
-  "Interval": "00:05:00",
-  "InitialDelay": "00:00:30",
-  "BatchSize": 50,
-  "MaxConcurrency": 4
-}
-```
-
-`Enabled: false` отключает только фоновый цикл; ручная синхронизация продолжает работать.
-
-### Запуск через Aspire
-
-```bash
-cd backend/src
-dotnet run --project Intelligence.TradeSystem.AppHost
-```
-
-AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически. Secret parameters `tradeCredentialKey`, `tradeWebBffClientSecret` и `tradeWebDevelopmentPassword` задаются через Aspire parameters (например, user secrets AppHost) и не коммитятся. AppHost запускает frontend как отдельный Dockerfile resource `frontend` (public origin `http://localhost:8082`; адрес BFF передаётся через `BFF_UPSTREAM`, `PUBLIC_SCHEME=http`), BFF — как внутренний project resource `bff` без public endpoint, Identity — на `http://localhost:8081`. Для resource `frontend` нужен Docker.
-
-### Docker
-
-При первом локальном запуске с новым PostgreSQL volume сгенерируйте ключ и сохраните его в локальном secret mechanism:
-
-```bash
-export TRADE_CREDENTIAL_KEY="$(openssl rand -base64 32)"
-```
-
-Для следующих запусков с существующим volume используйте тот же `TRADE_CREDENTIAL_KEY`. Новый случайный ключ при каждом старте сделает уже сохранённые credential rows нечитаемыми. Ключ не коммитится и не выводится в лог.
-
-BFF и Identity дополнительно требуют локальные secrets хоста:
-
-- `TRADE_WEB_BFF_CLIENT_SECRET` — случайный client secret confidential client `trade-web-bff`, общий для Identity и BFF. Logical OIDC client id G-01 — `trade-web-bff`: это invariant, а не environment-specific setting, и отдельной переменной для его подмены нет;
-- `TRADE_WEB_DEV_PASSWORD` — пароль development-пользователя, которого Identity создаёт только в окружении Development; имя пользователя задаётся необязательной `TRADE_WEB_DEV_USERNAME` (по умолчанию `trade-dev-user`).
-
-Значения генерируются локально, не коммитятся и не выводятся в лог:
-
-```bash
-export TRADE_WEB_BFF_CLIENT_SECRET="$(openssl rand -base64 32)"
-export TRADE_WEB_DEV_PASSWORD="<local-development-password>"
-```
-
-```bash
-cd backend
 docker compose up --build -d
+docker compose ps -a
 ```
 
-Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity, API, BFF и frontend:
+Browser-facing приложение доступно по `http://localhost:8082`. Identity публикуется на `http://localhost:8081`, API — на `http://localhost:8080`; BFF отдельный host port не публикует и доступен frontend только по внутренней Docker network.
 
 ```text
-postgres → identity-db-init → identity-migrations → identity → api → bff → frontend
-```
-
-Frontend и BFF — независимые images: frontend собирается из `frontend/intelligence-trade-web`, BFF — из `backend`. Browser обращается только к frontend; BFF не публикует host port и доступен frontend по внутренней сети (`BFF_UPSTREAM=http://bff:8080`). Локально browser открывает frontend по HTTP, поэтому Compose задаёт `PUBLIC_SCHEME=http`; при развёртывании за внешним TLS terminator задаётся `PUBLIC_SCHEME=https`:
-
-```text
-Browser → frontend (http://localhost:8082)
+Browser → frontend (:8082)
             ├── React SPA
-            └── /bff/**, /signin-oidc, /signout-callback-oidc → bff:8080
-                                                               ├── OIDC → identity
-                                                               └── Bearer → api
+            └── /bff/**, OIDC callbacks → BFF
+                                         ├── Identity (:8081)
+                                         └── API (:8080)
 ```
 
-Локальные адреса:
+`identity-db-init` и `identity-migrations` являются одноразовыми процессами, поэтому их состояние `Exited (0)` после успешного старта нормально.
 
-| Сервис | Адрес |
-|---|---|
-| Web client (frontend: React + proxy `/bff/**` в BFF) | `http://localhost:8082` |
-| Identity | `http://localhost:8081` |
-| API | `http://localhost:8080` |
+Подробная инструкция по требованиям, secrets, сборке и запуску на **Windows, Linux и macOS**, selective rebuild отдельных сервисов, Aspire, backend/frontend tests, Playwright E2E, migrations, диагностике и сбросу локального окружения находится в [руководстве по локальной разработке](docs/local-development.md).
 
-`identity-db-init` создаёт `tradesystem_identity`, если её нет, и безопасно завершается при повторном запуске. Поэтому обычный старт или обновление через `docker compose up --build -d` не удаляет данные и не зависит от состояния `postgres/init`. API-контейнер публикуется на `8080`, Identity — на `8081`; публичный issuer — `http://localhost:8081`, а внутренний API backchannel — `http://identity:8080`. API валидирует canonical public issuer, но discovery/JWKS может загружать через внутренний network route. Discovery: `http://localhost:8081/.well-known/openid-configuration`, JWKS: `http://localhost:8081/.well-known/jwks`, API liveness: `http://localhost:8080/alive`, protected proof endpoint: `http://localhost:8080/api/v1/auth/me`.
-
-Для CI OAuth smoke используется отдельный профиль `ci`: `auth-test-seeder` создаёт тестового пользователя и public client через стандартные Identity/OpenIddict managers, после чего workflow получает настоящий токен Authorization Code + PKCE (`S256`). Password grant, Client Credentials и custom token endpoints не используются.
-
-`auth-test-seeder` — одноразовый процесс поверх стандартного .NET `IConfiguration`: он требует непустые `TestSeeder__Username`, `TestSeeder__Password`, `TestSeeder__ClientId` и абсолютный `TestSeeder__RedirectUri`, а Identity connection string проверяется тем же persistence contract, что и в Identity host. Configuration читается один раз при старте, поэтому после изменения settings seeder нужно запустить заново.
-
-Полный локальный сброс — отдельная destructive операция, удаляющая локальные PostgreSQL данные:
-
-```bash
-docker compose down -v
-```
+> При существующем PostgreSQL volume используйте тот же `TRADE_CREDENTIAL_KEY`: новый случайный master key сделает ранее сохранённые encrypted Bybit credentials нечитаемыми. Development-пользователь Identity также не меняет пароль автоматически — сохранённый `TRADE_WEB_DEV_PASSWORD` должен совпадать с паролем существующего пользователя.
 
 ---
-
-### Миграции PostgreSQL
-
-Production schema развивается только через EF Core migrations. Ни один production host не применяет миграции автоматически при старте. Business и Identity используют отдельные migration streams.
-
-EF Core design-time factories и `Identity.Migrations` runner получают connection string только из environment variables `ConnectionStrings__TradeSystem` и `ConnectionStrings__TradeSystemIdentity`; `appsettings*.json` для них fallback не являются. Отсутствующее, пустое или синтаксически некорректное значение приводит к ошибке до обращения к базе данных, а текст ошибки не содержит connection string. Значение читается при запуске, поэтому после изменения environment команду или runner нужно запустить заново.
-
-```bash
-cd backend/src
-export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-dotnet ef migrations list --project Intelligence.TradeSystem.Infrastructure
-dotnet ef database update --project Intelligence.TradeSystem.Infrastructure
-dotnet ef migrations add <MigrationName> --project Intelligence.TradeSystem.Infrastructure
-```
-
-Identity migrations:
-
-```bash
-cd backend/src
-export ConnectionStrings__TradeSystemIdentity='Host=localhost;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=<password>'
-dotnet ef migrations list --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
-dotnet ef database update --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
-dotnet run --project Intelligence.TradeSystem.Identity.Migrations
-```
-
-Для deployment/local orchestration предпочтителен одноразовый `Identity.Migrations` runner: он применяет миграции и завершается с ненулевым кодом при ошибке.
-
----
-
 ## Тестирование и CI
 
 В solution есть отдельные наборы тестов для:
