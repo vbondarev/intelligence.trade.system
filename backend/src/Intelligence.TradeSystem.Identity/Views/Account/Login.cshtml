@@ -1,0 +1,51 @@
+@model LoginViewModel
+@{
+    ViewData["Title"] = "Вход";
+    var hasUsername = !string.IsNullOrEmpty(Model.Username);
+}
+<main class="auth-page">
+    <section class="auth-card" aria-labelledby="login-title">
+        <header class="auth-brand">
+            <p class="auth-brand-name">Intelligence.TradeSystem</p>
+            <p class="auth-brand-tagline">Trading intelligence platform</p>
+        </header>
+
+        <h1 id="login-title">Вход</h1>
+        <p class="muted">Войдите в свою учётную запись</p>
+
+        @if (Model.ErrorMessage is not null)
+        {
+            <div class="alert" role="alert">@Model.ErrorMessage</div>
+        }
+
+        <form class="auth-form" method="post" action="/account/login">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@Model.ReturnUrl">
+
+            <div class="field">
+                <label for="username">Имя пользователя</label>
+                <input id="username"
+                       name="username"
+                       type="text"
+                       value="@Model.Username"
+                       autocomplete="username"
+                       autocapitalize="none"
+                       spellcheck="false"
+                       required
+                       autofocus="@(!hasUsername)">
+            </div>
+
+            <div class="field">
+                <label for="password">Пароль</label>
+                <input id="password"
+                       name="password"
+                       type="password"
+                       autocomplete="current-password"
+                       required
+                       autofocus="@hasUsername">
+            </div>
+
+            <button class="button auth-submit" type="submit">Войти</button>
+        </form>
+    </section>
+</main>

@@ -29,13 +29,17 @@ export async function submitIdentityLogin(page: Page) {
   await expect(page.locator('input[name="username"]')).toBeVisible();
   await page.locator('input[name="username"]').fill(username);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Войти' }).click();
 }
 
-export async function loginThroughLanding(page: Page) {
+export async function openIdentityLoginThroughLanding(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForURL((url) => url.origin === identityBaseUrl && url.pathname === '/account/login');
+}
+
+export async function loginThroughLanding(page: Page) {
+  await openIdentityLoginThroughLanding(page);
   await submitIdentityLogin(page);
   await page.waitForURL(`${webBaseUrl}/app`);
   await expect(page.getByRole('heading', { name: 'Обзор' })).toBeVisible();

@@ -4,7 +4,6 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using FluentAssertions;
 using Intelligence.TradeSystem.Identity.Configuration;
 using Intelligence.TradeSystem.Identity.Identity;
@@ -548,9 +547,7 @@ public sealed partial class AuthenticationIntegrationTests
         loginLocation.AbsolutePath.Should().Be("/account/login");
         var loginUri = loginLocation.IsAbsoluteUri ? loginLocation.PathAndQuery : loginLocation.OriginalString;
         using var loginPage = await client.GetAsync(loginUri);
-        var antiforgeryToken = Regex.Match(
-            await loginPage.Content.ReadAsStringAsync(),
-            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var antiforgeryToken = ExtractAntiforgeryToken(await loginPage.Content.ReadAsStringAsync());
         var returnUrl = QueryHelpers.ParseQuery(new Uri(new Uri(Issuer), loginUri).Query)["returnUrl"].ToString();
 
         using var loginPost = await client.PostAsync(
