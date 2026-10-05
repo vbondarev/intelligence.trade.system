@@ -5,6 +5,7 @@
 ## Источники и их назначение
 
 - [Корневой README](../README.md) — краткое описание продукта, текущее состояние, запуск и основные технические сведения.
+- [Локальная разработка](local-development.md) — сборка, запуск и тестирование на Windows, Linux и macOS, Docker Compose/Aspire, локальные secrets, migrations и диагностика окружения.
 - [Product Vision](product/vision.md) — долгосрочное целевое состояние продукта и основные продуктовые направления.
 - [Capability Map](product/capability-map.md) — каталог текущих и будущих продуктовых возможностей и степень их зрелости.
 - [Product Concepts](product/concepts.md) — общий продуктовый язык для Discovery. Эти понятия не являются автоматически Domain entities, API contracts или принятыми архитектурными решениями.
