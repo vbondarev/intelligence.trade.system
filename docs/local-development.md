@@ -497,6 +497,8 @@ Production schema развивается только через EF Core migrati
 
 Business и Identity используют отдельные migration streams.
 
+Команды `dotnet ef` ниже выполняются на host и поэтому требуют PostgreSQL, доступный с host по указанной connection string. Стандартный Compose service `postgres` не публикует порт `5432` наружу; для обычного Compose lifecycle используйте предусмотренные container/orchestration-процессы, а host `dotnet ef` — с отдельно доступным PostgreSQL или явно опубликованным development port.
+
 ### Business persistence
 
 Linux/macOS:
