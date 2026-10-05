@@ -58,7 +58,6 @@
 
 | Этап | Содержание | Статус |
 |---|---|---|
-| 2026-10-05 | 3.51 | По Human Decision G-01 отмечен завершённым перед merge PR #181: создан самостоятельный React-клиент и отдельный ASP.NET Core BFF за единым browser-facing origin, реализованы OAuth/OIDC login, server-side browser session, CSRF-защищённый logout, full SSO logout, безопасный refresh lifecycle, базовая адаптивная оболочка, независимые Docker/CI paths и синхронизированная документация. Review findings устранены и inline threads закрыты; после documentation commit требуется новый exact-head CI/Re-review перед merge. Следующий обязательный шаг — G-02. |
 | A | Архитектурный фундамент | ✅ Завершён |
 | B | Бизнес-домен аккаунта, позиции, оценки и рекомендации | ✅ Завершён |
 | C | Хранение, безопасность и пользователи | ✅ Завершён |
@@ -567,6 +566,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-05 | 3.51 | По Human Decision G-01 отмечен завершённым перед merge PR #181: создан самостоятельный React-клиент и отдельный ASP.NET Core BFF за единым browser-facing origin, реализованы OAuth/OIDC login, server-side browser session, CSRF-защищённый logout, full SSO logout, безопасный refresh lifecycle, базовая адаптивная оболочка, независимые Docker/CI paths и синхронизированная документация. Review findings устранены и inline threads закрыты; после documentation commit требуется новый exact-head CI/Re-review перед merge. Следующий обязательный шаг — G-02. |
 | 2026-10-02 | 3.50 | По Human Decision Tech-G13 отмечен завершённым перед ручным merge PR #179: migrations и EF Core design-time tooling получили явный environment-only configuration contract с fail-fast/secret-safe validation без connectivity gate; `Authentication.TestSeeder` закреплён как one-shot исключение поверх стандартного `IConfiguration`; startup-only lifecycle и документация синхронизированы. External Review и live Human Merge Gate check не выявили blocker findings, exact-head CI текущего implementation head был зелёным; после documentation commit требуется новый exact-head Re-review перед merge. Следующий обязательный шаг — G-01. |
 | 2026-10-01 | 3.48 | По Human Decision Tech-G11 отмечен завершённым перед ручным merge PR #175: `SnapshotFreshness` переведён на стандартный Options pipeline с `ValidateOnStart`, удалён production fallback `SnapshotFreshnessOptions.Default`, добавлена строгая startup validation и regression coverage operational runtime options. External Review и live Re-review не выявили blocker findings, exact-head CI был зелёным; публичные API contracts и runtime semantics валидной конфигурации сохранены. Следующий обязательный шаг — Tech-G12. |
 | 2026-10-01 | 3.47 | Issue #172 добавил перед G-01 три последовательные задачи по унификации конфигурации: Tech-G11 для runtime Options и startup validation, Tech-G12 для fail-fast проверки критичной infrastructure/security configuration, Tech-G13 для migrations/design-time tooling и startup-only lifecycle. Tech-G01 — Tech-G10 остаются завершёнными; следующий обязательный шаг — Tech-G11. Production/runtime code, публичные API contracts, OpenClaw и CI в этой задаче не изменялись. |
