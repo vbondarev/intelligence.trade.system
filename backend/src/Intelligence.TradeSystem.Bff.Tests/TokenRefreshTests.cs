@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Tests.Support;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Memory;
@@ -298,6 +299,8 @@ public sealed class TokenRefreshTests
             factory.Api.Requests.Should().OnlyContain(request => request.AuthorizationParameter == "access-2");
             var stored = await browser.GetStoredTicketAsync();
             stored!.Properties.GetTokenValue("refresh_token").Should().Be("refresh-2");
+            factory.Services.GetRequiredService<RefreshGateRegistry>().Count
+                .Should().Be(0, "gate удаляется после последнего owner/waiter");
         }
         finally
         {
@@ -306,6 +309,113 @@ public sealed class TokenRefreshTests
                 response.Dispose();
             }
         }
+    }
+
+    [Fact]
+    public async Task Cancelled_refresh_waiter_releases_its_gate_reference_without_second_grant()
+    {
+        const string subject = "user-subject";
+        using var factory = CreateFactoryWithApi();
+        var tokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.TokenEndpoint.Responder = async (_, _) =>
+        {
+            tokenRequestReceived.TrySetResult();
+            await releaseTokenResponse.Task;
+            return UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2");
+        };
+        var registry = factory.Services.GetRequiredService<RefreshGateRegistry>();
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(subject: subject, accessTokenLifetime: NearExpiry);
+        using var waiterCancellation = new CancellationTokenSource();
+
+        var owner = browser.Client.GetAsync("/bff/auth/session");
+        try
+        {
+            await tokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            registry.UsersOf(subject).Should().Be(1);
+
+            var waiter = browser.Client.GetAsync("/bff/auth/session", waiterCancellation.Token);
+            await WaitUntilAsync(() => registry.UsersOf(subject) == 2);
+            await waiterCancellation.CancelAsync();
+            await waiter.Awaiting(task => task).Should().ThrowAsync<OperationCanceledException>();
+
+            await WaitUntilAsync(() => registry.UsersOf(subject) == 1);
+            registry.Count.Should().Be(1, "gate владельца остаётся, пока refresh выполняется");
+            owner.IsCompleted.Should().BeFalse();
+        }
+        finally
+        {
+            releaseTokenResponse.TrySetResult();
+        }
+
+        using var response = await owner;
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        factory.TokenEndpoint.Count.Should().Be(1);
+        registry.Count.Should().Be(0);
+        var stored = await browser.GetStoredTicketAsync();
+        stored!.Properties.GetTokenValue("refresh_token").Should().Be("refresh-2");
+    }
+
+    [Fact]
+    public async Task Refresh_of_another_subject_does_not_wait_for_in_flight_refresh()
+    {
+        using var factory = CreateFactoryWithApi();
+        var firstTokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.TokenEndpoint.Responder = async (request, _) =>
+        {
+            if (request.Form["refresh_token"] == "refresh-a1")
+            {
+                firstTokenRequestReceived.TrySetResult();
+                await releaseFirstTokenResponse.Task;
+                return UpstreamResponses.TokenSuccess("access-a2", refreshToken: "refresh-a2");
+            }
+
+            return UpstreamResponses.TokenSuccess("access-b2", refreshToken: "refresh-b2");
+        };
+        var registry = factory.Services.GetRequiredService<RefreshGateRegistry>();
+        using var first = factory.CreateBrowser();
+        await first.SignInAsync(
+            subject: "subject-a",
+            accessToken: "access-a1",
+            accessTokenLifetime: NearExpiry,
+            refreshToken: "refresh-a1");
+        using var second = factory.CreateBrowser();
+        await second.SignInAsync(
+            subject: "subject-b",
+            accessToken: "access-b1",
+            accessTokenLifetime: NearExpiry,
+            refreshToken: "refresh-b1");
+
+        var firstRequest = first.Client.GetAsync("/bff/auth/session");
+        try
+        {
+            await firstTokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var secondSession = await second.GetSessionAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+            secondSession.GetProperty("authenticated").GetBoolean().Should().BeTrue();
+            firstRequest.IsCompleted.Should().BeFalse("refresh subject-a всё ещё заблокирован token endpoint");
+            registry.UsersOf("subject-a").Should().Be(1);
+            registry.UsersOf("subject-b").Should().Be(0);
+            var secondStored = await second.GetStoredTicketAsync();
+            secondStored!.Properties.GetTokenValue("refresh_token").Should().Be("refresh-b2");
+        }
+        finally
+        {
+            releaseFirstTokenResponse.TrySetResult();
+        }
+
+        using var firstResponse = await firstRequest;
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        factory.TokenEndpoint.Requests.Select(request => request.Form["refresh_token"])
+            .Should().Equal("refresh-a1", "refresh-b1");
+        factory.Api.Requests.Select(request => request.AuthorizationParameter)
+            .Should().Equal("access-b2", "access-a2");
+        var firstStored = await first.GetStoredTicketAsync();
+        firstStored!.Properties.GetTokenValue("refresh_token").Should().Be("refresh-a2");
+        registry.Count.Should().Be(0);
     }
 
     [Fact]
@@ -395,6 +505,23 @@ public sealed class TokenRefreshTests
         var factory = new BffApplicationFactory(settings);
         factory.Api.Responder = (_, _) => Task.FromResult(UpstreamResponses.CurrentUser());
         return factory;
+    }
+
+    /// <summary>
+    /// Ожидает состояния, которое request достигает на server side асинхронно относительно клиента.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Ожидаемое состояние refresh gate не достигнуто.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+        }
     }
 
     private static DateTimeOffset ParseExpiresAt(AuthenticationTicket ticket) =>

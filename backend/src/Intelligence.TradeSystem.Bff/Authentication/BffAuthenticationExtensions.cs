@@ -33,6 +33,7 @@ public static partial class BffAuthenticationExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
         services.AddSingleton<ITicketStore, InMemoryAuthenticationTicketStore>();
+        services.AddSingleton<RefreshGateRegistry>();
         services.AddSingleton<BffTokenService>();
 
         services

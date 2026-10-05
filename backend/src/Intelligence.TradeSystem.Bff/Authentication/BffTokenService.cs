@@ -12,6 +12,7 @@ namespace Intelligence.TradeSystem.Bff.Authentication;
 internal sealed partial class BffTokenService(
     ITicketStore ticketStore,
     OAuthTokenRefreshClient refreshClient,
+    RefreshGateRegistry refreshGates,
     TimeProvider timeProvider,
     IHostApplicationLifetime applicationLifetime,
     ILogger<BffTokenService> logger)
@@ -27,9 +28,6 @@ internal sealed partial class BffTokenService(
     /// Порог — внутренний invariant, а не deployment setting.
     /// </summary>
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromMinutes(1);
-
-    private readonly Lock refreshLockGate = new();
-    private readonly Dictionary<string, RefreshGate> refreshGates = [];
 
     /// <summary>
     /// Возвращает access token, пригодный для вызова API.
@@ -68,7 +66,7 @@ internal sealed partial class BffTokenService(
             return BffAccessTokenResult.Available(cachedAccessToken);
         }
 
-        var refreshLock = AcquireRefreshGate(subject);
+        var refreshLock = refreshGates.Acquire(subject);
         var refreshLockAcquired = false;
         try
         {
@@ -132,36 +130,7 @@ internal sealed partial class BffTokenService(
                 refreshLock.Semaphore.Release();
             }
 
-            ReleaseRefreshGate(subject, refreshLock);
-        }
-    }
-
-    private RefreshGate AcquireRefreshGate(string subject)
-    {
-        // Cache с истечением по lifetime session может вытеснить semaphore, пока refresh ещё
-        // выполняется, и второй запрос того же subject отправит ещё один rotating grant.
-        lock (refreshLockGate)
-        {
-            if (!refreshGates.TryGetValue(subject, out var gate))
-            {
-                gate = new RefreshGate();
-                refreshGates.Add(subject, gate);
-            }
-
-            gate.Users++;
-            return gate;
-        }
-    }
-
-    private void ReleaseRefreshGate(string subject, RefreshGate gate)
-    {
-        lock (refreshLockGate)
-        {
-            gate.Users--;
-            if (gate.Users == 0)
-            {
-                refreshGates.Remove(subject);
-            }
+            refreshGates.Release(subject, refreshLock);
         }
     }
 
@@ -210,13 +179,6 @@ internal sealed partial class BffTokenService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BFF session не содержит refresh token и будет завершена.")]
     private partial void LogRefreshTokenMissing();
-
-    private sealed class RefreshGate
-    {
-        public SemaphoreSlim Semaphore { get; } = new(1, 1);
-
-        public int Users { get; set; }
-    }
 }
 
 internal enum BffAccessTokenStatus
