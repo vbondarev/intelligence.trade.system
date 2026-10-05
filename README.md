@@ -453,6 +453,7 @@ Browser → frontend (:8082)
 > При существующем PostgreSQL volume используйте тот же `TRADE_CREDENTIAL_KEY`: новый случайный master key сделает ранее сохранённые encrypted Bybit credentials нечитаемыми. Development-пользователь Identity также не меняет пароль автоматически — сохранённый `TRADE_WEB_DEV_PASSWORD` должен совпадать с паролем существующего пользователя.
 
 ---
+
 ## Тестирование и CI
 
 В solution есть отдельные наборы тестов для:
