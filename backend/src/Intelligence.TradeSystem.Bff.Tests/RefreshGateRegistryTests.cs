@@ -43,11 +43,13 @@ public sealed class RefreshGateRegistryTests
     public void Gate_acquired_after_cleanup_is_new_instance()
     {
         var first = registry.Acquire("user-1");
+        first.RefreshUnavailable = true;
         registry.Release("user-1", first);
 
         var second = registry.Acquire("user-1");
 
         second.Should().NotBeSameAs(first);
+        second.RefreshUnavailable.Should().BeFalse("временная ошибка живёт только в lifetime своего gate");
         registry.UsersOf("user-1").Should().Be(1);
         registry.Release("user-1", second);
         registry.Count.Should().Be(0);

@@ -312,6 +312,140 @@ public sealed class TokenRefreshTests
     }
 
     [Fact]
+    public async Task Concurrent_requests_share_unavailable_refresh_without_repeating_grant()
+    {
+        const string subject = "user-subject";
+        const int concurrentRequests = 5;
+        using var factory = CreateFactoryWithApi();
+        var tokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var grants = 0;
+        factory.TokenEndpoint.Responder = async (_, _) =>
+        {
+            // Повторный grant тем же refresh token после ambiguous failure получил бы invalid_grant
+            // и завершил session, поэтому любой второй вызов здесь делает тест красным.
+            if (Interlocked.Increment(ref grants) > 1)
+            {
+                return UpstreamResponses.TokenError(HttpStatusCode.BadRequest, "invalid_grant");
+            }
+
+            tokenRequestReceived.TrySetResult();
+            await releaseTokenResponse.Task;
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        };
+        var registry = factory.Services.GetRequiredService<RefreshGateRegistry>();
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(subject: subject, accessTokenLifetime: NearExpiry);
+
+        var requests = Enumerable.Range(0, concurrentRequests)
+            .Select(_ => browser.Client.GetAsync("/bff/auth/session"))
+            .ToArray();
+        HttpResponseMessage[] responses;
+        try
+        {
+            await tokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitUntilAsync(() => registry.UsersOf(subject) == concurrentRequests);
+        }
+        finally
+        {
+            releaseTokenResponse.TrySetResult();
+            responses = await Task.WhenAll(requests);
+        }
+
+        try
+        {
+            responses.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.ServiceUnavailable);
+            factory.TokenEndpoint.Count.Should().Be(1);
+            browser.SessionCookie.Should().NotBeNull();
+            var stored = await browser.GetStoredTicketAsync();
+            stored.Should().NotBeNull();
+            stored!.Properties.GetTokenValue("access_token").Should().Be("access-1");
+            stored.Properties.GetTokenValue("refresh_token").Should().Be("refresh-1");
+            registry.Count.Should().Be(0);
+            factory.Api.Count.Should().Be(0);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
+            UpstreamResponses.TokenSuccess("access-2", refreshToken: "refresh-2"));
+
+        var session = await browser.GetSessionAsync();
+
+        session.GetProperty("authenticated").GetBoolean().Should().BeTrue();
+        factory.TokenEndpoint.Count.Should().Be(2, "после cleanup gate новый request снова выполняет refresh");
+        var refreshed = await browser.GetStoredTicketAsync();
+        refreshed!.Properties.GetTokenValue("access_token").Should().Be("access-2");
+        refreshed.Properties.GetTokenValue("refresh_token").Should().Be("refresh-2");
+        registry.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Concurrent_forced_refresh_after_api_unauthorized_shares_unavailable_result()
+    {
+        const string subject = "user-subject";
+        const int concurrentRequests = 3;
+        using var factory = new BffApplicationFactory();
+        factory.Api.Responder = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var tokenRequestReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTokenResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var grants = 0;
+        factory.TokenEndpoint.Responder = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref grants) > 1)
+            {
+                return UpstreamResponses.TokenError(HttpStatusCode.BadRequest, "invalid_grant");
+            }
+
+            tokenRequestReceived.TrySetResult();
+            await releaseTokenResponse.Task;
+            throw new HttpRequestException("connection reset");
+        };
+        var registry = factory.Services.GetRequiredService<RefreshGateRegistry>();
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(subject: subject, accessTokenLifetime: TimeSpan.FromMinutes(30));
+
+        var requests = Enumerable.Range(0, concurrentRequests)
+            .Select(_ => browser.Client.GetAsync("/bff/auth/session"))
+            .ToArray();
+        HttpResponseMessage[] responses;
+        try
+        {
+            await tokenRequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitUntilAsync(() => registry.UsersOf(subject) == concurrentRequests);
+        }
+        finally
+        {
+            releaseTokenResponse.TrySetResult();
+            responses = await Task.WhenAll(requests);
+        }
+
+        try
+        {
+            responses.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.ServiceUnavailable);
+            factory.TokenEndpoint.Count.Should().Be(1);
+            factory.Api.Requests.Should().HaveCount(concurrentRequests)
+                .And.OnlyContain(request => request.AuthorizationParameter == "access-1");
+            var stored = await browser.GetStoredTicketAsync();
+            stored.Should().NotBeNull();
+            stored!.Properties.GetTokenValue("refresh_token").Should().Be("refresh-1");
+            registry.Count.Should().Be(0);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    [Fact]
     public async Task Cancelled_refresh_waiter_releases_its_gate_reference_without_second_grant()
     {
         const string subject = "user-subject";

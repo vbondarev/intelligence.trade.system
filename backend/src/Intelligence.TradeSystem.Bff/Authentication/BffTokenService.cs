@@ -89,6 +89,11 @@ internal sealed partial class BffTokenService(
                 return BffAccessTokenResult.Available(freshAccessToken);
             }
 
+            if (refreshLock.RefreshUnavailable)
+            {
+                return BffAccessTokenResult.TemporarilyUnavailable;
+            }
+
             var refreshToken = current.Properties.GetTokenValue(RefreshTokenName);
             if (string.IsNullOrEmpty(refreshToken))
             {
@@ -108,6 +113,7 @@ internal sealed partial class BffTokenService(
                     await EndSessionAsync(httpContext);
                     return BffAccessTokenResult.SessionEnded;
                 case OAuthTokenRefreshStatus.Unavailable:
+                    refreshLock.RefreshUnavailable = true;
                     return BffAccessTokenResult.TemporarilyUnavailable;
             }
 

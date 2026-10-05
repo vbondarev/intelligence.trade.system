@@ -88,4 +88,16 @@ internal sealed class RefreshGate
     /// Изменяется только <see cref="RefreshGateRegistry"/> под его lock.
     /// </summary>
     public int Users { get; set; }
+
+    /// <summary>
+    /// Refresh grant этого gate завершился временной ошибкой. Читается и изменяется только
+    /// владельцем <see cref="Semaphore"/>.
+    /// </summary>
+    /// <remarks>
+    /// Повторный grant тем же refresh token после ambiguous failure может получить
+    /// <c>invalid_grant</c>, если Identity уже ротировал token, и завершить session. Поэтому owner и
+    /// waiters текущего gate разделяют результат первой попытки; новый gate после cleanup начинает
+    /// без него, и следующий независимый request может снова выполнить refresh.
+    /// </remarks>
+    public bool RefreshUnavailable { get; set; }
 }
