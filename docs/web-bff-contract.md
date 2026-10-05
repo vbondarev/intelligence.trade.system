@@ -57,7 +57,9 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
   - `PUBLIC_SCHEME=http` — browser обращается к frontend напрямую по HTTP (local Compose и Aspire, `http://localhost:8082`).
   - `PUBLIC_SCHEME=https` — TLS завершается перед frontend container (внешний load balancer/TLS terminator); BFF строит `https://<public host>/signin-oidc`.
 - BFF применяет forwarded headers до authentication/OIDC middleware, поэтому OIDC `redirect_uri` и `post_logout_redirect_uri` строятся от public origin (`http://localhost:8082/...`), а не от internal endpoint BFF.
-- Forwarded headers принимаются только от loopback и CIDR-сетей `Bff:ForwardedHeaders:KnownNetworks`; от остальных адресов они игнорируются. Учитывается только последнее значение `X-Forwarded-For` (ForwardLimit = 1). Compose доверяет private range Docker bridge networks (`172.16.0.0/12`); production deployment указывает фактическую сеть reverse proxy.
+- Forwarded headers принимаются только от loopback и CIDR-сетей `Bff:ForwardedHeaders:KnownNetworks`; от остальных адресов они игнорируются. Учитывается только последнее значение `X-Forwarded-For` (ForwardLimit = 1). Defaults BFF доверяют только loopback; сеть reverse proxy задаёт deployment.
+  - Compose: network `trade-agent-network` создаётся с фиксированным subnet `172.28.0.0/24`, и BFF доверяет forwarded headers только от этого subnet. В нём находятся только services этого stack, а browser попадает к BFF исключительно через frontend container; BFF host port не публикует. Subnet network и `Bff:ForwardedHeaders:KnownNetworks` обязаны совпадать: если frontend получит адрес вне trusted subnet, BFF проигнорирует `X-Forwarded-*` и построит OIDC redirect URIs от internal endpoint (`http://bff:8080/...`). Согласованность проверяет CI (`.github/scripts/compose-bff-trusted-network.sh`).
+  - Production deployment задаёт фактическую сеть своего reverse proxy отдельно; Compose subnet не является production default.
 
 ## Server-side browser session
 

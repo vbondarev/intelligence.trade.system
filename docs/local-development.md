@@ -36,6 +36,8 @@ PostgreSQL ← Identity / API
 
 BFF не публикует отдельный host port: frontend обращается к нему по внутренней Docker network.
 
+Compose создаёт network <code>trade-agent-network</code> с фиксированным subnet <code>172.28.0.0/24</code>. BFF доверяет forwarded headers только от этого subnet, поэтому OIDC redirect URIs строятся от public origin <code>http://localhost:8082</code>. Если network с таким именем уже существует с другим subnet, её нужно пересоздать (см. «Login возвращает redirect на внутренний адрес BFF» в разделе «Типичные проблемы»).
+
 ## 2. Требования
 
 ### Для запуска полного окружения через Docker Compose
@@ -605,6 +607,28 @@ docker compose up -d identity api bff frontend
 ~~~
 
 После этого development user создаётся заново с текущим <code>TRADE_WEB_DEV_USERNAME</code> и <code>TRADE_WEB_DEV_PASSWORD</code>.
+
+### Login возвращает redirect на внутренний адрес BFF
+
+Если после «Войти» Identity отклоняет запрос или в <code>redirect_uri</code> указан <code>http://bff:8080/signin-oidc</code> вместо <code>http://localhost:8082/signin-oidc</code>, проверьте subnet network:
+
+~~~bash
+docker network inspect trade-agent-network
+~~~
+
+В <code>IPAM.Config</code> должен быть subnet <code>172.28.0.0/24</code>, а адреса frontend и BFF в <code>Containers</code> должны принадлежать ему. Compose не меняет subnet уже существующей network: например, network, созданная до фиксации subnet или вручную, переиспользуется со старым адресным диапазоном. Признак такой ситуации — предупреждение Compose <code>a network with name trade-agent-network exists but was not created by compose</code>.
+
+> **Внимание:** не удаляйте network, если к ней подключены containers другого runtime/project. Проверьте список <code>Containers</code> в выводе <code>docker network inspect</code>.
+
+Если network используется только этим stack, пересоздайте её без удаления volumes. Из каталога <code>backend</code>:
+
+~~~bash
+docker compose down
+docker network rm trade-agent-network
+docker compose up --build -d
+~~~
+
+Если создание network завершается ошибкой о пересечении address pool, subnet <code>172.28.0.0/24</code> уже занят другой Docker network на этой машине.
 
 ### Заняты порты
 

@@ -127,8 +127,11 @@
       - Bff__Oidc__ClientId=trade-web-bff
       - Bff__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
       - Bff__Api__BaseAddress=http://api:8080
-      # Private range Docker bridge networks: forwarded headers принимаются только от container proxy.
-      - Bff__ForwardedHeaders__KnownNetworks__0=172.16.0.0/12
+      # Forwarded headers доверяются только адресам controlled network trade-agent-network, где browser
+      # попадает к BFF исключительно через frontend proxy; весь private address space Docker не доверяется.
+      # Значение обязано совпадать с networks.trade-agent-network.ipam.config: иначе BFF проигнорирует
+      # X-Forwarded-* и построит OIDC redirect URIs от internal endpoint вместо public origin.
+      - Bff__ForwardedHeaders__KnownNetworks__0=172.28.0.0/24
     depends_on:
       identity:
         condition: service_started
@@ -179,5 +182,10 @@ volumes:
   trade-system-postgres-data:
 
 networks:
+  # Subnet зафиксирован, а не выбирается из address pool Docker daemon: это trust boundary forwarded
+  # headers BFF (Bff__ForwardedHeaders__KnownNetworks__0 должен содержать тот же subnet).
   trade-agent-network:
     name: trade-agent-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

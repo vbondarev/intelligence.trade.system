@@ -447,6 +447,9 @@ jobs:
           echo "TRADE_WEB_DEV_PASSWORD=$dev_password" >> "$GITHUB_ENV"
         shell: bash
 
+      - name: Verify Compose BFF trusted proxy network
+        run: bash .github/scripts/compose-bff-trusted-network.sh
+
       - name: Start PostgreSQL in existing-business-database shape
         run: docker compose -f backend/compose.yaml up -d postgres
 
@@ -491,6 +494,9 @@ jobs:
           done
           echo "Frontend или BFF не стали доступны." >&2
           exit 1
+
+      - name: Verify running BFF trusted proxy network
+        run: bash .github/scripts/compose-bff-trusted-network.sh --running
 
       - name: Smoke test public scheme through frontend proxy
         run: bash .github/scripts/frontend-public-scheme-smoke.sh
