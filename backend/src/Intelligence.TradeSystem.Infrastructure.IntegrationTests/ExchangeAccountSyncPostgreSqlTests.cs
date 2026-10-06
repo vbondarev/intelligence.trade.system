@@ -783,6 +783,13 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             return result;
         }
 
+        public Task<Versioned<ExchangeAccount>?> GetByProviderIdentityAsync(
+            UserId userId,
+            ExchangeId exchangeId,
+            ExchangeAccountProviderIdentity providerIdentity,
+            CancellationToken cancellationToken = default) =>
+            inner.GetByProviderIdentityAsync(userId, exchangeId, providerIdentity, cancellationToken);
+
         public Task<ConcurrencyVersion> SaveAsync(
             UserId userId,
             ExchangeAccount account,

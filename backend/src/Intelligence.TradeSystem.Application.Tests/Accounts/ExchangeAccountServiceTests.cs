@@ -22,6 +22,7 @@ public sealed class ExchangeAccountServiceTests
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(fixture, ProviderIdentity, null);
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -285,6 +286,56 @@ public sealed class ExchangeAccountServiceTests
             _ => ExchangeAccountConnectionOutcome.Unavailable,
         });
         result.Account.Should().BeNull();
+        VerifyNoConnectPersistence(fixture);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Does_Not_Persist_When_Provider_Identity_Is_Not_Confirmed()
+    {
+        var fixture = CreateFixture();
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(
+                ExchangeId.Bybit,
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountAccessVerificationResult(
+                ExchangeAccountAccessVerificationStatus.Verified,
+                RequiredCapabilities,
+                null));
+
+        var result = await fixture.Service.ConnectAsync(
+            fixture.UserId,
+            ExchangeId.Bybit,
+            new ExchangeAccountCredentialSecret("api-key", "api-secret"));
+
+        result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Unavailable);
+        result.Account.Should().BeNull();
+        VerifyNoConnectPersistence(fixture);
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountConnectionStatus.Unknown)]
+    [InlineData(ExchangeAccountConnectionStatus.Connected)]
+    [InlineData(ExchangeAccountConnectionStatus.Unavailable)]
+    public async Task ConnectAsync_Returns_AlreadyExists_Without_Mutating_An_Active_Provider_Account(
+        ExchangeAccountConnectionStatus status)
+    {
+        var fixture = CreateFixture();
+        var existing = CreateAccount(fixture.UserId, status);
+        var secret = new ExchangeAccountCredentialSecret("second-key", "second-secret");
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(
+            fixture,
+            ProviderIdentity,
+            new Versioned<ExchangeAccount>(existing, new ConcurrencyVersion(3)));
+
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+
+        result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.AlreadyExists);
+        result.Account.Should().BeNull();
+        existing.ConnectionStatus.Should().Be(status);
         fixture.Repository.Verify(
             repository => repository.SaveAsync(
                 It.IsAny<UserId>(),
@@ -299,7 +350,221 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+        fixture.CredentialStore.Verify(
+            store => store.RotateAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ConcurrencyVersion>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
         fixture.EventOutbox.Events.Should().BeEmpty();
+        fixture.Repository.VerifyAll();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Creates_A_Separate_Account_For_A_Different_Provider_Account()
+    {
+        var fixture = CreateFixture();
+        var existing = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        var secret = new ExchangeAccountCredentialSecret("subaccount-key", "subaccount-secret");
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(
+                OtherProviderIdentity,
+                RequiredCapabilities));
+        SetupProviderLookup(fixture, OtherProviderIdentity, null);
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ConcurrencyVersion.Initial);
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(account =>
+                    account.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
+                ConcurrencyVersion.Initial,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+        fixture.CredentialStore
+            .Setup(store => store.CreateAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccountId>(),
+                secret,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ConcurrencyVersion.Initial);
+
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+
+        result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Connected);
+        result.Account!.Id.Should().NotBe(existing.Id);
+        result.Account.ProviderIdentity.Should().Be(OtherProviderIdentity);
+        fixture.EventOutbox.Events.Should().ContainSingle();
+        fixture.Repository.VerifyAll();
+        fixture.CredentialStore.VerifyAll();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Reconnects_A_Disabled_Provider_Account_With_The_Same_Id()
+    {
+        var fixture = CreateFixture();
+        var syncedAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+        var disabled = ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            fixture.UserId,
+            ExchangeId.Bybit,
+            ProviderIdentity,
+            ExchangeAccountConnectionStatus.Disabled,
+            RequiredCapabilities,
+            syncedAt,
+            lastAppliedBalanceObservationAt: syncedAt,
+            lastAppliedPositionsObservationAt: syncedAt);
+        var disabledVersion = new ConcurrencyVersion(3);
+        var secret = new ExchangeAccountCredentialSecret("new-key", "new-secret");
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(
+            fixture,
+            ProviderIdentity,
+            new Versioned<ExchangeAccount>(disabled, disabledVersion));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(account =>
+                    account.Id == disabled.Id &&
+                    account.ConnectionStatus == ExchangeAccountConnectionStatus.Connected),
+                disabledVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(4));
+        fixture.CredentialStore
+            .Setup(store => store.CreateAsync(
+                fixture.UserId,
+                disabled.Id,
+                secret,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ConcurrencyVersion.Initial);
+
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+
+        result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Reconnected);
+        result.Account!.Id.Should().Be(disabled.Id);
+        result.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
+        result.Account.LastSyncedAt.Should().Be(syncedAt);
+        result.Account.LastAppliedBalanceObservationAt.Should().Be(syncedAt);
+        result.Account.LastAppliedPositionsObservationAt.Should().Be(syncedAt);
+        fixture.EventOutbox.Events
+            .Should()
+            .ContainSingle()
+            .Which
+            .Should()
+            .BeOfType<ExchangeAccountUpdatedEventV1>()
+            .Which.ExchangeAccountId.Should().Be(disabled.Id.Value);
+        fixture.Repository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                null,
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.CredentialStore.Verify(
+            store => store.RotateAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ConcurrencyVersion>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.Repository.VerifyAll();
+        fixture.CredentialStore.VerifyAll();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Propagates_A_Stale_Reconnect_As_A_Concurrency_Conflict()
+    {
+        var fixture = CreateFixture();
+        var disabled = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Disabled);
+        var disabledVersion = new ConcurrencyVersion(2);
+        var secret = new ExchangeAccountCredentialSecret("new-key", "new-secret");
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(
+            fixture,
+            ProviderIdentity,
+            new Versioned<ExchangeAccount>(disabled, disabledVersion));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                disabledVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("stale version"));
+
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+
+        await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        fixture.CredentialStore.Verify(
+            store => store.CreateAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_Leaves_Reconnect_Rollback_To_The_Lifecycle_Transaction_When_Credential_Create_Conflicts()
+    {
+        var fixture = CreateFixture();
+        var disabled = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Disabled);
+        var secret = new ExchangeAccountCredentialSecret("new-key", "new-secret");
+        fixture.Verifier
+            .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(
+            fixture,
+            ProviderIdentity,
+            new Versioned<ExchangeAccount>(disabled, ConcurrencyVersion.Initial));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                ConcurrencyVersion.Initial,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+        fixture.CredentialStore
+            .Setup(store => store.CreateAsync(
+                fixture.UserId,
+                disabled.Id,
+                secret,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("credential row already exists"));
+
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+
+        await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        fixture.EventOutbox.Events.Should().BeEmpty();
+        fixture.CredentialStore.Verify(
+            store => store.RotateAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ConcurrencyVersion>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.CredentialStore.Verify(
+            store => store.RevokeAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ConcurrencyVersion>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -310,6 +575,7 @@ public sealed class ExchangeAccountServiceTests
         fixture.Verifier
             .Setup(verifier => verifier.VerifyAsync(ExchangeId.Bybit, secret, It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountAccessVerificationResult.Verified(ProviderIdentity, RequiredCapabilities));
+        SetupProviderLookup(fixture, ProviderIdentity, null);
         fixture.Repository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -555,6 +821,44 @@ public sealed class ExchangeAccountServiceTests
             ProviderIdentity,
             status,
             RequiredCapabilities);
+
+    private static void SetupProviderLookup(
+        Fixture fixture,
+        ExchangeAccountProviderIdentity providerIdentity,
+        Versioned<ExchangeAccount>? account) =>
+        fixture.Repository
+            .Setup(repository => repository.GetByProviderIdentityAsync(
+                fixture.UserId,
+                ExchangeId.Bybit,
+                providerIdentity,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+
+    private static void VerifyNoConnectPersistence(Fixture fixture)
+    {
+        fixture.Repository.Verify(
+            repository => repository.GetByProviderIdentityAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeId>(),
+                It.IsAny<ExchangeAccountProviderIdentity>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.Repository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.CredentialStore.Verify(
+            store => store.CreateAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
 
     private static Fixture CreateFixture()
     {

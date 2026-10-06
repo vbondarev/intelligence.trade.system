@@ -60,5 +60,13 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
 
         builder.HasIndex(account => account.UserId)
             .HasDatabaseName("ix_exchange_accounts_user_id");
+        // Индекс намеренно не фильтруется по статусу: Disabled-подключение сохраняет identity
+        // provider-side аккаунта и восстанавливается с прежним ExchangeAccountId.
+        builder.HasIndex(account => new { account.UserId, account.ExchangeId, account.ProviderAccountId })
+            .IsUnique()
+            .HasDatabaseName(ProviderAccountUniqueIndexName);
     }
+
+    internal const string ProviderAccountUniqueIndexName =
+        "ux_exchange_accounts_user_exchange_provider_account_id";
 }

@@ -155,6 +155,78 @@ public sealed class ExchangeAccountTests
     }
 
     [Fact]
+    public void Reconnect_restores_disabled_account()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Connected);
+        account.Disable();
+
+        account.Reconnect();
+
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        account.LastError.Should().BeNull();
+    }
+
+    [Fact]
+    public void Reconnect_preserves_identity_capabilities_and_history()
+    {
+        var id = ExchangeAccountId.New();
+        var userId = UserId.New();
+        var syncedAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+        var balanceObservationAt = syncedAt.AddMinutes(1);
+        var positionsObservationAt = syncedAt.AddMinutes(2);
+        var account = ExchangeAccount.Create(
+            id,
+            userId,
+            ExchangeId.Bybit,
+            ProviderIdentity,
+            ExchangeAccountConnectionStatus.Unavailable,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
+            syncedAt,
+            "positions_failed",
+            balanceObservationAt,
+            positionsObservationAt);
+        account.Disable();
+
+        account.Reconnect();
+
+        account.Id.Should().Be(id);
+        account.UserId.Should().Be(userId);
+        account.ExchangeId.Should().Be(ExchangeId.Bybit);
+        account.ProviderIdentity.Should().Be(ProviderIdentity);
+        account.Capabilities.Should().Be(
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        account.LastSyncedAt.Should().Be(syncedAt);
+        account.LastAppliedBalanceObservationAt.Should().Be(balanceObservationAt);
+        account.LastAppliedPositionsObservationAt.Should().Be(positionsObservationAt);
+        account.LastError.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountConnectionStatus.Unknown)]
+    [InlineData(ExchangeAccountConnectionStatus.Connected)]
+    [InlineData(ExchangeAccountConnectionStatus.Unavailable)]
+    public void Reconnect_rejects_non_disabled_account(ExchangeAccountConnectionStatus status)
+    {
+        var account = CreateAccount(status);
+
+        var act = () => account.Reconnect();
+
+        act.Should().Throw<InvalidOperationException>();
+        account.ConnectionStatus.Should().Be(status);
+    }
+
+    [Fact]
+    public void MarkConnected_still_cannot_reactivate_disabled_account()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Disabled);
+
+        var act = () => account.MarkConnected();
+
+        act.Should().Throw<InvalidOperationException>();
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+    }
+
+    [Fact]
     public void MarkUnavailable_Rejects_Empty_Error()
     {
         var account = CreateAccount();

@@ -53,42 +53,44 @@ public sealed class ExchangeAccountService(
         if (!HasRequiredCapabilities(verification.Capabilities))
             return ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.PermissionsRejected);
 
-        ExchangeAccount? connectedAccount = null;
+        ExchangeAccountConnectionResult? result = null;
         await lifecycleTransaction.ExecuteAsync(
             async transactionToken =>
             {
-                var account = ExchangeAccount.Create(
-                    ExchangeAccountId.New(),
-                    userId,
-                    exchange,
-                    providerIdentity,
-                    capabilities: verification.Capabilities);
-                var accountVersion = await repository
-                    .SaveAsync(userId, account, null, transactionToken)
+                var existing = await repository
+                    .GetByProviderIdentityAsync(userId, exchange, providerIdentity, transactionToken)
                     .ConfigureAwait(false);
-                await credentialStore
-                    .CreateAsync(userId, account.Id, credentials, transactionToken)
-                    .ConfigureAwait(false);
-                account.MarkConnected();
-                await repository
-                    .SaveAsync(userId, account, accountVersion, transactionToken)
-                    .ConfigureAwait(false);
-                await applicationEventOutbox
-                    .AddAsync(
-                        new ExchangeAccountUpdatedEventV1(
-                            Guid.NewGuid(),
-                            clock.GetUtcNow(),
-                            userId.Value,
-                            account.Id.Value),
+                if (existing is null)
+                {
+                    result = ExchangeAccountConnectionResult.Connected(await CreateConnectedAccountAsync(
+                            userId,
+                            exchange,
+                            providerIdentity,
+                            verification.Capabilities,
+                            credentials,
+                            transactionToken)
+                        .ConfigureAwait(false));
+                    return;
+                }
+
+                // Connect не заменяет credential rotation: активное подключение не изменяется.
+                if (existing.Value.ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
+                {
+                    result = ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.AlreadyExists);
+                    return;
+                }
+
+                result = ExchangeAccountConnectionResult.Reconnected(await ReconnectDisabledAccountAsync(
+                        userId,
+                        existing,
+                        credentials,
                         transactionToken)
-                    .ConfigureAwait(false);
-                connectedAccount = account;
+                    .ConfigureAwait(false));
             },
             cancellationToken).ConfigureAwait(false);
 
-        return ExchangeAccountConnectionResult.Connected(
-            connectedAccount ?? throw new InvalidOperationException(
-                "The account lifecycle transaction completed without an account."));
+        return result ?? throw new InvalidOperationException(
+            "The account lifecycle transaction completed without a connection result.");
     }
 
     public async Task<ExchangeAccountVerificationResult> VerifyAsync(
@@ -281,6 +283,66 @@ public sealed class ExchangeAccountService(
 
         return account;
     }
+
+    private async Task<ExchangeAccount> CreateConnectedAccountAsync(
+        UserId userId,
+        ExchangeId exchange,
+        ExchangeAccountProviderIdentity providerIdentity,
+        ExchangeAccountCapabilities capabilities,
+        ExchangeAccountCredentialSecret credentials,
+        CancellationToken transactionToken)
+    {
+        var account = ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            userId,
+            exchange,
+            providerIdentity,
+            capabilities: capabilities);
+        var accountVersion = await repository
+            .SaveAsync(userId, account, null, transactionToken)
+            .ConfigureAwait(false);
+        await credentialStore
+            .CreateAsync(userId, account.Id, credentials, transactionToken)
+            .ConfigureAwait(false);
+        account.MarkConnected();
+        await repository
+            .SaveAsync(userId, account, accountVersion, transactionToken)
+            .ConfigureAwait(false);
+        await AddAccountUpdatedEventAsync(userId, account.Id, transactionToken).ConfigureAwait(false);
+        return account;
+    }
+
+    private async Task<ExchangeAccount> ReconnectDisabledAccountAsync(
+        UserId userId,
+        Versioned<ExchangeAccount> disabled,
+        ExchangeAccountCredentialSecret credentials,
+        CancellationToken transactionToken)
+    {
+        // Порядок account → credential: CAS по версии отключённого аккаунта отсекает
+        // конкурентный reconnect до создания credential row.
+        var account = disabled.Value;
+        account.Reconnect();
+        await repository
+            .SaveAsync(userId, account, disabled.Version, transactionToken)
+            .ConfigureAwait(false);
+        await credentialStore
+            .CreateAsync(userId, account.Id, credentials, transactionToken)
+            .ConfigureAwait(false);
+        await AddAccountUpdatedEventAsync(userId, account.Id, transactionToken).ConfigureAwait(false);
+        return account;
+    }
+
+    private Task AddAccountUpdatedEventAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken transactionToken) =>
+        applicationEventOutbox.AddAsync(
+            new ExchangeAccountUpdatedEventV1(
+                Guid.NewGuid(),
+                clock.GetUtcNow(),
+                userId.Value,
+                exchangeAccountId.Value),
+            transactionToken);
 
     private static bool HasRequiredCapabilities(ExchangeAccountCapabilities capabilities) =>
         (capabilities & RequiredCapabilities) == RequiredCapabilities;

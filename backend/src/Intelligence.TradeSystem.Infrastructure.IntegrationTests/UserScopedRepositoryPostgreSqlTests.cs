@@ -490,7 +490,7 @@ public sealed class UserScopedRepositoryPostgreSqlTests(PostgreSqlFixture fixtur
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
-            ExchangeAccountProviderIdentity.From("provider-account"),
+            ExchangeAccountProviderIdentity.From($"provider-{Guid.NewGuid():N}"),
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0,

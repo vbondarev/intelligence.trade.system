@@ -16,6 +16,21 @@ public interface IExchangeAccountRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Находит подключение конкретного provider-side аккаунта биржи в области пользователя,
+    /// включая отключённые (<see cref="ExchangeAccountConnectionStatus.Disabled"/>) подключения.
+    /// </summary>
+    /// <remarks>
+    /// Lookup обслуживает внутренний lifecycle-инвариант
+    /// <c>UserId + ExchangeId + ProviderIdentity → один ExchangeAccountId</c>; provider identity
+    /// не является клиентским идентификатором.
+    /// </remarks>
+    Task<Versioned<ExchangeAccount>?> GetByProviderIdentityAsync(
+        UserId userId,
+        ExchangeId exchangeId,
+        ExchangeAccountProviderIdentity providerIdentity,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Сохраняет учётную запись в указанной области пользователя с CAS-проверкой оптимистической конкурентности.
     /// </summary>
     /// <param name="userId">Владелец прикладной операции.</param>
@@ -27,6 +42,7 @@ public interface IExchangeAccountRepository
     /// <returns>Версия, под которой агрегат теперь сохранён.</returns>
     /// <exception cref="ConcurrencyConflictException">
     /// Ожидаемая версия не совпала с фактической, либо строка уже существует при вставке,
+    /// либо при вставке у пользователя уже есть подключение того же provider-side аккаунта биржи,
     /// либо агрегат недоступен в указанном user scope. Эта ошибка не различает отсутствующий
     /// и чужой ресурс.
     /// </exception>

@@ -29,6 +29,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20260921211621_AddPositionTimelineReadIndexes";
     private const string PositionListReadIndexesMigration =
         "20260924170832_AddPositionListReadIndexes";
+    private const string UniqueProviderIdentityMigration =
+        "20261006125555_EnforceUniqueExchangeAccountProviderIdentity";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -162,7 +164,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(TimelineReadIndexesMigration);
         Assert.Equal(
-            [PositionListReadIndexesMigration],
+            [PositionListReadIndexesMigration, UniqueProviderIdentityMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_order"));
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_account_order"));
@@ -171,8 +173,40 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
 
-        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.Equal(
+            [UniqueProviderIdentityMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         await AssertPositionListIndexesAsync(dbContext);
+    }
+
+    [Fact]
+    public async Task Unique_provider_identity_migration_applies_cleanly_from_immediately_previous_migration()
+    {
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
+
+        await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
+        Assert.Equal(
+            [UniqueProviderIdentityMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
+        Assert.False(await IndexExistsAsync(
+            dbContext,
+            "ux_exchange_accounts_user_exchange_provider_account_id"));
+
+        await dbContext.Database.MigrateAsync(UniqueProviderIdentityMigration);
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        var definition = await ReadIndexDefinitionAsync(
+            dbContext,
+            "ux_exchange_accounts_user_exchange_provider_account_id");
+        Assert.StartsWith("CREATE UNIQUE INDEX", definition, StringComparison.Ordinal);
+        Assert.Contains("(user_id, exchange_id, provider_account_id)", definition, StringComparison.Ordinal);
+        Assert.DoesNotContain(" WHERE ", definition, StringComparison.Ordinal);
+
+        await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
+        Assert.False(await IndexExistsAsync(
+            dbContext,
+            "ux_exchange_accounts_user_exchange_provider_account_id"));
     }
 
     [Fact]
@@ -225,6 +259,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 LatestAssessmentIndexMigration,
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
+                UniqueProviderIdentityMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -252,6 +287,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             [
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
+                UniqueProviderIdentityMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(

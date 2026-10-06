@@ -9,6 +9,9 @@ public sealed record ExchangeAccountConnectionResult(
     public static ExchangeAccountConnectionResult Connected(ExchangeAccount account) =>
         new(ExchangeAccountConnectionOutcome.Connected, account);
 
+    public static ExchangeAccountConnectionResult Reconnected(ExchangeAccount account) =>
+        new(ExchangeAccountConnectionOutcome.Reconnected, account);
+
     public static ExchangeAccountConnectionResult Failed(ExchangeAccountConnectionOutcome outcome) =>
         new(outcome, null);
 }
