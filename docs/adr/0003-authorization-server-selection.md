@@ -271,6 +271,19 @@ TradeSystem.Api
 
 Browser JavaScript не получает access token или refresh token. BFF является confidential client, но client authentication не отменяет PKCE: для first-party BFF используется Authorization Code + PKCE с `S256` как дополнительная защита authorization code flow. BFF использует secure HttpOnly session cookie; автоматическая cookie boundary сохраняет CSRF requirement ADR-0002. BFF не содержит business logic и не заменяет API.
 
+#### G-01 clarification: browser logout и повторная аутентификация
+
+Уточнение принято при реализации G-01 и не меняет выбор Authorization Server:
+
+- full browser logout использует standard OIDC end-session: BFF завершает собственную server-side session и перенаправляет browser на end-session endpoint Identity;
+- Identity завершает собственную SSO session, поэтому следующий authorization request требует повторного ввода credentials; post-logout redirect допускается только на URI, зарегистрированный у client;
+- end-session request без валидного `id_token_hint`, без зарегистрированного `post_logout_redirect_uri` или с `id_token_hint`, subject которого не совпадает с пользователем текущей SSO session, отклоняется standard OAuth error и SSO session не завершает, поэтому first-party logout без confirmation UI возможен только через CSRF-защищённую цепочку BFF;
+- `prompt=login` поддерживается как явная возможность повторной аутентификации при действующей SSO session;
+- обычный login не использует `prompt=login` автоматически;
+- logout не означает мгновенный отзыв уже выданных JWT access tokens — действуют правила раздела «Self-contained access-token revocation».
+
+Точное поведение browser-facing endpoints описано в [Web BFF contract](../web-bff-contract.md).
+
 ### Mobile
 
 Mobile — public client:

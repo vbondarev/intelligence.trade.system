@@ -37,7 +37,7 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace Intelligence.TradeSystem.Authentication.IntegrationTests;
 
-public sealed class AuthenticationIntegrationTests(
+public sealed partial class AuthenticationIntegrationTests(
     AuthenticationIntegrationFixture fixture) : IAsyncLifetime, IDisposable, IClassFixture<AuthenticationIntegrationFixture>
 {
     private const string PrincipalTypeClaim = "trade_principal_type";
@@ -217,12 +217,58 @@ public sealed class AuthenticationIntegrationTests(
     }
 
     [Fact]
+    public async Task Login_page_uses_local_stylesheet_and_failed_login_keeps_form_state_without_password()
+    {
+        const string returnUrl = "/connect/authorize?state=login-page";
+        const string username = "missing-login-page-user";
+        const string password = "Login-page-secret-789";
+        using var client = CreateIdentityClient();
+
+        using var loginPage = await client.GetAsync($"/account/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+        loginPage.StatusCode.Should().Be(HttpStatusCode.OK);
+        loginPage.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
+        var loginHtml = await loginPage.Content.ReadAsStringAsync();
+        loginHtml.Should().Contain("<link rel=\"stylesheet\" href=\"/css/identity.css\">")
+            .And.Contain($"name=\"returnUrl\" value=\"{returnUrl}\"")
+            .And.NotContain("role=\"alert\"");
+        var antiforgeryToken = ExtractAntiforgeryToken(loginHtml);
+        antiforgeryToken.Should().NotBeNullOrWhiteSpace();
+
+        using var stylesheet = await client.GetAsync("/css/identity.css");
+        stylesheet.StatusCode.Should().Be(HttpStatusCode.OK);
+        stylesheet.Content.Headers.ContentType!.MediaType.Should().Be("text/css");
+        (await stylesheet.Content.ReadAsStringAsync()).Should().Contain(".auth-card");
+
+        using var failedLogin = await client.PostAsync(
+            "/account/login",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = antiforgeryToken,
+                ["returnUrl"] = returnUrl,
+                ["username"] = username,
+                ["password"] = password,
+            }));
+
+        failedLogin.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        failedLogin.Headers.Location.Should().BeNull();
+        failedLogin.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
+        var failedHtml = await failedLogin.Content.ReadAsStringAsync();
+        failedHtml.Should().Contain("role=\"alert\">Неверное имя пользователя или пароль.<")
+            .And.Contain($"name=\"returnUrl\" value=\"{returnUrl}\"")
+            .And.Contain($"value=\"{username}\"")
+            .And.NotContain(password);
+        ExtractAntiforgeryToken(failedHtml).Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task Failed_passwords_activate_lockout_and_correct_password_is_rejected()
     {
         using var client = CreateIdentityClient();
         var invalidResponse = await SubmitLoginAsync(client, Username, "Wrong-password-123");
-        var invalidBody = await invalidResponse.Content.ReadAsStringAsync();
+        var invalidBody = NormalizeFailedLoginPage(await invalidResponse.Content.ReadAsStringAsync(), Username);
         invalidResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        invalidBody.Should().Contain("Неверное имя пользователя или пароль.")
+            .And.NotContain("Wrong-password-123");
 
         for (var attempt = 1; attempt < 3; attempt++)
         {
@@ -240,10 +286,15 @@ public sealed class AuthenticationIntegrationTests(
 
             var lockedResponse = await SubmitLoginAsync(client, Username, Password);
             lockedResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-            (await lockedResponse.Content.ReadAsStringAsync()).Should().Be(invalidBody);
+            var lockedBody = await lockedResponse.Content.ReadAsStringAsync();
+            lockedBody.Should().NotContain(Password);
+            NormalizeFailedLoginPage(lockedBody, Username).Should().Be(invalidBody);
 
             var missingResponse = await SubmitLoginAsync(client, "missing-user", Password);
-            (await missingResponse.Content.ReadAsStringAsync()).Should().Be(invalidBody);
+            missingResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var missingBody = await missingResponse.Content.ReadAsStringAsync();
+            missingBody.Should().NotContain(Password);
+            NormalizeFailedLoginPage(missingBody, "missing-user").Should().Be(invalidBody);
 
             await userManager.SetLockoutEndDateAsync(user!, null);
             await userManager.ResetAccessFailedCountAsync(user!);
@@ -892,10 +943,7 @@ public sealed class AuthenticationIntegrationTests(
 
         var loginResponse = await client.GetAsync(loginUri);
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        var loginHtml = await loginResponse.Content.ReadAsStringAsync();
-        var antiforgeryToken = Regex.Match(
-            loginHtml,
-            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var antiforgeryToken = ExtractAntiforgeryToken(await loginResponse.Content.ReadAsStringAsync());
         antiforgeryToken.Should().NotBeNullOrWhiteSpace();
 
         var loginQuery = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(
@@ -1140,10 +1188,7 @@ public sealed class AuthenticationIntegrationTests(
         string password)
     {
         var loginResponse = await client.GetAsync("/account/login");
-        var loginHtml = await loginResponse.Content.ReadAsStringAsync();
-        var antiforgeryToken = Regex.Match(
-            loginHtml,
-            "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var antiforgeryToken = ExtractAntiforgeryToken(await loginResponse.Content.ReadAsStringAsync());
 
         return await client.PostAsync(
             "/account/login",
@@ -1154,6 +1199,18 @@ public sealed class AuthenticationIntegrationTests(
                 ["password"] = password,
             }));
     }
+
+    private static string ExtractAntiforgeryToken(string html) =>
+        Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*\\svalue=\"([^\"]+)\"").Groups[1].Value;
+
+    // Antiforgery request token защищается заново при каждом рендеринге, а введённое имя пользователя
+    // намеренно возвращается в поле. Вся остальная разметка неудачных попыток входа должна совпадать.
+    private static string NormalizeFailedLoginPage(string html, string username) =>
+        Regex.Replace(
+                html,
+                "(name=\"__RequestVerificationToken\"[^>]*\\svalue=\")[^\"]+\"",
+                "$1<antiforgery>\"")
+            .Replace($"value=\"{username}\"", "value=\"<username>\"", StringComparison.Ordinal);
 
     private string CreateSignedToken(
         string issuer,

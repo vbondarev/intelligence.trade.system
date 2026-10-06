@@ -1,10 +1,12 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Identity;
+using Intelligence.TradeSystem.Identity.Configuration;
 using Intelligence.TradeSystem.Identity.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Xunit;
 
@@ -143,6 +145,203 @@ public sealed class IdentityStartupConfigurationTests
             .WithMessage("*encryption certificate path*")
             .Which;
         exception.Message.Should().NotContain(certificatePassword);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Enabled_web_bff_client_requires_a_client_id_without_disclosing_the_secret(string? clientId)
+    {
+        const string secret = "web-bff-client-secret-marker";
+        var settings = new List<(string Key, string Value)>
+        {
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientSecret", secret),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"),
+        };
+        if (clientId is not null)
+        {
+            settings.Add(("Identity:WebBffClient:ClientId", clientId));
+        }
+
+        using var factory = CreateFactory("Testing", settings.ToArray());
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:ClientId*")
+            .Which;
+        exception.ToString().Should().NotContain(secret);
+    }
+
+    [Fact]
+    public void Enabled_web_bff_client_rejects_non_canonical_client_id_without_disclosing_the_secret()
+    {
+        const string secret = "web-bff-client-secret-marker";
+        using var factory = CreateFactory(
+            "Testing",
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "other-client"),
+            ("Identity:WebBffClient:ClientSecret", secret),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:ClientId*trade-web-bff*")
+            .Which;
+        exception.ToString().Should().NotContain(secret).And.NotContain("other-client");
+    }
+
+    [Fact]
+    public void Canonical_web_bff_client_id_passes_validation()
+    {
+        const string secret = "web-bff-client-secret-marker";
+        var options = new WebBffClientOptions
+        {
+            Enabled = true,
+            ClientId = WebBffClientOptions.CanonicalClientId,
+            ClientSecret = secret,
+            RedirectUris = ["http://web.test/signin-oidc"],
+            PostLogoutRedirectUris = ["http://web.test/signout-callback-oidc"],
+        };
+
+        var act = () => options.Validate(new TestHostEnvironment("Testing"));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Enabled_web_bff_client_requires_a_secret()
+    {
+        using var factory = CreateFactory(
+            "Testing",
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "trade-web-bff"),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "http://web.test/signout-callback-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:ClientSecret*");
+    }
+
+    [Theory]
+    [InlineData("Testing", "not-a-uri")]
+    [InlineData("Testing", "http://web.test/signin-oidc#fragment")]
+    [InlineData("Production", "http://web.example/signin-oidc")]
+    public void Web_bff_client_rejects_invalid_redirect_uris_without_disclosing_the_secret(
+        string environment,
+        string redirectUri)
+    {
+        const string secret = "web-bff-client-secret-marker";
+        using var factory = CreateFactory(
+            environment,
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "trade-web-bff"),
+            ("Identity:WebBffClient:ClientSecret", secret),
+            ("Identity:WebBffClient:RedirectUris:0", redirectUri),
+            ("Identity:WebBffClient:PostLogoutRedirectUris:0", "https://web.example/signout-callback-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:RedirectUris*")
+            .Which;
+        exception.ToString().Should().NotContain(secret);
+    }
+
+    [Fact]
+    public void Enabled_web_bff_client_requires_post_logout_redirect_uris()
+    {
+        using var factory = CreateFactory(
+            "Testing",
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:WebBffClient:Enabled", "true"),
+            ("Identity:WebBffClient:ClientId", "trade-web-bff"),
+            ("Identity:WebBffClient:ClientSecret", "web-bff-client-secret"),
+            ("Identity:WebBffClient:RedirectUris:0", "http://web.test/signin-oidc"));
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:WebBffClient:PostLogoutRedirectUris*");
+    }
+
+    [Theory]
+    [InlineData("Testing")]
+    [InlineData("Production")]
+    public void Development_user_is_rejected_outside_development_without_disclosing_the_password(
+        string environment)
+    {
+        const string password = "development-password-marker";
+        using var factory = CreateFactory(
+            environment,
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:DevelopmentUser:Enabled", "true"),
+            ("Identity:DevelopmentUser:Username", "trade-dev-user"),
+            ("Identity:DevelopmentUser:Password", password));
+
+        var act = () => factory.CreateClient();
+
+        var exception = act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Identity:DevelopmentUser*Development*")
+            .Which;
+        exception.ToString().Should().NotContain(password);
+    }
+
+    [Theory]
+    [InlineData("Username")]
+    [InlineData("Password")]
+    public void Development_user_requires_username_and_password(string missingSetting)
+    {
+        var settings = new List<(string Key, string Value)>
+        {
+            ("ConnectionStrings:TradeSystemIdentity", UnreachableConnectionString),
+            ("Identity:DevelopmentUser:Enabled", "true"),
+        };
+        if (missingSetting != "Username")
+        {
+            settings.Add(("Identity:DevelopmentUser:Username", "trade-dev-user"));
+        }
+
+        if (missingSetting != "Password")
+        {
+            settings.Add(("Identity:DevelopmentUser:Password", "Development-password-123"));
+        }
+
+        using var factory = CreateFactory(Environments.Development, settings.ToArray());
+
+        var act = () => factory.CreateClient();
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage($"*Identity:DevelopmentUser:{missingSetting}*");
+    }
+
+    private sealed class TestHostEnvironment(string environmentName) : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = environmentName;
+
+        public string ApplicationName { get; set; } = "Intelligence.TradeSystem.Authentication.IntegrationTests";
+
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     private static WebApplicationFactory<IdentityApplicationMarker> CreateFactory(

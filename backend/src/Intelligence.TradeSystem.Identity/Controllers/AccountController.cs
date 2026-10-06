@@ -1,6 +1,5 @@
-using System.Text.Encodings.Web;
 using Intelligence.TradeSystem.Identity.Identity;
-using Microsoft.AspNetCore.Antiforgery;
+using Intelligence.TradeSystem.Identity.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -8,35 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 namespace Intelligence.TradeSystem.Identity.Controllers;
 
 [AllowAnonymous]
-public sealed class AccountController(
-    SignInManager<ApplicationUser> signInManager,
-    IAntiforgery antiforgery) : Controller
+public sealed class AccountController(SignInManager<ApplicationUser> signInManager) : Controller
 {
-    [HttpGet("/account/login")]
-    public IActionResult Login(string? returnUrl = null)
-    {
-        var token = antiforgery.GetAndStoreTokens(HttpContext).RequestToken;
-        var encodedToken = HtmlEncoder.Default.Encode(token ?? string.Empty);
-        var encodedReturnUrl = HtmlEncoder.Default.Encode(returnUrl ?? string.Empty);
+    private const string InvalidLoginMessage = "Неверное имя пользователя или пароль.";
 
-        return Content(
-            $$"""
-            <!doctype html>
-            <html lang="en">
-            <head><meta charset="utf-8"><title>Sign in</title></head>
-            <body>
-              <form method="post" action="/account/login">
-                <input type="hidden" name="__RequestVerificationToken" value="{{encodedToken}}">
-                <input type="hidden" name="returnUrl" value="{{encodedReturnUrl}}">
-                <label>Username <input name="username" autocomplete="username"></label>
-                <label>Password <input name="password" type="password" autocomplete="current-password"></label>
-                <button type="submit">Sign in</button>
-              </form>
-            </body>
-            </html>
-            """,
-            "text/html");
-    }
+    [HttpGet("/account/login")]
+    public IActionResult Login(string? returnUrl = null) =>
+        View(new LoginViewModel { ReturnUrl = returnUrl });
 
     [HttpPost("/account/login")]
     [ValidateAntiForgeryToken]
@@ -47,7 +24,7 @@ public sealed class AccountController(
     {
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
-            return InvalidLogin();
+            return InvalidLogin(username, returnUrl);
         }
 
         var result = await signInManager.PasswordSignInAsync(
@@ -58,7 +35,7 @@ public sealed class AccountController(
 
         if (!result.Succeeded)
         {
-            return InvalidLogin();
+            return InvalidLogin(username, returnUrl);
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
@@ -69,6 +46,17 @@ public sealed class AccountController(
         return Redirect("/");
     }
 
-    private BadRequestObjectResult InvalidLogin() =>
-        BadRequest("Invalid username or password.");
+    // Неизвестный пользователь, неверный пароль и lockout дают одинаковый ответ,
+    // чтобы страница не раскрывала существование учётной записи.
+    private ViewResult InvalidLogin(string? username, string? returnUrl)
+    {
+        var view = View(nameof(Login), new LoginViewModel
+        {
+            Username = username,
+            ReturnUrl = returnUrl,
+            ErrorMessage = InvalidLoginMessage,
+        });
+        view.StatusCode = StatusCodes.Status400BadRequest;
+        return view;
+    }
 }

@@ -1,0 +1,12 @@
+**/.env*
+**/.git
+**/.vs
+**/.vscode
+**/.idea
+**/node_modules
+**/npm-debug.log
+dist
+playwright-report
+test-results
+Dockerfile
+.dockerignore

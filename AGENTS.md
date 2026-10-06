@@ -32,7 +32,9 @@
 - `Exchanges` — адаптеры внешних бирж и нормализация transport-моделей.
 - `Api` — HTTP boundary и composition root без торговых вычислений.
 - `Identity` — отдельный authorization server.
+- `Bff` — ASP.NET Core browser boundary: browser session и посредничество с OAuth tokens без business logic; к `Api` обращается только по HTTP с Bearer token. React assets не раздаёт.
 - `ServiceDefaults` / `AppHost` — общая эксплуатационная и Aspire-обвязка.
+- `frontend/intelligence-trade-web` — React-клиент (Web client) вне .NET-решения и отдельная deployment unit: собственный build (`dist`) и nginx image, который служит единым browser-facing origin и проксирует `/bff/**` и OIDC callbacks во внутренний `Bff`. Frontend и `Bff` собираются и развёртываются независимо.
 
 Не переноси EF Core entities в Domain/Application и не протаскивай типы Bybit.Net за границу exchange adapter.
 
@@ -114,3 +116,5 @@ dotnet test Intelligence.TradeSystem.slnx --configuration Release --no-build --l
 ```
 
 Integration tests требуют Docker/Testcontainers. Для изменений инфраструктуры, аутентификации или composition root учитывай полный CI, включая PostgreSQL provisioning, Docker build и OAuth/OIDC smoke tests.
+
+Frontend проверяется отдельно из `frontend/intelligence-trade-web` командами из его `AGENTS.md`.

@@ -5,6 +5,7 @@
 ## Источники и их назначение
 
 - [Корневой README](../README.md) — краткое описание продукта, текущее состояние, запуск и основные технические сведения.
+- [Локальная разработка](local-development.md) — сборка, запуск и тестирование на Windows, Linux и macOS, Docker Compose/Aspire, локальные secrets, migrations и диагностика окружения.
 - [Product Vision](product/vision.md) — долгосрочное целевое состояние продукта и основные продуктовые направления.
 - [Capability Map](product/capability-map.md) — каталог текущих и будущих продуктовых возможностей и степень их зрелости.
 - [Product Concepts](product/concepts.md) — общий продуктовый язык для Discovery. Эти понятия не являются автоматически Domain entities, API contracts или принятыми архитектурными решениями.
@@ -12,6 +13,7 @@
 - [ROADMAP](../ROADMAP.md) — единственный актуальный источник статуса разработки и утверждённой последовательности этапов.
 - [ADR](adr/) — принятые архитектурные решения и причины их выбора.
 - [API v1 conventions](api-v1-conventions.md) и другие контрактные документы — точное поведение конкретных подсистем.
+- [Web BFF contract](web-bff-contract.md) — граница React → frontend service → BFF → API: разделение source/build/container/deployment, same-origin routing, server-side browser session, CSRF, refresh и full SSO logout.
 - GitHub Issue — согласованный WHAT конкретной задачи.
 - Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only Amendments. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, требуется `STOP → Human Decision`.
 - [AGENTS.md](../AGENTS.md) — долговечные правила работы coding agents в репозитории.

@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.50
-Дата актуализации: 2 октября 2026 года
-Проверенная база: `develop` @ `4d9ad3ad9213b82cef795a1cfdbf7021a70e86df`; Tech-G13: Issue #178 / PR #179
-Последняя учтённая задача: Issue #178 «Tech-G13. Унифицировать конфигурацию служебных процессов и design-time tooling»
-Текущий этап: **G — основной React-клиент**; техническая подготовка Tech-G01 — Tech-G13 завершена, следующий обязательный шаг — **G-01**
+Версия документа: 3.51
+Дата актуализации: 5 октября 2026 года
+Проверенная база: `develop` @ `352ae4d1c74ffa1c4c0296349963863e956b9fdd`; G-01: Issue #180 / PR #181
+Последняя учтённая задача: Issue #180 «G-01. Создать каркас адаптивного приложения, BFF и вход пользователя»
+Текущий этап: **G — основной React-клиент**; G-01 завершён, следующий обязательный шаг — **G-02**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -192,7 +192,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G11 завершены. Перед G-01 остаются Tech-G12 — Tech-G13; следующий обязательный шаг — Tech-G12.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G13 завершены. G-01 завершён в PR #181; следующий обязательный шаг — G-02.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -346,11 +346,11 @@ GET    /api/v1/auth/me
 
 ### Этап G. Создать основной React-клиент
 
-Статус этапа: ⬜ Не начат в проверенном репозитории.
+Статус этапа: 🚧 В работе; G-01 завершён, следующий обязательный шаг — G-02.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
-| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ⬜ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript. Вместе с фактически принятой архитектурой React/BFF создаются или синхронизируются локальные frontend agent instructions, фиксирующие только долговечные принятые решения и не вводящие несогласованные технологии или architecture patterns |
+| G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ✅ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript. Вместе с фактически принятой архитектурой React/BFF создаются или синхронизируются локальные frontend agent instructions, фиксирующие только долговечные принятые решения и не вводящие несогласованные технологии или architecture patterns |
 | G-02 | Реализовать управление подключением Bybit только для чтения | ⬜ | Пользователь может добавить, проверить, безопасно заменить credentials и отключить аккаунт |
 | G-03 | Реализовать сводку account-scoped портфеля и список позиций | ⬜ | Видны PnL, риск, свежесть, состояние синхронизации, позиции под наблюдением и критические позиции выбранного подключения; список использует фильтры v1 API и не смешивает закрытую историю с активными позициями по умолчанию |
 | G-04 | Реализовать страницу позиции | ⬜ | Видны параметры сделки, график, market context, ключевые уровни, evaluation, рекомендация, причины, временная валидность и условия пересмотра; UI способен отличить свежий market context от более старого evaluation |
@@ -478,14 +478,14 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Создать адаптивную React-панель | G-01 — G-08 |
+| 1 | Продолжить основной React-клиент | G-02 — G-08 |
 | 2 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
 | 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
 | 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F и Tech-G01 — Tech-G13 завершены. Следующий обязательный шаг — G-01; после него сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F, Tech-G01 — Tech-G13 и G-01 завершены. Следующий обязательный шаг — G-02; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -566,6 +566,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-05 | 3.51 | По Human Decision G-01 отмечен завершённым перед merge PR #181: создан самостоятельный React-клиент и отдельный ASP.NET Core BFF за единым browser-facing origin, реализованы OAuth/OIDC login, server-side browser session, CSRF-защищённый logout, full SSO logout, безопасный refresh lifecycle, базовая адаптивная оболочка, независимые Docker/CI paths и синхронизированная документация. Review findings устранены и inline threads закрыты; после documentation commit требуется новый exact-head CI/Re-review перед merge. Следующий обязательный шаг — G-02. |
 | 2026-10-02 | 3.50 | По Human Decision Tech-G13 отмечен завершённым перед ручным merge PR #179: migrations и EF Core design-time tooling получили явный environment-only configuration contract с fail-fast/secret-safe validation без connectivity gate; `Authentication.TestSeeder` закреплён как one-shot исключение поверх стандартного `IConfiguration`; startup-only lifecycle и документация синхронизированы. External Review и live Human Merge Gate check не выявили blocker findings, exact-head CI текущего implementation head был зелёным; после documentation commit требуется новый exact-head Re-review перед merge. Следующий обязательный шаг — G-01. |
 | 2026-10-01 | 3.48 | По Human Decision Tech-G11 отмечен завершённым перед ручным merge PR #175: `SnapshotFreshness` переведён на стандартный Options pipeline с `ValidateOnStart`, удалён production fallback `SnapshotFreshnessOptions.Default`, добавлена строгая startup validation и regression coverage operational runtime options. External Review и live Re-review не выявили blocker findings, exact-head CI был зелёным; публичные API contracts и runtime semantics валидной конфигурации сохранены. Следующий обязательный шаг — Tech-G12. |
 | 2026-10-01 | 3.47 | Issue #172 добавил перед G-01 три последовательные задачи по унификации конфигурации: Tech-G11 для runtime Options и startup validation, Tech-G12 для fail-fast проверки критичной infrastructure/security configuration, Tech-G13 для migrations/design-time tooling и startup-only lifecycle. Tech-G01 — Tech-G10 остаются завершёнными; следующий обязательный шаг — Tech-G11. Production/runtime code, публичные API contracts, OpenClaw и CI в этой задаче не изменялись. |

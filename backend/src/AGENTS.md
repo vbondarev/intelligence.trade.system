@@ -2,7 +2,7 @@
 
 ## Область действия
 
-Этот файл применяется к `backend/src` и дополняет корневой `../../AGENTS.md` правилами .NET-решения. Для `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.MarketIntelligence`, `Intelligence.TradeSystem.Infrastructure`, `Intelligence.TradeSystem.Identity` и `Intelligence.TradeSystem.Exchanges/Bybit` учитывай также их локальные `AGENTS.md`.
+Этот файл применяется к `backend/src` и дополняет корневой `../../AGENTS.md` правилами .NET-решения. Для `Intelligence.TradeSystem.Api`, `Intelligence.TradeSystem.MarketIntelligence`, `Intelligence.TradeSystem.Infrastructure`, `Intelligence.TradeSystem.Identity`, `Intelligence.TradeSystem.Bff` и `Intelligence.TradeSystem.Exchanges/Bybit` учитывай также их локальные `AGENTS.md`. React-клиент находится вне `backend` — в `frontend/intelligence-trade-web` со своим `AGENTS.md`.
 
 Не копируй сюда текущее состояние этапов, номера PR и подробности уже завершённых реализаций — для этого используется `ROADMAP.md`, ADR и контрактные документы.
 
@@ -21,9 +21,10 @@ XML documentation (`summary`, `remarks`, `param`, `returns`, `exception`, `value
 - `Intelligence.TradeSystem.Exchanges` — адаптеры бирж;
 - `Intelligence.TradeSystem.Api` — HTTP boundary и composition root;
 - `Intelligence.TradeSystem.Identity` — отдельный OAuth/OIDC authorization server;
+- `Intelligence.TradeSystem.Bff` — ASP.NET Core browser boundary за frontend reverse proxy: browser session и посредничество с OAuth tokens без business logic; frontend assets не раздаёт и собирается без Node.js/npm;
 - `Intelligence.TradeSystem.ServiceDefaults` и `Intelligence.TradeSystem.AppHost` — общая эксплуатационная и Aspire-обвязка.
 
-`Domain` не зависит от persistence/HTTP/Bybit. `MarketIntelligence` не выполняет IO. `Application` не зависит от EF Core или конкретного exchange SDK. Bybit transport types не должны выходить за exchange adapter.
+`Domain` не зависит от persistence/HTTP/Bybit. `MarketIntelligence` не выполняет IO. `Application` не зависит от EF Core или конкретного exchange SDK. Bybit transport types не должны выходить за exchange adapter. `Bff` не ссылается на Domain, Application, Infrastructure, MarketIntelligence, Exchanges, Api и Identity и обращается к `Api` только по HTTP.
 
 ## Общие правила реализации
 

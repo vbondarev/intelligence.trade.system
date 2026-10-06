@@ -69,13 +69,17 @@ def make_base_plan(
 def make_amendment(
     comment_id: int,
     base_permalink: str = BASE_PERMALINK,
+    *,
+    multiline_base_link: bool = False,
     **comment_values: str,
 ) -> dict[str, object]:
+    if multiline_base_link:
+        base_field = f"Base Approved Implementation Plan:\n{base_permalink}"
+    else:
+        base_field = f"Base Approved Implementation Plan: {base_permalink}"
     return make_comment(
         comment_id,
-        f"{AMENDMENT_MARKER}\n\n"
-        f"Base Approved Implementation Plan: {base_permalink}\n\n"
-        "Утверждённое изменение.\n",
+        f"{AMENDMENT_MARKER}\n\n{base_field}\n\nУтверждённое изменение.\n",
         **comment_values,
     )
 
@@ -659,6 +663,237 @@ class PullRequestPlanValidatorTests(TestCase):
                 200,
                 expected_head_sha="old-head",
             )
+
+    def test_inline_base_plan_permalink_succeeds(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan(), make_amendment(amendment_id)],
+        )
+        self.assertIn("1 amendment(s)", result)
+
+    def test_multiline_base_plan_permalink_succeeds(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            REPOSITORY,
+            make_issue(),
+            [
+                make_base_plan(),
+                make_amendment(amendment_id, multiline_base_link=True),
+            ],
+        )
+        self.assertIn("1 amendment(s)", result)
+
+    def test_multiline_amendments_validate_in_issue_comment_order(self) -> None:
+        ids = [BASE_COMMENT_ID + 1, BASE_COMMENT_ID + 2]
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(value) for value in ids]),
+            REPOSITORY,
+            make_issue(),
+            [
+                make_base_plan(),
+                *(
+                    make_amendment(value, multiline_base_link=True)
+                    for value in ids
+                ),
+            ],
+        )
+        self.assertIn("2 amendment(s)", result)
+
+    def test_realistic_multiline_amendment_format_succeeds(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            "# Approved Implementation Plan — Amendment\n\n"
+            "Base Approved Implementation Plan:\n"
+            f"{BASE_PERMALINK}\n\n"
+            "Этот Amendment является append-only дополнением.\n"
+        )
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan(), amendment],
+        )
+        self.assertIn("1 amendment(s)", result)
+
+    def test_two_realistic_multiline_amendments_succeed(self) -> None:
+        ids = [BASE_COMMENT_ID + 1, BASE_COMMENT_ID + 2]
+        amendments: list[dict[str, object]] = []
+        for comment_id in ids:
+            amendment = make_amendment(comment_id)
+            amendment["body"] = (
+                "# Approved Implementation Plan — Amendment\n\n"
+                "Base Approved Implementation Plan:\n"
+                f"{BASE_PERMALINK}\n\n"
+                "Этот Amendment является append-only дополнением.\n"
+            )
+            amendments.append(amendment)
+
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(value) for value in ids]),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan(), *amendments],
+        )
+        self.assertIn("2 amendment(s)", result)
+
+    def test_multiline_base_link_without_next_line_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            f"{AMENDMENT_MARKER}\n\nBase Approved Implementation Plan:"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_multiline_base_link_with_blank_next_line_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            f"{AMENDMENT_MARKER}\n\n"
+            "Base Approved Implementation Plan:\n"
+            "\n"
+            f"{BASE_PERMALINK}\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_multiline_base_link_with_arbitrary_text_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(
+                    amendment_id,
+                    "произвольный текст вместо permalink",
+                    multiline_base_link=True,
+                ),
+            ],
+        )
+
+    def test_multiline_base_link_to_another_issue_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_issue_permalink = BASE_PERMALINK.replace("/165#", "/164#")
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(
+                    amendment_id,
+                    wrong_issue_permalink,
+                    multiline_base_link=True,
+                ),
+            ],
+        )
+
+    def test_multiline_base_link_to_another_repository_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_repository_permalink = BASE_PERMALINK.replace(REPOSITORY, "other/repo")
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(
+                    amendment_id,
+                    wrong_repository_permalink,
+                    multiline_base_link=True,
+                ),
+            ],
+        )
+
+    def test_multiline_base_link_without_issuecomment_fragment_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        permalink_without_fragment = BASE_PERMALINK.split("#", 1)[0]
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(
+                    amendment_id,
+                    permalink_without_fragment,
+                    multiline_base_link=True,
+                ),
+            ],
+        )
+
+    def test_duplicate_base_plan_fields_fail(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id, multiline_base_link=True)
+        amendment["body"] = (
+            str(amendment["body"])
+            + f"Base Approved Implementation Plan: {BASE_PERMALINK}\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_multiline_base_link_inside_html_comment_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            f"{AMENDMENT_MARKER}\n\n"
+            "<!--\n"
+            "Base Approved Implementation Plan:\n"
+            f"{BASE_PERMALINK}\n"
+            "-->\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_multiline_base_link_inside_fenced_code_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            f"{AMENDMENT_MARKER}\n\n"
+            "```\n"
+            "Base Approved Implementation Plan:\n"
+            f"{BASE_PERMALINK}\n"
+            "```\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_indented_multiline_base_link_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            f"{AMENDMENT_MARKER}\n\n"
+            "    Base Approved Implementation Plan:\n"
+            f"    {BASE_PERMALINK}\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_multiline_base_link_to_inactive_base_plan_fails(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        wrong_base = issue_permalink(BASE_COMMENT_ID + 2)
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [
+                make_base_plan(),
+                make_amendment(
+                    amendment_id,
+                    wrong_base,
+                    multiline_base_link=True,
+                ),
+            ],
+        )
 
     def test_untrusted_amendment_permalink_fails(self) -> None:
         amendment_id = BASE_COMMENT_ID + 1

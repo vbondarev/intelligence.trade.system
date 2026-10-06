@@ -36,6 +36,19 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
     internal const string SecondUsername = "integration-user-b";
     internal const string SecondPassword = "Integration-password-456";
     internal const string CertificatePassword = "integration-certificate-password";
+    internal const string WebBffClientId = "trade-web-bff";
+    internal const string WebBffRedirectUri = "http://web.test/signin-oidc";
+    internal const string WebBffPostLogoutRedirectUri = "http://web.test/signout-callback-oidc";
+    internal static readonly string WebBffClientSecret =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    // Protocol tests работают с отдельным client, чтобы production registration trade-web-bff
+    // проверялась только через WebBffClientSeeder и не зависела от protocol scenarios.
+    internal const string WebBffTestClientId = "trade-web-bff-test";
+    internal const string WebBffTestRedirectUri = "http://web-bff-test.test/signin-oidc";
+    internal const string WebBffTestPostLogoutRedirectUri = "http://web-bff-test.test/signout-callback-oidc";
+    internal static readonly string WebBffTestClientSecret =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     private static readonly string CredentialProtectionKey =
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
@@ -192,6 +205,27 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
             },
             Requirements = { Requirements.Features.ProofKeyForCodeExchange }
         });
+
+        await applicationManager.CreateAsync(new OpenIddict.Abstractions.OpenIddictApplicationDescriptor
+        {
+            ClientId = WebBffTestClientId,
+            ClientSecret = WebBffTestClientSecret,
+            ClientType = ClientTypes.Confidential,
+            DisplayName = "Web BFF protocol integration test client",
+            RedirectUris = { new Uri(WebBffTestRedirectUri) },
+            PostLogoutRedirectUris = { new Uri(WebBffTestPostLogoutRedirectUri) },
+            Permissions =
+            {
+                Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.EndSession,
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
+                Permissions.ResponseTypes.Code,
+                Permissions.Prefixes.Scope + StartupExtensions.ApiScope
+            },
+            Requirements = { Requirements.Features.ProofKeyForCodeExchange }
+        });
     }
 
     private async Task CreateDatabaseAsync(string databaseName)
@@ -251,6 +285,11 @@ public sealed class AuthenticationIntegrationFixture : IAsyncLifetime
             builder.UseSetting("Identity:MaxFailedAccessAttempts", "3");
             builder.UseSetting("Identity:DefaultLockoutTimeSpan", "00:00:30");
             builder.UseSetting("Identity:AllowedForNewUsers", "true");
+            builder.UseSetting("Identity:WebBffClient:Enabled", "true");
+            builder.UseSetting("Identity:WebBffClient:ClientId", WebBffClientId);
+            builder.UseSetting("Identity:WebBffClient:ClientSecret", WebBffClientSecret);
+            builder.UseSetting("Identity:WebBffClient:RedirectUris:0", WebBffRedirectUri);
+            builder.UseSetting("Identity:WebBffClient:PostLogoutRedirectUris:0", WebBffPostLogoutRedirectUri);
         }
     }
 

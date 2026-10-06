@@ -31,11 +31,13 @@ public sealed class ProductionProjectDependencyTests
             ["Intelligence.TradeSystem.Identity"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.Identity.Migrations"] = ["Intelligence.TradeSystem.Identity"],
             ["Intelligence.TradeSystem.ServiceDefaults"] = [],
+            ["Intelligence.TradeSystem.Bff"] = ["Intelligence.TradeSystem.ServiceDefaults"],
             ["Intelligence.TradeSystem.AppHost"] =
                 [
                     "Intelligence.TradeSystem.Api",
                     "Intelligence.TradeSystem.Identity",
-                    "Intelligence.TradeSystem.Identity.Migrations"
+                    "Intelligence.TradeSystem.Identity.Migrations",
+                    "Intelligence.TradeSystem.Bff"
                 ],
         };
 
@@ -48,6 +50,64 @@ public sealed class ProductionProjectDependencyTests
             actualReferences.Should().BeEquivalentTo(expectedReferences);
         }
     }
+
+    [Fact]
+    public void Bff_Does_Not_Reference_Business_Persistence_Or_Exchange_Projects()
+    {
+        var sourceRoot = FindSourceRoot();
+        var bffReferences = GetProjectReferences(Path.Combine(
+            sourceRoot,
+            "Intelligence.TradeSystem.Bff",
+            "Intelligence.TradeSystem.Bff.csproj"));
+
+        bffReferences.Should().NotContain(
+        [
+            "Intelligence.TradeSystem.Domain",
+            "Intelligence.TradeSystem.MarketIntelligence",
+            "Intelligence.TradeSystem.Application",
+            "Intelligence.TradeSystem.Infrastructure",
+            "Intelligence.TradeSystem.Exchanges",
+            "Intelligence.TradeSystem.Api",
+            "Intelligence.TradeSystem.Identity"
+        ]);
+    }
+
+    [Fact]
+    public void Frontend_And_Bff_Are_Independent_Build_Units()
+    {
+        var sourceRoot = FindSourceRoot();
+        var frontendRoot = Path.GetFullPath(Path.Combine(sourceRoot, "..", "..", "frontend", "intelligence-trade-web"));
+        var bffRoot = Path.Combine(sourceRoot, "Intelligence.TradeSystem.Bff");
+
+        File.Exists(Path.Combine(frontendRoot, "package.json")).Should().BeTrue();
+        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web")).Should().BeFalse();
+        Directory.Exists(Path.Combine(sourceRoot, "Intelligence.TradeSystem.Web.Tests")).Should().BeFalse();
+        Directory.Exists(Path.Combine(bffRoot, "ClientApp")).Should().BeFalse();
+
+        var viteConfig = File.ReadAllText(Path.Combine(frontendRoot, "vite.config.ts"));
+        viteConfig.Should().NotContain("wwwroot").And.NotContain("backend");
+
+        // Frontend image собирается из context frontend/intelligence-trade-web и не копирует backend.
+        DockerInstructions(Path.Combine(frontendRoot, "Dockerfile"))
+            .Should().AllSatisfy(instruction => instruction.Should()
+                .NotContainAny("..", "backend", "Intelligence.TradeSystem", "dotnet"));
+
+        // BFF собирается без Node.js/npm и не получает frontend source или dist.
+        var bffProject = File.ReadAllText(Path.Combine(bffRoot, "Intelligence.TradeSystem.Bff.csproj"));
+        bffProject.Should().NotContainAny("npm", "frontend", "FrontendRoot", "BuildClientAssets", "wwwroot");
+        DockerInstructions(Path.Combine(bffRoot, "Dockerfile"))
+            .Should().AllSatisfy(instruction => instruction.Should()
+                .NotContainAny("..", "node", "npm", "frontend", "wwwroot"));
+    }
+
+    private static List<string> DockerInstructions(string dockerfilePath) =>
+        File.ReadAllLines(dockerfilePath)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("COPY ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("ADD ", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("RUN ", StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
     [Theory]
     [InlineData(@"..\Intelligence.TradeSystem.Domain\Intelligence.TradeSystem.Domain.csproj")]

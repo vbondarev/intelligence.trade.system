@@ -94,6 +94,14 @@
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__TradeSystemIdentity=Host=postgres;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=tradesystem_dev_password
       - Identity__Issuer=http://localhost:8081
+      - Identity__WebBffClient__Enabled=true
+      - Identity__WebBffClient__ClientId=trade-web-bff
+      - Identity__WebBffClient__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
+      - Identity__WebBffClient__RedirectUris__0=http://localhost:8082/signin-oidc
+      - Identity__WebBffClient__PostLogoutRedirectUris__0=http://localhost:8082/signout-callback-oidc
+      - Identity__DevelopmentUser__Enabled=true
+      - Identity__DevelopmentUser__Username=${TRADE_WEB_DEV_USERNAME:-trade-dev-user}
+      - Identity__DevelopmentUser__Password=${TRADE_WEB_DEV_PASSWORD:?Set TRADE_WEB_DEV_PASSWORD to a local development user password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,6 +111,54 @@
       trade-agent-network:
         aliases:
           - intelligence-trade-identity
+
+  # BFF не публикует host port: browser обращается к нему только через frontend на том же origin.
+  bff:
+    container_name: intelligence-trade-bff
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Bff/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - Bff__Oidc__Authority=http://localhost:8081
+      - Bff__Oidc__MetadataAddress=http://identity:8080/.well-known/openid-configuration
+      - Bff__Oidc__BackchannelBaseAddress=http://identity:8080
+      - Bff__Oidc__ClientId=trade-web-bff
+      - Bff__Oidc__ClientSecret=${TRADE_WEB_BFF_CLIENT_SECRET:?Set TRADE_WEB_BFF_CLIENT_SECRET to a random Web BFF client secret}
+      - Bff__Api__BaseAddress=http://api:8080
+      # Forwarded headers доверяются только адресам controlled network trade-agent-network, где browser
+      # попадает к BFF исключительно через frontend proxy; весь private address space Docker не доверяется.
+      # Значение обязано совпадать с networks.trade-agent-network.ipam.config: иначе BFF проигнорирует
+      # X-Forwarded-* и построит OIDC redirect URIs от internal endpoint вместо public origin.
+      - Bff__ForwardedHeaders__KnownNetworks__0=172.28.0.0/24
+    depends_on:
+      identity:
+        condition: service_started
+      api:
+        condition: service_started
+    networks:
+      trade-agent-network:
+        aliases:
+          - intelligence-trade-bff
+
+  frontend:
+    container_name: intelligence-trade-web
+    build:
+      context: ../frontend/intelligence-trade-web
+    ports:
+      - "8082:8080"
+    environment:
+      - BFF_UPSTREAM=http://bff:8080
+      # Browser открывает frontend напрямую по HTTP; за внешним TLS terminator задаётся https.
+      - PUBLIC_SCHEME=http
+    depends_on:
+      bff:
+        condition: service_started
+    networks:
+      trade-agent-network:
+        aliases:
+          - intelligence-trade-web
 
   auth-test-seeder:
     profiles: ["ci"]
@@ -126,5 +182,10 @@ volumes:
   trade-system-postgres-data:
 
 networks:
+  # Subnet зафиксирован, а не выбирается из address pool Docker daemon: это trust boundary forwarded
+  # headers BFF (Bff__ForwardedHeaders__KnownNetworks__0 должен содержать тот же subnet).
   trade-agent-network:
     name: trade-agent-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

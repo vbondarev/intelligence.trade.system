@@ -144,7 +144,7 @@ login_location="$(extract_location "$tmp_dir/authorize.headers")"
 [[ -n "$login_location" ]]
 curl --fail --silent --show-error -b "$cookie_jar" -c "$cookie_jar" "$login_location" \
   > "$tmp_dir/login.html"
-antiforgery_token="$(sed -n 's/.*name="__RequestVerificationToken" value="\([^"]*\)".*/\1/p' "$tmp_dir/login.html" | head -n 1)"
+antiforgery_token="$(sed -n 's/.*name="__RequestVerificationToken"[^>]*[[:space:]]value="\([^"]*\)".*/\1/p' "$tmp_dir/login.html" | head -n 1)"
 [[ -n "$antiforgery_token" ]]
 return_url="$(python3 -c 'from urllib.parse import parse_qs, urlsplit; import sys; print(parse_qs(urlsplit(sys.argv[1]).query)["returnUrl"][0])' "$login_location")"
 

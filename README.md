@@ -83,9 +83,9 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`; browser-specific BFF integration и React-клиент относятся к следующему этапу G. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`. В рамках G-01 появились React-клиент `frontend/intelligence-trade-web` с адаптивной оболочкой и отдельный BFF `Intelligence.TradeSystem.Bff` — независимые deployment units за единым browser-facing origin: OAuth/OIDC login, server-side browser session и full SSO logout; browser SignalR integration относится к G-06. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
-F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 завершён: user-scoped SignalR invalidation boundary `/hubs/v1/updates` сообщает об изменении account, portfolio, position и evaluation, а актуальное состояние восстанавливается через REST. F-08 завершён: OpenAPI и contract tests защищают полную границу F и пригодность контракта для будущей генерации клиента. React-клиент и browser-specific BFF integration относятся к следующему этапу G.
+F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 завершён: user-scoped SignalR invalidation boundary `/hubs/v1/updates` сообщает об изменении account, portfolio, position и evaluation, а актуальное состояние восстанавливается через REST. F-08 завершён: OpenAPI и contract tests защищают полную границу F и пригодность контракта для будущей генерации клиента. Пользовательские экраны React поверх `/api/v1` и browser realtime integration относятся к последующим задачам этапа G.
 
 ### Уже реализовано
 
@@ -97,6 +97,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 - отдельный модуль `Intelligence.TradeSystem.MarketIntelligence`;
 - отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
 - `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
+- адаптивная dark-first React-оболочка `frontend/intelligence-trade-web` (nginx frontend service, проксирующий `/bff/**` и OIDC callbacks) и `Intelligence.TradeSystem.Bff` как внутренний BFF: confidential OIDC client `trade-web-bff` с Authorization Code + PKCE, server-side browser session без выдачи tokens JavaScript, refresh access token, CSRF-защита unsafe `/bff/**` и full SSO logout через standard OIDC end-session ([Web BFF contract](docs/web-bff-contract.md));
 - `Intelligence.TradeSystem.Api` требует PostgreSQL и запускается только в полноценном DB-backed runtime-режиме: обязательная конфигурация проверяется при startup, `/alive` отражает liveness процесса, а `/healthz` — readiness зависимостей, включая PostgreSQL;
 - integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - сопоставление user-delegated OIDC `sub` со стабильным Domain `UserId` и явная маркировка user principal;
@@ -154,7 +155,7 @@ F-02 завершён: `/api/v1/exchange-accounts` публикует lifecycle 
 
 ### Ещё не реализовано
 
-- React-клиент и BFF пользовательского интерфейса;
+- пользовательские экраны React поверх `/api/v1` и browser SignalR integration через BFF;
 - непрерывный цикл повторной оценки активных позиций;
 - уведомления о рисках конкретных пользовательских позиций;
 - общий cross-account portfolio и расширенная портфельная аналитика, включая correlation model.
@@ -259,7 +260,7 @@ Intelligence.TradeSystem.Identity
 Intelligence.TradeSystem.Api (resource server)
 ```
 
-Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow только для OAuth proof; public registration, React и BFF ещё не реализованы. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`, а user-facing read API позиций, account-scoped portfolio, market context, evaluation, timeline и realtime invalidation boundary реализованы в F-03—F-07, а последующие этапы определяются `ROADMAP.md`. User isolation выполняется на Application/Infrastructure boundary.
+Identity host и отдельный migration stream реализованы. Login остаётся минимальным server-rendered flow Identity; public registration не реализована. React-клиент входит через BFF. Bybit onboarding уже доступен через защищённый `/api/v1/exchange-accounts`, а user-facing read API позиций, account-scoped portfolio, market context, evaluation, timeline и realtime invalidation boundary реализованы в F-03—F-07, а последующие этапы определяются `ROADMAP.md`. User isolation выполняется на Application/Infrastructure boundary.
 
 В Docker Development canonical issuer — `http://localhost:8081`, чтобы browser/native clients могли обращаться к Identity по публичному адресу. API проверяет этот canonical `iss`, а discovery и JWKS получает через internal `Authentication:MetadataAddress` и `Authentication:BackchannelBaseAddress` (`http://identity:8080`). Backchannel меняет только network destination для запросов к известному public issuer и не изменяет protocol metadata; произвольные hosts не переписываются.
 
@@ -291,8 +292,11 @@ Secure HttpOnly cookie может использоваться только ме
 | `Intelligence.TradeSystem.Identity` | Отдельный ASP.NET Core Identity + OpenIddict Authorization Server |
 | `Intelligence.TradeSystem.Identity.Migrations` | Одноразовый deployment runner для Identity/OpenIddict migrations |
 | `Intelligence.TradeSystem.Api` | HTTP API и composition root |
+| `Intelligence.TradeSystem.Bff` | ASP.NET Core BFF за frontend reverse proxy: browser session и посредничество с tokens без business logic; React assets не раздаёт |
 | `Intelligence.TradeSystem.AppHost` | Локальная оркестрация через .NET Aspire |
 | `Intelligence.TradeSystem.ServiceDefaults` | Общая телеметрия и стандартная инфраструктурная конфигурация |
+
+React-клиент (Web client) находится вне .NET-решения, в `frontend/intelligence-trade-web`, и собирается, упаковывается в собственный nginx image и развёртывается независимо от BFF.
 
 Тестовые проекты отдельно проверяют архитектурные зависимости, чистый домен, API-контракты, прикладную логику, persistence/concurrency, биржевые адаптеры и Market Intelligence.
 
@@ -417,174 +421,36 @@ Endpoint сохраняется ради совместимости и отла�
 
 ---
 
-## Запуск backend
+## Локальная разработка
 
-### Требования
+Рекомендуемый способ запуска полного приложения — Docker Compose. Он поднимает PostgreSQL, Identity, API, внутренний BFF и самостоятельный React/nginx frontend в согласованной локальной топологии.
 
-- .NET 10 SDK; конкретная версия зафиксирована в корневом `global.json`;
-- доступ к интернету для получения публичных данных Bybit;
-- Docker — для контейнерного запуска и integration tests на Testcontainers;
-- внешний или локальный PostgreSQL — только если backend запускается без Docker Compose, Aspire или Testcontainers;
-- Docker Compose создаёт named network `trade-agent-network` автоматически.
+Для первого запуска:
 
-Публичный рыночный анализ не требует пользовательских API-ключей Bybit. Приватные credentials используются только для подключённого пользователем read-only аккаунта и его ручной/фоновой синхронизации.
-
-### Защита credentials Bybit
-
-Пары `apiKey`/`apiSecret` хранятся только как один authenticated-encrypted payload в PostgreSQL. `ExchangeAccount` не содержит credentials, а master keys не сохраняются в TradeSystem database, логах, ответах API или репозитории. User-scoped store поддерживает создание, чтение, локальную замену пары (`Rotate`), локальный отзыв (`Revoke`) и отдельную перепротекцию существующей строки новым active master key (`Reprotect`). `Revoke` удаляет локальный доступ системы и не удаляет API key на стороне Bybit.
-
-Для локального запуска задайте явный 32-байтный ключ в Base64; ключ не генерируется автоматически при старте:
+1. задайте локальные secrets `TRADE_CREDENTIAL_KEY`, `TRADE_WEB_BFF_CLIENT_SECRET` и `TRADE_WEB_DEV_PASSWORD`;
+2. при необходимости задайте `TRADE_WEB_DEV_USERNAME` (по умолчанию `trade-dev-user`);
+3. из каталога `backend` запустите:
 
 ```bash
-export CredentialProtection__ActiveKeyId=local_v1
-export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
-```
-
-Ключ можно сгенерировать без вывода значения в журнал:
-
-```bash
-export CredentialProtection__Keys__local_v1="$(openssl rand -base64 32)"
-```
-
-Для PowerShell сгенерируйте ключ без вывода значения:
-
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-$env:TRADE_CREDENTIAL_KEY = [Convert]::ToBase64String($bytes)
-```
-
-`TRADE_CREDENTIAL_KEY` — переменная хоста только для mapping в Compose. Для прямого `dotnet run` задаются application configuration keys `CredentialProtection__ActiveKeyId` и `CredentialProtection__Keys__local_v1` напрямую. При rollover добавьте новый key id в deployment configuration, оставьте старый key id доступным для чтения, выполните `Reprotect` для всех строк и только после этого удаляйте старый key из key ring. Удаление старого ключа раньше перепротекции делает соответствующие строки нечитаемыми. CI создаёт disposable 32-байтный ключ во время workflow и маскирует его.
-
-### Восстановление зависимостей
-
-Из корня репозитория:
-
-```bash
-dotnet restore backend/src/Intelligence.TradeSystem.slnx
-```
-
-### Сборка
-
-```bash
-dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release
-```
-
-### Тесты
-
-```bash
-dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release
-```
-
-### Запуск API
-
-Для прямого запуска API задайте application configuration keys (здесь `TRADE_CREDENTIAL_KEY` не используется):
-
-```bash
-export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-export CredentialProtection__ActiveKeyId=local_v1
-export CredentialProtection__Keys__local_v1='<base64-32-byte-key>'
-```
-
-В PowerShell после генерации ключа задайте те же application keys:
-
-```powershell
-$env:ConnectionStrings__TradeSystem = 'Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-$env:CredentialProtection__ActiveKeyId = 'local_v1'
-$env:CredentialProtection__Keys__local_v1 = $env:TRADE_CREDENTIAL_KEY
-```
-
-```bash
-cd backend/src
-dotnet run --project Intelligence.TradeSystem.Api
-```
-
-### Фоновая синхронизация аккаунтов
-
-API host периодически синхронизирует активные Bybit-аккаунты. Параметры задаются в секции `ExchangeAccountBackgroundSync`:
-
-```json
-{
-  "Enabled": true,
-  "Interval": "00:05:00",
-  "InitialDelay": "00:00:30",
-  "BatchSize": 50,
-  "MaxConcurrency": 4
-}
-```
-
-`Enabled: false` отключает только фоновый цикл; ручная синхронизация продолжает работать.
-
-### Запуск через Aspire
-
-```bash
-cd backend/src
-dotnet run --project Intelligence.TradeSystem.AppHost
-```
-
-AppHost использует Aspire CLI bundle; совместимая версия CLI разрешается SDK автоматически.
-
-### Docker
-
-При первом локальном запуске с новым PostgreSQL volume сгенерируйте ключ и сохраните его в локальном secret mechanism:
-
-```bash
-export TRADE_CREDENTIAL_KEY="$(openssl rand -base64 32)"
-```
-
-Для следующих запусков с существующим volume используйте тот же `TRADE_CREDENTIAL_KEY`. Новый случайный ключ при каждом старте сделает уже сохранённые credential rows нечитаемыми. Ключ не коммитится и не выводится в лог.
-
-```bash
-cd backend
 docker compose up --build -d
+docker compose ps -a
 ```
 
-Compose запускает PostgreSQL, затем идемпотентный `identity-db-init`, отдельный Identity migration runner, Identity и API:
+Browser-facing приложение доступно по `http://localhost:8082`. Identity публикуется на `http://localhost:8081`, API — на `http://localhost:8080`; BFF отдельный host port не публикует и доступен frontend только по внутренней Docker network.
 
 ```text
-postgres → identity-db-init → identity-migrations → identity → api
+Browser → frontend (:8082)
+            ├── React SPA
+            └── /bff/**, OIDC callbacks → BFF
+                                         ├── Identity (:8081)
+                                         └── API (:8080)
 ```
 
-`identity-db-init` создаёт `tradesystem_identity`, если её нет, и безопасно завершается при повторном запуске. Поэтому обычный старт или обновление через `docker compose up --build -d` не удаляет данные и не зависит от состояния `postgres/init`. API-контейнер публикуется на `8080`, Identity — на `8081`; публичный issuer — `http://localhost:8081`, а внутренний API backchannel — `http://identity:8080`. API валидирует canonical public issuer, но discovery/JWKS может загружать через внутренний network route. Discovery: `http://localhost:8081/.well-known/openid-configuration`, JWKS: `http://localhost:8081/.well-known/jwks`, API liveness: `http://localhost:8080/alive`, protected proof endpoint: `http://localhost:8080/api/v1/auth/me`.
+`identity-db-init` и `identity-migrations` являются одноразовыми процессами, поэтому их состояние `Exited (0)` после успешного старта нормально.
 
-Для CI OAuth smoke используется отдельный профиль `ci`: `auth-test-seeder` создаёт тестового пользователя и public client через стандартные Identity/OpenIddict managers, после чего workflow получает настоящий токен Authorization Code + PKCE (`S256`). Password grant, Client Credentials и custom token endpoints не используются.
+Подробная инструкция по требованиям, secrets, сборке и запуску на **Windows, Linux и macOS**, selective rebuild отдельных сервисов, Aspire, backend/frontend tests, Playwright E2E, migrations, диагностике и сбросу локального окружения находится в [руководстве по локальной разработке](docs/local-development.md).
 
-`auth-test-seeder` — одноразовый процесс поверх стандартного .NET `IConfiguration`: он требует непустые `TestSeeder__Username`, `TestSeeder__Password`, `TestSeeder__ClientId` и абсолютный `TestSeeder__RedirectUri`, а Identity connection string проверяется тем же persistence contract, что и в Identity host. Configuration читается один раз при старте, поэтому после изменения settings seeder нужно запустить заново.
-
-Полный локальный сброс — отдельная destructive операция, удаляющая локальные PostgreSQL данные:
-
-```bash
-docker compose down -v
-```
-
----
-
-### Миграции PostgreSQL
-
-Production schema развивается только через EF Core migrations. Ни один production host не применяет миграции автоматически при старте. Business и Identity используют отдельные migration streams.
-
-EF Core design-time factories и `Identity.Migrations` runner получают connection string только из environment variables `ConnectionStrings__TradeSystem` и `ConnectionStrings__TradeSystemIdentity`; `appsettings*.json` для них fallback не являются. Отсутствующее, пустое или синтаксически некорректное значение приводит к ошибке до обращения к базе данных, а текст ошибки не содержит connection string. Значение читается при запуске, поэтому после изменения environment команду или runner нужно запустить заново.
-
-```bash
-cd backend/src
-export ConnectionStrings__TradeSystem='Host=localhost;Port=5432;Database=tradesystem;Username=tradesystem;Password=<password>'
-dotnet ef migrations list --project Intelligence.TradeSystem.Infrastructure
-dotnet ef database update --project Intelligence.TradeSystem.Infrastructure
-dotnet ef migrations add <MigrationName> --project Intelligence.TradeSystem.Infrastructure
-```
-
-Identity migrations:
-
-```bash
-cd backend/src
-export ConnectionStrings__TradeSystemIdentity='Host=localhost;Port=5432;Database=tradesystem_identity;Username=tradesystem;Password=<password>'
-dotnet ef migrations list --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
-dotnet ef database update --project Intelligence.TradeSystem.Identity --startup-project Intelligence.TradeSystem.Identity --context Intelligence.TradeSystem.Identity.Persistence.IdentityDbContext
-dotnet run --project Intelligence.TradeSystem.Identity.Migrations
-```
-
-Для deployment/local orchestration предпочтителен одноразовый `Identity.Migrations` runner: он применяет миграции и завершается с ненулевым кодом при ошибке.
+> При существующем PostgreSQL volume используйте тот же `TRADE_CREDENTIAL_KEY`: новый случайный master key сделает ранее сохранённые encrypted Bybit credentials нечитаемыми. Development-пользователь Identity также не меняет пароль автоматически — сохранённый `TRADE_WEB_DEV_PASSWORD` должен совпадать с паролем существующего пользователя.
 
 ---
 
@@ -601,10 +467,11 @@ dotnet run --project Intelligence.TradeSystem.Identity.Migrations
 - PostgreSQL migrations и persistence через Testcontainers;
 - PostgreSQL credential security tests: authenticated encryption, tamper/AAD protection, CAS rotation/revocation, key rollover and cascade deletion;
 - PostgreSQL user-isolation and real Bearer OAuth/OIDC E2E tests;
+- BFF: session, refresh, CSRF, logout, forwarded headers и отсутствие frontend hosting; React unit/component tests (Vitest) и browser E2E (Playwright) через frontend service;
 - Bybit adapters и их регистрации;
 - Market Intelligence и индикаторов.
 
-CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. После тестов workflow собирает Docker-образы API, Identity и migration runner, запускает Compose auth stack и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness, API readiness и настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke.
+CI использует SDK из `global.json`, выполняется для pull request и push в `develop`/`main`, проверяет NuGet direct/transitive dependencies на известные vulnerabilities, запускает весь test suite и aggregate line coverage gate с минимальным порогом **92%**. Отдельный frontend job на Node.js 24 выполняет `npm ci`, typecheck, lint, unit tests и Vite build React-клиента. После тестов workflow собирает Docker-образы API, Identity, migration runner, BFF (context `backend`) и frontend (context `frontend/intelligence-trade-web`), проверяет их взаимную независимость, запускает Compose auth stack с disposable secrets и проверяет PostgreSQL/Identity initialization, discovery/JWKS, API liveness, API readiness, настоящий Authorization Code + PKCE OAuth/OIDC protected API smoke и Playwright browser E2E через public origin frontend: same-origin routing, login, сохранение session без выдачи tokens JavaScript, full SSO logout, `prompt=login` и адаптивную вёрстку.
 
 Release-сборка настроена с `TreatWarningsAsErrors=true` для проектных предупреждений; известные SDK/tooling warnings оцениваются отдельно и не скрываются отключением анализаторов.
 
@@ -614,13 +481,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Полная и актуальная последовательность разработки хранится в [`ROADMAP.md`](ROADMAP.md). Этот документ является основной дорожной картой проекта.
 
-Этапы **A–F** и технические задачи **Tech-G01 — Tech-G13** завершены. Tech-G09 завершил воспроизводимый agent-first lifecycle с durable Approved Plan, Amendments и обязательной проверкой PR workflow. Tech-G10 нормализовал HTTP boundary API-контроллеров без изменения публичных контрактов. Tech-G11 унифицировал загрузку и startup validation runtime-конфигурации `SnapshotFreshness` без изменения публичных API-контрактов. Tech-G12 усилил fail-fast проверку критичной authentication/persistence/security-конфигурации без изменения публичных и бизнес-контрактов. Tech-G13 унифицировал configuration contract migrations/design-time tooling и закрепил startup-only lifecycle служебных процессов без изменения runtime architecture и публичных контрактов. Следующий обязательный шаг — **G-01: React-панель и BFF**. Подробный scope и дальнейшая последовательность определяются `ROADMAP.md`.
+Этапы **A–F**, технические задачи **Tech-G01 — Tech-G13** и **G-01** завершены. Tech-G09 завершил воспроизводимый agent-first lifecycle с durable Approved Plan, Amendments и обязательной проверкой PR workflow. Tech-G10 нормализовал HTTP boundary API-контроллеров без изменения публичных контрактов. Tech-G11 унифицировал загрузку и startup validation runtime-конфигурации `SnapshotFreshness` без изменения публичных API-контрактов. Tech-G12 усилил fail-fast проверку критичной authentication/persistence/security-конфигурации без изменения публичных и бизнес-контрактов. Tech-G13 унифицировал configuration contract migrations/design-time tooling и закрепил startup-only lifecycle служебных процессов без изменения runtime architecture и публичных контрактов. G-01 добавил самостоятельный React-клиент и BFF с OAuth/OIDC login, server-side browser session и full SSO logout за единым browser-facing origin. Следующий обязательный шаг — **G-02: управление подключением Bybit только для чтения**. Подробный scope и дальнейшая последовательность определяются `ROADMAP.md`.
 
 Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 
 Основная ближайшая последовательность:
 
-1. G-01: React-панель и BFF;
+1. G-02 — G-08: пользовательские сценарии основного React-клиента, начиная с управления read-only Bybit-подключением;
 2. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
 3. Telegram-уведомления и детерминированные объяснения;
 4. подготовка пилотной эксплуатации;
@@ -655,8 +522,9 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
 - канонический `/api/v1/exchange-accounts` публикует lifecycle read-only подключений; временный pre-v1 `api/exchange-accounts` удалён в F-02 и возвращает `404`;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
-- browser-specific BFF/SignalR integration ещё не реализована и относится к этапу G; F-07 resource-server boundary не выдаёт access token browser JavaScript-коду;
-- React-клиент ещё не создан;
+- React-клиент пока содержит только адаптивную оболочку, login/logout и состояние session; пользовательские экраны поверх `/api/v1` относятся к последующим задачам этапа G;
+- browser SignalR integration через BFF ещё не реализована и относится к G-06; access token не выдаётся browser JavaScript-коду;
+- BFF хранит browser sessions в памяти процесса: restart BFF завершает sessions, а горизонтальное масштабирование без sticky sessions не поддерживается;
 - общий cross-account portfolio, correlation model и расширенная portfolio analytics перенесены в последующее расширение продукта;
 - BTC Daily Check остаётся отдельным экспериментальным публичным сценарием;
 - качество рыночного анализа зависит от свежести и полноты данных.
