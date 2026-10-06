@@ -959,6 +959,56 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         Assert.Equal(1, await CountAccountEventsAsync(readContext, disabled.Id));
     }
 
+    [Fact]
+    public async Task Stale_reprotect_cannot_restore_old_credentials_after_disconnect_and_reconnect()
+    {
+        var userId = UserId.New();
+        var providerIdentity = UniqueProviderIdentity();
+        var keys = CreateKeys("v1");
+        ExchangeAccountId accountId;
+
+        await using (var context = fixture.CreateContext())
+        {
+            var connected = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("old-key", "old-secret"));
+            accountId = connected.Account!.Id;
+        }
+
+        await using var reprotectContext = fixture.CreateContext();
+        using var gatedProtector = new ProtectGatedCredentialProtector(CreateProtector(keys));
+        var reprotectStore = new ExchangeAccountCredentialStore(reprotectContext, gatedProtector);
+        var reprotect = Task.Run(() => CaptureAsync(
+            () => reprotectStore.ReprotectAsync(userId, accountId, ConcurrencyVersion.Initial)));
+        await gatedProtector.ProtectRequested.WaitAsync(TimeSpan.FromSeconds(30));
+
+        await using (var context = fixture.CreateContext())
+        {
+            Assert.NotNull(await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .DisconnectAsync(userId, accountId));
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            var reconnect = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+            Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
+        }
+
+        gatedProtector.ReleaseProtect();
+        var reprotectOutcome = await reprotect.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.IsType<ConcurrencyConflictException>(reprotectOutcome.Error);
+        await using var readContext = fixture.CreateContext();
+        var credential = await CreateStore(readContext, keys).GetAsync(userId, accountId);
+        Assert.NotNull(credential);
+        Assert.Equal(ConcurrencyVersion.Initial, credential.Version);
+        credential.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("new-key", apiKey);
+            Assert.Equal("new-secret", apiSecret);
+        });
+    }
+
     private async Task<(ExchangeAccountConnectionResult? Result, Exception? Error)> RunConnectAsync(
         UserId userId,
         ExchangeAccountProviderIdentity providerIdentity,
@@ -1000,8 +1050,10 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
     private static ExchangeAccountCredentialStore CreateStore(
         TradeSystemDbContext context,
         IReadOnlyDictionary<string, string> keys) =>
-        new(context, new AesGcmExchangeCredentialProtector(
-            CredentialKeyRing.Create(new CredentialProtectionOptions { ActiveKeyId = "v1", Keys = keys })));
+        new(context, CreateProtector(keys));
+
+    private static AesGcmExchangeCredentialProtector CreateProtector(IReadOnlyDictionary<string, string> keys) =>
+        new(CredentialKeyRing.Create(new CredentialProtectionOptions { ActiveKeyId = "v1", Keys = keys }));
 
     private static Dictionary<string, string> CreateKeys(params string[] ids) =>
         ids.ToDictionary(
@@ -1189,6 +1241,41 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             ConcurrencyVersion expectedVersion,
             CancellationToken cancellationToken = default) =>
             inner.ReprotectAsync(userId, exchangeAccountId, expectedVersion, cancellationToken);
+    }
+
+    /// <summary>
+    /// Останавливает reprotect после чтения и расшифровки строки credentials и до записи
+    /// перешифрованной пары, чтобы disconnect и reconnect успели пересоздать строку.
+    /// </summary>
+    private sealed class ProtectGatedCredentialProtector(IExchangeCredentialProtector inner)
+        : IExchangeCredentialProtector, IDisposable
+    {
+        private readonly TaskCompletionSource<bool> protectRequested = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim protectReleased = new(initialState: false);
+
+        public Task ProtectRequested => protectRequested.Task;
+
+        public void ReleaseProtect() => protectReleased.Set();
+
+        public ProtectedCredentialEnvelope Protect(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ExchangeAccountCredentialSecret secret)
+        {
+            protectRequested.TrySetResult(true);
+            if (!protectReleased.Wait(TimeSpan.FromSeconds(30)))
+                throw new TimeoutException("Reprotect не был отпущен тестом.");
+            return inner.Protect(userId, exchangeAccountId, secret);
+        }
+
+        public ExchangeAccountCredentialSecret Unprotect(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ProtectedCredentialEnvelope envelope) =>
+            inner.Unprotect(userId, exchangeAccountId, envelope);
+
+        public void Dispose() => protectReleased.Dispose();
     }
 
     private sealed class GatedAccessVerifier(ExchangeAccountProviderIdentity providerIdentity)
