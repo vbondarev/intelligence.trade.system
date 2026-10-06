@@ -23,7 +23,7 @@ Capability Map фиксирует текущие и будущие возмож�
 
 | Capability | Ценность | Зависимости | Статус | Риски / примечания |
 |---|---|---|---|---|
-| Биржевые аккаунты и read-only sync | Даёт системе фактическое состояние счёта и позиций | Exchange adapters, identity, persistence | Available | Первый MVP ограничивает credentials правами чтения. Один пользователь может иметь несколько provider-side accounts одной биржи; каждое подключение имеет стабильную identity; credentials могут заменяться без создания нового account; disconnect/reconnect сохраняет identity подключения и его историю |
+| Биржевые аккаунты и read-only sync | Даёт системе фактическое состояние счёта и позиций | Exchange adapters, identity, persistence | Available | Первый MVP ограничивает credentials правами чтения. Один пользователь может иметь несколько provider-side accounts одной биржи; каждое подключение имеет стабильную identity; credentials могут заменяться без создания нового account; disconnect/reconnect сохраняет identity подключения, его историю и пользовательское название. В Web пользователь управляет подключениями Bybit: список, включая отключённые, добавление, переименование, проверка, замена ключей, отключение и восстановление |
 | Portfolio management | Позволяет видеть состояние и риск портфеля | Account sync, PortfolioState, Web UI | In Development | Первый MVP account-scoped; cross-account analytics позже |
 | Position monitoring | Централизует состояние активных позиций | Position model, sync, Web UI | In Development | UI и realtime ещё развиваются |
 | Position assessment | Даёт воспроизводимую оценку позиции | Market Intelligence, portfolio context, policies | Available | Требует свежих и согласованных inputs |

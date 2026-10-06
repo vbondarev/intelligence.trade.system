@@ -285,6 +285,7 @@ public sealed class ExchangeAccountBackgroundSyncSweepTests
             candidate.UserId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Unavailable,
             lastSyncedAt: currentLastSyncedAt);
 
@@ -356,6 +357,7 @@ public sealed class ExchangeAccountBackgroundSyncSweepTests
             candidate.UserId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance |
             ExchangeAccountCapabilities.ReadPositions,

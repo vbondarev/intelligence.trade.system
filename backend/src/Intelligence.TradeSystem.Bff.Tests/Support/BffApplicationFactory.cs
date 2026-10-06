@@ -100,6 +100,9 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
             services.AddHttpClient<CurrentUserApiClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => Api)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+            services.AddHttpClient<ExchangeAccountsApiClient>()
+                .ConfigurePrimaryHttpMessageHandler(() => Api)
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
             services.AddSingleton<IStartupFilter, TestSignInStartupFilter>();
         });

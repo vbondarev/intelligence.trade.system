@@ -5,11 +5,15 @@ namespace Intelligence.TradeSystem.Domain;
 /// <summary>Конкретная подключённая биржевая учётная запись пользователя.</summary>
 public sealed class ExchangeAccount
 {
+    /// <summary>Максимальная длина нормализованного <see cref="DisplayName"/>.</summary>
+    public const int DisplayNameMaxLength = 100;
+
     private ExchangeAccount(
         ExchangeAccountId id,
         UserId userId,
         ExchangeId exchangeId,
         ExchangeAccountProviderIdentity providerIdentity,
+        string displayName,
         ExchangeAccountConnectionStatus connectionStatus,
         ExchangeAccountCapabilities capabilities,
         DateTimeOffset? lastSyncedAt,
@@ -21,6 +25,7 @@ public sealed class ExchangeAccount
         UserId = userId;
         ExchangeId = exchangeId;
         ProviderIdentity = providerIdentity;
+        DisplayName = displayName;
         ConnectionStatus = connectionStatus;
         Capabilities = capabilities;
         LastSyncedAt = lastSyncedAt;
@@ -33,6 +38,16 @@ public sealed class ExchangeAccount
     public UserId UserId { get; }
     public ExchangeId ExchangeId { get; }
     public ExchangeAccountProviderIdentity ProviderIdentity { get; }
+
+    /// <summary>
+    /// Пользовательское отображаемое имя подключения.
+    /// </summary>
+    /// <remarks>
+    /// Это редактируемые пользовательские метаданные: имя не участвует в provider identity,
+    /// не обязано быть уникальным и не зависит от credentials или lifecycle подключения.
+    /// </remarks>
+    public string DisplayName { get; private set; }
+
     public ExchangeAccountConnectionStatus ConnectionStatus { get; private set; }
     public ExchangeAccountCapabilities Capabilities { get; }
     public DateTimeOffset? LastSyncedAt { get; private set; }
@@ -49,6 +64,7 @@ public sealed class ExchangeAccount
         UserId userId,
         ExchangeId exchangeId,
         ExchangeAccountProviderIdentity providerIdentity,
+        string displayName,
         ExchangeAccountConnectionStatus connectionStatus = ExchangeAccountConnectionStatus.Unknown,
         ExchangeAccountCapabilities capabilities = ExchangeAccountCapabilities.None,
         DateTimeOffset? lastSyncedAt = null,
@@ -69,6 +85,8 @@ public sealed class ExchangeAccount
             throw new ArgumentException(
                 "Exchange account provider identity must be initialized.",
                 nameof(providerIdentity));
+
+        var normalizedDisplayName = NormalizeDisplayName(displayName);
 
         if (!Enum.IsDefined(connectionStatus))
             throw new ArgumentOutOfRangeException(
@@ -96,12 +114,32 @@ public sealed class ExchangeAccount
             userId,
             exchangeId,
             providerIdentity,
+            normalizedDisplayName,
             connectionStatus,
             capabilities,
             lastSyncedAt,
             lastError,
             NormalizeObservationTimestamp(lastAppliedBalanceObservationAt),
             NormalizeObservationTimestamp(lastAppliedPositionsObservationAt));
+    }
+
+    /// <summary>
+    /// Изменяет пользовательское отображаемое имя подключения.
+    /// </summary>
+    /// <remarks>
+    /// Переименование допустимо в любом lifecycle state, включая
+    /// <see cref="ExchangeAccountConnectionStatus.Disabled"/>, и не затрагивает identity,
+    /// состояние подключения, capabilities и состояние синхронизации.
+    /// </remarks>
+    /// <returns><c>true</c>, если нормализованное имя отличается от текущего.</returns>
+    public bool Rename(string displayName)
+    {
+        var normalized = NormalizeDisplayName(displayName);
+        if (string.Equals(DisplayName, normalized, StringComparison.Ordinal))
+            return false;
+
+        DisplayName = normalized;
+        return true;
     }
 
     public void MarkConnected()
@@ -203,6 +241,27 @@ public sealed class ExchangeAccount
             throw new InvalidOperationException(
                 "A disabled exchange account cannot be moved back to an active state.");
         }
+    }
+
+    private static string NormalizeDisplayName(string displayName)
+    {
+        ArgumentNullException.ThrowIfNull(displayName);
+        var normalized = displayName.Trim();
+        if (normalized.Length == 0)
+        {
+            throw new ArgumentException(
+                "Отображаемое имя биржевого аккаунта не может быть пустым.",
+                nameof(displayName));
+        }
+
+        if (normalized.Length > DisplayNameMaxLength)
+        {
+            throw new ArgumentException(
+                $"Отображаемое имя биржевого аккаунта не может быть длиннее {DisplayNameMaxLength} символов.",
+                nameof(displayName));
+        }
+
+        return normalized;
     }
 
     private static string ValidateError(string error)

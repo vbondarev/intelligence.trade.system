@@ -79,7 +79,7 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
         await using (var importer = connection.BeginBinaryImport(
             """
             COPY exchange_accounts
-            (exchange_account_id, user_id, exchange_id, provider_account_id,
+            (exchange_account_id, user_id, exchange_id, provider_account_id, display_name,
              connection_status, capabilities, last_synced_at, last_error,
              last_applied_balance_observation_at, last_applied_positions_observation_at, version)
             FROM STDIN (FORMAT BINARY)
@@ -92,6 +92,7 @@ internal sealed class PositionListPerformanceFixture : IAsyncDisposable
                 importer.Write(account.UserId, NpgsqlTypes.NpgsqlDbType.Uuid);
                 importer.Write("Bybit", NpgsqlTypes.NpgsqlDbType.Varchar);
                 importer.Write($"provider-{account.Id:N}", NpgsqlTypes.NpgsqlDbType.Varchar);
+                importer.Write("Основной", NpgsqlTypes.NpgsqlDbType.Varchar);
                 importer.Write("Connected", NpgsqlTypes.NpgsqlDbType.Varchar);
                 importer.Write(3, NpgsqlTypes.NpgsqlDbType.Integer);
                 importer.WriteNull();

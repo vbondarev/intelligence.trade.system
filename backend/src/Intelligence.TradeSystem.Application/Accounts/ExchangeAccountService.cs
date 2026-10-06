@@ -27,12 +27,21 @@ public sealed class ExchangeAccountService(
         .Select(account => account.Value)
         .ToArray();
 
+    public async Task<IReadOnlyList<ExchangeAccount>> ListAsync(
+        UserId userId,
+        CancellationToken cancellationToken = default) =>
+        (await repository.ListAsync(userId, cancellationToken).ConfigureAwait(false))
+        .Select(account => account.Value)
+        .ToArray();
+
     public async Task<ExchangeAccountConnectionResult> ConnectAsync(
         UserId userId,
         ExchangeId exchange,
+        string displayName,
         ExchangeAccountCredentialSecret credentials,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentNullException.ThrowIfNull(credentials);
         var verification = await accessVerifier.VerifyAsync(exchange, credentials, cancellationToken)
             .ConfigureAwait(false);
@@ -66,6 +75,7 @@ public sealed class ExchangeAccountService(
                             userId,
                             exchange,
                             providerIdentity,
+                            displayName,
                             verification.Capabilities,
                             credentials,
                             transactionToken)
@@ -73,7 +83,8 @@ public sealed class ExchangeAccountService(
                     return;
                 }
 
-                // Connect не заменяет credential rotation: активное подключение не изменяется.
+                // Connect не заменяет credential rotation и rename: существующее подключение
+                // сохраняет своё DisplayName, а активное подключение не изменяется вовсе.
                 if (existing.Value.ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
                 {
                     result = ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.AlreadyExists);
@@ -91,6 +102,34 @@ public sealed class ExchangeAccountService(
 
         return result ?? throw new InvalidOperationException(
             "Lifecycle-транзакция аккаунта завершилась без результата подключения.");
+    }
+
+    public async Task<ExchangeAccount?> RenameAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        string displayName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(displayName);
+        var loaded = await repository.GetByIdAsync(userId, exchangeAccountId, cancellationToken).ConfigureAwait(false);
+        if (loaded is null)
+            return null;
+
+        var account = loaded.Value;
+        if (!account.Rename(displayName))
+            return account;
+
+        await lifecycleTransaction.ExecuteAsync(
+            async transactionToken =>
+            {
+                await repository
+                    .SaveAsync(userId, account, loaded.Version, transactionToken)
+                    .ConfigureAwait(false);
+                await AddAccountUpdatedEventAsync(userId, account.Id, transactionToken).ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return account;
     }
 
     public async Task<ExchangeAccountVerificationResult> VerifyAsync(
@@ -299,6 +338,7 @@ public sealed class ExchangeAccountService(
         UserId userId,
         ExchangeId exchange,
         ExchangeAccountProviderIdentity providerIdentity,
+        string displayName,
         ExchangeAccountCapabilities capabilities,
         ExchangeAccountCredentialSecret credentials,
         CancellationToken transactionToken)
@@ -308,6 +348,7 @@ public sealed class ExchangeAccountService(
             userId,
             exchange,
             providerIdentity,
+            displayName,
             capabilities: capabilities);
         var accountVersion = await repository
             .SaveAsync(userId, account, null, transactionToken)

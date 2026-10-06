@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from '../auth/ProtectedRoute';
 import { AppShell } from '../layout/AppShell';
+import { ConnectionsPage } from '../pages/ConnectionsPage';
 import { HomePage } from '../pages/HomePage';
 import { LandingPage } from '../pages/LandingPage';
 
@@ -17,6 +18,7 @@ export function AppRoutes() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="settings/connections" element={<ConnectionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -158,6 +158,19 @@ public static partial class BffAuthenticationExtensions
 
         services.AddHttpClient<CurrentUserApiClient>(client => client.BaseAddress = configuration.ApiBaseAddress);
 
+        // Management API подключений включает state-changing операции: automatic retry после
+        // network error, timeout или 5xx мог бы повторно выполнить уже применённую операцию.
+#pragma warning disable EXTEXP0001
+        services
+            .AddHttpClient<ExchangeAccountsApiClient>(client =>
+            {
+                client.BaseAddress = configuration.ApiBaseAddress;
+                client.Timeout = ExchangeAccountsApiClient.RequestTimeout;
+            })
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+        services.AddSingleton<AuthenticatedApiForwarder>();
+
         return services;
     }
 

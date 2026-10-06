@@ -53,14 +53,15 @@ SignalR является каналом invalidation. После каждого 
 
 | SignalR event | REST recovery resource |
 |---|---|
-| `exchangeAccount.updated` | `GET /api/v1/exchange-accounts` |
+| `exchangeAccount.updated` | `GET /api/v1/me/exchange-accounts` |
 | `portfolio.updated` | `GET /api/v1/exchange-accounts/{id}/portfolio` |
 | `position.updated` | `GET /api/v1/positions/{id}` |
 | `evaluation.updated` | `GET /api/v1/positions/{id}/evaluation` |
 
-Для account event отдельного `GET /api/v1/exchange-accounts/{id}` нет:
-клиент перечитывает список и использует `exchangeAccountId` как invalidation
-hint. REST остаётся source of truth.
+Для account event отдельного `GET /api/v1/me/exchange-accounts/{id}` нет:
+клиент перечитывает список, который включает и отключённые подключения, и
+использует `exchangeAccountId` как invalidation hint. REST остаётся source of
+truth.
 
 Пример:
 

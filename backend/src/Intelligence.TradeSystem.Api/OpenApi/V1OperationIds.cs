@@ -6,12 +6,13 @@ internal static class V1OperationIds
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["GET api/v1/auth/me"] = "getCurrentUser",
-            ["GET api/v1/exchange-accounts"] = "listExchangeAccounts",
-            ["POST api/v1/exchange-accounts"] = "createExchangeAccount",
-            ["POST api/v1/exchange-accounts/{id}/verify"] = "verifyExchangeAccount",
-            ["PUT api/v1/exchange-accounts/{id}/credentials"] = "rotateExchangeAccountCredentials",
+            ["GET api/v1/me/exchange-accounts"] = "listExchangeAccounts",
+            ["POST api/v1/me/exchange-accounts"] = "createExchangeAccount",
+            ["PATCH api/v1/me/exchange-accounts/{id}"] = "renameExchangeAccount",
+            ["POST api/v1/me/exchange-accounts/{id}/verify"] = "verifyExchangeAccount",
+            ["PUT api/v1/me/exchange-accounts/{id}/credentials"] = "rotateExchangeAccountCredentials",
+            ["DELETE api/v1/me/exchange-accounts/{id}"] = "disconnectExchangeAccount",
             ["POST api/v1/exchange-accounts/{id}/sync"] = "syncExchangeAccount",
-            ["DELETE api/v1/exchange-accounts/{id}"] = "disconnectExchangeAccount",
             ["GET api/v1/exchange-accounts/{id}/portfolio"] = "getExchangeAccountPortfolio",
             ["GET api/v1/positions"] = "listPositions",
             ["GET api/v1/positions/{id}"] = "getPosition",

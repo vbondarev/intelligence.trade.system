@@ -20,8 +20,25 @@ public sealed class ExchangeAccountControllerArchitectureTests
             .ToArray();
 
         parameters.Should().Contain(typeof(IExchangeAccountService));
+        parameters.Should().Contain(typeof(ICurrentUserContext));
+        parameters.Should().NotContain(typeof(IExchangeAccountSyncService));
+        parameters.Should().NotContain(typeof(PortfolioReadService));
+        parameters.Should().NotContain(typeof(IPortfolioReadStore));
+    }
+
+    [Fact]
+    public void Exchange_account_sync_controller_owns_only_manual_sync()
+    {
+        var parameters = typeof(ExchangeAccountSyncController)
+            .GetConstructors()
+            .Single()
+            .GetParameters()
+            .Select(parameter => parameter.ParameterType)
+            .ToArray();
+
         parameters.Should().Contain(typeof(IExchangeAccountSyncService));
         parameters.Should().Contain(typeof(ICurrentUserContext));
+        parameters.Should().NotContain(typeof(IExchangeAccountService));
         parameters.Should().NotContain(typeof(PortfolioReadService));
         parameters.Should().NotContain(typeof(IPortfolioReadStore));
     }

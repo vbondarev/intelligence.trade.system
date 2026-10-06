@@ -112,6 +112,7 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From($"provider-{Guid.NewGuid():N}"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0);

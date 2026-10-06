@@ -243,6 +243,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 UserId.New(),
                 ExchangeId.Bybit,
                 ProviderIdentity,
+                "Основной",
                 ExchangeAccountConnectionStatus.Connected,
                 RequiredCapabilities,
                 lastSyncedAt: previousSyncAt,
@@ -314,6 +315,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 UserId.New(),
                 ExchangeId.Bybit,
                 ProviderIdentity,
+                "Основной",
                 ExchangeAccountConnectionStatus.Connected,
                 RequiredCapabilities,
                 lastSyncedAt: previousSyncAt,
@@ -426,6 +428,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.UserId,
             ExchangeId.Bybit,
             fixture.Account.ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
             lastAppliedBalanceObservationAt: ObservedAt,
@@ -477,6 +480,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.UserId,
             ExchangeId.Bybit,
             fixture.Account.ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities,
             lastAppliedBalanceObservationAt: ObservedAt,
@@ -521,6 +525,7 @@ public sealed class ExchangeAccountSyncServiceTests
             fixture.UserId,
             ExchangeId.Bybit,
             fixture.Account.ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Disabled,
             RequiredCapabilities);
         fixture.AccountRepository
@@ -760,6 +765,7 @@ public sealed class ExchangeAccountSyncServiceTests
             UserId.New(),
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Disabled,
             RequiredCapabilities);
         var fixture = CreateFixture(disabledAccount);
@@ -1695,6 +1701,7 @@ public sealed class ExchangeAccountSyncServiceTests
             userId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             RequiredCapabilities);
         var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);

@@ -429,6 +429,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From($"provider-{Guid.NewGuid():N}"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 

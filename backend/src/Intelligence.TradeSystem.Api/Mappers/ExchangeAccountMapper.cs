@@ -11,6 +11,7 @@ internal static class ExchangeAccountMapper
 
     public static ExchangeAccountResponse ToResponse(ExchangeAccount account) => new(
         account.Id.Value,
+        account.DisplayName,
         ToWireProvider(account.ExchangeId),
         ToWireStatus(account.ConnectionStatus),
         ToWireCapabilities(account.Capabilities),

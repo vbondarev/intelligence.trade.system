@@ -51,12 +51,13 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Theory]
-    [InlineData("GET", "/api/v1/exchange-accounts")]
-    [InlineData("POST", "/api/v1/exchange-accounts")]
-    [InlineData("POST", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/verify")]
-    [InlineData("PUT", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/credentials")]
+    [InlineData("GET", "/api/v1/me/exchange-accounts")]
+    [InlineData("POST", "/api/v1/me/exchange-accounts")]
+    [InlineData("PATCH", "/api/v1/me/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
+    [InlineData("POST", "/api/v1/me/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/verify")]
+    [InlineData("PUT", "/api/v1/me/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/credentials")]
+    [InlineData("DELETE", "/api/v1/me/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
     [InlineData("POST", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/sync")]
-    [InlineData("DELETE", "/api/v1/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
     [InlineData("GET", "/api/v1/positions")]
     [InlineData("GET", "/api/v1/positions/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6")]
     [InlineData("GET", "/api/v1/positions/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/market")]
@@ -70,8 +71,11 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
         string path)
     {
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
-        if (method is "POST" or "PUT")
-            request.Content = JsonContent.Create(new { exchange = "bybit", apiKey = "key", apiSecret = "secret" });
+        if (method is "POST" or "PUT" or "PATCH")
+        {
+            request.Content = JsonContent.Create(
+                new { displayName = "Основной", exchange = "bybit", apiKey = "key", apiSecret = "secret" });
+        }
 
         using var response = await _client.SendAsync(request);
 
@@ -272,9 +276,10 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
                 apiKey = "api-key",
                 apiSecret = "api-secret",
             });
-        using var v1ListResponse = await _client.GetAsync("/api/v1/exchange-accounts");
+        using var formerV1ListResponse = await _client.GetAsync("/api/v1/exchange-accounts");
+        using var v1ListResponse = await _client.GetAsync("/api/v1/me/exchange-accounts");
         using var v1ConnectResponse = await _client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts/bybit",
+            "/api/v1/me/exchange-accounts/bybit",
             new
             {
                 apiKey = "api-key",
@@ -282,6 +287,7 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
             });
 
         legacyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        formerV1ListResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         v1ListResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         v1ConnectResponse.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
     }

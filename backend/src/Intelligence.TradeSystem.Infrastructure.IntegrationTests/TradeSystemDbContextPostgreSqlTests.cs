@@ -31,6 +31,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20260924170832_AddPositionListReadIndexes";
     private const string UniqueProviderIdentityMigration =
         "20261006125555_EnforceUniqueExchangeAccountProviderIdentity";
+    private const string DisplayNameMigration =
+        "20261006190840_AddExchangeAccountDisplayName";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -164,7 +166,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(TimelineReadIndexesMigration);
         Assert.Equal(
-            [PositionListReadIndexesMigration, UniqueProviderIdentityMigration],
+            [PositionListReadIndexesMigration, UniqueProviderIdentityMigration, DisplayNameMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_order"));
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_account_order"));
@@ -174,7 +176,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
 
         Assert.Equal(
-            [UniqueProviderIdentityMigration],
+            [UniqueProviderIdentityMigration, DisplayNameMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         await AssertPositionListIndexesAsync(dbContext);
     }
@@ -187,7 +189,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
         Assert.Equal(
-            [UniqueProviderIdentityMigration],
+            [UniqueProviderIdentityMigration, DisplayNameMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(
             dbContext,
@@ -195,7 +197,9 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(UniqueProviderIdentityMigration);
 
-        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.Equal(
+            [DisplayNameMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var definition = await ReadIndexDefinitionAsync(
             dbContext,
             "ux_exchange_accounts_user_exchange_provider_account_id");
@@ -208,6 +212,72 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             dbContext,
             "ux_exchange_accounts_user_exchange_provider_account_id"));
     }
+
+    [Fact]
+    public async Task Display_name_migration_backfills_existing_rows_with_deterministic_fallback()
+    {
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
+
+        await dbContext.Database.MigrateAsync(UniqueProviderIdentityMigration);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO exchange_accounts (
+                exchange_account_id, user_id, exchange_id, provider_account_id,
+                connection_status, capabilities, version)
+            VALUES
+                ('6f7c132a-1111-4111-8111-111111111111', '22222222-2222-2222-2222-222222222222',
+                 'Bybit', 'provider-active', 'Connected', 3, 4),
+                ('0a1b2c3d-2222-4222-8222-222222222222', '22222222-2222-2222-2222-222222222222',
+                 'Bybit', 'provider-disabled', 'Disabled', 3, 2);
+            """);
+
+        await dbContext.Database.MigrateAsync(DisplayNameMigration);
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        var rows = await dbContext.Database.SqlQueryRaw<DisplayNameRow>(
+                """
+                SELECT exchange_account_id AS "Id", display_name AS "DisplayName", version AS "Version"
+                FROM exchange_accounts
+                ORDER BY exchange_account_id
+                """)
+            .ToArrayAsync();
+        Assert.Equal(
+            [
+                new DisplayNameRow(Guid.Parse("0a1b2c3d-2222-4222-8222-222222222222"), "Bybit 0a1b2c3d", 2),
+                new DisplayNameRow(Guid.Parse("6f7c132a-1111-4111-8111-111111111111"), "Bybit 6f7c132a", 4),
+            ],
+            rows);
+        var column = await dbContext.Database.SqlQueryRaw<DisplayNameColumn>(
+                """
+                SELECT is_nullable AS "IsNullable",
+                       column_default AS "ColumnDefault",
+                       character_maximum_length AS "MaxLength"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'exchange_accounts'
+                  AND column_name = 'display_name'
+                """)
+            .SingleAsync();
+        Assert.Equal(new DisplayNameColumn("NO", null, 100), column);
+
+        await dbContext.Database.MigrateAsync(UniqueProviderIdentityMigration);
+        Assert.Equal(
+            0,
+            await dbContext.Database.SqlQueryRaw<int>(
+                    """
+                    SELECT COUNT(*)::integer AS "Value"
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'exchange_accounts'
+                      AND column_name = 'display_name'
+                    """)
+                .SingleAsync());
+    }
+
+    private sealed record DisplayNameRow(Guid Id, string DisplayName, long Version);
+
+    private sealed record DisplayNameColumn(string IsNullable, string? ColumnDefault, int? MaxLength);
 
     [Fact]
     public async Task Stability_migration_rejects_legacy_duplicate_current_rows_without_mutation()
@@ -260,6 +330,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
                 UniqueProviderIdentityMigration,
+                DisplayNameMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -288,6 +359,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 TimelineReadIndexesMigration,
                 PositionListReadIndexesMigration,
                 UniqueProviderIdentityMigration,
+                DisplayNameMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(

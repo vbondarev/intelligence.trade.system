@@ -28,6 +28,10 @@ public partial class Program
         app.UseAuthorization();
         app.UseMiddleware<BffAntiforgeryMiddleware>();
         app.MapAuthEndpoints();
+        app.MapExchangeAccountEndpoints();
+
+        // Неизвестный /bff/** path не должен попадать в SPA fallback frontend или в API.
+        app.Map("/bff/{**path}", () => Results.NotFound());
         app.MapDefaultEndpoints();
 
         app.Run();

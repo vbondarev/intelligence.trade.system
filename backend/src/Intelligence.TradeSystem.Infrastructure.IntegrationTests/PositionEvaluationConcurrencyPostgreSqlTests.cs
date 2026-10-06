@@ -793,6 +793,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance |
             ExchangeAccountCapabilities.ReadPositions,

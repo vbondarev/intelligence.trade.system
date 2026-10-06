@@ -39,7 +39,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 new ExchangeAccountLifecycleTransaction(context),
                 new ApplicationEventOutbox(context));
 
-            var result = await service.ConnectAsync(userId, ExchangeId.Bybit, credentials);
+            var result = await service.ConnectAsync(userId, ExchangeId.Bybit, "Основной", credentials);
 
             Assert.Equal(ExchangeAccountConnectionOutcome.Connected, result.Outcome);
             Assert.NotNull(result.Account);
@@ -230,6 +230,174 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
     }
 
     [Fact]
+    public async Task ListAsync_returns_all_owning_user_accounts_including_disabled_with_display_names_in_id_order()
+    {
+        var owner = UserId.New();
+        var otherUser = UserId.New();
+        var connected = CreateAccount(owner, providerIdentity: UniqueProviderIdentity(), displayName: "Основной");
+        var unavailable = CreateAccount(
+            owner, ExchangeAccountConnectionStatus.Unavailable, UniqueProviderIdentity(), "Резерв");
+        var disabled = CreateAccount(
+            owner, ExchangeAccountConnectionStatus.Disabled, UniqueProviderIdentity(), "GinArea");
+        var foreign = CreateAccount(otherUser, displayName: "Чужой");
+
+        await using (var context = fixture.CreateContext())
+        {
+            var repository = new ExchangeAccountRepository(context);
+            await repository.SaveAsync(owner, connected, expectedVersion: null);
+            await repository.SaveAsync(owner, unavailable, expectedVersion: null);
+            await repository.SaveAsync(owner, disabled, expectedVersion: null);
+            await repository.SaveAsync(otherUser, foreign, expectedVersion: null);
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var repositoryUnderTest = new ExchangeAccountRepository(readContext);
+        var result = await repositoryUnderTest.ListAsync(owner);
+        var active = await repositoryUnderTest.ListActiveAsync(owner);
+
+        var expectedOrder = new[] { connected.Id, unavailable.Id, disabled.Id }.OrderBy(id => id.Value).ToArray();
+        Assert.Equal(expectedOrder, result.Select(x => x.Value.Id).ToArray());
+        Assert.Equal("Основной", result.Single(x => x.Value.Id == connected.Id).Value.DisplayName);
+        Assert.Equal("Резерв", result.Single(x => x.Value.Id == unavailable.Id).Value.DisplayName);
+        var persistedDisabled = result.Single(x => x.Value.Id == disabled.Id).Value;
+        Assert.Equal("GinArea", persistedDisabled.DisplayName);
+        Assert.Equal(ExchangeAccountConnectionStatus.Disabled, persistedDisabled.ConnectionStatus);
+        Assert.DoesNotContain(result, x => x.Value.Id == foreign.Id);
+        Assert.DoesNotContain(active, x => x.Value.Id == disabled.Id);
+    }
+
+    [Fact]
+    public async Task Display_name_survives_rename_rotation_disconnect_and_reconnect_in_PostgreSql()
+    {
+        var userId = UserId.New();
+        var providerIdentity = UniqueProviderIdentity();
+        var keys = CreateKeys("v1");
+        ExchangeAccountId accountId;
+
+        await using (var context = fixture.CreateContext())
+        {
+            var connected = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .ConnectAsync(userId, ExchangeId.Bybit, "  Основной  ", new ExchangeAccountCredentialSecret("old-key", "old-secret"));
+            Assert.Equal(ExchangeAccountConnectionOutcome.Connected, connected.Outcome);
+            accountId = connected.Account!.Id;
+        }
+
+        Assert.Equal("Основной", await ReadDisplayNameAsync(userId, accountId));
+
+        int eventsBeforeRename;
+        await using (var context = fixture.CreateContext())
+            eventsBeforeRename = await CountAccountEventsAsync(context, accountId);
+        await using (var context = fixture.CreateContext())
+        {
+            var renamed = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .RenameAsync(userId, accountId, "GinArea");
+            Assert.Equal("GinArea", renamed!.DisplayName);
+        }
+
+        await using (var context = fixture.CreateContext())
+            Assert.Equal(eventsBeforeRename + 1, await CountAccountEventsAsync(context, accountId));
+        Assert.Equal("GinArea", await ReadDisplayNameAsync(userId, accountId));
+
+        await using (var context = fixture.CreateContext())
+        {
+            var rotation = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .RotateCredentialsAsync(userId, accountId, new ExchangeAccountCredentialSecret("rotated-key", "rotated-secret"));
+            Assert.Equal(ExchangeAccountCredentialRotationOutcome.Succeeded, rotation.Outcome);
+        }
+
+        Assert.Equal("GinArea", await ReadDisplayNameAsync(userId, accountId));
+
+        await using (var context = fixture.CreateContext())
+        {
+            Assert.NotNull(await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .DisconnectAsync(userId, accountId));
+        }
+
+        Assert.Equal("GinArea", await ReadDisplayNameAsync(userId, accountId));
+
+        await using (var context = fixture.CreateContext())
+        {
+            var renamedDisabled = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .RenameAsync(userId, accountId, "Архив");
+            Assert.Equal(ExchangeAccountConnectionStatus.Disabled, renamedDisabled!.ConnectionStatus);
+        }
+
+        Assert.Equal("Архив", await ReadDisplayNameAsync(userId, accountId));
+
+        ExchangeAccountConnectionResult reconnect;
+        await using (var context = fixture.CreateContext())
+        {
+            reconnect = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
+                .ConnectAsync(userId, ExchangeId.Bybit, "Имя из формы", new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+        }
+
+        Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
+        Assert.Equal(accountId, reconnect.Account!.Id);
+        Assert.Equal("Архив", reconnect.Account.DisplayName);
+
+        await using var readContext = fixture.CreateContext();
+        var persisted = (await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, accountId))!;
+        Assert.Equal("Архив", persisted.Value.DisplayName);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, persisted.Value.ConnectionStatus);
+        Assert.Equal(providerIdentity, persisted.Value.ProviderIdentity);
+        Assert.Equal(
+            [accountId.Value],
+            await readContext.ExchangeAccounts
+                .Where(account => account.UserId == userId.Value)
+                .Select(account => account.Id)
+                .ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Rename_to_the_same_normalized_name_does_not_write_or_publish_in_PostgreSql()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId, providerIdentity: UniqueProviderIdentity());
+        var keys = CreateKeys("v1");
+        ConcurrencyVersion initialVersion;
+        await using (var setup = fixture.CreateContext())
+            initialVersion = await new ExchangeAccountRepository(setup).SaveAsync(userId, account, expectedVersion: null);
+
+        await using (var context = fixture.CreateContext())
+        {
+            var result = await CreateService(context, keys, new FixedAccessVerifier(account.ProviderIdentity))
+                .RenameAsync(userId, account.Id, "  Основной ");
+            Assert.Equal("Основной", result!.DisplayName);
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var persisted = (await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, account.Id))!;
+        Assert.Equal(initialVersion, persisted.Version);
+        Assert.Equal(0, await CountAccountEventsAsync(readContext, account.Id));
+    }
+
+    [Fact]
+    public async Task Rename_with_a_stale_version_is_rejected_by_cas_without_overwriting_the_newer_name()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId, providerIdentity: UniqueProviderIdentity());
+        await using (var setup = fixture.CreateContext())
+            await new ExchangeAccountRepository(setup).SaveAsync(userId, account, expectedVersion: null);
+
+        await using var staleContext = fixture.CreateContext();
+        var stale = (await new ExchangeAccountRepository(staleContext).GetByIdAsync(userId, account.Id))!;
+
+        await using (var winnerContext = fixture.CreateContext())
+        {
+            var repository = new ExchangeAccountRepository(winnerContext);
+            var winner = (await repository.GetByIdAsync(userId, account.Id))!;
+            Assert.True(winner.Value.Rename("Победитель"));
+            await repository.SaveAsync(userId, winner.Value, winner.Version);
+        }
+
+        Assert.True(stale.Value.Rename("Устаревшее"));
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() =>
+            new ExchangeAccountRepository(staleContext).SaveAsync(userId, stale.Value, stale.Version));
+
+        Assert.Equal("Победитель", await ReadDisplayNameAsync(userId, account.Id));
+    }
+
+    [Fact]
     public async Task Provider_identity_round_trips_and_is_not_nullable_in_PostgreSql()
     {
         var userId = UserId.New();
@@ -238,7 +406,8 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
-            providerIdentity);
+            providerIdentity,
+            "Основной");
 
         await using var context = fixture.CreateContext();
         await new ExchangeAccountRepository(context).SaveAsync(userId, account, expectedVersion: null);
@@ -281,6 +450,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             userId,
             account.ExchangeId,
             ExchangeAccountProviderIdentity.From("different-provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Unavailable,
             account.Capabilities,
             lastError: "attempted provider rebinding");
@@ -689,7 +859,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var context = fixture.CreateContext())
         {
             var result = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("old-key", "old-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("old-key", "old-secret"));
             Assert.Equal(ExchangeAccountConnectionOutcome.Connected, result.Outcome);
             accountId = result.Account!.Id;
         }
@@ -714,7 +884,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var context = fixture.CreateContext())
         {
             reconnect = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("new-key", "new-secret"));
         }
 
         Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
@@ -760,6 +930,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             var connected = await service.ConnectAsync(
                 userId,
                 ExchangeId.Bybit,
+                "Основной",
                 new ExchangeAccountCredentialSecret("old-key", "old-secret"));
             accountId = connected.Account!.Id;
             await service.DisconnectAsync(userId, accountId);
@@ -776,7 +947,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var context = fixture.CreateContext())
         {
             var result = await CreateService(context, keys, new FailedAccessVerifier(verificationStatus))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("new-key", "new-secret"));
             Assert.NotEqual(ExchangeAccountConnectionOutcome.Reconnected, result.Outcome);
             Assert.Null(result.Account);
         }
@@ -812,7 +983,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         {
             await Assert.ThrowsAsync<ConcurrencyConflictException>(
                 () => CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
-                    .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret")));
+                    .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("new-key", "new-secret")));
         }
 
         await using var readContext = fixture.CreateContext();
@@ -931,7 +1102,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var reconnectContext = fixture.CreateContext())
         {
             reconnect = await CreateService(reconnectContext, keys, new FixedAccessVerifier(providerIdentity))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("new-key", "new-secret"));
         }
 
         Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
@@ -970,7 +1141,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var context = fixture.CreateContext())
         {
             var connected = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("old-key", "old-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("old-key", "old-secret"));
             accountId = connected.Account!.Id;
         }
 
@@ -990,7 +1161,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         await using (var context = fixture.CreateContext())
         {
             var reconnect = await CreateService(context, keys, new FixedAccessVerifier(providerIdentity))
-                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+                .ConnectAsync(userId, ExchangeId.Bybit, "Основной", new ExchangeAccountCredentialSecret("new-key", "new-secret"));
             Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
         }
 
@@ -1023,7 +1194,7 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
                 keys,
                 new FixedAccessVerifier(providerIdentity),
                 new ProviderLookupBarrierRepository(new ExchangeAccountRepository(context), lookupBoundary))
-            .ConnectAsync(userId, ExchangeId.Bybit, credentials));
+            .ConnectAsync(userId, ExchangeId.Bybit, "Основной", credentials));
     }
 
     private static ExchangeAccountService CreateService(
@@ -1064,11 +1235,18 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
     private static ExchangeAccount CreateAccount(
         UserId userId,
         ExchangeAccountConnectionStatus status = ExchangeAccountConnectionStatus.Connected,
-        ExchangeAccountProviderIdentity? providerIdentity = null) =>
+        ExchangeAccountProviderIdentity? providerIdentity = null,
+        string displayName = "Основной") =>
         ExchangeAccount.Create(
             ExchangeAccountId.New(), userId, ExchangeId.Bybit,
-            providerIdentity ?? ExchangeAccountProviderIdentity.From("provider-account"), status,
+            providerIdentity ?? ExchangeAccountProviderIdentity.From("provider-account"), displayName, status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+
+    private async Task<string> ReadDisplayNameAsync(UserId userId, ExchangeAccountId accountId)
+    {
+        await using var context = fixture.CreateContext();
+        return (await new ExchangeAccountRepository(context).GetByIdAsync(userId, accountId))!.Value.DisplayName;
+    }
 
     private static ExchangeAccountProviderIdentity UniqueProviderIdentity() =>
         ExchangeAccountProviderIdentity.From($"bybit-user-{Guid.NewGuid():N}");
@@ -1134,6 +1312,11 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             UserId userId,
             CancellationToken cancellationToken = default) =>
             inner.ListActiveAsync(userId, cancellationToken);
+
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            inner.ListAsync(userId, cancellationToken);
 
         public Task<Versioned<ExchangeAccount>?> GetByIdAsync(
             UserId userId,
@@ -1308,6 +1491,6 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         UserId userId,
         ExchangeAccountConnectionStatus status) =>
         ExchangeAccount.Create(
-            id, userId, ExchangeId.Bybit, ExchangeAccountProviderIdentity.From("provider-account"), status,
+            id, userId, ExchangeId.Bybit, ExchangeAccountProviderIdentity.From("provider-account"), "Основной", status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 }

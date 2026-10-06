@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.52
+Версия документа: 3.53
 Дата актуализации: 6 октября 2026 года
-Проверенная база: `develop` @ `43d56b4547e0039028ecf6aaf4775a6c94adb38c`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182
+Проверенная база: `develop` @ `d40ca9def910bcc34469826b53c8f5db5d754f00`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184
 Последняя учтённая задача: Issue #182 «Обеспечить единственное подключение для одного provider-side exchange account»
-Текущий этап: **G — основной React-клиент**; G-01 завершён, следующий обязательный шаг — **G-02**
+Текущий этап: **G — основной React-клиент**; G-01 и G-02 завершены, следующий обязательный шаг — **G-03**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -155,6 +155,7 @@
 - ✅ F-05 публикует user-scoped GET/POST evaluation с согласованными assessment + nullable current recommendation, temporal/input identity и сохранением safety semantics stale/partial/uncertain данных.
 - ✅ F-06 публикует user-scoped timeline позиции с persisted position changes, assessments/evaluations и recommendations, cursor pagination и repeatable type filter.
 - ✅ F-07 публикует user-scoped SignalR boundary `/hubs/v1/updates` с invalidation-only событиями `exchangeAccount.updated`, `portfolio.updated`, `position.updated` и `evaluation.updated`; native/token clients используют Bearer, browser integration остаётся за BFF этапа G, а актуальное состояние после события или reconnect восстанавливается через REST.
+- ✅ G-02 даёт Web-управление read-only подключениями Bybit через React и явные BFF endpoints `/bff/me/exchange-accounts/**`: список, включая отключённые подключения, добавление, переименование, проверку, замену ключей, отключение и восстановление. Management API перенесён на `/api/v1/me/exchange-accounts`, подключение получило обязательное пользовательское название; sync и portfolio остаются account-scoped под `/api/v1/exchange-accounts/{id}`.
 - ✅ `ExchangeAccount` хранит обязательную provider-side identity (для Bybit — `userID`); CAS/persistence запрещают её перепривязку к существующему `ExchangeAccountId`, а credentials другого account/subaccount отклоняются как controlled conflict.
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для versioned application events и SignalR invalidation: at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher включён по умолчанию после регистрации handlers для всех persisted event types.
@@ -192,7 +193,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G13 завершены. G-01 завершён в PR #181; следующий обязательный шаг — G-02.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G13 завершены. G-01 завершён в PR #181, G-02 — по Issue #184; следующий обязательный шаг — G-03.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -287,19 +288,20 @@
 - F не вводит Telegram UX для acknowledge/dismiss — это этап I;
 - F не создаёт cross-account portfolio analytics — это последующее расширение этапа M;
 - публичный market-analysis API сохраняется независимо и не становится контрактом React-клиента; `POST /api/market-analysis/snapshot` остаётся legacy endpoint;
-- `/api/v1/exchange-accounts` является каноническим lifecycle-контрактом read-only биржевых аккаунтов; временный pre-v1 `api/exchange-accounts` удалён в F-02, compatibility alias отсутствует;
+- lifecycle read-only биржевых аккаунтов опубликован в F-02; в G-02 management routes по pre-release policy v1 перенесены на `/api/v1/me/exchange-accounts` без compatibility alias, а account-scoped sync и portfolio остались под `/api/v1/exchange-accounts/{id}`; временный pre-v1 `api/exchange-accounts` удалён в F-02;
 - F реализует SignalR boundary самого resource server, но browser transport остаётся частью BFF-интеграции этапа G: access token не передаётся в browser JavaScript.
 
 Минимальный API:
 
 ```text
 # Биржевые аккаунты
-POST   /api/v1/exchange-accounts
-GET    /api/v1/exchange-accounts
-POST   /api/v1/exchange-accounts/{id}/verify
-PUT    /api/v1/exchange-accounts/{id}/credentials
+POST   /api/v1/me/exchange-accounts
+GET    /api/v1/me/exchange-accounts
+PATCH  /api/v1/me/exchange-accounts/{id}
+POST   /api/v1/me/exchange-accounts/{id}/verify
+PUT    /api/v1/me/exchange-accounts/{id}/credentials
+DELETE /api/v1/me/exchange-accounts/{id}
 POST   /api/v1/exchange-accounts/{id}/sync
-DELETE /api/v1/exchange-accounts/{id}
 GET    /api/v1/exchange-accounts/{id}/portfolio
 
 # Позиции
@@ -346,12 +348,12 @@ GET    /api/v1/auth/me
 
 ### Этап G. Создать основной React-клиент
 
-Статус этапа: 🚧 В работе; G-01 завершён, следующий обязательный шаг — G-02.
+Статус этапа: 🚧 В работе; G-01 и G-02 завершены, следующий обязательный шаг — G-03.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
 | G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ✅ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript. Вместе с фактически принятой архитектурой React/BFF создаются или синхронизируются локальные frontend agent instructions, фиксирующие только долговечные принятые решения и не вводящие несогласованные технологии или architecture patterns |
-| G-02 | Реализовать управление подключением Bybit только для чтения | ⬜ | Пользователь может добавить, проверить, безопасно заменить credentials и отключить аккаунт |
+| G-02 | Реализовать управление подключением Bybit только для чтения | ✅ | Пользователь может добавить, проверить, безопасно заменить credentials и отключить аккаунт |
 | G-03 | Реализовать сводку account-scoped портфеля и список позиций | ⬜ | Видны PnL, риск, свежесть, состояние синхронизации, позиции под наблюдением и критические позиции выбранного подключения; список использует фильтры v1 API и не смешивает закрытую историю с активными позициями по умолчанию |
 | G-04 | Реализовать страницу позиции | ⬜ | Видны параметры сделки, график, market context, ключевые уровни, evaluation, рекомендация, причины, временная валидность и условия пересмотра; UI способен отличить свежий market context от более старого evaluation |
 | G-05 | Реализовать timeline позиции | ⬜ | Видны увеличение, уменьшение и закрытие позиции, assessments/evaluations и изменения рекомендации через единый постраничный timeline; рыночные события сопровождения добавляются после появления H-04 и не блокируют завершение G |
@@ -478,14 +480,14 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Продолжить основной React-клиент | G-02 — G-08 |
+| 1 | Продолжить основной React-клиент | G-03 — G-08 |
 | 2 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
 | 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
 | 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-Этапы A–F, Tech-G01 — Tech-G13 и G-01 завершены. Следующий обязательный шаг — G-02; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F, Tech-G01 — Tech-G13, G-01 и G-02 завершены. Следующий обязательный шаг — G-03; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -566,6 +568,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-06 | 3.53 | Issue #184 завершает G-02: в Web появилась страница «Подключения» для управления read-only подключениями Bybit — список, включая отключённые, добавление, переименование, проверка, замена ключей, отключение с подтверждением и восстановление; после каждой mutation список перечитывается через REST. Подключение получило обязательное пользовательское `displayName` (trim, до 100 символов, сохраняется при disconnect/reconnect; migration `AddExchangeAccountDisplayName` с backfill существующих строк). По pre-release policy v1, зафиксированной в `docs/api-v1-conventions.md`, management API перенесён на `/api/v1/me/exchange-accounts` без compatibility alias, добавлен `PATCH` rename (`renameExchangeAccount`), список включает отключённые подключения; sync и portfolio остаются под `/api/v1/exchange-accounts/{id}`. BFF получил явные `/bff/me/exchange-accounts/**` endpoints без generic proxy, с CSRF, `no-store`, сохранением `ProblemDetails` и единственным повтором после `401` + refresh. Provider identity не публикуется, credentials не попадают в логи, ответы и browser storage. Следующий обязательный шаг — G-03. |
 | 2026-10-06 | 3.52 | Issue #182 выполнил prerequisite G-02: в области пользователя `UserId + ExchangeId + ProviderIdentity` соответствует не более чем одному `ExchangeAccountId`, что гарантирует нефильтрованный PostgreSQL unique index (migration `EnforceUniqueExchangeAccountProviderIdentity` без cleanup/backfill). `POST /api/v1/exchange-accounts` возвращает `201 Created` для нового provider-side аккаунта, `200 OK` при восстановлении `Disabled`-подключения с прежним `ExchangeAccountId`, историей и новыми проверенными credentials и `409 exchange_account_already_exists` для активного duplicate; failed verification не изменяет `Disabled`-подключение, конкурентные connect/reconnect завершаются controlled conflict без partial state. Master account и subaccounts Bybit остаются отдельными подключениями, provider identity не публикуется, rotation/verify semantics не изменены. Lifecycle и concurrency покрыты Domain/Application/API и PostgreSQL integration tests. G-02 не начат и остаётся следующим обязательным шагом. |
 | 2026-10-05 | 3.51 | По Human Decision G-01 отмечен завершённым перед merge PR #181: создан самостоятельный React-клиент и отдельный ASP.NET Core BFF за единым browser-facing origin, реализованы OAuth/OIDC login, server-side browser session, CSRF-защищённый logout, full SSO logout, безопасный refresh lifecycle, базовая адаптивная оболочка, независимые Docker/CI paths и синхронизированная документация. Review findings устранены и inline threads закрыты; после documentation commit требуется новый exact-head CI/Re-review перед merge. Следующий обязательный шаг — G-02. |
 | 2026-10-02 | 3.50 | По Human Decision Tech-G13 отмечен завершённым перед ручным merge PR #179: migrations и EF Core design-time tooling получили явный environment-only configuration contract с fail-fast/secret-safe validation без connectivity gate; `Authentication.TestSeeder` закреплён как one-shot исключение поверх стандартного `IConfiguration`; startup-only lifecycle и документация синхронизированы. External Review и live Human Merge Gate check не выявили blocker findings, exact-head CI текущего implementation head был зелёным; после documentation commit требуется новый exact-head Re-review перед merge. Следующий обязательный шаг — G-01. |

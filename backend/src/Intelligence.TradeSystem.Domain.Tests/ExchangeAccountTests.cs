@@ -13,6 +13,7 @@ public sealed class ExchangeAccountTests
             userId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 
@@ -27,17 +28,165 @@ public sealed class ExchangeAccountTests
         account.LastAppliedBalanceObservationAt.Should().BeNull();
         account.LastAppliedPositionsObservationAt.Should().BeNull();
         account.ProviderIdentity.Should().Be(ProviderIdentity);
+        account.DisplayName.Should().Be("Основной");
     }
+
+    [Fact]
+    public void Create_Trims_DisplayName_And_Preserves_Its_Case()
+    {
+        var account = ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, ProviderIdentity, "  GinArea Main  ");
+
+        account.DisplayName.Should().Be("GinArea Main");
+    }
+
+    [Fact]
+    public void Create_Accepts_DisplayName_At_The_Length_Limit_After_Trimming()
+    {
+        var displayName = new string('a', ExchangeAccount.DisplayNameMaxLength);
+
+        var account = ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, ProviderIdentity, $"  {displayName}  ");
+
+        account.DisplayName.Should().Be(displayName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n")]
+    public void Create_Rejects_Blank_DisplayName(string displayName)
+    {
+        var act = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, ProviderIdentity, displayName);
+
+        act.Should().Throw<ArgumentException>().Which.ParamName.Should().Be("displayName");
+    }
+
+    [Fact]
+    public void Create_Rejects_Null_And_Too_Long_DisplayName()
+    {
+        var actNull = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, ProviderIdentity, null!);
+        var actTooLong = () => ExchangeAccount.Create(
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, ProviderIdentity,
+            new string('a', ExchangeAccount.DisplayNameMaxLength + 1));
+
+        actNull.Should().Throw<ArgumentNullException>();
+        actTooLong.Should().Throw<ArgumentException>().Which.ParamName.Should().Be("displayName");
+    }
+
+    [Fact]
+    public void Rename_Changes_Only_The_Normalized_DisplayName()
+    {
+        var id = ExchangeAccountId.New();
+        var userId = UserId.New();
+        var syncedAt = new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
+        var balanceObservationAt = syncedAt.AddMinutes(1);
+        var positionsObservationAt = syncedAt.AddMinutes(2);
+        var account = ExchangeAccount.Create(
+            id,
+            userId,
+            ExchangeId.Bybit,
+            ProviderIdentity,
+            "Основной",
+            ExchangeAccountConnectionStatus.Unavailable,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
+            syncedAt,
+            "positions_failed",
+            balanceObservationAt,
+            positionsObservationAt);
+
+        var changed = account.Rename("  GinArea  ");
+
+        changed.Should().BeTrue();
+        account.DisplayName.Should().Be("GinArea");
+        account.Id.Should().Be(id);
+        account.UserId.Should().Be(userId);
+        account.ExchangeId.Should().Be(ExchangeId.Bybit);
+        account.ProviderIdentity.Should().Be(ProviderIdentity);
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Unavailable);
+        account.Capabilities.Should().Be(
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        account.LastSyncedAt.Should().Be(syncedAt);
+        account.LastError.Should().Be("positions_failed");
+        account.LastAppliedBalanceObservationAt.Should().Be(balanceObservationAt);
+        account.LastAppliedPositionsObservationAt.Should().Be(positionsObservationAt);
+    }
+
+    [Fact]
+    public void Rename_Reports_No_Change_When_The_Normalized_Value_Is_The_Same()
+    {
+        var account = CreateAccount();
+
+        account.Rename(" Основной ").Should().BeFalse();
+        account.DisplayName.Should().Be("Основной");
+    }
+
+    [Fact]
+    public void Rename_Is_Case_Sensitive()
+    {
+        var account = CreateAccount();
+
+        account.Rename("основной").Should().BeTrue();
+        account.DisplayName.Should().Be("основной");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Rename_Rejects_Invalid_DisplayName_Without_Changing_It(string displayName)
+    {
+        var account = CreateAccount();
+
+        var actBlank = () => account.Rename(displayName);
+        var actTooLong = () => account.Rename(new string('a', ExchangeAccount.DisplayNameMaxLength + 1));
+        var actNull = () => account.Rename(null!);
+
+        actBlank.Should().Throw<ArgumentException>();
+        actTooLong.Should().Throw<ArgumentException>();
+        actNull.Should().Throw<ArgumentNullException>();
+        account.DisplayName.Should().Be("Основной");
+    }
+
+    [Fact]
+    public void Rename_Is_Allowed_For_Disabled_Account_And_Keeps_It_Disabled()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Connected);
+        account.Disable();
+
+        account.Rename("Архив").Should().BeTrue();
+
+        account.DisplayName.Should().Be("Архив");
+        account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+    }
+
+    [Fact]
+    public void Disable_And_Reconnect_Preserve_DisplayName()
+    {
+        var account = CreateAccount(ExchangeAccountConnectionStatus.Connected);
+        account.Rename("GinArea");
+
+        account.Disable();
+        account.DisplayName.Should().Be("GinArea");
+
+        account.Reconnect();
+        account.DisplayName.Should().Be("GinArea");
+    }
+
+    [Fact]
+    public void DisplayName_Cannot_Be_Publicly_Assigned() =>
+        typeof(ExchangeAccount).GetProperty(nameof(ExchangeAccount.DisplayName))!.SetMethod!.IsPublic.Should().BeFalse();
 
     [Fact]
     public void Create_Rejects_Default_Identity()
     {
         var actUser = () => ExchangeAccount.Create(
-            ExchangeAccountId.New(), default, ExchangeId.Bybit, ProviderIdentity);
+            ExchangeAccountId.New(), default, ExchangeId.Bybit, ProviderIdentity, "Основной");
         var actAccount = () => ExchangeAccount.Create(
-            default, UserId.New(), ExchangeId.Bybit, ProviderIdentity);
+            default, UserId.New(), ExchangeId.Bybit, ProviderIdentity, "Основной");
         var actProvider = () => ExchangeAccount.Create(
-            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, default);
+            ExchangeAccountId.New(), UserId.New(), ExchangeId.Bybit, default, "Основной");
 
         actUser.Should().Throw<ArgumentException>();
         actAccount.Should().Throw<ArgumentException>();
@@ -48,7 +197,7 @@ public sealed class ExchangeAccountTests
     public void Create_Rejects_Unknown_Exchange()
     {
         var act = () => ExchangeAccount.Create(
-            ExchangeAccountId.New(), UserId.New(), (ExchangeId)999, ProviderIdentity);
+            ExchangeAccountId.New(), UserId.New(), (ExchangeId)999, ProviderIdentity, "Основной");
 
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -61,6 +210,7 @@ public sealed class ExchangeAccountTests
             UserId.New(),
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             capabilities: (ExchangeAccountCapabilities)4);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
@@ -74,6 +224,7 @@ public sealed class ExchangeAccountTests
             UserId.New(),
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             connectionStatus: (ExchangeAccountConnectionStatus)999);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
@@ -179,6 +330,7 @@ public sealed class ExchangeAccountTests
             userId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Unavailable,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             syncedAt,
@@ -298,6 +450,7 @@ public sealed class ExchangeAccountTests
             UserId.New(),
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             status,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 

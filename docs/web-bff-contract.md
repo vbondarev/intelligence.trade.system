@@ -73,7 +73,7 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 
 ## Browser-facing endpoints
 
-Все ответы `/bff/auth/**` содержат `Cache-Control: no-store`. Неизвестные пути `/bff/**` возвращают `404` BFF и не попадают в SPA fallback frontend.
+Все ответы `/bff/auth/**` и `/bff/me/**` содержат `Cache-Control: no-store`. Неизвестные пути `/bff/**` возвращают `404` BFF и не попадают в SPA fallback frontend.
 
 ### `GET /bff/auth/session`
 
@@ -118,6 +118,25 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 
 - без authenticated session или без действующего logout intent выполняет redirect на `/` и session не завершает, поэтому внешняя ссылка или prefetch не разлогинивают пользователя;
 - с действующим intent одновременно удаляет BFF session (cookie и server-side ticket) и выполняет standard OIDC sign-out, который перенаправляет browser на Identity end-session endpoint.
+
+### Подключения биржевых аккаунтов `/bff/me/exchange-accounts/**`
+
+Browser управляет read-only подключениями Bybit только через явные BFF endpoints. Каждый из них вызывает ровно одну операцию `Api` с Bearer access token текущей session:
+
+| Browser endpoint | Операция `Api` |
+|---|---|
+| `GET /bff/me/exchange-accounts` | `GET /api/v1/me/exchange-accounts` |
+| `POST /bff/me/exchange-accounts` | `POST /api/v1/me/exchange-accounts` |
+| `PATCH /bff/me/exchange-accounts/{id}` | `PATCH /api/v1/me/exchange-accounts/{id}` |
+| `POST /bff/me/exchange-accounts/{id}/verify` | `POST /api/v1/me/exchange-accounts/{id}/verify` |
+| `PUT /bff/me/exchange-accounts/{id}/credentials` | `PUT /api/v1/me/exchange-accounts/{id}/credentials` |
+| `DELETE /bff/me/exchange-accounts/{id}` | `DELETE /api/v1/me/exchange-accounts/{id}` |
+
+- `{id}` принимается только как GUID. Другие методы и paths под этим prefix, включая `sync`, `portfolio` и `GET` отдельного подключения, не реализованы и возвращают `404` без обращения к `Api`. Generic proxy и forwarding произвольного path отсутствуют; query string в `Api` не передаётся.
+- Unsafe endpoints проходят centralized CSRF-проверку (см. «CSRF»). JSON body запроса передаётся в `Api` без интерпретации; буфер с body, в том числе с API key/secret, очищается после отправки. Credentials не логируются, не сохраняются в BFF session и не возвращаются browser.
+- Статус и JSON body (`application/json`, `application/problem+json` и другие `+json`) ответа `Api`, кроме `401`, передаются browser без изменения, включая `ProblemDetails` с `code`, `traceId` и `errors`. Non-JSON body отбрасывается.
+- `401` от `Api` приводит к одному принудительному refresh и ровно одному повтору того же запроса с тем же body (см. «Access token и refresh»); повторный `401` завершает BFF session. Других автоматических повторов, в том числе unsafe-запросов после timeout, network error или `5xx`, BFF не выполняет.
+- Ответы, сформированные самим BFF, не содержат body: `401` — нет session или session завершена; `503` — token endpoint Identity или `Api` недоступны (network error, timeout 30 секунд), session при этом сохраняется.
 
 ## CSRF
 
