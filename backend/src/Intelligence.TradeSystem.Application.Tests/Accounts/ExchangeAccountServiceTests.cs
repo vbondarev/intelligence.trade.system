@@ -777,37 +777,86 @@ public sealed class ExchangeAccountServiceTests
     {
         var fixture = CreateFixture();
         var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Disabled);
+        var loadedVersion = new ConcurrencyVersion(3);
+        var calls = new List<string>();
         fixture.Repository
             .Setup(repository => repository.GetByIdAsync(
                 fixture.UserId,
                 account.Id,
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, loadedVersion));
         fixture.CredentialStore
             .Setup(store => store.GetMetadataAsync(
                 fixture.UserId,
                 account.Id,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ExchangeAccountCredentialMetadata(new ConcurrencyVersion(2)));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    ReferenceEquals(saved, account) &&
+                    saved.ConnectionStatus == ExchangeAccountConnectionStatus.Disabled),
+                loadedVersion,
+                It.IsAny<CancellationToken>()))
+            .Callback(() => calls.Add("account"))
+            .ReturnsAsync(new ConcurrencyVersion(4));
         fixture.CredentialStore
             .Setup(store => store.RevokeAsync(
                 fixture.UserId,
                 account.Id,
                 new ConcurrencyVersion(2),
                 It.IsAny<CancellationToken>()))
+            .Callback(() => calls.Add("credential"))
             .Returns(Task.CompletedTask);
 
         var result = await fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
 
         result.Should().BeSameAs(account);
-        fixture.Repository.Verify(
-            repository => repository.SaveAsync(
+        result!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+        result.ProviderIdentity.Should().Be(ProviderIdentity);
+        calls.Should().Equal("account", "credential");
+        fixture.Repository.VerifyAll();
+        fixture.CredentialStore.VerifyAll();
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_Does_Not_Revoke_Credentials_When_The_Disabled_Snapshot_Is_Stale()
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Disabled);
+        var loadedVersion = new ConcurrencyVersion(3);
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(
+                fixture.UserId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, loadedVersion));
+        fixture.CredentialStore
+            .Setup(store => store.GetMetadataAsync(
+                fixture.UserId,
+                account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountCredentialMetadata(new ConcurrencyVersion(2)));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                account,
+                loadedVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("stale version"));
+
+        var act = () => fixture.Service.DisconnectAsync(fixture.UserId, account.Id);
+
+        await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        fixture.CredentialStore.Verify(
+            store => store.RevokeAsync(
                 It.IsAny<UserId>(),
-                It.IsAny<ExchangeAccount>(),
-                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<ConcurrencyVersion>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
-        fixture.CredentialStore.VerifyAll();
         fixture.EventOutbox.Events.Should().BeEmpty();
     }
 

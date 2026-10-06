@@ -903,6 +903,62 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
         Assert.Equal(1, await CountAccountEventsAsync(readContext, disabled.Id));
     }
 
+    [Fact]
+    public async Task Stale_disabled_disconnect_cannot_revoke_credentials_of_a_concurrent_reconnect()
+    {
+        var userId = UserId.New();
+        var providerIdentity = UniqueProviderIdentity();
+        var keys = CreateKeys("v1");
+        var disabled = CreateAccount(userId, ExchangeAccountConnectionStatus.Disabled, providerIdentity);
+
+        await using (var setupContext = fixture.CreateContext())
+        {
+            await new ExchangeAccountRepository(setupContext).SaveAsync(userId, disabled, expectedVersion: null);
+        }
+
+        await using var disconnectContext = fixture.CreateContext();
+        var gatedStore = new MetadataGatedCredentialStore(CreateStore(disconnectContext, keys));
+        var disconnectService = new ExchangeAccountService(
+            new FixedAccessVerifier(providerIdentity),
+            new ExchangeAccountRepository(disconnectContext),
+            gatedStore,
+            new ExchangeAccountLifecycleTransaction(disconnectContext),
+            new ApplicationEventOutbox(disconnectContext));
+        var disconnect = Task.Run(() => CaptureAsync(() => disconnectService.DisconnectAsync(userId, disabled.Id)));
+        await gatedStore.MetadataRequested.WaitAsync(TimeSpan.FromSeconds(30));
+
+        ExchangeAccountConnectionResult reconnect;
+        await using (var reconnectContext = fixture.CreateContext())
+        {
+            reconnect = await CreateService(reconnectContext, keys, new FixedAccessVerifier(providerIdentity))
+                .ConnectAsync(userId, ExchangeId.Bybit, new ExchangeAccountCredentialSecret("new-key", "new-secret"));
+        }
+
+        Assert.Equal(ExchangeAccountConnectionOutcome.Reconnected, reconnect.Outcome);
+        gatedStore.ReleaseMetadata();
+        var disconnectOutcome = await disconnect.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.IsType<ConcurrencyConflictException>(disconnectOutcome.Error);
+        Assert.NotNull(gatedStore.ObservedMetadata);
+        Assert.Equal(0, gatedStore.RevokeCalls);
+
+        await using var readContext = fixture.CreateContext();
+        var persisted = (await new ExchangeAccountRepository(readContext).GetByIdAsync(userId, disabled.Id))!;
+        Assert.Equal(disabled.Id, persisted.Value.Id);
+        Assert.Equal(ExchangeAccountConnectionStatus.Connected, persisted.Value.ConnectionStatus);
+        Assert.Equal(providerIdentity, persisted.Value.ProviderIdentity);
+        Assert.Equal(ConcurrencyVersion.Initial.Next(), persisted.Version);
+        var credential = await CreateStore(readContext, keys).GetAsync(userId, disabled.Id);
+        Assert.NotNull(credential);
+        Assert.Equal(gatedStore.ObservedMetadata!.Version, credential.Version);
+        credential.Use((apiKey, apiSecret) =>
+        {
+            Assert.Equal("new-key", apiKey);
+            Assert.Equal("new-secret", apiSecret);
+        });
+        Assert.Equal(1, await CountAccountEventsAsync(readContext, disabled.Id));
+    }
+
     private async Task<(ExchangeAccountConnectionResult? Result, Exception? Error)> RunConnectAsync(
         UserId userId,
         ExchangeAccountProviderIdentity providerIdentity,
@@ -1062,6 +1118,77 @@ public sealed class ExchangeAccountLifecyclePostgreSqlTests(PostgreSqlFixture fi
             ConcurrencyVersion expectedVersion,
             CancellationToken cancellationToken = default) =>
             inner.DeleteAsync(userId, id, expectedVersion, cancellationToken);
+    }
+
+    /// <summary>
+    /// Останавливает disconnect после чтения аккаунта и до чтения credential metadata, чтобы
+    /// конкурентный reconnect успел зафиксироваться между этими чтениями.
+    /// </summary>
+    private sealed class MetadataGatedCredentialStore(IExchangeAccountCredentialStore inner)
+        : IExchangeAccountCredentialStore
+    {
+        private readonly TaskCompletionSource<bool> metadataRequested = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> metadataReleased = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int revokeCalls;
+
+        public Task MetadataRequested => metadataRequested.Task;
+
+        public ExchangeAccountCredentialMetadata? ObservedMetadata { get; private set; }
+
+        public int RevokeCalls => Volatile.Read(ref revokeCalls);
+
+        public void ReleaseMetadata() => metadataReleased.TrySetResult(true);
+
+        public Task<ExchangeAccountCredential?> GetAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetAsync(userId, exchangeAccountId, cancellationToken);
+
+        public async Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            metadataRequested.TrySetResult(true);
+            await metadataReleased.Task.WaitAsync(cancellationToken);
+            ObservedMetadata = await inner.GetMetadataAsync(userId, exchangeAccountId, cancellationToken);
+            return ObservedMetadata;
+        }
+
+        public Task<ConcurrencyVersion> CreateAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ExchangeAccountCredentialSecret secret,
+            CancellationToken cancellationToken = default) =>
+            inner.CreateAsync(userId, exchangeAccountId, secret, cancellationToken);
+
+        public Task<ConcurrencyVersion> RotateAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ConcurrencyVersion expectedVersion,
+            ExchangeAccountCredentialSecret replacement,
+            CancellationToken cancellationToken = default) =>
+            inner.RotateAsync(userId, exchangeAccountId, expectedVersion, replacement, cancellationToken);
+
+        public Task RevokeAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ConcurrencyVersion expectedVersion,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref revokeCalls);
+            return inner.RevokeAsync(userId, exchangeAccountId, expectedVersion, cancellationToken);
+        }
+
+        public Task<ConcurrencyVersion> ReprotectAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            ConcurrencyVersion expectedVersion,
+            CancellationToken cancellationToken = default) =>
+            inner.ReprotectAsync(userId, exchangeAccountId, expectedVersion, cancellationToken);
     }
 
     private sealed class GatedAccessVerifier(ExchangeAccountProviderIdentity providerIdentity)

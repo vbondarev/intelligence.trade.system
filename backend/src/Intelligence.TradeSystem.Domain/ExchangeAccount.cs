@@ -189,7 +189,7 @@ public sealed class ExchangeAccount
         if (ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
         {
             throw new InvalidOperationException(
-                "Only a disabled exchange account can be reconnected.");
+                "Повторно подключить можно только отключённый биржевой аккаунт.");
         }
 
         ConnectionStatus = ExchangeAccountConnectionStatus.Connected;

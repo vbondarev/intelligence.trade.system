@@ -90,7 +90,7 @@ public sealed class ExchangeAccountService(
             cancellationToken).ConfigureAwait(false);
 
         return result ?? throw new InvalidOperationException(
-            "The account lifecycle transaction completed without a connection result.");
+            "Lifecycle-транзакция аккаунта завершилась без результата подключения.");
     }
 
     public async Task<ExchangeAccountVerificationResult> VerifyAsync(
@@ -273,11 +273,22 @@ public sealed class ExchangeAccountService(
         else if (metadata is not null)
         {
             await lifecycleTransaction.ExecuteAsync(
-                transactionToken => credentialStore.RevokeAsync(
-                    userId,
-                    exchangeAccountId,
-                    metadata.Version,
-                    transactionToken),
+                async transactionToken =>
+                {
+                    // CAS по версии отключённого аккаунта до revoke сохраняет порядок
+                    // account → credential: если reconnect уже восстановил аккаунт,
+                    // устаревший cleanup получает conflict и не удаляет новые credentials.
+                    await repository
+                        .SaveAsync(userId, account, loaded.Version, transactionToken)
+                        .ConfigureAwait(false);
+                    await credentialStore
+                        .RevokeAsync(
+                            userId,
+                            exchangeAccountId,
+                            metadata.Version,
+                            transactionToken)
+                        .ConfigureAwait(false);
+                },
                 cancellationToken).ConfigureAwait(false);
         }
 

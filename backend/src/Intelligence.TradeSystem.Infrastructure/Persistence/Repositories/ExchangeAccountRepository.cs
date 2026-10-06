@@ -58,7 +58,7 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
         if (providerIdentity == default)
         {
             throw new ArgumentException(
-                "Exchange account provider identity must be initialized.",
+                "Provider identity биржевого аккаунта должна быть инициализирована.",
                 nameof(providerIdentity));
         }
 
@@ -125,7 +125,7 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
                     ExchangeAccountConfiguration.ProviderAccountUniqueIndexName))
             {
                 throw new ConcurrencyConflictException(
-                    "The provider-side exchange account is already connected for this user.",
+                    "Этот provider-side биржевой аккаунт уже подключён у пользователя.",
                     exception);
             }
 
