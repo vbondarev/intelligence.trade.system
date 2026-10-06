@@ -133,6 +133,7 @@ internal sealed class ExchangeAccountCredentialStore(
             expectedVersion,
             nextVersion,
             envelope,
+            expectedNonce: null,
             cancellationToken);
 
         if (affected != 1)
@@ -193,12 +194,16 @@ internal sealed class ExchangeAccountCredentialStore(
             ToEnvelope(current));
         var envelope = protector.Protect(userId, exchangeAccountId, currentSecret);
         var nextVersion = expectedVersion.Next();
+        // Reconnect заново создаёт строку той же учётной записи с начальной версией, поэтому
+        // одной версии недостаточно: nonce прочитанной строки гарантирует, что перешифрованная
+        // старая пара не перезапишет новую строку с совпавшей версией.
         var affected = await UpdateOwnedRowAsync(
             userId,
             exchangeAccountId,
             expectedVersion,
             nextVersion,
             envelope,
+            current.Nonce,
             cancellationToken);
 
         if (affected != 1)
@@ -245,8 +250,31 @@ internal sealed class ExchangeAccountCredentialStore(
         ConcurrencyVersion expectedVersion,
         ConcurrencyVersion nextVersion,
         ProtectedCredentialEnvelope envelope,
+        byte[]? expectedNonce,
         CancellationToken cancellationToken)
     {
+        if (expectedNonce is null)
+        {
+            return await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE exchange_account_credentials AS credential
+                SET
+                    ciphertext = {envelope.Ciphertext},
+                    nonce = {envelope.Nonce},
+                    authentication_tag = {envelope.AuthenticationTag},
+                    encryption_key_id = {envelope.EncryptionKeyId},
+                    format_version = {envelope.FormatVersion},
+                    version = {nextVersion.Value},
+                    updated_at = {DateTimeOffset.UtcNow}
+                FROM exchange_accounts AS account
+                WHERE credential.exchange_account_id = {exchangeAccountId.Value}
+                  AND credential.exchange_account_id = account.exchange_account_id
+                  AND account.user_id = {userId.Value}
+                  AND credential.version = {expectedVersion.Value};
+                """,
+                cancellationToken);
+        }
+
         return await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             UPDATE exchange_account_credentials AS credential
@@ -262,7 +290,8 @@ internal sealed class ExchangeAccountCredentialStore(
             WHERE credential.exchange_account_id = {exchangeAccountId.Value}
               AND credential.exchange_account_id = account.exchange_account_id
               AND account.user_id = {userId.Value}
-              AND credential.version = {expectedVersion.Value};
+              AND credential.version = {expectedVersion.Value}
+              AND credential.nonce = {expectedNonce};
             """,
             cancellationToken);
     }

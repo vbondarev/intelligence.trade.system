@@ -174,6 +174,28 @@ public sealed class ExchangeAccount
         LastError = null;
     }
 
+    /// <summary>
+    /// Восстанавливает отключённое подключение того же provider-side аккаунта после успешной
+    /// проверки новых credentials.
+    /// </summary>
+    /// <remarks>
+    /// Это единственный переход, который выводит аккаунт из <see cref="ExchangeAccountConnectionStatus.Disabled"/>.
+    /// Identity, capabilities, время последней синхронизации и observation watermarks сохраняются,
+    /// чтобы история оставалась связанной с прежним <see cref="Id"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Аккаунт не находится в состоянии Disabled.</exception>
+    public void Reconnect()
+    {
+        if (ConnectionStatus != ExchangeAccountConnectionStatus.Disabled)
+        {
+            throw new InvalidOperationException(
+                "Повторно подключить можно только отключённый биржевой аккаунт.");
+        }
+
+        ConnectionStatus = ExchangeAccountConnectionStatus.Connected;
+        LastError = null;
+    }
+
     private void EnsureNotDisabled()
     {
         if (ConnectionStatus == ExchangeAccountConnectionStatus.Disabled)

@@ -62,6 +62,12 @@ internal static class ApiErrorDescriptors
         "The exchange account is disabled.",
         "urn:intelligence-trade:error:exchange-account-disabled");
 
+    public static ApiErrorDescriptor ExchangeAccountAlreadyExists { get; } = new(
+        ApiErrorCodes.ExchangeAccountAlreadyExists,
+        StatusCodes.Status409Conflict,
+        "The exchange account already exists.",
+        "urn:intelligence-trade:error:exchange-account-already-exists");
+
     public static ApiErrorDescriptor ExchangeAccountIdentityMismatch { get; } = new(
         ApiErrorCodes.ExchangeAccountIdentityMismatch,
         StatusCodes.Status409Conflict,

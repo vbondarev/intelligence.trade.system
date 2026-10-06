@@ -4,6 +4,57 @@
 
 **Product Concept не является автоматически Domain entity, API contract, persistence model или утверждённым архитектурным решением.** Техническая форма каждого понятия определяется отдельно, когда capability проходит human decision и приближается к реализации.
 
+## Exchange Account
+
+Exchange Account — биржевое подключение пользователя: продуктовое представление конкретного provider-side аккаунта на бирже.
+
+### Stable identity
+
+`ExchangeAccount` представляет конкретный provider-side биржевой аккаунт пользователя и сохраняет свою identity на всём lifecycle.
+
+Концептуальный invariant:
+
+```text
+User + Exchange + provider-side account
+→ один стабильный ExchangeAccount
+```
+
+### Несколько аккаунтов одной биржи
+
+Один пользователь может иметь несколько независимых подключений одной биржи. Каждый provider-side account является отдельным `ExchangeAccount`.
+
+Например, для Bybit это может быть:
+
+```text
+User
+└── Bybit
+    ├── master account
+    ├── subaccount A
+    └── subaccount B
+```
+
+Пример Bybit не означает, что каждая биржа обязана иметь такую же иерархию аккаунтов.
+
+### Credentials не являются identity
+
+API credentials — сменяемый способ доступа к provider-side account, а не сам аккаунт.
+
+Новая пара credentials того же provider-side account:
+
+- не создаёт новый `ExchangeAccount`;
+- не начинает новую историю;
+- не меняет identity подключения.
+
+### Disconnect не удаляет identity
+
+Отключение прекращает активный доступ к provider-side account, но не уничтожает само продуктовое подключение. Система сохраняет его identity и связанную историю.
+
+### Reconnect
+
+Если пользователь позднее предоставляет валидные credentials того же provider-side account, восстанавливается существующий `ExchangeAccount` с прежней identity и историей. Новое логическое подключение не создаётся.
+
+Если новые credentials не проходят проверку, подключение остаётся отключённым.
+
 ## TradeSource
 
 TradeSource описывает происхождение торговой идеи или действия.

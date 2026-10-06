@@ -144,10 +144,42 @@ expired) не являются отдельными timeline events. Следу�
 
 Один `ExchangeAccountId` на всём lifecycle соответствует одному provider-side
 биржевому аккаунту. Provider identity является внутренним инвариантом и не
-публикуется в v1 response/OpenAPI. Ротация credentials другого внешнего
-account/subaccount возвращает `409 ProblemDetails` с
+публикуется в v1 response/OpenAPI/`ProblemDetails`. Ротация credentials
+другого внешнего account/subaccount возвращает `409 ProblemDetails` с
 `code = exchange_account_identity_mismatch` и не изменяет persisted
 credentials/account state.
+
+Обратный инвариант также действует: в области одного пользователя
+`UserId + ExchangeId + ProviderIdentity` соответствует не более чем одному
+`ExchangeAccountId`, включая отключённые подключения. Пользователь может
+подключить несколько provider-side аккаунтов одной биржи (например, Bybit
+master account и subaccounts) — каждый получает собственный
+`ExchangeAccountId`. Credentials не являются identity подключения: новая пара
+API key/secret того же provider-side аккаунта не создаёт новое подключение.
+Одинаковая provider identity у разных пользователей не конфликтует и не
+раскрывает существование чужого подключения.
+
+`POST /api/v1/exchange-accounts` после обязательной read-only verification
+разрешает подключение так:
+
+- ранее неизвестный provider-side аккаунт — `201 Created` с новым
+  `ExchangeAccountResponse`;
+- существующее отключённое подключение того же provider-side аккаунта
+  восстанавливается с прежним `ExchangeAccountId`, сохранённой историей и
+  новыми проверенными credentials — `200 OK` с существующим
+  `ExchangeAccountResponse`;
+- существующее неотключённое подключение того же provider-side аккаунта не
+  изменяется — `409 ProblemDetails` с
+  `code = exchange_account_already_exists`; для замены credentials активного
+  подключения используется `PUT /api/v1/exchange-accounts/{id}/credentials`.
+
+Неуспешная verification (`exchange_credentials_invalid`,
+`exchange_permissions_rejected`, `exchange_unavailable` или неподтверждённая
+provider identity) не восстанавливает отключённое подключение и не сохраняет
+новые credentials. Проигравшая конкурентная попытка подключения или
+восстановления того же provider-side аккаунта завершается
+`409 concurrency_conflict` без частично созданного или восстановленного
+состояния.
 
 Для user-owned exchange account resources отсутствующий и чужой идентификатор
 возвращают одинаковый `404 ProblemDetails`: `resource_not_found`,

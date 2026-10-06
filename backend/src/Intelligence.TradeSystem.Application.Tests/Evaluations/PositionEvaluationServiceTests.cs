@@ -880,6 +880,13 @@ public sealed class PositionEvaluationServiceTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<Versioned<ExchangeAccount>?> GetByProviderIdentityAsync(
+            UserId userId,
+            ExchangeId exchangeId,
+            ExchangeAccountProviderIdentity providerIdentity,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ConcurrencyVersion> SaveAsync(
             UserId userId,
             ExchangeAccount account,

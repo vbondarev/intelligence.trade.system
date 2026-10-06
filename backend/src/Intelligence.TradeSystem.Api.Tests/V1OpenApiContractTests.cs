@@ -37,7 +37,7 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         {
             ["getCurrentUser"] = ["200", "401", "403"],
             ["listExchangeAccounts"] = ["200", "401", "403"],
-            ["createExchangeAccount"] = ["201", "400", "401", "403", "503"],
+            ["createExchangeAccount"] = ["200", "201", "400", "401", "403", "409", "503"],
             ["verifyExchangeAccount"] = ["200", "400", "401", "403", "404", "409", "503"],
             ["rotateExchangeAccountCredentials"] = ["200", "400", "401", "403", "404", "409", "503"],
             ["syncExchangeAccount"] = ["200", "400", "401", "403", "404", "409", "503"],
@@ -167,6 +167,21 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
                     .Should().NotBeNullOrWhiteSpace();
             }
         }
+    }
+
+    [Fact]
+    public async Task V1_create_exchange_account_documents_create_reconnect_and_duplicate_responses()
+    {
+        using var document = await GetDocumentAsync();
+        var responses = document.RootElement.GetProperty("paths")
+            .GetProperty("/api/v1/exchange-accounts")
+            .GetProperty("post")
+            .GetProperty("responses");
+
+        foreach (var status in new[] { "200", "201" })
+            GetResponseSchemaNames(responses, status).Should().NotBeEmpty().And.OnlyContain(name => name == "ExchangeAccountResponse");
+
+        GetResponseSchemaNames(responses, "409").Should().NotBeEmpty().And.OnlyContain(name => name == "ProblemDetails");
     }
 
     [Fact]
@@ -328,6 +343,13 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         schema.TryGetProperty("$ref", out var reference)
             ? reference.GetString()?.Split('/').Last()
             : null;
+
+    private static string?[] GetResponseSchemaNames(JsonElement responses, string status) =>
+        responses.GetProperty(status)
+            .GetProperty("content")
+            .EnumerateObject()
+            .Select(mediaType => GetReferenceName(mediaType.Value.GetProperty("schema")))
+            .ToArray();
 
     private static void AssertSafeSchema(
         string schemaName,

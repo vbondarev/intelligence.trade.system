@@ -108,6 +108,80 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     }
 
     [Fact]
+    public async Task Connect_returns_200_with_the_existing_account_when_a_disabled_account_is_reconnected()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Reconnected(account));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/exchange-accounts",
+            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.Location.Should().BeNull();
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        body!.Id.Should().Be(accountId.Value);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("api-key", "api-secret", "provider-account", "providerIdentity", "providerAccountId");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Connect_returns_409_exchange_account_already_exists_without_leaking_identity_or_credentials()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.AlreadyExists));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/exchange-accounts",
+            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Type.Should().Be("urn:intelligence-trade:error:exchange-account-already-exists");
+        problem.Title.Should().Be("The exchange account already exists.");
+        problem.Status.Should().Be((int)HttpStatusCode.Conflict);
+        problem.Extensions["code"]!.ToString().Should().Be("exchange_account_already_exists");
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny(
+            "api-key", "api-secret", "apiKey", "apiSecret", "provider-account", "providerIdentity",
+            "providerAccountId", "userID", "Bybit");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Connect_unique_identity_race_returns_the_generic_concurrency_conflict()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("inserted concurrently"));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/exchange-accounts",
+            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("concurrency_conflict");
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("inserted concurrently");
+    }
+
+    [Fact]
     public async Task Connect_validates_required_fields_without_calling_the_application_layer()
     {
         var userId = UserId.New();

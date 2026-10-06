@@ -27,9 +27,11 @@ public sealed class ExchangeAccountsController(
             cancellationToken).ConfigureAwait(false)));
 
     [HttpPost]
+    [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ExchangeAccountResponse>> Connect(
         [FromBody] CreateExchangeAccountRequest? request, CancellationToken cancellationToken)
@@ -46,6 +48,9 @@ public sealed class ExchangeAccountsController(
                 StatusCode(
                     StatusCodes.Status201Created,
                     ExchangeAccountMapper.ToResponse(result.Account)),
+            ExchangeAccountConnectionOutcome.Reconnected when result.Account is not null =>
+                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+            ExchangeAccountConnectionOutcome.AlreadyExists => Error(ApiErrorDescriptors.ExchangeAccountAlreadyExists),
             ExchangeAccountConnectionOutcome.InvalidCredentials => Error(ApiErrorDescriptors.ExchangeCredentialsInvalid),
             ExchangeAccountConnectionOutcome.PermissionsRejected => Error(ApiErrorDescriptors.ExchangePermissionsRejected),
             ExchangeAccountConnectionOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),

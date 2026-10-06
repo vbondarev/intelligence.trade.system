@@ -2,6 +2,7 @@
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Configurations;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,6 +40,36 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .AsNoTracking()
             .SingleOrDefaultAsync(
                 account => account.Id == id.Value && account.UserId == userId.Value,
+                cancellationToken);
+
+        return entity is null
+            ? null
+            : new Versioned<ExchangeAccount>(
+                ExchangeAccountMapper.ToDomain(entity), new ConcurrencyVersion(entity.Version));
+    }
+
+    public async Task<Versioned<ExchangeAccount>?> GetByProviderIdentityAsync(
+        UserId userId,
+        ExchangeId exchangeId,
+        ExchangeAccountProviderIdentity providerIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        if (providerIdentity == default)
+        {
+            throw new ArgumentException(
+                "Provider identity биржевого аккаунта должна быть инициализирована.",
+                nameof(providerIdentity));
+        }
+
+        var providerAccountId = providerIdentity.Value;
+        var entity = await dbContext.ExchangeAccounts
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                account =>
+                    account.UserId == userId.Value &&
+                    account.ExchangeId == exchangeId &&
+                    account.ProviderAccountId == providerAccountId,
                 cancellationToken);
 
         return entity is null
@@ -87,6 +118,15 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             {
                 throw new ConcurrencyConflictException(
                     $"ExchangeAccount {account.Id} was inserted concurrently.", exception);
+            }
+            catch (DbUpdateException exception)
+                when (PostgreSqlConcurrencyConflictDetector.IsUniqueConstraint(
+                    exception,
+                    ExchangeAccountConfiguration.ProviderAccountUniqueIndexName))
+            {
+                throw new ConcurrencyConflictException(
+                    "Этот provider-side биржевой аккаунт уже подключён у пользователя.",
+                    exception);
             }
 
             return ConcurrencyVersion.Initial;
