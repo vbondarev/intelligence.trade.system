@@ -56,6 +56,8 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
 
     public RecordingHttpHandler Api { get; } = new();
 
+    public RequestBodyProbe RequestBody { get; } = new();
+
     public string WebRoot { get; }
 
     public static OpenIdConnectConfiguration OidcConfiguration { get; } = new()
@@ -100,8 +102,12 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
             services.AddHttpClient<CurrentUserApiClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => Api)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+            services.AddHttpClient<ExchangeAccountsApiClient>()
+                .ConfigurePrimaryHttpMessageHandler(() => Api)
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
             services.AddSingleton<IStartupFilter, TestSignInStartupFilter>();
+            services.AddSingleton<IStartupFilter>(new RequestBodyProbeStartupFilter(RequestBody));
         });
     }
 
@@ -160,6 +166,27 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
                 await context.SignInAsync(BffAuthenticationExtensions.SessionScheme, principal, properties);
                 context.Response.StatusCode = (int)HttpStatusCode.NoContent;
             }));
+
+            next(app);
+        };
+    }
+
+    /// <summary>
+    /// Подменяет request body business endpoints наблюдаемым stream до всего pipeline BFF.
+    /// </summary>
+    private sealed class RequestBodyProbeStartupFilter(RequestBodyProbe probe) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                if (context.Request.Path.StartsWithSegments("/bff/me"))
+                {
+                    context.Request.Body = probe.Wrap(context.Request.Body);
+                }
+
+                await nextMiddleware(context);
+            });
 
             next(app);
         };

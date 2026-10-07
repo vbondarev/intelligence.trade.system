@@ -1365,6 +1365,7 @@ public sealed class RecommendationStabilityPostgreSqlTests(PostgreSqlFixture fix
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions,
             T0,

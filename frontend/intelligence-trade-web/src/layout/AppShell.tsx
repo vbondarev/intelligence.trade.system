@@ -19,6 +19,9 @@ export function AppShell() {
         <NavLink to="/app" end className="side-nav-link">
           Обзор
         </NavLink>
+        <NavLink to="/app/settings/connections" className="side-nav-link">
+          Подключения
+        </NavLink>
       </nav>
       <main className="app-main">
         {error && (

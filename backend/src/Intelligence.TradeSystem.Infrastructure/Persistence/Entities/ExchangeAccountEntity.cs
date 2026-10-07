@@ -8,6 +8,7 @@ public sealed class ExchangeAccountEntity
     public Guid UserId { get; set; }
     public ExchangeId ExchangeId { get; set; }
     public string ProviderAccountId { get; set; } = null!;
+    public string DisplayName { get; set; } = null!;
     public ExchangeAccountConnectionStatus ConnectionStatus { get; set; }
     public ExchangeAccountCapabilities Capabilities { get; set; }
     public DateTimeOffset? LastSyncedAt { get; set; }

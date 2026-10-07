@@ -564,6 +564,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             UserId.New(),
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             Capabilities);
 
@@ -767,6 +768,11 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             UserId userId,
             CancellationToken cancellationToken = default) =>
             inner.ListActiveAsync(userId, cancellationToken);
+
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            inner.ListAsync(userId, cancellationToken);
 
         public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
             UserId userId,

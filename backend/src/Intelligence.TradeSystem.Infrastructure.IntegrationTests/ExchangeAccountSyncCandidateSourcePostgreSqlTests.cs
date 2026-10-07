@@ -19,6 +19,7 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
                 UserId.New(),
                 ExchangeId.Bybit,
                 ExchangeAccountProviderIdentity.From($"provider-account-{index}"),
+                "Основной",
                 index == 0
                     ? ExchangeAccountConnectionStatus.Unavailable
                     : ExchangeAccountConnectionStatus.Connected,
@@ -30,12 +31,14 @@ public sealed class ExchangeAccountSyncCandidateSourcePostgreSqlTests(PostgreSql
             UserId.New(),
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-disabled"),
+            "Основной",
             ExchangeAccountConnectionStatus.Disabled);
         var unknown = ExchangeAccount.Create(
             ExchangeAccountId.New(),
             UserId.New(),
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-unknown"),
+            "Основной",
             ExchangeAccountConnectionStatus.Unknown);
 
         await using (var setupContext = fixture.CreateContext())

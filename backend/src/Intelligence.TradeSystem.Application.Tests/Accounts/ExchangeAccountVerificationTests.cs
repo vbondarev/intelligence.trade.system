@@ -59,6 +59,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Disabled);
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         var store = new Mock<IExchangeAccountCredentialStore>(MockBehavior.Strict);
@@ -79,6 +80,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -155,6 +157,7 @@ public sealed class ExchangeAccountVerificationTests
         // поэтому guard наблюдаемого состояния должен считать повторную ошибку no-op: без save и event.
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
         account.MarkUnavailable("Exchange credential verification failed.");
         var version = ConcurrencyVersion.Initial;
@@ -187,6 +190,7 @@ public sealed class ExchangeAccountVerificationTests
             userId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected,
             capabilities: RequiredCapabilities);
         var accountVersion = ConcurrencyVersion.Initial;
@@ -231,6 +235,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -253,6 +258,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -271,6 +277,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -301,6 +308,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Unavailable,
             capabilities: ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
         var repository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
@@ -347,6 +355,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -441,6 +450,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Disabled);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -465,6 +475,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.Setup(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -496,6 +507,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -527,6 +539,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();
@@ -559,6 +572,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var initialVersion = ConcurrencyVersion.Initial;
         var changedVersion = initialVersion.Next();
@@ -591,6 +605,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var initialCredentialVersion = ConcurrencyVersion.Initial;
@@ -623,9 +638,11 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var disabledAccount = ExchangeAccount.Create(account.Id, userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Disabled, capabilities: RequiredCapabilities);
         var (repository, store, verifier) = CreateStrictMocks();
         repository.SetupSequence(value => value.GetByIdAsync(userId, account.Id, It.IsAny<CancellationToken>()))
@@ -656,6 +673,7 @@ public sealed class ExchangeAccountVerificationTests
     {
         var userId = UserId.New();
         var account = ExchangeAccount.Create(ExchangeAccountId.New(), userId, ExchangeId.Bybit, ProviderIdentity,
+            "Основной",
             connectionStatus: ExchangeAccountConnectionStatus.Connected, capabilities: RequiredCapabilities);
         var version = ConcurrencyVersion.Initial;
         var (repository, store, verifier) = CreateStrictMocks();

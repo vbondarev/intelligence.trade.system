@@ -18,7 +18,7 @@ public sealed class RealtimeRestContractConsistencyTests : IClassFixture<ApiWebA
     {
         var recoveryResources = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [RealtimeEventNames.ExchangeAccountUpdated] = "GET /api/v1/exchange-accounts",
+            [RealtimeEventNames.ExchangeAccountUpdated] = "GET /api/v1/me/exchange-accounts",
             [RealtimeEventNames.PortfolioUpdated] = "GET /api/v1/exchange-accounts/{id}/portfolio",
             [RealtimeEventNames.PositionUpdated] = "GET /api/v1/positions/{id}",
             [RealtimeEventNames.EvaluationUpdated] = "GET /api/v1/positions/{id}/evaluation",

@@ -100,6 +100,12 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("connection_status");
 
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("display_name");
+
                     b.Property<string>("ExchangeId")
                         .IsRequired()
                         .HasMaxLength(32)

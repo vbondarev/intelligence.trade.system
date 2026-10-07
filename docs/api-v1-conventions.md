@@ -1,8 +1,14 @@
 # Соглашения контрактов пользовательского API v1
 
 Канонической пользовательской REST-границей является `/api/v1/...`.
-Изменения внутри v1 допускаются только аддитивные; несовместимое изменение
-контракта требует новой версии маршрута.
+
+До первого стабильного публичного релиза пользовательский API v1 находится в
+стадии стабилизации контракта. Несовместимые изменения v1 допускаются только
+как явно согласованное архитектурное или контрактное решение в GitHub Issue и
+Approved Implementation Plan и не требуют сохранения compatibility aliases.
+После объявления v1 стабильным развитие становится преимущественно
+аддитивным; несовместимые изменения требуют новой версии API либо отдельно
+согласованной стратегии миграции.
 
 ## Стабильные operationId
 
@@ -12,12 +18,13 @@
 | Method | Route | operationId |
 |---|---|---|
 | GET | `/api/v1/auth/me` | `getCurrentUser` |
-| GET | `/api/v1/exchange-accounts` | `listExchangeAccounts` |
-| POST | `/api/v1/exchange-accounts` | `createExchangeAccount` |
-| POST | `/api/v1/exchange-accounts/{id}/verify` | `verifyExchangeAccount` |
-| PUT | `/api/v1/exchange-accounts/{id}/credentials` | `rotateExchangeAccountCredentials` |
+| GET | `/api/v1/me/exchange-accounts` | `listExchangeAccounts` |
+| POST | `/api/v1/me/exchange-accounts` | `createExchangeAccount` |
+| PATCH | `/api/v1/me/exchange-accounts/{id}` | `renameExchangeAccount` |
+| POST | `/api/v1/me/exchange-accounts/{id}/verify` | `verifyExchangeAccount` |
+| PUT | `/api/v1/me/exchange-accounts/{id}/credentials` | `rotateExchangeAccountCredentials` |
+| DELETE | `/api/v1/me/exchange-accounts/{id}` | `disconnectExchangeAccount` |
 | POST | `/api/v1/exchange-accounts/{id}/sync` | `syncExchangeAccount` |
-| DELETE | `/api/v1/exchange-accounts/{id}` | `disconnectExchangeAccount` |
 | GET | `/api/v1/exchange-accounts/{id}/portfolio` | `getExchangeAccountPortfolio` |
 | GET | `/api/v1/positions` | `listPositions` |
 | GET | `/api/v1/positions/{id}` | `getPosition` |
@@ -138,9 +145,31 @@ expired) не являются отдельными timeline events. Следу�
 
 ## Границы миграции
 
-`/api/v1/exchange-accounts` является канонической v1-границей lifecycle
-биржевого аккаунта. Незаверсионированные маршруты `/api/exchange-accounts/**`
-удалены и не имеют compatibility alias.
+`/api/v1/me/exchange-accounts` является канонической v1-границей управления
+подключениями биржевых аккаунтов текущего пользователя: list, create/reconnect,
+rename, verify, rotate credentials и disconnect. Прежние management routes
+`/api/v1/exchange-accounts`, `/api/v1/exchange-accounts/{id}`,
+`/api/v1/exchange-accounts/{id}/verify` и
+`/api/v1/exchange-accounts/{id}/credentials` удалены по pre-release policy и
+не имеют compatibility alias; незаверсионированные `/api/exchange-accounts/**`
+также удалены. Account-scoped `POST /api/v1/exchange-accounts/{id}/sync` и
+`GET /api/v1/exchange-accounts/{id}/portfolio` сохраняются без изменений и под
+`/api/v1/me/exchange-accounts` не публикуются.
+
+`ExchangeAccountResponse` содержит обязательный пользовательский
+`displayName`. Название задаётся при create, нормализуется trim, не может быть
+пустым и ограничено 100 символами после trim; уникальность и регистр не
+проверяются. Название не является provider identity и не заполняется
+автоматически из данных биржи. `PATCH /api/v1/me/exchange-accounts/{id}` с
+телом `{ "displayName": "..." }` изменяет только название, разрешён в любом
+статусе, включая отключённое подключение, и возвращает `200` с обновлённым
+`ExchangeAccountResponse`; повторное то же название после нормализации не
+изменяет состояние. Невалидное название возвращает `400 validation_failed`.
+
+`GET /api/v1/me/exchange-accounts` возвращает все подключения текущего
+пользователя, включая отключённые (`connectionStatus = disabled`), в
+стабильном порядке по идентификатору. Background и manual sync отключённые
+подключения по-прежнему не обрабатывают.
 
 Один `ExchangeAccountId` на всём lifecycle соответствует одному provider-side
 биржевому аккаунту. Provider identity является внутренним инвариантом и не
@@ -159,19 +188,20 @@ API key/secret того же provider-side аккаунта не создаёт 
 Одинаковая provider identity у разных пользователей не конфликтует и не
 раскрывает существование чужого подключения.
 
-`POST /api/v1/exchange-accounts` после обязательной read-only verification
+`POST /api/v1/me/exchange-accounts` после обязательной read-only verification
 разрешает подключение так:
 
 - ранее неизвестный provider-side аккаунт — `201 Created` с новым
   `ExchangeAccountResponse`;
 - существующее отключённое подключение того же provider-side аккаунта
-  восстанавливается с прежним `ExchangeAccountId`, сохранённой историей и
-  новыми проверенными credentials — `200 OK` с существующим
-  `ExchangeAccountResponse`;
+  восстанавливается с прежним `ExchangeAccountId`, сохранённой историей,
+  прежним `displayName` и новыми проверенными credentials — `200 OK` с
+  существующим `ExchangeAccountResponse`; `displayName` из запроса в этом
+  случае не применяется;
 - существующее неотключённое подключение того же provider-side аккаунта не
   изменяется — `409 ProblemDetails` с
   `code = exchange_account_already_exists`; для замены credentials активного
-  подключения используется `PUT /api/v1/exchange-accounts/{id}/credentials`.
+  подключения используется `PUT /api/v1/me/exchange-accounts/{id}/credentials`.
 
 Неуспешная verification (`exchange_credentials_invalid`,
 `exchange_permissions_rejected`, `exchange_unavailable` или неподтверждённая

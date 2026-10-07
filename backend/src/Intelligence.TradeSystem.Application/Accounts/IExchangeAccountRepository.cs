@@ -10,6 +10,18 @@ public interface IExchangeAccountRepository
         UserId userId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Возвращает все подключения пользователя, включая отключённые
+    /// (<see cref="ExchangeAccountConnectionStatus.Disabled"/>), в детерминированном порядке.
+    /// </summary>
+    /// <remarks>
+    /// Используется пользовательским management-сценарием. Active-only workflows продолжают
+    /// использовать <see cref="ListActiveAsync"/>.
+    /// </remarks>
+    Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
+        UserId userId,
+        CancellationToken cancellationToken = default);
+
     Task<Versioned<ExchangeAccount>?> GetByIdAsync(
         UserId userId,
         ExchangeAccountId id,

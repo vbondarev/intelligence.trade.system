@@ -30,6 +30,24 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .ToArray();
     }
 
+    public async Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
+        UserId userId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        var entities = await dbContext.ExchangeAccounts
+            .AsNoTracking()
+            .Where(account => account.UserId == userId.Value)
+            .OrderBy(account => account.Id)
+            .ToArrayAsync(cancellationToken);
+
+        return entities
+            .Select(entity => new Versioned<ExchangeAccount>(
+                ExchangeAccountMapper.ToDomain(entity),
+                new ConcurrencyVersion(entity.Version)))
+            .ToArray();
+    }
+
     public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
         UserId userId,
         ExchangeAccountId id,
@@ -142,6 +160,7 @@ public sealed class ExchangeAccountRepository(TradeSystemDbContext dbContext) : 
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(entity => entity.ExchangeId, mapped.ExchangeId)
+                    .SetProperty(entity => entity.DisplayName, mapped.DisplayName)
                     .SetProperty(entity => entity.ConnectionStatus, mapped.ConnectionStatus)
                     .SetProperty(entity => entity.Capabilities, mapped.Capabilities)
                     .SetProperty(entity => entity.LastSyncedAt, mapped.LastSyncedAt)

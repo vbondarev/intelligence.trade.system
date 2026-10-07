@@ -183,14 +183,15 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
         var paths = root.GetProperty("paths");
         var f02Operations = new[]
         {
-            paths.GetProperty("/api/v1/exchange-accounts").GetProperty("get"),
-            paths.GetProperty("/api/v1/exchange-accounts").GetProperty("post"),
-            paths.GetProperty("/api/v1/exchange-accounts/{id}/verify").GetProperty("post"),
-            paths.GetProperty("/api/v1/exchange-accounts/{id}/credentials").GetProperty("put"),
+            paths.GetProperty("/api/v1/me/exchange-accounts").GetProperty("get"),
+            paths.GetProperty("/api/v1/me/exchange-accounts").GetProperty("post"),
+            paths.GetProperty("/api/v1/me/exchange-accounts/{id}/verify").GetProperty("post"),
+            paths.GetProperty("/api/v1/me/exchange-accounts/{id}/credentials").GetProperty("put"),
             paths.GetProperty("/api/v1/exchange-accounts/{id}/sync").GetProperty("post"),
-            paths.GetProperty("/api/v1/exchange-accounts/{id}").GetProperty("delete"),
+            paths.GetProperty("/api/v1/me/exchange-accounts/{id}").GetProperty("delete"),
+            paths.GetProperty("/api/v1/me/exchange-accounts/{id}").GetProperty("patch"),
         };
-        f02Operations.Should().HaveCount(6);
+        f02Operations.Should().HaveCount(7);
         foreach (var operation in f02Operations)
             operation.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
         var connect = f02Operations[1];
@@ -212,12 +213,15 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
             .Should().Contain(["200", "400", "404", "409", "503"]);
         f02Operations[5].GetProperty("responses").EnumerateObject().Select(x => x.Name)
             .Should().Contain(["204", "400", "404", "409"]);
+        f02Operations[6].GetProperty("responses").EnumerateObject().Select(x => x.Name)
+            .Should().Contain(["200", "400", "404", "409"]);
 
         var schemas = root.GetProperty("components").GetProperty("schemas");
         var accountSchema = schemas.GetProperty("ExchangeAccountResponse");
         var accountProperties = accountSchema.GetProperty("properties");
         accountProperties.EnumerateObject().Select(x => x.Name)
-            .Should().Equal("id", "exchange", "connectionStatus", "capabilities", "lastSyncedAt");
+            .Should().Equal("id", "displayName", "exchange", "connectionStatus", "capabilities", "lastSyncedAt");
+        accountProperties.GetProperty("displayName").GetProperty("type").GetString().Should().Be("string");
         var lastSyncedAtSchema = accountProperties.GetProperty("lastSyncedAt");
         lastSyncedAtSchema.TryGetProperty("nullable", out var nullable).Should().BeTrue();
         nullable.GetBoolean().Should().BeTrue();
@@ -256,14 +260,11 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
 
         var createRequestSchema = schemas.GetProperty("CreateExchangeAccountRequest");
         createRequestSchema.GetProperty("properties").EnumerateObject().Select(x => x.Name)
-            .Should().Equal("exchange", "apiKey", "apiSecret");
+            .Should().Equal("displayName", "exchange", "apiKey", "apiSecret");
         createRequestSchema.GetProperty("required").EnumerateArray().Select(x => x.GetString())
-            .Should().BeEquivalentTo("exchange", "apiKey", "apiSecret");
+            .Should().BeEquivalentTo("displayName", "exchange", "apiKey", "apiSecret");
         createRequestSchema.GetProperty("properties").GetProperty("exchange")
             .GetProperty("$ref").GetString().Should().Be("#/components/schemas/ExchangeProvider");
-        createRequestSchema.GetProperty("properties").EnumerateObject()
-            .Should().OnlyContain(property =>
-                property.Name == "exchange" || property.Name == "apiKey" || property.Name == "apiSecret");
 
         var rotateRequestSchema = schemas.GetProperty("RotateExchangeAccountCredentialsRequest");
         rotateRequestSchema.GetProperty("properties").EnumerateObject().Select(x => x.Name)

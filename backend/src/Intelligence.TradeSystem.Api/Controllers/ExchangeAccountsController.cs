@@ -11,18 +11,21 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
+/// <summary>
+/// Канонический management API подключений текущего пользователя. Владелец ресурса
+/// определяется только аутентифицированным principal.
+/// </summary>
 [ApiController]
-[Route("api/v1/exchange-accounts")]
+[Route("api/v1/me/exchange-accounts")]
 [Authorize(Policy = "TradeUser")]
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
-    IExchangeAccountSyncService syncService,
     ICurrentUserContext currentUserContext) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ExchangeAccountListResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ExchangeAccountListResponse>> List(CancellationToken cancellationToken) =>
-        Ok(ExchangeAccountMapper.ToListResponse(await accountService.ListActiveAsync(
+        Ok(ExchangeAccountMapper.ToListResponse(await accountService.ListAsync(
             currentUserContext.UserId,
             cancellationToken).ConfigureAwait(false)));
 
@@ -38,9 +41,12 @@ public sealed class ExchangeAccountsController(
     {
         if (request is null || string.IsNullOrWhiteSpace(request.ApiKey) || string.IsNullOrWhiteSpace(request.ApiSecret))
             return BadRequestProblem("Both apiKey and apiSecret are required.");
+        if (ValidateDisplayName(request.DisplayName) is { } displayNameError)
+            return BadRequestProblem(displayNameError);
         if (request.Exchange != ExchangeProvider.Bybit)
             return BadRequestProblem("The exchange is not supported.");
         var result = await accountService.ConnectAsync(currentUserContext.UserId, ExchangeId.Bybit,
+            request.DisplayName.Trim(),
             new ExchangeAccountCredentialSecret(request.ApiKey.Trim(), request.ApiSecret.Trim()), cancellationToken).ConfigureAwait(false);
         return result.Outcome switch
         {
@@ -56,6 +62,25 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountConnectionOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
         };
+    }
+
+    [HttpPatch("{id}")]
+    [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ExchangeAccountResponse>> Rename([FromRoute] Guid id,
+        [FromBody] RenameExchangeAccountRequest? request, CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
+        if (request is null)
+            return BadRequestProblem("displayName is required.");
+        if (ValidateDisplayName(request.DisplayName) is { } displayNameError)
+            return BadRequestProblem(displayNameError);
+        var account = await accountService.RenameAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id),
+            request.DisplayName.Trim(), cancellationToken).ConfigureAwait(false);
+        return account is null ? NotFoundProblem() : Ok(ExchangeAccountMapper.ToResponse(account));
     }
 
     [HttpPost("{id}/verify")]
@@ -99,28 +124,6 @@ public sealed class ExchangeAccountsController(
         };
     }
 
-    [HttpPost("{id}/sync")]
-    [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<ExchangeAccountResponse>> Synchronize([FromRoute] Guid id, CancellationToken cancellationToken)
-    {
-        if (id == Guid.Empty)
-            return BadRequestProblem("The exchange account id must be a non-empty GUID.");
-        var result = await syncService.SynchronizeAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id), cancellationToken).ConfigureAwait(false);
-        return result.Outcome switch
-        {
-            ExchangeAccountSyncOutcome.Synchronized or ExchangeAccountSyncOutcome.AlreadyApplied or
-                ExchangeAccountSyncOutcome.Superseded when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
-            ExchangeAccountSyncOutcome.NotFound => NotFoundProblem(),
-            ExchangeAccountSyncOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
-            _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
-        };
-    }
-
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -152,6 +155,15 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountVerificationOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
         };
+    }
+
+    private static string? ValidateDisplayName(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            return "displayName is required.";
+        return displayName.Trim().Length > ExchangeAccount.DisplayNameMaxLength
+            ? $"displayName must not exceed {ExchangeAccount.DisplayNameMaxLength} characters."
+            : null;
     }
 
     private ObjectResult Error(ApiErrorDescriptor descriptor, string? detail = null) =>

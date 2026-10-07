@@ -35,8 +35,6 @@ internal static partial class AuthEndpoints
         group.MapPost("/logout", BeginLogoutAsync);
         group.MapGet("/logout/complete", CompleteLogoutAsync);
 
-        endpoints.Map("/bff/{**path}", () => Results.NotFound());
-
         return endpoints;
     }
 

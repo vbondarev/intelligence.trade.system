@@ -654,6 +654,7 @@ public sealed class PositionEvaluationServiceTests
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 
@@ -876,6 +877,11 @@ public sealed class PositionEvaluationServiceTests
         }
 
         public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
             UserId userId,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

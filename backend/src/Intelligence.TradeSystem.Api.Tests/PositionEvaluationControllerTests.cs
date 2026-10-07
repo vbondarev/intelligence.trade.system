@@ -132,6 +132,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var portfolio = PortfolioState.Create(
             account.Id,
@@ -301,6 +302,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var accountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
         accountRepository
@@ -382,6 +384,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var portfolio = PortfolioState.Create(
             account.Id,
@@ -440,6 +443,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var portfolio = PortfolioState.Create(
             account.Id,
@@ -591,6 +595,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var portfolio = PortfolioState.Create(
             account.Id,
@@ -654,6 +659,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            "Основной",
             ExchangeAccountConnectionStatus.Connected);
         var portfolio = PortfolioState.Create(
             account.Id,

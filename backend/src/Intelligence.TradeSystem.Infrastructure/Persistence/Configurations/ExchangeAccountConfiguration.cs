@@ -1,4 +1,5 @@
-﻿using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
+﻿using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -28,6 +29,11 @@ public sealed class ExchangeAccountConfiguration : IEntityTypeConfiguration<Exch
             .HasColumnName("provider_account_id")
             .HasColumnType("varchar(128)")
             .HasMaxLength(128)
+            .IsRequired();
+        builder.Property(account => account.DisplayName)
+            .HasColumnName("display_name")
+            .HasColumnType($"varchar({ExchangeAccount.DisplayNameMaxLength})")
+            .HasMaxLength(ExchangeAccount.DisplayNameMaxLength)
             .IsRequired();
         builder.Property(account => account.ConnectionStatus)
             .HasColumnName("connection_status")

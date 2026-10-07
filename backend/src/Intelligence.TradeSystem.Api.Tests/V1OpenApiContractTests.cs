@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Api.Contracts.V1;
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -16,12 +17,13 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["GET /api/v1/auth/me"] = "getCurrentUser",
-            ["GET /api/v1/exchange-accounts"] = "listExchangeAccounts",
-            ["POST /api/v1/exchange-accounts"] = "createExchangeAccount",
-            ["POST /api/v1/exchange-accounts/{id}/verify"] = "verifyExchangeAccount",
-            ["PUT /api/v1/exchange-accounts/{id}/credentials"] = "rotateExchangeAccountCredentials",
+            ["GET /api/v1/me/exchange-accounts"] = "listExchangeAccounts",
+            ["POST /api/v1/me/exchange-accounts"] = "createExchangeAccount",
+            ["PATCH /api/v1/me/exchange-accounts/{id}"] = "renameExchangeAccount",
+            ["POST /api/v1/me/exchange-accounts/{id}/verify"] = "verifyExchangeAccount",
+            ["PUT /api/v1/me/exchange-accounts/{id}/credentials"] = "rotateExchangeAccountCredentials",
+            ["DELETE /api/v1/me/exchange-accounts/{id}"] = "disconnectExchangeAccount",
             ["POST /api/v1/exchange-accounts/{id}/sync"] = "syncExchangeAccount",
-            ["DELETE /api/v1/exchange-accounts/{id}"] = "disconnectExchangeAccount",
             ["GET /api/v1/exchange-accounts/{id}/portfolio"] = "getExchangeAccountPortfolio",
             ["GET /api/v1/positions"] = "listPositions",
             ["GET /api/v1/positions/{id}"] = "getPosition",
@@ -38,6 +40,7 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
             ["getCurrentUser"] = ["200", "401", "403"],
             ["listExchangeAccounts"] = ["200", "401", "403"],
             ["createExchangeAccount"] = ["200", "201", "400", "401", "403", "409", "503"],
+            ["renameExchangeAccount"] = ["200", "400", "401", "403", "404", "409"],
             ["verifyExchangeAccount"] = ["200", "400", "401", "403", "404", "409", "503"],
             ["rotateExchangeAccountCredentials"] = ["200", "400", "401", "403", "404", "409", "503"],
             ["syncExchangeAccount"] = ["200", "400", "401", "403", "404", "409", "503"],
@@ -174,7 +177,7 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
     {
         using var document = await GetDocumentAsync();
         var responses = document.RootElement.GetProperty("paths")
-            .GetProperty("/api/v1/exchange-accounts")
+            .GetProperty("/api/v1/me/exchange-accounts")
             .GetProperty("post")
             .GetProperty("responses");
 
@@ -182,6 +185,61 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
             GetResponseSchemaNames(responses, status).Should().NotBeEmpty().And.OnlyContain(name => name == "ExchangeAccountResponse");
 
         GetResponseSchemaNames(responses, "409").Should().NotBeEmpty().And.OnlyContain(name => name == "ProblemDetails");
+    }
+
+    [Fact]
+    public async Task V1_rename_exchange_account_documents_the_request_and_response_contract()
+    {
+        using var document = await GetDocumentAsync();
+        var root = document.RootElement;
+        var operation = root.GetProperty("paths")
+            .GetProperty("/api/v1/me/exchange-accounts/{id}")
+            .GetProperty("patch");
+        var responses = operation.GetProperty("responses");
+
+        GetResponseSchemaNames(responses, "200").Should().NotBeEmpty()
+            .And.OnlyContain(name => name == "ExchangeAccountResponse");
+        foreach (var status in new[] { "400", "404", "409" })
+            GetResponseSchemaNames(responses, status).Should().NotBeEmpty().And.OnlyContain(name => name == "ProblemDetails");
+
+        var requestSchemaName = GetReferenceName(operation.GetProperty("requestBody")
+            .GetProperty("content")
+            .GetProperty("application/json")
+            .GetProperty("schema"));
+        requestSchemaName.Should().Be("RenameExchangeAccountRequest");
+        var requestSchema = root.GetProperty("components").GetProperty("schemas").GetProperty(requestSchemaName!);
+        requestSchema.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().BeEquivalentTo(["displayName"]);
+        requestSchema.GetProperty("required").EnumerateArray().Select(property => property.GetString())
+            .Should().Contain("displayName");
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateExchangeAccountRequest))]
+    [InlineData(nameof(RenameExchangeAccountRequest))]
+    public async Task V1_exchange_account_requests_publish_required_display_name_with_the_domain_max_length(
+        string schemaName)
+    {
+        using var document = await GetDocumentAsync();
+        var requestSchema = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(schemaName);
+
+        requestSchema.GetProperty("required").EnumerateArray().Select(property => property.GetString())
+            .Should().Contain("displayName");
+        requestSchema.GetProperty("properties").GetProperty("displayName").GetProperty("maxLength").GetInt32()
+            .Should().Be(ExchangeAccount.DisplayNameMaxLength);
+    }
+
+    [Fact]
+    public async Task V1_openapi_does_not_document_former_management_routes()
+    {
+        using var document = await GetDocumentAsync();
+        var paths = document.RootElement.GetProperty("paths");
+
+        paths.TryGetProperty("/api/v1/exchange-accounts", out _).Should().BeFalse();
+        paths.TryGetProperty("/api/v1/exchange-accounts/{id}", out _).Should().BeFalse();
+        paths.TryGetProperty("/api/v1/exchange-accounts/{id}/verify", out _).Should().BeFalse();
+        paths.TryGetProperty("/api/v1/exchange-accounts/{id}/credentials", out _).Should().BeFalse();
+        paths.TryGetProperty("/api/v1/me/exchange-accounts/{id}/sync", out _).Should().BeFalse();
     }
 
     [Fact]

@@ -27,7 +27,8 @@ public sealed class ExchangeAccountServiceTests
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
                 It.Is<ExchangeAccount>(account =>
-                    account.ConnectionStatus == ExchangeAccountConnectionStatus.Unknown),
+                    account.ConnectionStatus == ExchangeAccountConnectionStatus.Unknown &&
+                    account.DisplayName == "Основной"),
                 null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ConcurrencyVersion.Initial);
@@ -48,11 +49,12 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ConcurrencyVersion(2));
 
-        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "  Основной  ", secret);
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Connected);
         result.Account.Should().NotBeNull();
-        result.Account!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
+        result.Account!.DisplayName.Should().Be("Основной");
+        result.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
         result.Account.Capabilities.Should().Be(RequiredCapabilities);
         result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
         var accountEvent = fixture.EventOutbox.Events
@@ -249,6 +251,7 @@ public sealed class ExchangeAccountServiceTests
             replacement);
 
         result.Outcome.Should().Be(ExchangeAccountCredentialRotationOutcome.Succeeded);
+        result.Account!.DisplayName.Should().Be("Основной");
         fixture.EventOutbox.Events
             .Should()
             .ContainSingle()
@@ -275,6 +278,7 @@ public sealed class ExchangeAccountServiceTests
         var result = await fixture.Service.ConnectAsync(
             fixture.UserId,
             ExchangeId.Bybit,
+            "Основной",
             new ExchangeAccountCredentialSecret("api-key", "api-secret"));
 
         result.Outcome.Should().Be(verificationStatus switch
@@ -306,6 +310,7 @@ public sealed class ExchangeAccountServiceTests
         var result = await fixture.Service.ConnectAsync(
             fixture.UserId,
             ExchangeId.Bybit,
+            "Основной",
             new ExchangeAccountCredentialSecret("api-key", "api-secret"));
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Unavailable);
@@ -331,11 +336,12 @@ public sealed class ExchangeAccountServiceTests
             ProviderIdentity,
             new Versioned<ExchangeAccount>(existing, new ConcurrencyVersion(3)));
 
-        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Другое имя", secret);
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.AlreadyExists);
         result.Account.Should().BeNull();
         existing.ConnectionStatus.Should().Be(status);
+        existing.DisplayName.Should().Be("Основной");
         fixture.Repository.Verify(
             repository => repository.SaveAsync(
                 It.IsAny<UserId>(),
@@ -397,7 +403,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ConcurrencyVersion.Initial);
 
-        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Основной", secret);
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Connected);
         result.Account!.Id.Should().NotBe(existing.Id);
@@ -417,6 +423,7 @@ public sealed class ExchangeAccountServiceTests
             fixture.UserId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             ExchangeAccountConnectionStatus.Disabled,
             RequiredCapabilities,
             syncedAt,
@@ -448,10 +455,11 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ConcurrencyVersion.Initial);
 
-        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var result = await fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Имя из формы", secret);
 
         result.Outcome.Should().Be(ExchangeAccountConnectionOutcome.Reconnected);
         result.Account!.Id.Should().Be(disabled.Id);
+        result.Account.DisplayName.Should().Be("Основной");
         result.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
         result.Account.ProviderIdentity.Should().Be(ProviderIdentity);
         result.Account.LastSyncedAt.Should().Be(syncedAt);
@@ -505,7 +513,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("stale version"));
 
-        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Основной", secret);
 
         await act.Should().ThrowAsync<ConcurrencyConflictException>();
         fixture.CredentialStore.Verify(
@@ -546,7 +554,7 @@ public sealed class ExchangeAccountServiceTests
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("credential row already exists"));
 
-        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Основной", secret);
 
         await act.Should().ThrowAsync<ConcurrencyConflictException>();
         fixture.EventOutbox.Events.Should().BeEmpty();
@@ -598,7 +606,7 @@ public sealed class ExchangeAccountServiceTests
                 ConcurrencyVersion.Initial,
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("account persistence failed"));
-        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, secret);
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, "Основной", secret);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         fixture.EventOutbox.Events.Should().BeEmpty();
@@ -656,6 +664,7 @@ public sealed class ExchangeAccountServiceTests
 
         result.Should().NotBeNull();
         result!.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Disabled);
+        result.DisplayName.Should().Be("Основной");
         fixture.CredentialStore.Verify(
             store => store.GetAsync(
                 It.IsAny<UserId>(),
@@ -860,6 +869,185 @@ public sealed class ExchangeAccountServiceTests
         fixture.EventOutbox.Events.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task ConnectAsync_Rejects_A_Blank_DisplayName_Before_Verification(string? displayName)
+    {
+        var fixture = CreateFixture();
+        var secret = new ExchangeAccountCredentialSecret("api-key", "api-secret");
+
+        var act = () => fixture.Service.ConnectAsync(fixture.UserId, ExchangeId.Bybit, displayName!, secret);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+        fixture.Verifier.Invocations.Should().BeEmpty();
+        fixture.Repository.Invocations.Should().BeEmpty();
+        fixture.CredentialStore.Invocations.Should().BeEmpty();
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ListAsync_Returns_Active_And_Disabled_Accounts_Of_The_User()
+    {
+        var fixture = CreateFixture();
+        var active = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        var disabled = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Disabled);
+        fixture.Repository
+            .Setup(repository => repository.ListAsync(fixture.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new Versioned<ExchangeAccount>(active, ConcurrencyVersion.Initial),
+                new Versioned<ExchangeAccount>(disabled, new ConcurrencyVersion(3)),
+            ]);
+
+        var result = await fixture.Service.ListAsync(fixture.UserId);
+
+        result.Should().Equal(active, disabled);
+        fixture.Repository.Verify(
+            repository => repository.ListActiveAsync(It.IsAny<UserId>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountConnectionStatus.Connected)]
+    [InlineData(ExchangeAccountConnectionStatus.Unavailable)]
+    [InlineData(ExchangeAccountConnectionStatus.Disabled)]
+    public async Task RenameAsync_Persists_The_Normalized_Name_Through_Cas_And_Publishes_An_Invalidation(
+        ExchangeAccountConnectionStatus status)
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, status);
+        var loadedVersion = new ConcurrencyVersion(3);
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, loadedVersion));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    ReferenceEquals(saved, account) &&
+                    saved.DisplayName == "GinArea" &&
+                    saved.ConnectionStatus == status),
+                loadedVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(4));
+
+        var result = await fixture.Service.RenameAsync(fixture.UserId, account.Id, "  GinArea  ");
+
+        result.Should().BeSameAs(account);
+        result!.DisplayName.Should().Be("GinArea");
+        result.ConnectionStatus.Should().Be(status);
+        result.ProviderIdentity.Should().Be(ProviderIdentity);
+        var accountEvent = fixture.EventOutbox.Events
+            .Should()
+            .ContainSingle()
+            .Which
+            .Should()
+            .BeOfType<ExchangeAccountUpdatedEventV1>()
+            .Subject;
+        accountEvent.UserId.Should().Be(fixture.UserId.Value);
+        accountEvent.ExchangeAccountId.Should().Be(account.Id.Value);
+        fixture.Repository.VerifyAll();
+        fixture.CredentialStore.Invocations.Should().BeEmpty();
+        fixture.Verifier.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RenameAsync_Does_Not_Write_Or_Publish_When_The_Normalized_Name_Is_Unchanged()
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+
+        var result = await fixture.Service.RenameAsync(fixture.UserId, account.Id, " Основной ");
+
+        result.Should().BeSameAs(account);
+        result!.DisplayName.Should().Be("Основной");
+        fixture.Repository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.EventOutbox.Events.Should().BeEmpty();
+        fixture.CredentialStore.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RenameAsync_Hides_Missing_And_Foreign_Accounts()
+    {
+        var fixture = CreateFixture();
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<ExchangeAccount>?)null);
+
+        var result = await fixture.Service.RenameAsync(fixture.UserId, ExchangeAccountId.New(), "GinArea");
+
+        result.Should().BeNull();
+        fixture.Repository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RenameAsync_Propagates_A_Stale_Version_As_A_Concurrency_Conflict()
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        var loadedVersion = new ConcurrencyVersion(2);
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, loadedVersion));
+        fixture.Repository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                account,
+                loadedVersion,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("stale version"));
+
+        var act = () => fixture.Service.RenameAsync(fixture.UserId, account.Id, "GinArea");
+
+        await act.Should().ThrowAsync<ConcurrencyConflictException>();
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RenameAsync_Rejects_A_Blank_Name_Without_Persistence_Writes(string displayName)
+    {
+        var fixture = CreateFixture();
+        var account = CreateAccount(fixture.UserId, ExchangeAccountConnectionStatus.Connected);
+        fixture.Repository
+            .Setup(repository => repository.GetByIdAsync(fixture.UserId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<ExchangeAccount>(account, ConcurrencyVersion.Initial));
+
+        var act = () => fixture.Service.RenameAsync(fixture.UserId, account.Id, displayName);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+        account.DisplayName.Should().Be("Основной");
+        fixture.Repository.Verify(
+            repository => repository.SaveAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccount>(),
+                It.IsAny<ConcurrencyVersion?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.EventOutbox.Events.Should().BeEmpty();
+    }
+
     private static ExchangeAccount CreateAccount(
         UserId userId,
         ExchangeAccountConnectionStatus status) =>
@@ -868,6 +1056,7 @@ public sealed class ExchangeAccountServiceTests
             userId,
             ExchangeId.Bybit,
             ProviderIdentity,
+            "Основной",
             status,
             RequiredCapabilities);
 

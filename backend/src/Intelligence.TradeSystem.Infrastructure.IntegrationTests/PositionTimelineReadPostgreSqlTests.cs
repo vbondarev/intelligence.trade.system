@@ -770,6 +770,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
             UserId = userId.Value,
             ExchangeId = ExchangeId.Bybit,
             ProviderAccountId = providerAccountId,
+            DisplayName = "Основной",
             ConnectionStatus = ExchangeAccountConnectionStatus.Connected,
             Capabilities = ExchangeAccountCapabilities.ReadPositions,
             Version = 1,

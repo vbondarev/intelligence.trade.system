@@ -219,7 +219,10 @@ http://localhost:8082
 3. development user входит с <code>TRADE_WEB_DEV_USERNAME</code> / <code>TRADE_WEB_DEV_PASSWORD</code>;
 4. после Authorization Code + PKCE browser возвращается на <code>http://localhost:8082/app</code>;
 5. перезагрузка страницы сохраняет BFF session;
-6. «Выйти» завершает BFF session и Identity SSO session.
+6. в навигации «Подключения» открывается `/app/settings/connections`; при актуальной business schema список загружается через same-origin BFF;
+7. «Выйти» завершает BFF session и Identity SSO session.
+
+> G-02 добавил migration `AddExchangeAccountDisplayName`. Если локальная business database была создана до этой migration, обновите её по разделу «Миграции PostgreSQL» ниже. Реальное подключение Bybit требует валидных read-only API credentials и не является обязательной частью базовой smoke-проверки.
 
 ### Проверка Identity discovery
 

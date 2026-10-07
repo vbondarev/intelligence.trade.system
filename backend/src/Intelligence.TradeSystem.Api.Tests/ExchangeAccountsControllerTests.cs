@@ -22,14 +22,20 @@ using Moq;
 namespace Intelligence.TradeSystem.Api.Tests;
 
 /// <summary>
-/// Регрессионное покрытие на уровне HTTP для жизненного цикла exchange-account
-/// contract F-02, доступного по <c>/api/v1/exchange-accounts</c>. Тесты подменяют реальные
+/// Регрессионное покрытие на уровне HTTP для management API подключений
+/// <c>/api/v1/me/exchange-accounts</c> и ручной синхронизации, оставшейся на
+/// <c>/api/v1/exchange-accounts/{id}/sync</c>. Тесты подменяют реальные
 /// Application services строгими mocks, чтобы проверять маршрутизацию, model binding,
 /// authorization и центральный <c>ApiExceptionHandler</c> на каждом задокументированном
 /// сопоставлении исходов.
 /// </summary>
 public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
+    private const string ManagementRoute = "/api/v1/me/exchange-accounts";
+    private const string SyncRoute = "/api/v1/exchange-accounts";
+    private const string TooLongDisplayName =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
     private readonly ApiWebApplicationFactory _factory;
 
     public ExchangeAccountsControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
@@ -40,11 +46,11 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var userId = UserId.New();
         var account = CreateAccount(userId);
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
-        service.Setup(x => x.ListActiveAsync(userId, It.IsAny<CancellationToken>()))
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[account]);
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.GetAsync("/api/v1/exchange-accounts");
+        using var response = await client.GetAsync("/api/v1/me/exchange-accounts");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(V1JsonSerializerOptions.Default);
@@ -58,11 +64,11 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var userId = UserId.New();
         var account = CreateAccount(userId);
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
-        service.Setup(x => x.ListActiveAsync(userId, It.IsAny<CancellationToken>()))
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[account]);
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.GetAsync("/api/v1/exchange-accounts");
+        using var response = await client.GetAsync("/api/v1/me/exchange-accounts");
         var raw = await response.Content.ReadAsStringAsync();
 
         raw.Should().NotContainAny("apiKey", "apiSecret", "credential", "Credential");
@@ -73,11 +79,11 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     {
         var userId = UserId.New();
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
-        service.Setup(x => x.ListActiveAsync(userId, It.IsAny<CancellationToken>()))
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ArgumentException("internal diagnostic detail"));
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.GetAsync("/api/v1/exchange-accounts");
+        using var response = await client.GetAsync("/api/v1/me/exchange-accounts");
 
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
         var raw = await response.Content.ReadAsStringAsync();
@@ -94,13 +100,13 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var account = CreateAccount(userId);
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         response.Headers.Location.Should().BeNull();
@@ -115,18 +121,19 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var account = CreateAccount(userId, accountId);
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Reconnected(account));
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.Location.Should().BeNull();
         var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
         body!.Id.Should().Be(accountId.Value);
+        body.DisplayName.Should().Be(account.DisplayName);
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContainAny("api-key", "api-secret", "provider-account", "providerIdentity", "providerAccountId");
         service.VerifyAll();
@@ -138,13 +145,13 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var userId = UserId.New();
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.AlreadyExists));
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
@@ -166,13 +173,13 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var userId = UserId.New();
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConcurrencyConflictException("inserted concurrently"));
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -189,15 +196,15 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "  ", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "  ", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
         service.Verify(
             x => x.ConnectAsync(
-                It.IsAny<UserId>(), It.IsAny<ExchangeId>(), It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<UserId>(), It.IsAny<ExchangeId>(), It.IsAny<string>(), It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -210,7 +217,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsync(
-            "/api/v1/exchange-accounts",
+            "/api/v1/me/exchange-accounts",
             new StringContent("{", Encoding.UTF8, "application/json"));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -233,13 +240,13 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var userId = UserId.New();
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                userId, ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ExchangeAccountConnectionResult.Failed(outcome));
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         response.StatusCode.Should().Be(expectedStatus);
         var raw = await response.Content.ReadAsStringAsync();
@@ -259,38 +266,41 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         UserId? captured = null;
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         service.Setup(x => x.ConnectAsync(
-                It.IsAny<UserId>(), ExchangeId.Bybit, It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<UserId>(), ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<UserId, ExchangeId, ExchangeAccountCredentialSecret, CancellationToken>(
-                (uid, _, _, _) => captured = uid)
+            .Callback<UserId, ExchangeId, string, ExchangeAccountCredentialSecret, CancellationToken>(
+                (uid, _, _, _, _) => captured = uid)
             .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
         using var client = CreateClient(userId, service.Object);
 
         await client.PostAsJsonAsync(
-            "/api/v1/exchange-accounts",
-            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+            "/api/v1/me/exchange-accounts",
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
 
         captured.Should().Be(userId);
     }
 
     [Theory]
-    [InlineData("verify", "POST")]
-    [InlineData("credentials", "PUT")]
-    [InlineData("sync", "POST")]
-    [InlineData("", "DELETE")]
-    public async Task Malformed_route_guid_returns_a_400_validation_problem(string suffix, string method)
+    [InlineData(ManagementRoute, "verify", "POST")]
+    [InlineData(ManagementRoute, "credentials", "PUT")]
+    [InlineData(ManagementRoute, "", "PATCH")]
+    [InlineData(ManagementRoute, "", "DELETE")]
+    [InlineData(SyncRoute, "sync", "POST")]
+    public async Task Malformed_route_guid_returns_a_400_validation_problem(string route, string suffix, string method)
     {
         var userId = UserId.New();
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
         using var client = CreateClient(userId, service.Object, sync.Object);
         var path = string.IsNullOrEmpty(suffix)
-            ? "/api/v1/exchange-accounts/not-a-guid"
-            : $"/api/v1/exchange-accounts/not-a-guid/{suffix}";
+            ? $"{route}/not-a-guid"
+            : $"{route}/not-a-guid/{suffix}";
 
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (method is "POST" or "PUT")
             request.Content = JsonContent.Create(new { apiKey = "api-key", apiSecret = "api-secret" });
+        if (method == "PATCH")
+            request.Content = JsonContent.Create(new { displayName = "Основной" });
 
         using var response = await client.SendAsync(request);
 
@@ -300,11 +310,13 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     }
 
     [Theory]
-    [InlineData("verify", "POST")]
-    [InlineData("credentials", "PUT")]
-    [InlineData("sync", "POST")]
-    [InlineData("", "DELETE")]
+    [InlineData(ManagementRoute, "verify", "POST")]
+    [InlineData(ManagementRoute, "credentials", "PUT")]
+    [InlineData(ManagementRoute, "", "PATCH")]
+    [InlineData(ManagementRoute, "", "DELETE")]
+    [InlineData(SyncRoute, "sync", "POST")]
     public async Task Guid_empty_lifecycle_route_ids_return_a_400_validation_problem_without_application_calls(
+        string route,
         string suffix,
         string method)
     {
@@ -312,13 +324,15 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
         using var client = CreateClient(userId, service.Object, sync.Object);
-        var path = $"/api/v1/exchange-accounts/{Guid.Empty:D}";
+        var path = $"{route}/{Guid.Empty:D}";
         if (!string.IsNullOrEmpty(suffix))
             path += $"/{suffix}";
 
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (method == "PUT")
             request.Content = JsonContent.Create(new { apiKey = "new-key", apiSecret = "new-secret" });
+        if (method == "PATCH")
+            request.Content = JsonContent.Create(new { displayName = "Основной" });
 
         using var response = await client.SendAsync(request);
 
@@ -345,7 +359,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ReturnsAsync(new ExchangeAccountVerificationResult(ExchangeAccountVerificationOutcome.Succeeded, account));
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.PostAsync($"/api/v1/exchange-accounts/{accountId.Value}/verify", null);
+        using var response = await client.PostAsync($"/api/v1/me/exchange-accounts/{accountId.Value}/verify", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         service.VerifyAll();
@@ -370,7 +384,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ReturnsAsync(new ExchangeAccountVerificationResult(outcome, null));
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.PostAsync($"/api/v1/exchange-accounts/{accountId.Value}/verify", null);
+        using var response = await client.PostAsync($"/api/v1/me/exchange-accounts/{accountId.Value}/verify", null);
 
         response.StatusCode.Should().Be(expectedStatus);
         var raw = await response.Content.ReadAsStringAsync();
@@ -390,8 +404,8 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ReturnsAsync(new ExchangeAccountVerificationResult(ExchangeAccountVerificationOutcome.NotFound, null));
         using var client = CreateClient(userId, service.Object);
 
-        using var missingResponse = await client.PostAsync($"/api/v1/exchange-accounts/{missingId.Value}/verify", null);
-        using var foreignResponse = await client.PostAsync($"/api/v1/exchange-accounts/{foreignId.Value}/verify", null);
+        using var missingResponse = await client.PostAsync($"/api/v1/me/exchange-accounts/{missingId.Value}/verify", null);
+        using var foreignResponse = await client.PostAsync($"/api/v1/me/exchange-accounts/{foreignId.Value}/verify", null);
 
         missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         foreignResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -415,7 +429,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ThrowsAsync(new ConcurrencyConflictException("stale version"));
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.PostAsync($"/api/v1/exchange-accounts/{accountId.Value}/verify", null);
+        using var response = await client.PostAsync($"/api/v1/me/exchange-accounts/{accountId.Value}/verify", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -436,7 +450,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PutAsJsonAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/credentials",
+            $"/api/v1/me/exchange-accounts/{accountId.Value}/credentials",
             new { apiKey = "new-key", apiSecret = "new-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -464,7 +478,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PutAsJsonAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/credentials",
+            $"/api/v1/me/exchange-accounts/{accountId.Value}/credentials",
             new { apiKey = "new-key", apiSecret = "new-secret" });
 
         response.StatusCode.Should().Be(expectedStatus);
@@ -485,7 +499,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PutAsJsonAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/credentials",
+            $"/api/v1/me/exchange-accounts/{accountId.Value}/credentials",
             new { apiKey = "new-key", apiSecret = "new-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -506,7 +520,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var client = CreateClient(userId, service.Object);
 
         using var response = await client.PutAsJsonAsync(
-            $"/api/v1/exchange-accounts/{accountId.Value}/credentials",
+            $"/api/v1/me/exchange-accounts/{accountId.Value}/credentials",
             new { apiKey = "new-key", apiSecret = "new-secret" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -562,7 +576,7 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ReturnsAsync(account);
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.DeleteAsync($"/api/v1/exchange-accounts/{accountId.Value}");
+        using var response = await client.DeleteAsync($"/api/v1/me/exchange-accounts/{accountId.Value}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         service.VerifyAll();
@@ -581,8 +595,8 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
             .ReturnsAsync((ExchangeAccount?)null);
         using var client = CreateClient(userId, service.Object);
 
-        using var missingResponse = await client.DeleteAsync($"/api/v1/exchange-accounts/{missingId.Value}");
-        using var foreignResponse = await client.DeleteAsync($"/api/v1/exchange-accounts/{foreignId.Value}");
+        using var missingResponse = await client.DeleteAsync($"/api/v1/me/exchange-accounts/{missingId.Value}");
+        using var foreignResponse = await client.DeleteAsync($"/api/v1/me/exchange-accounts/{foreignId.Value}");
 
         missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         foreignResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -600,9 +614,277 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
         using var client = CreateClient(userId, service.Object);
 
-        using var response = await client.DeleteAsync("/api/v1/exchange-accounts/not-a-guid");
+        using var response = await client.DeleteAsync("/api/v1/me/exchange-accounts/not-a-guid");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task List_includes_disabled_accounts_with_their_display_names()
+    {
+        var userId = UserId.New();
+        var active = CreateAccount(userId, displayName: "Основной");
+        var disabled = CreateAccount(userId, displayName: "GinArea");
+        disabled.Disable();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[active, disabled]);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.GetAsync(ManagementRoute);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(V1JsonSerializerOptions.Default);
+        body!.Items.Should().HaveCount(2);
+        body.Items.Should().Contain(x => x.Id == active.Id.Value && x.DisplayName == "Основной"
+            && x.ConnectionStatus == ExchangeAccountStatus.Connected);
+        body.Items.Should().Contain(x => x.Id == disabled.Id.Value && x.DisplayName == "GinArea"
+            && x.ConnectionStatus == ExchangeAccountStatus.Disabled);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().Contain("\"displayName\"");
+        raw.Should().NotContainAny("provider-account", "providerIdentity", "providerAccountId");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Connect_trims_the_display_name_before_calling_the_application_layer()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName = "  Основной  ", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        body!.DisplayName.Should().Be("Основной");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Connect_accepts_a_display_name_that_fits_the_limit_after_trimming()
+    {
+        var userId = UserId.New();
+        var displayName = new string('a', ExchangeAccount.DisplayNameMaxLength);
+        var account = CreateAccount(userId, displayName: displayName);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, displayName, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName = $"  {displayName}  ", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        service.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData(TooLongDisplayName)]
+    public async Task Connect_rejects_an_invalid_display_name_without_calling_the_application_layer(string? displayName)
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName, exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("api-key", "api-secret");
+        service.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Connect_requires_the_display_name_property()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        service.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Rename_returns_200_with_the_trimmed_display_name()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId, "GinArea");
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RenameAsync(userId, accountId, "GinArea", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{accountId.Value}",
+            new { displayName = "  GinArea  " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        body!.Id.Should().Be(accountId.Value);
+        body.DisplayName.Should().Be("GinArea");
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("provider-account", "providerIdentity", "providerAccountId", "apiKey", "apiSecret");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Rename_of_a_disabled_account_returns_200_and_keeps_the_disabled_status()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId, "Архив");
+        account.Disable();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RenameAsync(userId, accountId, "Архив", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{accountId.Value}",
+            new { displayName = "Архив" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        body!.ConnectionStatus.Should().Be(ExchangeAccountStatus.Disabled);
+        body.DisplayName.Should().Be("Архив");
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Rename_missing_and_foreign_accounts_return_an_identical_resource_not_found_body()
+    {
+        var userId = UserId.New();
+        var missingId = ExchangeAccountId.New();
+        var foreignId = ExchangeAccountId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RenameAsync(userId, missingId, "Новое", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ExchangeAccount?)null);
+        service.Setup(x => x.RenameAsync(userId, foreignId, "Новое", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ExchangeAccount?)null);
+        using var client = CreateClient(userId, service.Object);
+
+        using var missingResponse = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{missingId.Value}", new { displayName = "Новое" });
+        using var foreignResponse = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{foreignId.Value}", new { displayName = "Новое" });
+
+        missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        foreignResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var missingProblem = await missingResponse.Content.ReadFromJsonAsync<ProblemDetails>();
+        var foreignProblem = await foreignResponse.Content.ReadFromJsonAsync<ProblemDetails>();
+        missingProblem!.Extensions["code"]!.ToString().Should().Be("resource_not_found");
+        foreignProblem!.Type.Should().Be(missingProblem.Type);
+        foreignProblem.Title.Should().Be(missingProblem.Title);
+        foreignProblem.Detail.Should().Be(missingProblem.Detail);
+        foreignProblem.Extensions["code"]!.ToString().Should().Be(missingProblem.Extensions["code"]!.ToString());
+        service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Rename_concurrency_conflict_returns_409()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RenameAsync(userId, accountId, "Новое", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConcurrencyConflictException("stale version"));
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{accountId.Value}", new { displayName = "Новое" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("concurrency_conflict");
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("stale version");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData(TooLongDisplayName)]
+    public async Task Rename_rejects_an_invalid_display_name_without_calling_the_application_layer(string? displayName)
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object);
+
+        using var response = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{Guid.NewGuid()}", new { displayName });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        service.Invocations.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("GET", "")]
+    [InlineData("POST", "")]
+    [InlineData("PATCH", "/{id}")]
+    [InlineData("POST", "/{id}/verify")]
+    [InlineData("PUT", "/{id}/credentials")]
+    [InlineData("DELETE", "/{id}")]
+    public async Task Former_management_routes_are_not_served_without_compatibility_aliases(string method, string suffix)
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object);
+        var path = SyncRoute + suffix.Replace("{id}", Guid.NewGuid().ToString("D"), StringComparison.Ordinal);
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (method is "POST" or "PUT" or "PATCH")
+        {
+            request.Content = JsonContent.Create(
+                new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+        }
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        service.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Manual_sync_is_not_exposed_under_the_management_route()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object, sync.Object);
+
+        using var response = await client.PostAsync($"{ManagementRoute}/{Guid.NewGuid()}/sync", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        service.Invocations.Should().BeEmpty();
+        sync.Invocations.Should().BeEmpty();
     }
 
     [Fact]
@@ -643,12 +925,16 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         return client;
     }
 
-    private static ExchangeAccount CreateAccount(UserId userId, ExchangeAccountId? id = null) =>
+    private static ExchangeAccount CreateAccount(
+        UserId userId,
+        ExchangeAccountId? id = null,
+        string displayName = "Основной") =>
         ExchangeAccount.Create(
             id ?? ExchangeAccountId.New(),
             userId,
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From("provider-account"),
+            displayName,
             ExchangeAccountConnectionStatus.Connected,
             ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
 }

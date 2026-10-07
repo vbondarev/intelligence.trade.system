@@ -36,6 +36,7 @@ public static class OpenApiServiceCollectionExtensions
             options.SchemaFilter<PositionMarketSchemaFilter>();
             options.SchemaFilter<PositionEvaluationSchemaFilter>();
             options.SchemaFilter<PositionTimelineSchemaFilter>();
+            options.SchemaFilter<ExchangeAccountDisplayNameSchemaFilter>();
         });
 
         return services;
