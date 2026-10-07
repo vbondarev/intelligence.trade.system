@@ -1,10 +1,10 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.54
+Версия документа: 3.55
 Дата актуализации: 7 октября 2026 года
-Проверенная база: `develop` @ `79520c88642032be484b4a50ec1e984083e062d7`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187
-Последняя учтённая задача: Issue #187 «Зафиксировать архитектуру расширяемой внешней аутентификации»
-Текущий этап: **G — основной React-клиент**; G-01 и G-02 завершены, следующий обязательный шаг — **G-03**
+Проверенная база: `develop` @ `d4973bde4e1bde15b281006f5e48eee77404ea29`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187; G-03: Issue #189
+Последняя учтённая задача: Issue #189 «G-03. Реализовать сводку портфеля и список позиций выбранного подключения»
+Текущий этап: **G — основной React-клиент**; G-01 — G-03 завершены, следующий обязательный шаг — **G-04**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -156,6 +156,7 @@
 - ✅ F-06 публикует user-scoped timeline позиции с persisted position changes, assessments/evaluations и recommendations, cursor pagination и repeatable type filter.
 - ✅ F-07 публикует user-scoped SignalR boundary `/hubs/v1/updates` с invalidation-only событиями `exchangeAccount.updated`, `portfolio.updated`, `position.updated` и `evaluation.updated`; native/token clients используют Bearer, browser integration остаётся за BFF этапа G, а актуальное состояние после события или reconnect восстанавливается через REST.
 - ✅ G-02 даёт Web-управление read-only подключениями Bybit через React и явные BFF endpoints `/bff/me/exchange-accounts/**`: список, включая отключённые подключения, добавление, переименование, проверку, замену ключей, отключение и восстановление. Management API перенесён на `/api/v1/me/exchange-accounts`, подключение получило обязательное пользовательское название; sync и portfolio остаются account-scoped под `/api/v1/exchange-accounts/{id}`.
+- ✅ G-03 даёт Web-обзор выбранного подключения через явные BFF endpoints portfolio, manual sync и positions: account-level капитал и нереализованный PnL в USD, количество текущих позиций, экспозицию, сгруппированную по активу расчёта без суммирования разных активов, свежесть/полноту данных и списки текущих и закрытых позиций с фильтрами и cursor pagination. Позиция хранит exchange-neutral `SettlementAsset`, а стоимость и PnL позиции выражены в этом активе. Risk classification, evaluation и recommendation в обзор не входят.
 - ✅ `ExchangeAccount` хранит обязательную provider-side identity (для Bybit — `userID`); CAS/persistence запрещают её перепривязку к существующему `ExchangeAccountId`, а credentials другого account/subaccount отклоняются как controlled conflict.
 - ✅ Синхронизация защищена независимыми watermark для баланса и позиций, CAS/retry на persistence boundary и идемпотентной обработкой повторных и устаревших наблюдений без повторного provider IO.
 - ✅ Реализован PostgreSQL transactional outbox для versioned application events и SignalR invalidation: at-least-once dispatcher, idempotency consumers по EventId и causal ordering по PositionId + PositionChangeSequence; dispatcher включён по умолчанию после регистрации handlers для всех persisted event types.
@@ -193,7 +194,7 @@
 | A-07 | Удалить временный `IBybitProvider` после перевода потребителей | ✅ | В solution нет зависимостей от интерфейса совместимости |
 | A-08 | Актуализировать README под новое видение продукта | ✅ | README различает текущие возможности и целевой продукт |
 
-Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G13 завершены. G-01 завершён в PR #181, G-02 — по Issue #184; следующий обязательный шаг — G-03.
+Архитектурный фундамент завершён в PR #28 и #34. Этапы B–F и технические задачи Tech-G01 — Tech-G13 завершены. G-01 завершён в PR #181, G-02 — по Issue #184, G-03 — по Issue #189; следующий обязательный шаг — G-04.
 
 ### Этап B. Создать бизнес-домен сопровождения позиций
 
@@ -348,13 +349,13 @@ GET    /api/v1/auth/me
 
 ### Этап G. Создать основной React-клиент
 
-Статус этапа: 🚧 В работе; G-01 и G-02 завершены, следующий обязательный шаг — G-03.
+Статус этапа: 🚧 В работе; G-01 — G-03 завершены, следующий обязательный шаг — G-04.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
 | G-01 | Создать каркас адаптивного приложения, BFF и вход пользователя | ✅ | Работают React shell, BFF/session integration с `Intelligence.TradeSystem.Identity`, OAuth/OIDC login flow, CSRF protection для cookie-based BFF session, защищённые маршруты и восстановление browser session; access token не попадает в browser JavaScript. Вместе с фактически принятой архитектурой React/BFF создаются или синхронизируются локальные frontend agent instructions, фиксирующие только долговечные принятые решения и не вводящие несогласованные технологии или architecture patterns |
 | G-02 | Реализовать управление подключением Bybit только для чтения | ✅ | Пользователь видит активные и `Disabled` подключения, задаёт и меняет `DisplayName`, добавляет и проверяет read-only Bybit account, безопасно заменяет credentials, отключает и восстанавливает подключение; Web работает через explicit BFF `/bff/me/exchange-accounts/**`, а canonical management API — `/api/v1/me/exchange-accounts/**` |
-| G-03 | Реализовать сводку account-scoped портфеля и список позиций | ⬜ | Видны PnL, риск, свежесть, состояние синхронизации, позиции под наблюдением и критические позиции выбранного подключения; список использует фильтры v1 API и не смешивает закрытую историю с активными позициями по умолчанию |
+| G-03 | Реализовать сводку account-scoped портфеля и список позиций | ✅ | Для выбранного подключения видны фактические account-level капитал и PnL, количество текущих позиций, экспозиция по активу расчёта без суммирования разных активов, свежесть, полнота и состояние синхронизации; доступна ручная синхронизация; стоимость и PnL позиции показываются в её активе расчёта; список использует фильтры v1 API и не смешивает закрытую историю с текущими позициями по умолчанию. Risk classification позиций относится к последующим этапам |
 | G-04 | Реализовать страницу позиции | ⬜ | Видны параметры сделки, график, market context, ключевые уровни, evaluation, рекомендация, причины, временная валидность и условия пересмотра; UI способен отличить свежий market context от более старого evaluation |
 | G-05 | Реализовать timeline позиции | ⬜ | Видны увеличение, уменьшение и закрытие позиции, assessments/evaluations и изменения рекомендации через единый постраничный timeline; рыночные события сопровождения добавляются после появления H-04 и не блокируют завершение G |
 | G-06 | Подключить SignalR с восстановлением через REST через BFF-compatible browser integration | ⬜ | Browser подключается к realtime без выдачи access token в JavaScript; realtime-события инвалидируют соответствующее клиентское состояние; после разрыва соединения клиент перечитывает актуальные REST resources |
@@ -363,7 +364,7 @@ GET    /api/v1/auth/me
 
 #### Параллельное направление G-AUTH — внешняя аутентификация
 
-Архитектура направления зафиксирована в [ADR-0005](docs/adr/0005-external-authentication-providers.md). G-AUTH развивается параллельно основному пользовательскому потоку этапа G, не является prerequisite для G-03 — G-08 и не меняет следующий обязательный шаг — G-03.
+Архитектура направления зафиксирована в [ADR-0005](docs/adr/0005-external-authentication-providers.md). G-AUTH развивается параллельно основному пользовательскому потоку этапа G, не является prerequisite для G-04 — G-08 и не меняет следующий обязательный шаг — G-04.
 
 | Код | Задача | Статус | Критерий завершения |
 |---|---|---|---|
@@ -490,16 +491,16 @@ GET    /api/v1/auth/me
 
 | Очередь | Предлагаемый PR | Связанные задачи |
 |---:|---|---|
-| 1 | Продолжить основной React-клиент | G-03 — G-08 |
+| 1 | Продолжить основной React-клиент | G-04 — G-08 |
 | 2 | Добавить фоновые циклы наблюдения и отказоустойчивость доставки application events | H-01 — H-07 |
 | 3 | Добавить Telegram-уведомления и детерминированные объяснения | I-01 — I-08 |
 | 4 | Подготовить пилотную эксплуатацию и операционные процедуры | L-01 — L-07 |
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
-G-AUTH-01 — G-AUTH-03 являются параллельным направлением и могут реализовываться независимо от основной очереди, если не создают конфликт с текущим обязательным шагом; они не становятся prerequisite для G-03 — G-08.
+G-AUTH-01 — G-AUTH-03 являются параллельным направлением и могут реализовываться независимо от основной очереди, если не создают конфликт с текущим обязательным шагом; они не становятся prerequisite для G-04 — G-08.
 
-Этапы A–F, Tech-G01 — Tech-G13, G-01 и G-02 завершены. Следующий обязательный шаг — G-03; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F, Tech-G01 — Tech-G13 и G-01 — G-03 завершены. Следующий обязательный шаг — G-04; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -580,6 +581,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-07 | 3.55 | Issue #189 завершает G-03: главная страница Web показывает обзор выбранного подключения — account-level капитал, доступные средства и нереализованный PnL в USD, количество текущих позиций, экспозицию по каждому активу расчёта без суммирования и конвертации разных активов, свежесть (оценивается на момент ответа), полноту и состояние синхронизации; доступна ручная синхронизация без автоматических повторов; списки текущих и закрытых позиций поддерживают фильтры состояния, направления и exact symbol и cursor pagination. В Domain добавлен exchange-neutral `SettlementAsset` позиции (Bybit `settleCoin`), account-level PnL отделён от суммы position-level PnL; migration `AddPositionSettlementAssetAndAccountUnrealizedPnl` выполняет backfill Linear USDT/USDC по суффиксу symbol и fail-fast останавливается на строках, актив которых нельзя определить достоверно. API v1 аддитивно получил `settlementAsset`, `currentPositionCount` и `exposures[]`; BFF — явные `GET /bff/me/exchange-accounts/{id}/portfolio`, `POST /bff/me/exchange-accounts/{id}/sync` (CSRF) и `GET /bff/me/positions` с query allowlist, без generic proxy. Требование «критические позиции» исключено из G-03: risk classification, evaluation и recommendation остаются последующим этапам. Следующий обязательный шаг — G-04. |
 | 2026-10-07 | 3.54 | Issue #187 принял ADR-0005 по расширяемой внешней аутентификации: provider-specific вход остаётся внутри Identity, external login сопоставляется через `LoginProvider + ProviderKey` с единым `ApplicationUser.Id`, который сохраняется как OpenIddict `sub` и Domain `UserId`; email не используется для автоматического объединения identity. В ROADMAP добавлены параллельные G-AUTH-01 — G-AUTH-03 для базовой external authentication, административного управления провайдерами и ЕСИА. G-AUTH не является prerequisite для G-03 — G-08, следующим обязательным шагом остаётся G-03; production code и runtime contracts не изменялись. |
 | 2026-10-06 | 3.53 | Issue #184 завершает G-02: в Web появилась страница «Подключения» для управления read-only подключениями Bybit — список, включая отключённые, добавление, переименование, проверка, замена ключей, отключение с подтверждением и восстановление; после каждой mutation список перечитывается через REST. Подключение получило обязательное пользовательское `displayName` (trim, до 100 символов, сохраняется при disconnect/reconnect; migration `AddExchangeAccountDisplayName` с backfill существующих строк). По pre-release policy v1, зафиксированной в `docs/api-v1-conventions.md`, management API перенесён на `/api/v1/me/exchange-accounts` без compatibility alias, добавлен `PATCH` rename (`renameExchangeAccount`), список включает отключённые подключения; sync и portfolio остаются под `/api/v1/exchange-accounts/{id}`. BFF получил явные `/bff/me/exchange-accounts/**` endpoints без generic proxy, с CSRF, `no-store`, сохранением `ProblemDetails` и единственным повтором после `401` + refresh. Provider identity не публикуется, credentials не попадают в логи, ответы и browser storage. Следующий обязательный шаг — G-03. |
 | 2026-10-06 | 3.52 | Issue #182 выполнил prerequisite G-02: в области пользователя `UserId + ExchangeId + ProviderIdentity` соответствует не более чем одному `ExchangeAccountId`, что гарантирует нефильтрованный PostgreSQL unique index (migration `EnforceUniqueExchangeAccountProviderIdentity` без cleanup/backfill). `POST /api/v1/exchange-accounts` возвращает `201 Created` для нового provider-side аккаунта, `200 OK` при восстановлении `Disabled`-подключения с прежним `ExchangeAccountId`, историей и новыми проверенными credentials и `409 exchange_account_already_exists` для активного duplicate; failed verification не изменяет `Disabled`-подключение, конкурентные connect/reconnect завершаются controlled conflict без partial state. Master account и subaccounts Bybit остаются отдельными подключениями, provider identity не публикуется, rotation/verify semantics не изменены. Lifecycle и concurrency покрыты Domain/Application/API и PostgreSQL integration tests. G-02 не начат и остаётся следующим обязательным шагом. |

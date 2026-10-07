@@ -132,11 +132,28 @@ Browser управляет read-only подключениями Bybit тольк
 | `PUT /bff/me/exchange-accounts/{id}/credentials` | `PUT /api/v1/me/exchange-accounts/{id}/credentials` |
 | `DELETE /bff/me/exchange-accounts/{id}` | `DELETE /api/v1/me/exchange-accounts/{id}` |
 
-- `{id}` принимается только как GUID. Другие методы и paths под этим prefix, включая `sync`, `portfolio` и `GET` отдельного подключения, не реализованы и возвращают `404` без обращения к `Api`. Generic proxy и forwarding произвольного path отсутствуют; query string в `Api` не передаётся.
+- `{id}` принимается только как GUID. Другие методы и paths под этим prefix, включая `GET` отдельного подключения, не реализованы и возвращают `404` без обращения к `Api`; `portfolio` и `sync` описаны в следующем разделе. Generic proxy и forwarding произвольного path отсутствуют; query string в `Api` не передаётся.
 - Unsafe endpoints проходят centralized CSRF-проверку (см. «CSRF»). JSON body запроса передаётся в `Api` без интерпретации; буфер с body, в том числе с API key/secret, очищается после отправки. Credentials не логируются, не сохраняются в BFF session и не возвращаются browser.
 - Статус и JSON body (`application/json`, `application/problem+json` и другие `+json`) ответа `Api`, кроме `401`, передаются browser без изменения, включая `ProblemDetails` с `code`, `traceId` и `errors`. Non-JSON body отбрасывается.
 - `401` от `Api` приводит к одному принудительному refresh и ровно одному повтору того же запроса с тем же body (см. «Access token и refresh»); повторный `401` завершает BFF session. Других автоматических повторов, в том числе unsafe-запросов после timeout, network error или `5xx`, BFF не выполняет.
 - Ответы, сформированные самим BFF, не содержат body: `401` — нет session или session завершена; `503` — token endpoint Identity или `Api` недоступны (network error, timeout 30 секунд), session при этом сохраняется.
+
+### Портфель, ручная синхронизация и позиции
+
+Обзор выбранного подключения использует три явные операции. Каждая вызывает ровно одну операцию `Api` с Bearer access token текущей session:
+
+| Browser endpoint | Операция `Api` |
+|---|---|
+| `GET /bff/me/exchange-accounts/{id}/portfolio` | `GET /api/v1/exchange-accounts/{id}/portfolio` |
+| `POST /bff/me/exchange-accounts/{id}/sync` | `POST /api/v1/exchange-accounts/{id}/sync` |
+| `GET /bff/me/positions` | `GET /api/v1/positions` |
+
+- `{id}` принимается только как GUID; upstream path строится из фиксированного route. Другие методы и paths, включая `/bff/me/positions/{id}`, возвращают `404` без обращения к `Api`.
+- `portfolio` и `sync` не передают в `Api` query string и body запроса.
+- `GET /bff/me/positions` передаёт в `Api` только параметры allowlist: `exchangeAccountId`, `trackingState`, `symbol`, `side`, `pageSize`, `cursor`. Значения передаются без интерпретации и URL-encoded, повторяющиеся значения сохраняются; валидацию, фильтрацию и разбор opaque cursor выполняет `Api`. Остальные параметры, включая `userId`, отбрасываются.
+- `sync` — unsafe-запрос: он проходит centralized CSRF-проверку, и без валидного `X-CSRF-TOKEN` `Api` не вызывается.
+- Статус и JSON body ответа `Api`, кроме `401`, передаются browser без изменения, включая `204` портфеля без данных и `ProblemDetails`; non-JSON body отбрасывается. `401` приводит к одному принудительному refresh и ровно одному повтору; повторный `401` завершает BFF session.
+- Для `sync` других автоматических повторов нет: после network error, timeout (30 секунд) или `5xx` повтор не выполняется, а решение о новой синхронизации принимает пользователь. Ответы, сформированные самим BFF, такие же, как у подключений: `401` без body или `503` без body.
 
 ## CSRF
 

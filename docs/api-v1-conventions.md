@@ -143,6 +143,34 @@ Lifecycle timestamps recommendation (acknowledged, dismissed, superseded,
 expired) не являются отдельными timeline events. Следующие типы item могут
 добавляться аддитивно.
 
+## Денежная семантика позиций и портфеля
+
+Позиция (`PositionListItemResponse`, `PositionResponse`) содержит обязательный
+`settlementAsset` — актив расчёта контракта (для Bybit — `settleCoin`,
+например `USDT` или `USDC`). `positionValue` и `unrealizedPnl` позиции выражены
+в `settlementAsset`, а не в USD; клиент не конвертирует их и не складывает
+значения позиций с разными активами расчёта.
+
+`PortfolioResponse` описывает один биржевой аккаунт:
+
+- `capital.totalEquity`, `capital.availableCapital`,
+  `capital.totalWalletBalance` и `totalUnrealizedPnl` — account-level значения,
+  нормализованные биржей в USD. `totalUnrealizedPnl` берётся из account-level
+  баланса биржи и не является суммой position-level PnL; `null` означает, что
+  значение неизвестно.
+- `currentPositionCount` — количество текущих (не закрытых) позиций в snapshot
+  портфеля.
+- `exposures[]` — экспозиция, сгруппированная по `settlementAsset`:
+  `grossExposure`, `longExposure` и `shortExposure` выражены в активе группы.
+  Если стоимость хотя бы одной позиции стороны неизвестна, значение стороны и
+  `grossExposure` равны `null`; сторона без позиций равна `0`. Группы
+  упорядочены по `settlementAsset` ordinal. Суммарная экспозиция между разными
+  активами расчёта не публикуется и клиентом не вычисляется.
+- `isFresh` оценивается на момент ответа, а не на момент сохранения snapshot.
+- Прежние top-level поля `grossExposure`, `longExposure`, `shortExposure`,
+  `netExposure` и производные проценты не изменяются; разбивку по активам
+  расчёта даёт только `exposures[]`.
+
 ## Границы миграции
 
 `/api/v1/me/exchange-accounts` является канонической v1-границей управления
