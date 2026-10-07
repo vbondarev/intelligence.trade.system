@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
 import {
   ConnectionsApiError,
@@ -143,31 +143,33 @@ export function ConnectionsPage() {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [pending, setPending] = useState(false);
 
-  const reloadAccounts = useCallback(async () => {
-    try {
-      setAccounts(await listConnections());
-      setLoadError(null);
-    } catch (error) {
-      setLoadError(toErrorNotice(error));
-    }
-  }, []);
+  const listGeneration = useRef(0);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    listConnections(controller.signal).then(
+  // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
+  // более раннего GET не должны перезаписать результат reload после mutation.
+  const loadAccounts = useCallback((signal?: AbortSignal): Promise<void> => {
+    const generation = ++listGeneration.current;
+    const isCurrent = () => generation === listGeneration.current && signal?.aborted !== true;
+    return listConnections(signal).then(
       (items) => {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           setAccounts(items);
+          setLoadError(null);
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           setLoadError(toErrorNotice(error));
         }
       },
     );
-    return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadAccounts(controller.signal);
+    return () => controller.abort();
+  }, [loadAccounts]);
 
   // REST остаётся source of truth: после любой mutation список перечитывается, а не правится локально.
   const runMutation = useCallback(
@@ -186,13 +188,13 @@ export function ConnectionsPage() {
       }
 
       if (!sessionEnded) {
-        await reloadAccounts();
+        await loadAccounts();
       }
 
       setPending(false);
       return succeeded;
     },
-    [reloadAccounts],
+    [loadAccounts],
   );
 
   const handleCreate = (displayName: string, credentials: ExchangeCredentials) =>

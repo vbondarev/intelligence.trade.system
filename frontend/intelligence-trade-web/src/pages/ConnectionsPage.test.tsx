@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -67,7 +67,7 @@ function renderAtConnections() {
  * остальные методы collection обрабатывает `onCollection`.
  */
 function renderConnections(options: {
-  list: () => ExchangeAccount[] | Response;
+  list: () => ExchangeAccount[] | Response | Promise<Response>;
   onCollection?: RouteHandler;
   routes?: Record<string, RouteHandler>;
 }): RecordedRequest[] {
@@ -77,7 +77,7 @@ function renderConnections(options: {
     [COLLECTION_URL]: (init) => {
       if (init?.method === undefined || init.method === 'GET') {
         const value = options.list();
-        return value instanceof Response ? value : jsonResponse({ items: value });
+        return Array.isArray(value) ? jsonResponse({ items: value }) : value;
       }
 
       if (options.onCollection === undefined) {
@@ -107,6 +107,17 @@ function bodyOf(request: RecordedRequest | undefined): unknown {
 
 function findCard(name: string): Promise<HTMLElement> {
   return screen.findByRole('article', { name });
+}
+
+/**
+ * Promise, который тест завершает явно: порядок ответов задаётся тестом, а не таймерами.
+ */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 describe('ConnectionsPage routing', () => {
@@ -185,6 +196,63 @@ describe('ConnectionsPage list', () => {
     await userEvent.click(within(alert).getByRole('button', { name: 'Войти снова' }));
 
     expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=/app');
+  });
+});
+
+describe('ConnectionsPage stale list responses', () => {
+  /**
+   * Первый `GET` остаётся pending, пользователь создаёт подключение, а reload после mutation
+   * успевает завершиться раньше первого `GET`.
+   */
+  async function createWhileInitialListIsPending(initialList: Promise<Response>): Promise<void> {
+    let items: ExchangeAccount[] = [];
+    let listCalls = 0;
+    const requests = renderConnections({
+      list: () => (++listCalls === 1 ? initialList : items),
+      onCollection: () => {
+        items = [mainAccount];
+        return jsonResponse(mainAccount, 201);
+      },
+    });
+    const user = userEvent.setup();
+    expect(await screen.findByText('Загружаем подключения…')).toBeVisible();
+
+    await user.type(screen.getByLabelText('Название *'), 'Основной');
+    await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
+    await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    await user.click(screen.getByRole('button', { name: 'Подключить' }));
+
+    expect(await findCard('Основной')).toBeVisible();
+    expect(listRequests(requests)).toHaveLength(2);
+  }
+
+  it('keeps the newer reload when the initial list resolves later with stale data', async () => {
+    const initialList = deferred<Response>();
+    await createWhileInitialListIsPending(initialList.promise);
+
+    const staleResponse = jsonResponse({ items: [] });
+    await act(async () => {
+      initialList.resolve(staleResponse);
+    });
+
+    expect(staleResponse.bodyUsed).toBe(true);
+    expect(screen.getByRole('article', { name: 'Основной' })).toBeVisible();
+    expect(screen.queryByText(EMPTY_STATE)).not.toBeInTheDocument();
+  });
+
+  it('does not show an error from the initial list that fails after a newer successful reload', async () => {
+    const initialList = deferred<Response>();
+    await createWhileInitialListIsPending(initialList.promise);
+
+    const staleFailure = problem(503, 'exchange_unavailable', '00-stale-trace');
+    await act(async () => {
+      initialList.resolve(staleFailure);
+    });
+
+    expect(staleFailure.bodyUsed).toBe(true);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Основной' })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Подключение «Основной» добавлено.');
   });
 });
 
