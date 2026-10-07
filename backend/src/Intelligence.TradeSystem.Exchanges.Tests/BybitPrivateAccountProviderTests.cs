@@ -7,6 +7,7 @@ using CryptoExchange.Net.Objects.Errors;
 using FluentAssertions;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
 using Intelligence.TradeSystem.Exchanges.Bybit.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -91,8 +92,16 @@ public sealed class BybitPrivateAccountProviderTests
 
         observation.Status.Should().Be(OpenPositionsObservationStatus.Complete);
         observation.Positions.Should().SatisfyRespectively(
-            first => first.Symbol.Should().Be("BTCUSDT"),
-            second => second.Symbol.Should().Be("ETHUSDC"));
+            first =>
+            {
+                first.Symbol.Should().Be("BTCUSDT");
+                first.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+            },
+            second =>
+            {
+                second.Symbol.Should().Be("ETHUSDC");
+                second.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
+            });
         trading.Verify(t => t.GetPositionsAsync(
             Category.Linear,
             null,
@@ -109,6 +118,25 @@ public sealed class BybitPrivateAccountProviderTests
             200,
             null,
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetOpenPositionsAsync_Symbol_Scope_Without_Settle_Coin_Leaves_Settlement_Asset_Unknown()
+    {
+        var trading = new Mock<IBybitRestClientApiTrading>();
+        trading
+            .Setup(t => t.GetPositionsAsync(
+                Category.Linear, "BTCUSDT", null, null, 200, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSuccess(new BybitResponse<BybitPosition>
+            {
+                List = [new BybitPosition { Symbol = "BTCUSDT", Quantity = 1m, Side = PositionSide.Buy }],
+            }));
+
+        var observation = await CreateProvider(trading)
+            .GetOpenPositionsAsync(MarketCategory.Linear, "BTCUSDT");
+
+        observation.Positions.Should().ContainSingle()
+            .Which.SettlementAsset.Should().BeNull();
     }
 
     [Fact]
@@ -131,7 +159,8 @@ public sealed class BybitPrivateAccountProviderTests
             .GetOpenPositionsAsync(MarketCategory.Linear);
 
         observation.Status.Should().Be(OpenPositionsObservationStatus.Partial);
-        observation.Positions.Should().ContainSingle(position => position.Symbol == "BTCUSDT");
+        observation.Positions.Should().ContainSingle(position => position.Symbol == "BTCUSDT")
+            .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
         observation.Error.Should().Be("USDC failed");
     }
 
@@ -221,6 +250,7 @@ public sealed class BybitPrivateAccountProviderTests
         observation.Positions.Should().HaveCount(2);
         observation.Positions.Should().Contain(p => p.Symbol == "BTCUSDT");
         observation.Positions.Should().Contain(p => p.Symbol == "ETHUSDT");
+        observation.Positions.Should().OnlyContain(p => p.SettlementAsset == SettlementAsset.From("USDT"));
     }
 
     [Fact]

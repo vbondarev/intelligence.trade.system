@@ -566,6 +566,7 @@ public sealed class PositionAssessmentServiceTests
                 side,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,

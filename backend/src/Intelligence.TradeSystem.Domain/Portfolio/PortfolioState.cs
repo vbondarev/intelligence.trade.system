@@ -145,6 +145,7 @@ public sealed class PortfolioState
                 position.Id,
                 position.ExchangePositionKey,
                 position.MarketCategory,
+                position.SettlementAsset,
                 position.ExchangePositionKey.PositionSide,
                 position.TrackingState,
                 position.Size,
@@ -204,6 +205,8 @@ public sealed class PortfolioState
             if (position.MarketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
                 throw new ArgumentOutOfRangeException(
                     nameof(positions), position.MarketCategory, "Position market category is invalid.");
+            if (position.SettlementAsset == default)
+                throw new ArgumentException("Portfolio position must have a SettlementAsset.", nameof(positions));
             if (!Enum.IsDefined(position.PositionSide) || position.PositionSide == PositionSide.Unknown)
                 throw new ArgumentOutOfRangeException(
                     nameof(positions), position.PositionSide, "Position side is invalid.");

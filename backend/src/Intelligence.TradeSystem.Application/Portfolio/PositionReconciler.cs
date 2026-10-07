@@ -160,6 +160,25 @@ public static class PositionReconciler
                 continue;
             }
 
+            // Актив расчёта неизменяем в пределах lifecycle. Наблюдение без достоверного актива
+            // или с другим активом не может обновлять существующую позицию или создавать новую;
+            // оно ухудшает scope, поэтому отсутствие позиций в нём не приводит к закрытию.
+            if (observed.SettlementAsset is not { } observedSettlementAsset)
+            {
+                hasMappingIssues = true;
+                warnings.Add($"Skipped {key}: settlement asset is unknown for the observation scope.");
+                continue;
+            }
+
+            if (activeByKey.TryGetValue(key, out var trackedWithKey) &&
+                trackedWithKey.SettlementAsset != observedSettlementAsset)
+            {
+                hasMappingIssues = true;
+                warnings.Add(
+                    $"Skipped {key}: observed settlement asset {observedSettlementAsset} does not match tracked settlement asset {trackedWithKey.SettlementAsset}.");
+                continue;
+            }
+
             if (!observedKeys.Add(key))
             {
                 hasMappingIssues = true;
@@ -211,6 +230,7 @@ public static class PositionReconciler
                 var created = Position.Create(
                     key,
                     observed.Category,
+                    observedSettlementAsset,
                     observed.Size,
                     observation.ObservedAt,
                     observation.ObservedAt,

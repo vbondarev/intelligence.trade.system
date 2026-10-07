@@ -22,11 +22,7 @@ public static class PortfolioStateAssembler
 
         var capital = balance is null
             ? new PortfolioCapitalState(null, null, null)
-            : new PortfolioCapitalState(
-                balance.TotalEquity,
-                balance.TotalAvailableBalance,
-                balanceObservedAt,
-                balance.TotalWalletBalance);
+            : CreateCapital(balance, balanceObservedAt);
 
         return AssembleWithCapital(
             capital,
@@ -35,6 +31,22 @@ public static class PortfolioStateAssembler
             calculatedAt,
             staleAfter,
             positionsFullyReconciled);
+    }
+
+    /// <summary>
+    /// Нормализует account-level значения баланса, включая нормализованный биржей
+    /// нереализованный PnL аккаунта, который не выводится из position-level PnL.
+    /// </summary>
+    public static PortfolioCapitalState CreateCapital(AccountBalance balance, DateTimeOffset? observedAt)
+    {
+        ArgumentNullException.ThrowIfNull(balance);
+
+        return new PortfolioCapitalState(
+            balance.TotalEquity,
+            balance.TotalAvailableBalance,
+            observedAt,
+            balance.TotalWalletBalance,
+            balance.TotalPerpUnrealizedPnl);
     }
 
     public static PortfolioState AssembleWithCapital(

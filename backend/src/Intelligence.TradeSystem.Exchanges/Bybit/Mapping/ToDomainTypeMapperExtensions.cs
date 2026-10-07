@@ -1,5 +1,6 @@
 using Bybit.Net.Objects.Models.V5;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitOrderSide = Bybit.Net.Enums.OrderSide;
@@ -20,7 +21,15 @@ internal static class ToDomainTypeMapperExtensions
                 .Select(balance => balance.MapCoinBalance())
                 .ToList() ?? []);
 
-    public static OpenPosition MapOpenPosition(this BybitPosition p, MarketCategory category) =>
+    /// <summary>
+    /// Нормализует позицию Bybit. Ответ Bybit не содержит settle coin, поэтому актив расчёта
+    /// передаётся из области запроса и равен <see langword="null"/>, если запрос не был
+    /// ограничен конкретным <c>settleCoin</c>.
+    /// </summary>
+    public static OpenPosition MapOpenPosition(
+        this BybitPosition p,
+        MarketCategory category,
+        SettlementAsset? settlementAsset) =>
         new(p.Symbol,
             category,
             p.Side.MapPositionSide(),
@@ -40,7 +49,8 @@ internal static class ToDomainTypeMapperExtensions
             p.RiskLimitValue,
             p.CreateTime.HasValue ? new DateTimeOffset(p.CreateTime.Value, TimeSpan.Zero) : null,
             p.UpdateTime.HasValue ? new DateTimeOffset(p.UpdateTime.Value, TimeSpan.Zero) : null,
-            (int)p.PositionIdx);
+            (int)p.PositionIdx,
+            settlementAsset);
 
     public static LongShortRatioEntry MapLongShortRatioEntry(
         this BybitLongShortRatio e, string symbol, MarketCategory category) =>

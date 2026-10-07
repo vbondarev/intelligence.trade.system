@@ -1,6 +1,7 @@
 using Bybit.Net.Objects.Models.V5;
 using FluentAssertions;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Exchanges.Bybit.Mapping;
 using BybitAccountType = Bybit.Net.Enums.AccountType;
@@ -87,7 +88,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
             PositionIdx = (BybitPositionIdx)1,
         };
 
-        var mappedPosition = mapped.MapOpenPosition(MarketCategory.Linear);
+        var mappedPosition = mapped.MapOpenPosition(MarketCategory.Linear, SettlementAsset.From("USDT"));
 
         mappedPosition.Should().BeEquivalentTo(new OpenPosition(
             "BTCUSDT",
@@ -109,7 +110,8 @@ public sealed class ToDomainTypeMapperExtensionsTests
             1000m,
             new DateTimeOffset(createTime),
             new DateTimeOffset(updateTime),
-            1));
+            1,
+            SettlementAsset.From("USDT")));
     }
 
     [Theory]
@@ -118,7 +120,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
     [InlineData(null, DomainPositionSide.Unknown)]
     [InlineData((BybitPositionSide)999, DomainPositionSide.Unknown)]
     public void Maps_position_side(BybitPositionSide? source, DomainPositionSide expected) =>
-        new BybitPosition { Side = source }.MapOpenPosition(MarketCategory.Linear).Side.Should().Be(expected);
+        new BybitPosition { Side = source }.MapOpenPosition(MarketCategory.Linear, settlementAsset: null).Side.Should().Be(expected);
 
     [Theory]
     [InlineData(BybitPositionStatus.Normal, Intelligence.TradeSystem.Domain.PositionStatus.Normal)]
@@ -128,7 +130,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
     [InlineData(null, Intelligence.TradeSystem.Domain.PositionStatus.Normal)]
     [InlineData((BybitPositionStatus)999, Intelligence.TradeSystem.Domain.PositionStatus.Normal)]
     public void Maps_position_status(BybitPositionStatus? source, Intelligence.TradeSystem.Domain.PositionStatus expected) =>
-        new BybitPosition { PositionStatus = source }.MapOpenPosition(MarketCategory.Linear).Status.Should().Be(expected);
+        new BybitPosition { PositionStatus = source }.MapOpenPosition(MarketCategory.Linear, settlementAsset: null).Status.Should().Be(expected);
 
     [Theory]
     [InlineData(0)]
@@ -137,9 +139,27 @@ public sealed class ToDomainTypeMapperExtensionsTests
     public void Preserves_position_idx(int positionIdx)
     {
         var mapped = new BybitPosition { PositionIdx = (BybitPositionIdx)positionIdx }
-            .MapOpenPosition(MarketCategory.Linear);
+            .MapOpenPosition(MarketCategory.Linear, settlementAsset: null);
 
         mapped.PositionIdx.Should().Be(positionIdx);
+    }
+
+    [Fact]
+    public void Preserves_unknown_settlement_asset_as_null()
+    {
+        var mapped = new BybitPosition { Symbol = "BTCUSDT" }
+            .MapOpenPosition(MarketCategory.Linear, settlementAsset: null);
+
+        mapped.SettlementAsset.Should().BeNull();
+    }
+
+    [Fact]
+    public void Preserves_scope_settlement_asset()
+    {
+        var mapped = new BybitPosition { Symbol = "BTCPERP" }
+            .MapOpenPosition(MarketCategory.Linear, SettlementAsset.From("USDC"));
+
+        mapped.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
     }
 
     [Fact]
@@ -149,7 +169,7 @@ public sealed class ToDomainTypeMapperExtensionsTests
         {
             CreateTime = null,
             UpdateTime = null,
-        }.MapOpenPosition(MarketCategory.Linear);
+        }.MapOpenPosition(MarketCategory.Linear, settlementAsset: null);
 
         mapped.CreatedTime.Should().BeNull();
         mapped.UpdatedTime.Should().BeNull();

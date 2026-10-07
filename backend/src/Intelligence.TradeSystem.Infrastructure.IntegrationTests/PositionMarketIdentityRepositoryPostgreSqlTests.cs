@@ -128,6 +128,7 @@ public sealed class PositionMarketIdentityRepositoryPostgreSqlTests(PostgreSqlFi
                 PositionSide.Long,
                 0),
             category,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,

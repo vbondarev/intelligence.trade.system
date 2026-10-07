@@ -9,7 +9,8 @@ public sealed record PortfolioCapitalState
         decimal? totalEquity,
         decimal? availableCapital,
         DateTimeOffset? observedAt,
-        decimal? totalWalletBalance = null)
+        decimal? totalWalletBalance = null,
+        decimal? accountUnrealizedPnl = null)
     {
         if (totalEquity is < 0m)
             throw new ArgumentOutOfRangeException(nameof(totalEquity), totalEquity, "Total equity cannot be negative.");
@@ -30,10 +31,21 @@ public sealed record PortfolioCapitalState
         AvailableCapital = availableCapital;
         ObservedAt = observedAt;
         TotalWalletBalance = totalWalletBalance;
+        AccountUnrealizedPnl = accountUnrealizedPnl;
     }
 
     public decimal? TotalEquity { get; }
     public decimal? AvailableCapital { get; }
     public DateTimeOffset? ObservedAt { get; }
     public decimal? TotalWalletBalance { get; }
+
+    /// <summary>
+    /// Нормализованный биржей нереализованный PnL всего аккаунта в USD (может быть
+    /// отрицательным). <see langword="null"/>, если биржа его не предоставила.
+    /// </summary>
+    /// <remarks>
+    /// Не является суммой position-level PnL: позиции могут иметь разные активы расчёта,
+    /// которые нельзя складывать без конвертации.
+    /// </remarks>
+    public decimal? AccountUnrealizedPnl { get; }
 }

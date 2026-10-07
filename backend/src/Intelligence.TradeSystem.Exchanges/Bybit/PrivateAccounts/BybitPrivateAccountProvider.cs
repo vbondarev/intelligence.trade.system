@@ -132,6 +132,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
         CancellationToken cancellationToken)
     {
         var positions = new List<OpenPosition>();
+        SettlementAsset? settlementAsset = settleCoin is null ? null : SettlementAsset.From(settleCoin);
         string? cursor = null;
         var retryCount = 0;
         ExchangeFailure? retryFailure = null;
@@ -183,7 +184,7 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
             positions.AddRange(
                 page.Response.Data?.List?
                     .Where(position => position.Quantity > 0m)
-                    .Select(position => position.MapOpenPosition(category))
+                    .Select(position => position.MapOpenPosition(category, settlementAsset))
                 ?? []);
 
             cursor = page.Response.Data?.NextPageCursor;

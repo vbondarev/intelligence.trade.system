@@ -441,6 +441,7 @@ public sealed class PositionAssessmentLatestPostgreSqlTests(
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0);

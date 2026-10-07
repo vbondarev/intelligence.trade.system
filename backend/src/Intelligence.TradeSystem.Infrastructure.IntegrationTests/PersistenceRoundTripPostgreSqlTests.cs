@@ -342,6 +342,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(position.Id, reloadedPosition.Id);
         Assert.Equal(position.ExchangePositionKey, reloadedPosition.ExchangePositionKey);
         Assert.Equal(position.MarketCategory, reloadedPosition.MarketCategory);
+        Assert.Equal(position.SettlementAsset, reloadedPosition.SettlementAsset);
         Assert.Equal(position.Size, reloadedPosition.Size);
         Assert.Equal(position.AverageEntryPrice, reloadedPosition.AverageEntryPrice);
         Assert.Equal(position.PositionValue, reloadedPosition.PositionValue);
@@ -463,6 +464,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var position = Position.Create(
             ExchangePositionKey.Create(account.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 1),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             timestamp,
             timestamp,
@@ -528,6 +530,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var second = Position.Create(
             first.ExchangePositionKey,
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             2m,
             T0.AddMinutes(2),
             T0.AddMinutes(2),
@@ -561,6 +564,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var duplicate = Position.Create(
             first.ExchangePositionKey,
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             3m,
             T0.AddMinutes(1),
             T0.AddMinutes(1));
@@ -583,6 +587,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var reopened = Position.Create(
             first.ExchangePositionKey,
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             4m,
             T0.AddMinutes(3),
             T0.AddMinutes(3));
@@ -610,7 +615,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         var second = PortfolioState.Create(
             account.Id,
             [position],
-            new PortfolioCapitalState(1100m, 700m, T0.AddMinutes(2), 1100m),
+            new PortfolioCapitalState(1100m, 700m, T0.AddMinutes(2), 1100m, accountUnrealizedPnl: -3.123456789012345678m),
             T0.AddMinutes(3),
             TimeSpan.FromMinutes(5));
 
@@ -629,6 +634,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(second.StaleAfter, latest.StaleAfter);
         Assert.Equal(second.PositionsFullyReconciled, latest.PositionsFullyReconciled);
         Assert.Equal(second.Capital, latest.Capital);
+        Assert.Equal(-3.123456789012345678m, latest.Capital.AccountUnrealizedPnl);
         Assert.Equal(second.Positions.ToArray(), latest.Positions.ToArray());
         Assert.Equal(second.GrossExposure, latest.GrossExposure);
         Assert.Equal(second.LongExposure, latest.LongExposure);
@@ -643,6 +649,53 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal(second.LargestPositionId, latest.LargestPositionId);
         Assert.Equal(second.IsComplete, latest.IsComplete);
         Assert.Equal(second.IsFresh, latest.IsFresh);
+    }
+
+    [Fact]
+    public async Task Settlement_asset_round_trips_for_position_and_self_contained_portfolio_snapshot()
+    {
+        var account = CreateAccount();
+        var usdc = Position.Create(
+            ExchangePositionKey.Create(account.Id, InstrumentId.From("ETHUSDC"), PositionSide.Short, 0),
+            MarketCategory.Linear,
+            SettlementAsset.From("USDC"),
+            2m,
+            T0,
+            T0,
+            positionValue: 5000m,
+            unrealizedPnl: 12m);
+        var usdt = CreatePosition(account.Id);
+        var portfolio = PortfolioState.Create(
+            account.Id,
+            [usdc, usdt],
+            new PortfolioCapitalState(10000m, 8000m, T0, 9000m, accountUnrealizedPnl: null),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        await using (var dbContext = fixture.CreateContext())
+        {
+            await new ExchangeAccountRepository(dbContext).SaveAsync(account.UserId, account, expectedVersion: null);
+            await new PositionRepository(dbContext).SaveAsync(account.UserId, usdc, expectedVersion: null);
+            await new PositionRepository(dbContext).SaveAsync(account.UserId, usdt, expectedVersion: null);
+            await new PortfolioStateRepository(dbContext).SaveAsync(account.UserId, portfolio);
+        }
+
+        await using var reloadedContext = fixture.CreateContext();
+        var reloadedPosition = await new PositionRepository(reloadedContext).GetByIdAsync(account.UserId, usdc.Id);
+        var latest = await new PortfolioStateRepository(reloadedContext).GetLatestAsync(account.UserId, account.Id);
+
+        Assert.Equal(SettlementAsset.From("USDC"), reloadedPosition!.Value.SettlementAsset);
+        Assert.NotNull(latest);
+        Assert.Null(latest!.Capital.AccountUnrealizedPnl);
+        Assert.Equal(
+            [SettlementAsset.From("USDC"), usdt.SettlementAsset],
+            latest.Positions.Select(position => position.SettlementAsset));
+        var persistedSnapshotAssets = await reloadedContext.PortfolioPositionStates
+            .OrderBy(state => state.Sequence)
+            .Where(state => state.PositionId == usdc.Id.Value || state.PositionId == usdt.Id.Value)
+            .Select(state => state.SettlementAsset)
+            .ToArrayAsync();
+        Assert.Equal(["USDC", usdt.SettlementAsset.Value], persistedSnapshotAssets);
     }
 
     [Fact]
@@ -1117,6 +1170,14 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
         Assert.Equal("numeric", await ReadColumnType(dbContext, "position_changes", "after_size"));
         Assert.Equal("timestamp with time zone", await ReadColumnType(dbContext, "positions", "last_observed_at"));
         Assert.Equal("NO", await ReadColumnNullability(dbContext, "positions", "size"));
+        Assert.Equal("character varying", await ReadColumnType(dbContext, "positions", "settlement_asset"));
+        Assert.Equal("NO", await ReadColumnNullability(dbContext, "positions", "settlement_asset"));
+        Assert.Equal(
+            "character varying",
+            await ReadColumnType(dbContext, "portfolio_position_states", "settlement_asset"));
+        Assert.Equal("NO", await ReadColumnNullability(dbContext, "portfolio_position_states", "settlement_asset"));
+        Assert.Equal("numeric", await ReadColumnType(dbContext, "portfolio_states", "account_unrealized_pnl"));
+        Assert.Equal("YES", await ReadColumnNullability(dbContext, "portfolio_states", "account_unrealized_pnl"));
 
         Assert.Equal("bigint", await ReadColumnType(dbContext, "exchange_accounts", "version"));
         Assert.Equal("bigint", await ReadColumnType(dbContext, "positions", "version"));
@@ -1540,6 +1601,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
             loaded.Value.Id,
             loaded.Value.ExchangePositionKey,
             loaded.Value.MarketCategory,
+            SettlementAsset.From("USDT"),
             loaded.Value.Size,
             loaded.Value.FirstDetectedAt,
             loaded.Value.LastObservedAt,
@@ -1870,6 +1932,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                 PositionSide.Long,
                 1),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1.123456789012345678m,
             T0,
             T0,

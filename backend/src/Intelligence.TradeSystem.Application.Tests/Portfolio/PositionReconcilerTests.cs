@@ -16,13 +16,15 @@ public sealed class PositionReconcilerTests
         MarketCategory category = MarketCategory.Linear,
         PositionSide side = PositionSide.Long,
         decimal size = 1m,
-        int positionIdx = 0) =>
+        int positionIdx = 0,
+        string? settlementAsset = "USDT") =>
         new(symbol, category, side, PositionStatus.Normal, size,
             AvgPrice: 100m, PositionValue: 100m, Leverage: 2m, MarkPrice: 100m,
             BreakEvenPrice: null, LiquidationPrice: null, UnrealizedPnl: 0m,
             TakeProfit: null, StopLoss: null, TrailingStop: null,
             RiskId: 1, RiskLimitValue: null, CreatedTime: null, UpdatedTime: null,
-            PositionIdx: positionIdx);
+            PositionIdx: positionIdx,
+            SettlementAsset: settlementAsset is null ? null : SettlementAsset.From(settlementAsset));
 
     private static Position CreateTrackedPosition(
         ExchangeAccountId accountId,
@@ -31,11 +33,13 @@ public sealed class PositionReconcilerTests
         PositionSide side = PositionSide.Long,
         decimal size = 1m,
         int positionIdx = 0,
-        DateTimeOffset? at = null)
+        DateTimeOffset? at = null,
+        string settlementAsset = "USDT")
     {
         var key = ExchangePositionKey.Create(accountId, InstrumentId.From(symbol), side, positionIdx);
         var t = at ?? T0;
-        return Position.Create(key, category, size, t, t, averageEntryPrice: 100m, leverage: 2m);
+        return Position.Create(
+            key, category, SettlementAsset.From(settlementAsset), size, t, t, averageEntryPrice: 100m, leverage: 2m);
     }
 
     [Fact]
@@ -333,6 +337,71 @@ public sealed class PositionReconcilerTests
         result.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
         linear.TrackingState.Should().Be(PositionTrackingState.Unknown);
+    }
+
+    [Fact]
+    public void New_Position_Keeps_Observed_Settlement_Asset()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1),
+            [CreateOpenPosition(symbol: "ETHUSDC", settlementAsset: "USDC")]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(1), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Observation_With_Same_Settlement_Asset_Updates_Existing_Position()
+    {
+        var tracked = CreateTrackedPosition(AccountA, symbol: "ETHUSDC", settlementAsset: "USDC");
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1),
+            [CreateOpenPosition(symbol: "ETHUSDC", size: 2m, settlementAsset: "USDC")]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+
+        tracked.Size.Should().Be(2m);
+        tracked.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Mismatching_Settlement_Asset_Is_Not_Applied_And_Does_Not_Infer_Closed()
+    {
+        var tracked = CreateTrackedPosition(AccountA, symbol: "BTCUSDT", settlementAsset: "USDT");
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1),
+            [CreateOpenPosition(symbol: "BTCUSDT", size: 5m, settlementAsset: "USDC")]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+
+        tracked.Size.Should().Be(1m);
+        tracked.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+        tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
+        result.NewPositions.Should().BeEmpty();
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Closed);
+        result.Warnings.Should().NotBeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Observation_With_Unknown_Settlement_Asset_Is_Skipped_And_Does_Not_Infer_Closed()
+    {
+        var tracked = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, null, T0.AddMinutes(1),
+            [CreateOpenPosition(symbol: "BTCUSDT", settlementAsset: null)]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
+        result.Warnings.Should().NotBeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
     }
 
     [Fact]

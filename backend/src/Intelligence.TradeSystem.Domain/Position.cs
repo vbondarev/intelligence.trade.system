@@ -9,7 +9,8 @@ namespace Intelligence.TradeSystem.Domain;
 /// </summary>
 /// <remarks>
 /// <see cref="Id"/>, <see cref="ExchangePositionKey"/> и <see cref="FirstDetectedAt"/> — стабильная
-/// идентичность жизненного цикла и не изменяются после создания. Остальное состояние изменяется
+/// идентичность жизненного цикла и не изменяются после создания. <see cref="SettlementAsset"/> также
+/// неизменяем: это характеристика жизненного цикла, а не его идентичность. Остальное состояние изменяется
 /// только через доменные методы (<see cref="ApplyObservation"/>, <see cref="MarkUnknown"/>,
 /// <see cref="RefreshFreshness"/>, <see cref="Close"/>), каждый из которых при необходимости
 /// добавляет запись в историю существенных изменений (<see cref="Changes"/>).
@@ -23,6 +24,7 @@ public sealed class Position
         PositionId id,
         ExchangePositionKey exchangePositionKey,
         MarketCategory marketCategory,
+        SettlementAsset settlementAsset,
         decimal size,
         decimal? averageEntryPrice,
         decimal? positionValue,
@@ -42,6 +44,7 @@ public sealed class Position
         Id = id;
         ExchangePositionKey = exchangePositionKey;
         MarketCategory = marketCategory;
+        SettlementAsset = settlementAsset;
         Size = size;
         AverageEntryPrice = averageEntryPrice;
         PositionValue = positionValue;
@@ -63,13 +66,22 @@ public sealed class Position
     public PositionId Id { get; }
     public ExchangePositionKey ExchangePositionKey { get; }
     public MarketCategory MarketCategory { get; }
+
+    /// <summary>
+    /// Актив расчёта, в котором выражены <see cref="PositionValue"/> и <see cref="UnrealizedPnl"/>.
+    /// </summary>
+    public SettlementAsset SettlementAsset { get; }
     public decimal Size { get; private set; }
     public decimal? AverageEntryPrice { get; private set; }
+
+    /// <summary>Стоимость позиции в <see cref="SettlementAsset"/>.</summary>
     public decimal? PositionValue { get; private set; }
     public decimal? Leverage { get; private set; }
     public decimal? MarkPrice { get; private set; }
     public decimal? BreakEvenPrice { get; private set; }
     public decimal? LiquidationPrice { get; private set; }
+
+    /// <summary>Нереализованный PnL позиции в <see cref="SettlementAsset"/>.</summary>
     public decimal? UnrealizedPnl { get; private set; }
     public decimal? TakeProfit { get; private set; }
     /// <summary>Абсолютная цена фиксированного stop-loss, если она задана.</summary>
@@ -93,6 +105,7 @@ public sealed class Position
     public static Position Create(
         ExchangePositionKey exchangePositionKey,
         MarketCategory marketCategory,
+        SettlementAsset settlementAsset,
         decimal size,
         DateTimeOffset firstDetectedAt,
         DateTimeOffset lastObservedAt,
@@ -113,6 +126,7 @@ public sealed class Position
             id,
             exchangePositionKey,
             marketCategory,
+            settlementAsset,
             size,
             averageEntryPrice,
             positionValue,
@@ -130,6 +144,7 @@ public sealed class Position
             id,
             exchangePositionKey,
             marketCategory,
+            settlementAsset,
             size,
             averageEntryPrice,
             positionValue,
@@ -161,6 +176,7 @@ public sealed class Position
         PositionId id,
         ExchangePositionKey exchangePositionKey,
         MarketCategory marketCategory,
+        SettlementAsset settlementAsset,
         decimal size,
         DateTimeOffset firstDetectedAt,
         DateTimeOffset lastObservedAt,
@@ -183,6 +199,7 @@ public sealed class Position
             id,
             exchangePositionKey,
             marketCategory,
+            settlementAsset,
             size,
             averageEntryPrice,
             positionValue,
@@ -216,6 +233,7 @@ public sealed class Position
             id,
             exchangePositionKey,
             marketCategory,
+            settlementAsset,
             size,
             averageEntryPrice,
             positionValue,
@@ -458,6 +476,7 @@ public sealed class Position
         PositionId id,
         ExchangePositionKey exchangePositionKey,
         MarketCategory marketCategory,
+        SettlementAsset settlementAsset,
         decimal size,
         decimal? averageEntryPrice,
         decimal? positionValue,
@@ -476,6 +495,9 @@ public sealed class Position
 
         if (exchangePositionKey == default)
             throw new ArgumentException("ExchangePositionKey must be initialized.", nameof(exchangePositionKey));
+
+        if (settlementAsset == default)
+            throw new ArgumentException("SettlementAsset must be initialized.", nameof(settlementAsset));
 
         if (marketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
             throw new ArgumentOutOfRangeException(

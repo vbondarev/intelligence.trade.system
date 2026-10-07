@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Common;
+using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Contracts.V1.Testing;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Serialization;
@@ -382,6 +384,75 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
                 CultureInfo.InvariantCulture)
             .Offset.Should()
             .Be(TimeSpan.FromHours(3));
+    }
+
+    [Fact]
+    public void V1_portfolio_contract_serializes_exposures_per_settlement_asset_without_cross_asset_total()
+    {
+        var response = new PortfolioResponse(
+            Guid.NewGuid(),
+            DateTimeOffset.UnixEpoch,
+            new PortfolioCapitalResponse(1000m, 800m, 900m, DateTimeOffset.UnixEpoch),
+            null,
+            null,
+            null,
+            null,
+            -12.5m,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            true,
+            true,
+            true,
+            3,
+            [
+                new PortfolioExposureResponse("USDC", 50m, 50m, 0m),
+                new PortfolioExposureResponse("USDT", null, 100m, null),
+            ]);
+
+        using var json = JsonDocument.Parse(
+            JsonSerializer.Serialize(response, V1JsonSerializerOptions.Default));
+        var root = json.RootElement;
+
+        root.GetProperty("totalUnrealizedPnl").GetDecimal().Should().Be(-12.5m);
+        root.GetProperty("currentPositionCount").GetInt32().Should().Be(3);
+        var exposures = root.GetProperty("exposures").EnumerateArray().ToArray();
+        exposures.Select(exposure => exposure.GetProperty("settlementAsset").GetString())
+            .Should().Equal("USDC", "USDT");
+        exposures[0].EnumerateObject().Select(property => property.Name)
+            .Should().Equal("settlementAsset", "grossExposure", "longExposure", "shortExposure");
+        exposures[1].GetProperty("grossExposure").ValueKind.Should().Be(JsonValueKind.Null);
+        exposures[1].GetProperty("shortExposure").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void V1_position_contract_serializes_settlement_asset_as_string()
+    {
+        var response = new PositionListItemResponse(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "ETHUSDC",
+            PositionSideV1.Long,
+            PositionTrackingStateV1.Active,
+            1m,
+            null,
+            null,
+            50m,
+            1m,
+            null,
+            null,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch,
+            null,
+            "USDC");
+
+        using var json = JsonDocument.Parse(
+            JsonSerializer.Serialize(response, V1JsonSerializerOptions.Default));
+
+        json.RootElement.GetProperty("settlementAsset").GetString().Should().Be("USDC");
     }
 
     [Theory]

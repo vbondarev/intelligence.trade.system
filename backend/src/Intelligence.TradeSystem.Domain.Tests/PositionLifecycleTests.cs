@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Domain.History;
+using Intelligence.TradeSystem.Domain.Identity;
 
 namespace Intelligence.TradeSystem.Domain.Tests;
 
@@ -11,7 +12,7 @@ public sealed class PositionLifecycleTests
     private static Position CreatePosition(decimal size = 1m, DateTimeOffset? at = null)
     {
         var t = at ?? T0;
-        return Position.Create(Key, MarketCategory.Linear, size, t, t, averageEntryPrice: 100m, leverage: 2m);
+        return Position.Create(Key, MarketCategory.Linear, SettlementAsset.From("USDT"), size, t, t, averageEntryPrice: 100m, leverage: 2m);
     }
 
     [Fact]
@@ -348,7 +349,7 @@ public sealed class PositionLifecycleTests
     public void History_Snapshot_Preserves_Size_AverageEntry_MarkPrice_Pnl_And_Liquidation()
     {
         var position = Position.Create(
-            Key, MarketCategory.Linear, 2m, T0, T0,
+            Key, MarketCategory.Linear, SettlementAsset.From("USDT"), 2m, T0, T0,
             averageEntryPrice: 100m, markPrice: 105m, liquidationPrice: 80m, unrealizedPnl: 10m);
 
         var snapshot = position.Changes[0].After;

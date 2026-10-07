@@ -21,6 +21,7 @@ internal static class PositionMapper
         entity.PositionSide = position.ExchangePositionKey.PositionSide;
         entity.PositionIdx = position.ExchangePositionKey.PositionIdx;
         entity.MarketCategory = position.MarketCategory;
+        entity.SettlementAsset = position.SettlementAsset.Value;
         entity.Size = position.Size;
         entity.AverageEntryPrice = position.AverageEntryPrice;
         entity.PositionValue = position.PositionValue;
@@ -59,6 +60,7 @@ internal static class PositionMapper
             positionId,
             key,
             entity.MarketCategory,
+            SettlementAsset.From(entity.SettlementAsset),
             entity.Size,
             PersistenceDateTime.ToUtc(entity.FirstDetectedAt),
             PersistenceDateTime.ToUtc(entity.LastObservedAt),

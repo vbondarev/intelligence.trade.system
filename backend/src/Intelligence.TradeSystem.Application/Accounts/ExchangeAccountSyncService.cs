@@ -250,11 +250,9 @@ public sealed class ExchangeAccountSyncService(
                                 .ToArray();
 
                             var capital = IsApplied(balanceDisposition) && hasFreshBalance
-                                ? new PortfolioCapitalState(
-                                    balanceObservation.Balance!.TotalEquity,
-                                    balanceObservation.Balance.TotalAvailableBalance,
-                                    balanceObservation.ObservedAt,
-                                    balanceObservation.Balance.TotalWalletBalance)
+                                ? PortfolioStateAssembler.CreateCapital(
+                                    balanceObservation.Balance!,
+                                    balanceObservation.ObservedAt)
                                 : previousPortfolioState?.Capital
                                     ?? new PortfolioCapitalState(null, null, null);
                             var portfolioState = PortfolioStateAssembler.AssembleWithCapital(

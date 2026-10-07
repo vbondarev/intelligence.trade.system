@@ -334,6 +334,34 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
+    public async Task V1_openapi_describes_settlement_asset_and_grouped_portfolio_exposures()
+    {
+        using var document = await GetDocumentAsync();
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+
+        foreach (var positionSchema in new[] { "PositionResponse", "PositionListItemResponse" })
+        {
+            schemas.GetProperty(positionSchema).GetProperty("properties")
+                .GetProperty("settlementAsset").GetProperty("type").GetString()
+                .Should().Contain("string");
+        }
+
+        var portfolioProperties = schemas.GetProperty("PortfolioResponse").GetProperty("properties");
+        portfolioProperties.GetProperty("currentPositionCount").GetProperty("type").GetString()
+            .Should().Contain("integer");
+        var exposures = portfolioProperties.GetProperty("exposures");
+        exposures.GetProperty("type").GetString().Should().Contain("array");
+        GetReferenceName(exposures.GetProperty("items")).Should().Be("PortfolioExposureResponse");
+
+        var exposureSchema = schemas.GetProperty("PortfolioExposureResponse");
+        exposureSchema.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().BeEquivalentTo("settlementAsset", "grossExposure", "longExposure", "shortExposure");
+        AssertNullableProperty(exposureSchema, "grossExposure");
+        AssertNullableProperty(exposureSchema, "longExposure");
+        AssertNullableProperty(exposureSchema, "shortExposure");
+    }
+
+    [Fact]
     public async Task V1_openapi_enum_values_match_runtime_camel_case_values()
     {
         using var document = await GetDocumentAsync();
