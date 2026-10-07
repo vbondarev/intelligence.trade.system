@@ -103,6 +103,7 @@ public sealed class LoginAndHostingTests
         using var response = await browser.Client.GetAsync("/bff/unknown");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
         (await response.Content.ReadAsStringAsync()).Should().NotContain(BffApplicationFactory.FrontendIndexMarker);
     }
 

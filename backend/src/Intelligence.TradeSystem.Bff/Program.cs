@@ -31,7 +31,12 @@ public partial class Program
         app.MapExchangeAccountEndpoints();
 
         // Неизвестный /bff/** path не должен попадать в SPA fallback frontend или в API.
-        app.Map("/bff/{**path}", () => Results.NotFound());
+        // Контракт требует no-store для всех ответов /bff/me/**, включая неизвестные paths.
+        app.Map("/bff/{**path}", (HttpContext httpContext) =>
+        {
+            httpContext.Response.Headers.CacheControl = "no-store";
+            return Results.NotFound();
+        });
         app.MapDefaultEndpoints();
 
         app.Run();

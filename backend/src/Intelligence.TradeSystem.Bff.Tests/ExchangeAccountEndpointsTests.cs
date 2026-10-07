@@ -84,6 +84,10 @@ public sealed class ExchangeAccountEndpointsTests
         apiRequest.AuthorizationScheme.Should().Be("Bearer");
         apiRequest.AuthorizationParameter.Should().Be("access-1");
         apiRequest.Body.Should().Be(requestBody ?? string.Empty);
+        if (requestBody is not null)
+        {
+            factory.RequestBody.ReadCount.Should().BePositive();
+        }
     }
 
     public static TheoryData<string, string, string?, string, int> Operations() => new()
@@ -230,6 +234,77 @@ public sealed class ExchangeAccountEndpointsTests
         (await browser.GetStoredTicketAsync()).Should().NotBeNull();
     }
 
+    [Theory]
+    [MemberData(nameof(BodyOperations))]
+    public async Task Ended_session_body_mutation_returns_unauthorized_before_reading_the_body(
+        string method,
+        string path,
+        string body)
+    {
+        using var factory = new BffApplicationFactory();
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
+            UpstreamResponses.TokenError(HttpStatusCode.BadRequest, "invalid_grant"));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(30));
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+
+        using var response = await SendAsync(browser, method, path, body, antiforgery);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        factory.RequestBody.ReadCount.Should().Be(0);
+        factory.Api.Count.Should().Be(0);
+        browser.SessionCookie.Should().BeNull();
+    }
+
+    public static TheoryData<string, string, string> BodyOperations() => new()
+    {
+        { "POST", "/bff/me/exchange-accounts", CreateBody },
+        { "PATCH", $"/bff/me/exchange-accounts/{AccountId}", "{\"displayName\":\"GinArea\"}" },
+        { "PUT", $"/bff/me/exchange-accounts/{AccountId}/credentials", RotateBody },
+    };
+
+    [Fact]
+    public async Task Unavailable_token_service_returns_service_unavailable_before_reading_the_body()
+    {
+        using var factory = new BffApplicationFactory();
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(30));
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+
+        using var response = await SendAsync(browser, "POST", "/bff/me/exchange-accounts", CreateBody, antiforgery);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        factory.RequestBody.ReadCount.Should().Be(0);
+        factory.Api.Count.Should().Be(0);
+        (await browser.GetStoredTicketAsync()).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Body_read_failure_does_not_reach_the_api_or_leak_credentials()
+    {
+        using var factory = new BffApplicationFactory();
+        factory.RequestBody.FailureAfterFirstRead = new IOException("simulated request body failure");
+        factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.Created, AccountJson));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+
+        var act = async () =>
+        {
+            using var response = await SendAsync(browser, "POST", "/bff/me/exchange-accounts", CreateBody, antiforgery);
+        };
+
+        var failure = await act.Should().ThrowAsync<IOException>();
+        failure.Which.ToString().Should().NotContain(FakeApiKey).And.NotContain(FakeApiSecret);
+        factory.RequestBody.ReadCount.Should().BeGreaterThan(1);
+        factory.Api.Count.Should().Be(0);
+        factory.TokenEndpoint.Count.Should().Be(0);
+    }
+
     [Fact]
     public async Task Network_failure_of_an_unsafe_request_is_not_retried_and_does_not_leak_exception_text()
     {
@@ -303,6 +378,7 @@ public sealed class ExchangeAccountEndpointsTests
         using var response = await SendAsync(browser, method, path, method is "DELETE" ? null : CreateBody, antiforgery: null);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        factory.RequestBody.ReadCount.Should().Be(0);
         factory.Api.Count.Should().Be(0);
         factory.TokenEndpoint.Count.Should().Be(0);
     }
@@ -316,6 +392,8 @@ public sealed class ExchangeAccountEndpointsTests
     [InlineData("GET", "/bff/me/positions")]
     [InlineData("GET", "/bff/api/v1/me/exchange-accounts")]
     [InlineData("POST", "/bff/me/exchange-accounts/" + AccountId + "/verify/extra")]
+    [InlineData("GET", "/bff/me/exchange-accounts/not-a-guid")]
+    [InlineData("GET", "/bff/unknown")]
     public async Task Unknown_or_unplanned_bff_paths_return_not_found_without_reaching_the_api(string method, string path)
     {
         using var factory = new BffApplicationFactory();
@@ -327,6 +405,7 @@ public sealed class ExchangeAccountEndpointsTests
         using var response = await SendAsync(browser, method, path, method is "GET" or "DELETE" ? null : "{}", antiforgery);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
         factory.Api.Count.Should().Be(0);
     }
 

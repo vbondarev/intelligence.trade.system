@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Intelligence.TradeSystem.Bff.Api;
 
 namespace Intelligence.TradeSystem.Bff.Endpoints;
@@ -26,9 +25,8 @@ internal static class ExchangeAccountEndpoints
                 AuthenticatedApiForwarder forwarder,
                 ExchangeAccountsApiClient apiClient,
                 CancellationToken cancellationToken) =>
-            ForwardWithBodyAsync(
+            forwarder.ForwardWithBodyAsync(
                 httpContext,
-                forwarder,
                 (body, token, ct) => apiClient.CreateAsync(body, token, ct),
                 cancellationToken));
 
@@ -38,9 +36,8 @@ internal static class ExchangeAccountEndpoints
                 AuthenticatedApiForwarder forwarder,
                 ExchangeAccountsApiClient apiClient,
                 CancellationToken cancellationToken) =>
-            ForwardWithBodyAsync(
+            forwarder.ForwardWithBodyAsync(
                 httpContext,
-                forwarder,
                 (body, token, ct) => apiClient.RenameAsync(id, body, token, ct),
                 cancellationToken));
 
@@ -61,9 +58,8 @@ internal static class ExchangeAccountEndpoints
                 AuthenticatedApiForwarder forwarder,
                 ExchangeAccountsApiClient apiClient,
                 CancellationToken cancellationToken) =>
-            ForwardWithBodyAsync(
+            forwarder.ForwardWithBodyAsync(
                 httpContext,
-                forwarder,
                 (body, token, ct) => apiClient.RotateCredentialsAsync(id, body, token, ct),
                 cancellationToken));
 
@@ -79,37 +75,5 @@ internal static class ExchangeAccountEndpoints
                 cancellationToken));
 
         return endpoints;
-    }
-
-    /// <summary>
-    /// Буферизует JSON body в памяти, чтобы его можно было отправить повторно после
-    /// принудительного refresh. Body может содержать API key/secret: он не логируется,
-    /// не сохраняется и очищается сразу после завершения операции.
-    /// </summary>
-    private static async Task<ApiForwardResponse> ForwardWithBodyAsync(
-        HttpContext httpContext,
-        AuthenticatedApiForwarder forwarder,
-        Func<byte[], string, CancellationToken, Task<ApiForwardResponse>> send,
-        CancellationToken cancellationToken)
-    {
-        byte[] body;
-        using (var buffer = new MemoryStream())
-        {
-            await httpContext.Request.Body.CopyToAsync(buffer, cancellationToken);
-            body = buffer.ToArray();
-            CryptographicOperations.ZeroMemory(buffer.GetBuffer());
-        }
-
-        try
-        {
-            return await forwarder.ForwardAsync(
-                httpContext,
-                (token, ct) => send(body, token, ct),
-                cancellationToken);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(body);
-        }
     }
 }

@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Api.Contracts.V1;
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
+using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -211,6 +212,21 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
             .Should().BeEquivalentTo(["displayName"]);
         requestSchema.GetProperty("required").EnumerateArray().Select(property => property.GetString())
             .Should().Contain("displayName");
+    }
+
+    [Theory]
+    [InlineData(nameof(CreateExchangeAccountRequest))]
+    [InlineData(nameof(RenameExchangeAccountRequest))]
+    public async Task V1_exchange_account_requests_publish_required_display_name_with_the_domain_max_length(
+        string schemaName)
+    {
+        using var document = await GetDocumentAsync();
+        var requestSchema = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(schemaName);
+
+        requestSchema.GetProperty("required").EnumerateArray().Select(property => property.GetString())
+            .Should().Contain("displayName");
+        requestSchema.GetProperty("properties").GetProperty("displayName").GetProperty("maxLength").GetInt32()
+            .Should().Be(ExchangeAccount.DisplayNameMaxLength);
     }
 
     [Fact]
