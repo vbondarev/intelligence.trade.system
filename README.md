@@ -114,7 +114,7 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 - типизированные идентификаторы пользователя, биржевого аккаунта, позиции и инструмента;
 - `ExchangeAccount`, `Position` и устойчивая идентичность биржевой позиции с учётом `positionIdx`;
 - подключение Bybit-аккаунта, ручная и фоновая синхронизация баланса, позиций и `PortfolioState`;
-- канонический `/api/v1/exchange-accounts` для list/connect/verify/credential rotation/sync/disconnect с user scope, OpenAPI/API contract tests и удалёнными pre-v1 routes;
+- канонический management-контракт `/api/v1/me/exchange-accounts` для list/connect/reconnect/rename/verify/credential rotation/disconnect с user scope; account-scoped `POST /api/v1/exchange-accounts/{id}/sync` и `GET /api/v1/exchange-accounts/{id}/portfolio` сохраняются отдельно; OpenAPI/API contract tests фиксируют отсутствие прежних management routes;
 - канонический `/api/v1/positions` с user-scoped SQL-side cursor pagination и фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`;
 - `/api/v1/positions/{id}` с current-state карточкой без истории, timeline, evaluation и market context;
 - `/api/v1/positions/{id}/timeline` с объединённой user-scoped историей `positionChange`/`evaluation`/`recommendation`, newest-first deterministic ordering, opaque cursor pagination и repeatable `type` filter;
@@ -155,7 +155,7 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 
 ### Ещё не реализовано
 
-- пользовательские экраны React поверх `/api/v1` и browser SignalR integration через BFF;
+- остальные пользовательские экраны React поверх `/api/v1` (портфель, позиции, карточка и timeline) и browser SignalR integration через BFF;
 - непрерывный цикл повторной оценки активных позиций;
 - уведомления о рисках конкретных пользовательских позиций;
 - общий cross-account portfolio и расширенная портфельная аналитика, включая correlation model.
@@ -483,7 +483,7 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Этапы **A–F**, технические задачи **Tech-G01 — Tech-G13**, **G-01** и **G-02** завершены. Tech-G09 завершил воспроизводимый agent-first lifecycle с durable Approved Plan, Amendments и обязательной проверкой PR workflow. Tech-G10 нормализовал HTTP boundary API-контроллеров без изменения публичных контрактов. Tech-G11 унифицировал загрузку и startup validation runtime-конфигурации `SnapshotFreshness` без изменения публичных API-контрактов. Tech-G12 усилил fail-fast проверку критичной authentication/persistence/security-конфигурации без изменения публичных и бизнес-контрактов. Tech-G13 унифицировал configuration contract migrations/design-time tooling и закрепил startup-only lifecycle служебных процессов без изменения runtime architecture и публичных контрактов. G-01 добавил самостоятельный React-клиент и BFF с OAuth/OIDC login, server-side browser session и full SSO logout за единым browser-facing origin. G-02 реализовал в Web управление read-only подключениями Bybit: список, добавление, переименование, проверку, замену ключей, отключение и восстановление. Следующий обязательный шаг — **G-03: сводка account-scoped портфеля и список позиций**. Подробный scope и дальнейшая последовательность определяются `ROADMAP.md`.
 
-Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
+Этап F завершён последовательными небольшими изменениями: F-01 зафиксировал стабильные v1-контракты и стратегию миграции pre-v1 `api/exchange-accounts`; F-02 завершил первоначальный канонический lifecycle биржевого аккаунта (`/api/v1/exchange-accounts`) и удалил pre-v1 маршруты; G-02 позднее перенёс management-операции в `/api/v1/me/exchange-accounts`, сохранив account-scoped sync/portfolio routes; F-03 добавил позиции и account-scoped portfolio; F-04 добавил position-scoped market/candles; F-05 добавил evaluation workflow и read model; F-06 добавил position timeline с cursor pagination и type filtering; F-07 добавил user-scoped SignalR invalidation с REST recovery; F-08 завершил проверку полноты OpenAPI/contract tests и пригодности v1-контракта для будущей генерации клиента. OpenAPI/API tests продолжают обновляться в каждом PR, который добавляет или меняет публичный контракт.
 
 Основная ближайшая последовательность:
 
