@@ -384,12 +384,9 @@ public sealed class ExchangeAccountEndpointsTests
     }
 
     [Theory]
-    [InlineData("POST", "/bff/me/exchange-accounts/" + AccountId + "/sync")]
     [InlineData("GET", "/bff/me/exchange-accounts/" + AccountId)]
-    [InlineData("GET", "/bff/me/exchange-accounts/" + AccountId + "/portfolio")]
     [InlineData("PATCH", "/bff/me/exchange-accounts/not-a-guid")]
     [InlineData("DELETE", "/bff/me/exchange-accounts/..%2F..%2Fauth%2Fme")]
-    [InlineData("GET", "/bff/me/positions")]
     [InlineData("GET", "/bff/api/v1/me/exchange-accounts")]
     [InlineData("POST", "/bff/me/exchange-accounts/" + AccountId + "/verify/extra")]
     [InlineData("GET", "/bff/me/exchange-accounts/not-a-guid")]
