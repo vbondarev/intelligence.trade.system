@@ -148,7 +148,7 @@
 - ✅ PostgreSQL schema и migrations реализованы; постоянное хранение доменного состояния доступно через Application repository ports.
 - ✅ Реализовано безопасное хранение API credentials Bybit в authenticated encrypted form; user-scoped store поддерживает CAS rotate/revoke и master-key reprotection, без secrets в БД, логах и ответах.
 - ✅ Реализованы подключение Bybit-аккаунта только для чтения, ручная и фоновая синхронизация баланса, открытых позиций и `PortfolioState`.
-- ✅ F-02 публикует канонический `/api/v1/exchange-accounts`: список подключений, connect, verify, безопасную ротацию credentials, sync и disconnect; pre-v1 routes удалены.
+- ✅ F-02 первоначально опубликовал lifecycle `/api/v1/exchange-accounts`; после G-02 канонические management-операции list/connect/reconnect/rename/verify/credential rotation/disconnect находятся под `/api/v1/me/exchange-accounts`, а account-scoped sync и portfolio сохраняются под `/api/v1/exchange-accounts/{id}`; pre-v1 routes удалены.
 - ✅ F-03 публикует `/api/v1/positions` с SQL-side cursor pagination, фильтрами `exchangeAccountId`/`trackingState`/`symbol`/`side`, стабильным порядком и opaque versioned cursor.
 - ✅ F-03 публикует `/api/v1/positions/{id}` как user-scoped current-state карточку без `PositionChanges`, timeline, evaluation и market context, а `/api/v1/exchange-accounts/{id}/portfolio` — account-scoped summary без встроенного списка позиций.
 - ✅ F-04 публикует user-scoped `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`, получая market identity из позиции и не смешивая пользовательское состояние с public market-analysis API.
