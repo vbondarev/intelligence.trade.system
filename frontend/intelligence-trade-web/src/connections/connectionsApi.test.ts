@@ -8,6 +8,7 @@ import {
   renameConnection,
   restoreConnection,
   rotateCredentials,
+  syncConnection,
   verifyConnection,
 } from './connectionsApi';
 import type { ExchangeAccount } from './connectionTypes';
@@ -184,6 +185,64 @@ describe('connectionsApi', () => {
     const requests = mockFetch({ '/bff/auth/antiforgery': () => jsonResponse({}, 401) });
 
     const error = (await verifyConnection(ACCOUNT_ID).catch((caught: unknown) => caught)) as ConnectionsApiError;
+
+    expect(error.status).toBe(401);
+    expect(requests.map((request) => request.url)).toEqual(['/bff/auth/antiforgery']);
+  });
+
+  it('syncs a connection through the explicit BFF route with antiforgery token and without body', async () => {
+    const synced = { ...account, lastSyncedAt: '2026-10-07T10:00:00Z' };
+    const requests = mockFetch({
+      '/bff/auth/antiforgery': antiforgery,
+      [`${ITEM_URL}/sync`]: () => jsonResponse(synced),
+    });
+
+    await expect(syncConnection(ACCOUNT_ID)).resolves.toEqual(synced);
+    expect(requests.map((request) => request.url)).toEqual(['/bff/auth/antiforgery', `${ITEM_URL}/sync`]);
+    const sync = requests[1]?.init;
+    expect(sync?.method).toBe('POST');
+    expect(sync?.credentials).toBe('same-origin');
+    expect(sync?.cache).toBe('no-store');
+    expect(sync?.body).toBeUndefined();
+    expect(new Headers(sync?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token');
+  });
+
+  it.each([
+    [409, 'exchange_account_disabled'],
+    [503, 'exchange_unavailable'],
+    [404, 'resource_not_found'],
+  ])('reports sync ProblemDetails %s as a typed error without retry', async (status, code) => {
+    const requests = mockFetch({
+      '/bff/auth/antiforgery': antiforgery,
+      [`${ITEM_URL}/sync`]: () => problemResponse(status, { status, code, traceId: '00-trace-02', detail: 'secret detail' }),
+    });
+
+    const error = (await syncConnection(ACCOUNT_ID).catch((caught: unknown) => caught)) as ConnectionsApiError;
+
+    expect(error).toBeInstanceOf(ConnectionsApiError);
+    expect(error.status).toBe(status);
+    expect(error.code).toBe(code);
+    expect(error.traceId).toBe('00-trace-02');
+    expect(error.message).not.toContain('secret detail');
+    expect(requests.filter((request) => request.url === `${ITEM_URL}/sync`)).toHaveLength(1);
+  });
+
+  it('does not retry sync after a network failure', async () => {
+    const requests = mockFetch({
+      '/bff/auth/antiforgery': antiforgery,
+      [`${ITEM_URL}/sync`]: () => {
+        throw new TypeError('network down');
+      },
+    });
+
+    await expect(syncConnection(ACCOUNT_ID)).rejects.toBeInstanceOf(TypeError);
+    expect(requests.filter((request) => request.url === `${ITEM_URL}/sync`)).toHaveLength(1);
+  });
+
+  it('does not send sync when the antiforgery token cannot be obtained', async () => {
+    const requests = mockFetch({ '/bff/auth/antiforgery': () => jsonResponse({}, 401) });
+
+    const error = (await syncConnection(ACCOUNT_ID).catch((caught: unknown) => caught)) as ConnectionsApiError;
 
     expect(error.status).toBe(401);
     expect(requests.map((request) => request.url)).toEqual(['/bff/auth/antiforgery']);

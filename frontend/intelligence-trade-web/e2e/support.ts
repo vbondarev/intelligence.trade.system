@@ -41,7 +41,8 @@ export async function openIdentityLoginThroughLanding(page: Page) {
 export async function loginThroughLanding(page: Page) {
   await openIdentityLoginThroughLanding(page);
   await submitIdentityLogin(page);
-  await page.waitForURL(`${webBaseUrl}/app`);
+  // Обзор может сразу записать выбранное подключение в query, поэтому сравнивается только path.
+  await page.waitForURL((url) => url.origin === new URL(webBaseUrl).origin && url.pathname === '/app');
   await expect(page.getByRole('heading', { name: 'Обзор' })).toBeVisible();
 }
 
