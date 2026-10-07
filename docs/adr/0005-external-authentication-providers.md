@@ -294,7 +294,8 @@ Domain UserId.Value
 - provider token persistence — по умолчанию она не требуется и может появиться только при отдельной необходимости обращения к provider API;
 - roles/permissions persistence;
 - admin API routes;
-- будущие browser routes административного интерфейса;
+- `/bff/admin/**` — будущий BFF administrative contract, не принимаемый этим ADR;
+- `/app/admin/**` — будущий browser administrative route contract, не принимаемый этим ADR;
 - конкретный admin UI;
 - exact Identity DB entity для provider runtime state;
 - secret-store technology;
