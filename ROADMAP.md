@@ -1,9 +1,9 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.53
-Дата актуализации: 6 октября 2026 года
-Проверенная база: `develop` @ `d40ca9def910bcc34469826b53c8f5db5d754f00`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184
-Последняя учтённая задача: Issue #184 «G-02. Реализовать управление подключениями Bybit только для чтения»
+Версия документа: 3.54
+Дата актуализации: 7 октября 2026 года
+Проверенная база: `develop` @ `79520c88642032be484b4a50ec1e984083e062d7`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187
+Последняя учтённая задача: Issue #187 «Зафиксировать архитектуру расширяемой внешней аутентификации»
 Текущий этап: **G — основной React-клиент**; G-01 и G-02 завершены, следующий обязательный шаг — **G-03**
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
@@ -361,6 +361,16 @@ GET    /api/v1/auth/me
 | G-07 | Добавить адаптивность и базовую доступность | ⬜ | Основные сценарии работают на телефоне и компьютере |
 | G-08 | Зафиксировать базовую дизайн-систему и обработку ошибок | ⬜ | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
 
+#### Параллельное направление G-AUTH — внешняя аутентификация
+
+Архитектура направления зафиксирована в [ADR-0005](docs/adr/0005-external-authentication-providers.md). G-AUTH развивается параллельно основному пользовательскому потоку этапа G, не является prerequisite для G-03 — G-08 и не меняет следующий обязательный шаг — G-03.
+
+| Код | Задача | Статус | Критерий завершения |
+|---|---|---|---|
+| G-AUTH-01 | Реализовать расширяемую внешнюю аутентификацию | ⬜ | Identity поддерживает provider-agnostic external login с единым `ApplicationUser`/`sub`; подключены Google, Microsoft, Yandex и GitHub; account linking не выполняется автоматически по email; provider secrets отделены от runtime enablement |
+| G-AUTH-02 | Реализовать административное Web-управление провайдерами | ⬜ | Уполномоченный пользователь может управлять `Enabled` и `AllowNewUsers` через permission-based authorization; конкретные Web/BFF contracts определяются в отдельной задаче |
+| G-AUTH-03 | Интегрировать ЕСИА | ⬜ | ЕСИА подключена как специализированный external authentication provider без изменения внутреннего `ApplicationUser`/OpenIddict `sub`/Domain `UserId` contract |
+
 Результат этапов C, D, F и G: готова панель портфеля, работающая только с чтением биржевых данных.
 
 ### Этап H. Реализовать непрерывное наблюдение
@@ -487,6 +497,8 @@ GET    /api/v1/auth/me
 | 5 | Добавить сбор фактических результатов и метрики качества | J-01 — J-07 |
 | 6 | Завершить удаление временных компонентов после перевода всех потребителей | L-08 |
 
+G-AUTH-01 — G-AUTH-03 являются параллельным направлением и могут реализовываться независимо от основной очереди, если не создают конфликт с текущим обязательным шагом; они не становятся prerequisite для G-03 — G-08.
+
 Этапы A–F, Tech-G01 — Tech-G13, G-01 и G-02 завершены. Следующий обязательный шаг — G-03; после завершения этапа G сохраняется текущая последовательность H / I / L / J / L-08. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
@@ -568,6 +580,7 @@ GET    /api/v1/auth/me
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-07 | 3.54 | Issue #187 принял ADR-0005 по расширяемой внешней аутентификации: provider-specific вход остаётся внутри Identity, external login сопоставляется через `LoginProvider + ProviderKey` с единым `ApplicationUser.Id`, который сохраняется как OpenIddict `sub` и Domain `UserId`; email не используется для автоматического объединения identity. В ROADMAP добавлены параллельные G-AUTH-01 — G-AUTH-03 для базовой external authentication, административного управления провайдерами и ЕСИА. G-AUTH не является prerequisite для G-03 — G-08, следующим обязательным шагом остаётся G-03; production code и runtime contracts не изменялись. |
 | 2026-10-06 | 3.53 | Issue #184 завершает G-02: в Web появилась страница «Подключения» для управления read-only подключениями Bybit — список, включая отключённые, добавление, переименование, проверка, замена ключей, отключение с подтверждением и восстановление; после каждой mutation список перечитывается через REST. Подключение получило обязательное пользовательское `displayName` (trim, до 100 символов, сохраняется при disconnect/reconnect; migration `AddExchangeAccountDisplayName` с backfill существующих строк). По pre-release policy v1, зафиксированной в `docs/api-v1-conventions.md`, management API перенесён на `/api/v1/me/exchange-accounts` без compatibility alias, добавлен `PATCH` rename (`renameExchangeAccount`), список включает отключённые подключения; sync и portfolio остаются под `/api/v1/exchange-accounts/{id}`. BFF получил явные `/bff/me/exchange-accounts/**` endpoints без generic proxy, с CSRF, `no-store`, сохранением `ProblemDetails` и единственным повтором после `401` + refresh. Provider identity не публикуется, credentials не попадают в логи, ответы и browser storage. Следующий обязательный шаг — G-03. |
 | 2026-10-06 | 3.52 | Issue #182 выполнил prerequisite G-02: в области пользователя `UserId + ExchangeId + ProviderIdentity` соответствует не более чем одному `ExchangeAccountId`, что гарантирует нефильтрованный PostgreSQL unique index (migration `EnforceUniqueExchangeAccountProviderIdentity` без cleanup/backfill). `POST /api/v1/exchange-accounts` возвращает `201 Created` для нового provider-side аккаунта, `200 OK` при восстановлении `Disabled`-подключения с прежним `ExchangeAccountId`, историей и новыми проверенными credentials и `409 exchange_account_already_exists` для активного duplicate; failed verification не изменяет `Disabled`-подключение, конкурентные connect/reconnect завершаются controlled conflict без partial state. Master account и subaccounts Bybit остаются отдельными подключениями, provider identity не публикуется, rotation/verify semantics не изменены. Lifecycle и concurrency покрыты Domain/Application/API и PostgreSQL integration tests. G-02 не начат и остаётся следующим обязательным шагом. |
 | 2026-10-05 | 3.51 | По Human Decision G-01 отмечен завершённым перед merge PR #181: создан самостоятельный React-клиент и отдельный ASP.NET Core BFF за единым browser-facing origin, реализованы OAuth/OIDC login, server-side browser session, CSRF-защищённый logout, full SSO logout, безопасный refresh lifecycle, базовая адаптивная оболочка, независимые Docker/CI paths и синхронизированная документация. Review findings устранены и inline threads закрыты; после documentation commit требуется новый exact-head CI/Re-review перед merge. Следующий обязательный шаг — G-02. |
