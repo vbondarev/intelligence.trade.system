@@ -491,6 +491,44 @@ describe('HomePage manual sync', () => {
     expect(requests.some((request) => request.url.includes('evaluation'))).toBe(false);
   });
 
+  it('keeps the last successful portfolio and positions visible when the post-sync reload fails', async () => {
+    let portfolioCalls = 0;
+    let positionsCalls = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, {
+        portfolio: () => {
+          portfolioCalls += 1;
+          return portfolioCalls === 1 ? jsonResponse(portfolio()) : problem(503, 'service_unavailable');
+        },
+        positions: () => {
+          positionsCalls += 1;
+          return positionsCalls === 1 ? page([position()], 'opaque+cursor/=') : problem(503, 'service_unavailable');
+        },
+      }),
+      [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
+    });
+
+    const summary = await findSummary();
+    expect(valueOf(summary, 'Открытые позиции')).toBe('3');
+    expect(await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
+
+    expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
+    await waitFor(() => {
+      expect(portfolioCalls).toBe(2);
+      expect(positionsCalls).toBe(2);
+    });
+
+    expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('3');
+    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Сервис временно недоступен. Повторите попытку позже.')).toHaveLength(2);
+    expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(2);
+    expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2);
+  });
+
   it('shows a sync failure without retry and still reloads factual state', async () => {
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),

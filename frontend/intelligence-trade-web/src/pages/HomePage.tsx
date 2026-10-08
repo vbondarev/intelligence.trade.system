@@ -54,9 +54,11 @@ interface SyncState {
   notice: Notice | null;
 }
 
-type PortfolioLoad =
-  | { accountId: string; portfolio: Portfolio | null; error: null }
-  | { accountId: string; portfolio: null; error: Notice };
+interface PortfolioLoad {
+  accountId: string;
+  portfolio: Portfolio | null;
+  error: Notice | null;
+}
 
 interface PositionsLoad {
   key: string;
@@ -224,11 +226,12 @@ export function HomePage() {
       },
       (error: unknown) => {
         if (isCurrent()) {
-          setPortfolioLoad({
+          const notice = toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.');
+          setPortfolioLoad((current) => ({
             accountId: selectedId,
-            portfolio: null,
-            error: toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.'),
-          });
+            portfolio: current?.accountId === selectedId ? current.portfolio : null,
+            error: notice,
+          }));
         }
       },
     );
@@ -261,15 +264,20 @@ export function HomePage() {
       },
       (error: unknown) => {
         if (isCurrent()) {
-          setPositions({
-            key: queryKey,
-            reload: reloadToken,
-            items: [],
-            nextCursor: null,
-            hasMore: false,
-            loadingMore: false,
-            error: toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.'),
-          });
+          const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
+          setPositions((current) =>
+            current?.key === queryKey
+              ? { ...current, loadingMore: false, error: notice }
+              : {
+                  key: queryKey,
+                  reload: reloadToken,
+                  items: [],
+                  nextCursor: null,
+                  hasMore: false,
+                  loadingMore: false,
+                  error: notice,
+                },
+          );
         }
       },
     );
