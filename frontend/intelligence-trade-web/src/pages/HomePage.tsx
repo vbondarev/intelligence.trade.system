@@ -48,6 +48,12 @@ interface AccountsLoad {
   loadedAt: number;
 }
 
+/** Состояние ручной синхронизации конкретного подключения; notice относится только к нему. */
+interface SyncState {
+  running: boolean;
+  notice: Notice | null;
+}
+
 type PortfolioLoad =
   | { accountId: string; portfolio: Portfolio | null; error: null }
   | { accountId: string; portfolio: null; error: Notice };
@@ -134,21 +140,26 @@ export function HomePage() {
   const [accountsError, setAccountsError] = useState<Notice | null>(null);
   const [portfolioLoad, setPortfolioLoad] = useState<PortfolioLoad | null>(null);
   const [positions, setPositions] = useState<PositionsLoad | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncNotice, setSyncNotice] = useState<Notice | null>(null);
+  const [syncStates, setSyncStates] = useState<Readonly<Record<string, SyncState>>>({});
   const [reloadToken, setReloadToken] = useState(0);
 
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
   const positionsController = useRef<AbortController | null>(null);
-  const syncInFlight = useRef(false);
+  const syncInFlight = useRef(new Set<string>());
+  const selectedIdRef = useRef<string | null>(null);
 
   const urlAccountId = searchParams.get('account');
   const filters = readFilters(searchParams);
   const selectedAccount = accounts === null ? null : chooseAccount(accounts.items, urlAccountId);
   const selectedId = selectedAccount?.id ?? null;
   const queryKey = selectedId === null ? null : JSON.stringify(toQuery(selectedId, filters));
+  const selectedSync = selectedId === null ? undefined : syncStates[selectedId];
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   // Каждое чтение делает предыдущие устаревшими: поздний ответ не перезаписывает более новый state.
   const loadAccounts = useCallback((signal?: AbortSignal): Promise<void> => {
@@ -308,35 +319,43 @@ export function HomePage() {
 
   // Повтор синхронизации выполняет только пользователь. После завершения factual state
   // перечитывается и при ошибке: backend мог обновить статус, freshness или tracking state.
-  const handleSync = async () => {
-    if (selectedAccount === null || selectedAccount.connectionStatus === 'disabled' || syncInFlight.current) {
+  // Синхронизация привязана к подключению, выбранному в момент запуска: если пользователь
+  // уже перешёл на другое, портфель и позиции нового выбора не перечитываются и не подменяются.
+  const handleSync = async (account: ExchangeAccount) => {
+    const accountId = account.id;
+    if (account.connectionStatus === 'disabled' || syncInFlight.current.has(accountId)) {
       return;
     }
 
-    syncInFlight.current = true;
-    setSyncing(true);
-    setSyncNotice(null);
-    let sessionEnded = false;
+    const updateSync = (state: SyncState) => setSyncStates((current) => ({ ...current, [accountId]: state }));
+    syncInFlight.current.add(accountId);
+    updateSync({ running: true, notice: null });
+    let notice: Notice;
     try {
-      await syncConnection(selectedAccount.id);
-      setSyncNotice({ tone: 'success', text: 'Синхронизация завершена.' });
+      await syncConnection(accountId);
+      notice = { tone: 'success', text: 'Синхронизация завершена.' };
     } catch (error) {
-      const notice = toErrorNotice(error, 'Не удалось синхронизировать подключение. Повторите попытку позже.');
-      sessionEnded = notice.sessionEnded === true;
-      setSyncNotice(notice);
+      notice = toErrorNotice(error, 'Не удалось синхронизировать подключение. Повторите попытку позже.');
     }
+    updateSync({ running: true, notice });
 
-    if (!sessionEnded) {
+    if (notice.sessionEnded !== true) {
       await loadAccounts();
-      setReloadToken((token) => token + 1);
+      if (selectedIdRef.current === accountId) {
+        setReloadToken((token) => token + 1);
+      }
     }
 
-    syncInFlight.current = false;
-    setSyncing(false);
+    syncInFlight.current.delete(accountId);
+    updateSync({ running: false, notice });
   };
 
+  // Завершённые результаты синхронизации других подключений скрываются при смене выбора;
+  // выполняющаяся синхронизация сохраняет своё состояние и покажет результат при возврате.
   const handleSelectAccount = (id: string) => {
-    setSyncNotice(null);
+    setSyncStates((current) =>
+      Object.fromEntries(Object.entries(current).filter(([accountId, state]) => state.running || accountId === id)),
+    );
     updateParams((params) => params.set('account', id));
   };
 
@@ -397,10 +416,10 @@ export function HomePage() {
             account={selectedAccount}
             portfolio={currentPortfolio?.portfolio ?? null}
             now={accounts.loadedAt}
-            syncing={syncing}
-            onSync={() => void handleSync()}
+            syncing={selectedSync?.running === true}
+            onSync={() => void handleSync(selectedAccount)}
           />
-          {syncNotice && <NoticeMessage notice={syncNotice} onLogin={login} />}
+          {selectedSync?.notice && <NoticeMessage notice={selectedSync.notice} onLogin={login} />}
 
           {currentPortfolio === null && (
             <p className="inline-status" role="status">

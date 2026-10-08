@@ -541,6 +541,90 @@ describe('HomePage manual sync', () => {
   });
 });
 
+describe('HomePage manual sync bound to its account', () => {
+  function twoAccountRoutes(syncMain: RouteHandler): Record<string, RouteHandler> {
+    return {
+      [ACCOUNTS_URL]: () => jsonResponse({ items: [mainAccount, secondAccount] }),
+      [portfolioUrl(MAIN_ID)]: () => jsonResponse(portfolio()),
+      [portfolioUrl(SECOND_ID)]: () => jsonResponse(portfolio({ currentPositionCount: 7 }, SECOND_ID)),
+      [positionsUrl(MAIN_ID)]: () => page([position()]),
+      [positionsUrl(SECOND_ID)]: () => page([ethPosition]),
+      [syncUrl(MAIN_ID)]: syncMain,
+    };
+  }
+
+  async function startMainSyncAndSwitchToSecond(): Promise<void> {
+    await findSummary();
+    await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
+    await screen.findByRole('button', { name: 'Синхронизация…' });
+
+    await userEvent.selectOptions(screen.getByLabelText('Подключение'), SECOND_ID);
+    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+  }
+
+  it('does not show the result of a sync started for another account and does not overwrite its data', async () => {
+    const sync = deferred<Response>();
+    const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
+    await startMainSyncAndSwitchToSecond();
+
+    expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Синхронизация…' })).not.toBeInTheDocument();
+
+    sync.resolve(jsonResponse(mainAccount));
+    await waitFor(() => expect(urls(requests, ACCOUNTS_URL)).toHaveLength(2));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(searchParams().get('account')).toBe(SECOND_ID);
+    expect(screen.getByRole('heading', { name: 'Второй' })).toBeVisible();
+    expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('7');
+    expect(screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
+    expect(screen.queryByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Синхронизация завершена.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
+    expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(1);
+    expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(1);
+    expect(urls(requests, portfolioUrl(SECOND_ID))).toHaveLength(1);
+    expect(urls(requests, positionsUrl(SECOND_ID))).toHaveLength(1);
+
+    await userEvent.selectOptions(screen.getByLabelText('Подключение'), MAIN_ID);
+    expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Основной' })).toBeVisible();
+  });
+
+  it('does not start a second sync of the same account while the first one is running', async () => {
+    const sync = deferred<Response>();
+    const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
+    await startMainSyncAndSwitchToSecond();
+
+    await userEvent.selectOptions(screen.getByLabelText('Подключение'), MAIN_ID);
+    const running = await screen.findByRole('button', { name: 'Синхронизация…' });
+    expect(running).toBeDisabled();
+    await userEvent.dblClick(running);
+
+    sync.resolve(jsonResponse(mainAccount));
+    expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
+    expect(urls(requests, syncUrl(MAIN_ID))).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
+  });
+
+  it('does not show a sync error of another account under the selected one', async () => {
+    const sync = deferred<Response>();
+    const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
+    await startMainSyncAndSwitchToSecond();
+
+    sync.resolve(problem(503, 'exchange_unavailable'));
+    await waitFor(() => expect(urls(requests, ACCOUNTS_URL)).toHaveLength(2));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bybit сейчас недоступен. Повторите попытку позже.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Второй' })).toBeVisible();
+    expect(screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
+    expect(urls(requests, syncUrl(MAIN_ID))).toHaveLength(1);
+  });
+});
+
 describe('HomePage async race protection', () => {
   it('does not let a late portfolio of the previous account overwrite the selected one', async () => {
     const lateMain = deferred<Response>();
