@@ -664,6 +664,36 @@ describe('HomePage async race protection', () => {
     expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
   });
 
+  it('does not continue the list with a cursor obtained before the reload after sync', async () => {
+    const reload = deferred<Response>();
+    let firstPageCalls = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, {
+        positions: () => {
+          firstPageCalls += 1;
+          return firstPageCalls === 1 ? page([position()], 'next') : reload.promise;
+        },
+      }),
+      [positionsUrl(MAIN_ID, '&cursor=next')]: () => page([ethPosition], 'stale'),
+      [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
+    await waitFor(() => expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2));
+
+    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+
+    reload.resolve(page([position({ id: 'fresh', symbol: 'SOLUSDT', side: 'short' })], 'fresh-next'));
+    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 SHORT' });
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
+    expect(urls(requests, positionsUrl(MAIN_ID, '&cursor=stale'))).toHaveLength(0);
+  });
+
   it('does not append a late next page after the account changes', async () => {
     const lateMore = deferred<Response>();
     renderHome(`/app?account=${MAIN_ID}`, {

@@ -60,6 +60,8 @@ type PortfolioLoad =
 
 interface PositionsLoad {
   key: string;
+  /** `reloadToken`, для которого получена первая страница: cursor относится только к этому перечитыванию. */
+  reload: number;
   items: PositionListItem[];
   nextCursor: string | null;
   hasMore: boolean;
@@ -248,6 +250,7 @@ export function HomePage() {
         if (isCurrent()) {
           setPositions({
             key: queryKey,
+            reload: reloadToken,
             items: page.items,
             nextCursor: page.nextCursor,
             hasMore: page.hasMore,
@@ -260,6 +263,7 @@ export function HomePage() {
         if (isCurrent()) {
           setPositions({
             key: queryKey,
+            reload: reloadToken,
             items: [],
             nextCursor: null,
             hasMore: false,
@@ -273,9 +277,16 @@ export function HomePage() {
   }, [queryKey, reloadToken]);
 
   // Следующая страница относится к текущему поколению первой страницы: смена подключения,
-  // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции.
+  // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции. Пока после
+  // sync не получена новая первая страница, прежний cursor не используется.
   const handleLoadMore = () => {
-    if (positions === null || positions.key !== queryKey || positions.nextCursor === null || positions.loadingMore) {
+    if (
+      positions === null ||
+      positions.key !== queryKey ||
+      positions.reload !== reloadToken ||
+      positions.nextCursor === null ||
+      positions.loadingMore
+    ) {
       return;
     }
 
@@ -438,7 +449,7 @@ export function HomePage() {
             list={{
               loading: currentPositions === null,
               items: currentPositions?.items ?? [],
-              hasMore: currentPositions?.hasMore ?? false,
+              hasMore: currentPositions !== null && currentPositions.reload === reloadToken && currentPositions.hasMore,
               loadingMore: currentPositions?.loadingMore ?? false,
               error: currentPositions?.error ? <NoticeMessage notice={currentPositions.error} onLogin={login} /> : null,
             }}

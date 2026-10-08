@@ -206,7 +206,7 @@ public sealed class PortfolioState
                 throw new ArgumentOutOfRangeException(
                     nameof(positions), position.MarketCategory, "Position market category is invalid.");
             if (position.SettlementAsset == default)
-                throw new ArgumentException("Portfolio position must have a SettlementAsset.", nameof(positions));
+                throw new ArgumentException("У позиции портфеля должен быть указан SettlementAsset.", nameof(positions));
             if (!Enum.IsDefined(position.PositionSide) || position.PositionSide == PositionSide.Unknown)
                 throw new ArgumentOutOfRangeException(
                     nameof(positions), position.PositionSide, "Position side is invalid.");

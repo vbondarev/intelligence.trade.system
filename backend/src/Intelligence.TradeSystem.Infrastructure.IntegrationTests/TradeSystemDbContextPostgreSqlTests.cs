@@ -379,7 +379,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         var exception = await Assert.ThrowsAsync<PostgresException>(
             () => dbContext.Database.MigrateAsync(SettlementAssetMigration));
 
-        Assert.Contains("Cannot backfill positions.settlement_asset", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Невозможно заполнить positions.settlement_asset", exception.Message, StringComparison.Ordinal);
         Assert.Equal(
             [SettlementAssetMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());

@@ -497,7 +497,7 @@ public sealed class Position
             throw new ArgumentException("ExchangePositionKey must be initialized.", nameof(exchangePositionKey));
 
         if (settlementAsset == default)
-            throw new ArgumentException("SettlementAsset must be initialized.", nameof(settlementAsset));
+            throw new ArgumentException("SettlementAsset должен быть инициализирован.", nameof(settlementAsset));
 
         if (marketCategory is not (MarketCategory.Linear or MarketCategory.Inverse))
             throw new ArgumentOutOfRangeException(

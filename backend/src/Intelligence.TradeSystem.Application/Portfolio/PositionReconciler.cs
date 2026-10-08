@@ -166,7 +166,7 @@ public static class PositionReconciler
             if (observed.SettlementAsset is not { } observedSettlementAsset)
             {
                 hasMappingIssues = true;
-                warnings.Add($"Skipped {key}: settlement asset is unknown for the observation scope.");
+                warnings.Add($"Позиция {key} пропущена: актив расчёта не определён для области наблюдения.");
                 continue;
             }
 
@@ -175,7 +175,7 @@ public static class PositionReconciler
             {
                 hasMappingIssues = true;
                 warnings.Add(
-                    $"Skipped {key}: observed settlement asset {observedSettlementAsset} does not match tracked settlement asset {trackedWithKey.SettlementAsset}.");
+                    $"Позиция {key} пропущена: наблюдаемый актив расчёта {observedSettlementAsset} не совпадает с активом расчёта существующей позиции {trackedWithKey.SettlementAsset}.");
                 continue;
             }
 

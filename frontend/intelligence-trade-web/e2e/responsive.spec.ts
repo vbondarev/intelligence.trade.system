@@ -95,14 +95,23 @@ async function mockBusinessData(page: Page) {
   await page.route(/\/bff\/me\/positions\?/, async (route) => {
     const url = new URL(route.request().url());
     const closed = url.searchParams.get('trackingState') === 'closed';
-    const shortOnly = url.searchParams.get('side') === 'short';
-    const items = closed
-      ? [position('closed-1', 'XRPUSDT', 'long', 'USDT', { trackingState: 'closed', closedAt: '2026-10-05T10:00:00Z' })]
+    const side = url.searchParams.get('side');
+    const symbol = url.searchParams.get('symbol');
+    const closedOverrides = { trackingState: 'closed', closedAt: '2026-10-05T10:00:00Z' };
+    const sourceItems = closed
+      ? [
+          position('closed-long', 'XRPUSDT', 'long', 'USDT', closedOverrides),
+          position('closed-short', 'ADAUSDT', 'short', 'USDT', { ...closedOverrides, unrealizedPnl: -4.2 }),
+        ]
       : [
           position('btc', 'BTCUSDT', 'long', 'USDT'),
           position('eth', 'ETHUSDC', 'long', 'USDC', { size: 2.4, positionValue: 5000, unrealizedPnl: 35 }),
           position('sol', 'SOLUSDT', 'short', 'USDT', { size: 25, positionValue: 3000, unrealizedPnl: -12.5 }),
-        ].filter((item) => !shortOnly || item.side === 'short');
+        ];
+    // Mock повторяет server-side фильтры v1 API одинаково для текущих и закрытых позиций.
+    const items = sourceItems.filter(
+      (item) => (side === null || item.side === side) && (symbol === null || item.symbol === symbol),
+    );
     await route.fulfill({ json: { items, nextCursor: null, hasMore: false } });
   });
 }
@@ -159,13 +168,18 @@ for (const viewport of viewports) {
 
     await page.getByRole('button', { name: 'Закрытые' }).click();
     await expect(page).toHaveURL(/view=closed/);
-    await expect(page.getByRole('article', { name: /^XRPUSDT/ })).toBeVisible();
+    await expect(page).toHaveURL(/side=short/);
+    await expect(page).not.toHaveURL(/[?&]state=/);
+    await expect(page.getByRole('article', { name: /^ADAUSDT/ })).toBeVisible();
+    await expect(page.getByRole('article', { name: /^XRPUSDT/ })).toHaveCount(0);
+    await expect(page.getByRole('article', { name: /^SOLUSDT/ })).toHaveCount(0);
     await expect(page.getByLabel('Состояние')).toHaveCount(0);
     await expectNoHorizontalScroll(page);
 
-    await page.getByLabel('Символ').fill('XRPUSDT');
+    await page.getByLabel('Символ').fill('ADAUSDT');
     await page.getByRole('button', { name: 'Найти' }).click();
-    await expect(page).toHaveURL(/symbol=XRPUSDT/);
+    await expect(page).toHaveURL(/symbol=ADAUSDT/);
+    await expect(page.getByRole('article', { name: /^ADAUSDT/ })).toBeVisible();
     await expectNoHorizontalScroll(page);
 
     await page.goto('/app/settings/connections');

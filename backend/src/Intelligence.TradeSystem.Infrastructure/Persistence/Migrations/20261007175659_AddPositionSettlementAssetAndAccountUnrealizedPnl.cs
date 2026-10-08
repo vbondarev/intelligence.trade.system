@@ -38,7 +38,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 BEGIN
                     IF EXISTS (SELECT 1 FROM positions WHERE settlement_asset IS NULL) THEN
                         RAISE EXCEPTION
-                            'Cannot backfill positions.settlement_asset: some positions are outside the known Linear USDT/USDC settlement scopes.';
+                            'Невозможно заполнить positions.settlement_asset: обнаружены позиции вне известных Linear USDT/USDC областей расчёта.';
                     END IF;
                 END
                 $$;
@@ -66,7 +66,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                 BEGIN
                     IF EXISTS (SELECT 1 FROM portfolio_position_states WHERE settlement_asset IS NULL) THEN
                         RAISE EXCEPTION
-                            'Cannot backfill portfolio_position_states.settlement_asset: some snapshot positions have no settlement asset.';
+                            'Невозможно заполнить portfolio_position_states.settlement_asset: обнаружены снимки позиций без определённого актива расчёта.';
                     END IF;
                 END
                 $$;

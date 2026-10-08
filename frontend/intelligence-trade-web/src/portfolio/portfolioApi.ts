@@ -25,7 +25,7 @@ export class PortfolioApiError extends Error {
   readonly traceId: string | null;
 
   constructor(status: number, code: string | null = null, traceId: string | null = null) {
-    super(`Portfolio request failed with status ${status}${code ? ` (${code})` : ''}.`);
+    super(`Запрос портфеля или позиций завершился со статусом ${status}${code ? ` (${code})` : ''}.`);
     this.name = 'PortfolioApiError';
     this.status = status;
     this.code = code;

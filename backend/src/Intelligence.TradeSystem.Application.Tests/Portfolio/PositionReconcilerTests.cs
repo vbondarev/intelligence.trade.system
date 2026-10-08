@@ -384,7 +384,8 @@ public sealed class PositionReconcilerTests
         tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
         result.NewPositions.Should().BeEmpty();
         result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Closed);
-        result.Warnings.Should().NotBeEmpty();
+        result.Warnings.Should().Contain(warning =>
+            warning.Contains("наблюдаемый актив расчёта USDC не совпадает с активом расчёта существующей позиции USDT", StringComparison.Ordinal));
         result.IsFullyReconciled.Should().BeFalse();
     }
 
@@ -400,7 +401,9 @@ public sealed class PositionReconcilerTests
 
         result.NewPositions.Should().BeEmpty();
         tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
-        result.Warnings.Should().NotBeEmpty();
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Closed);
+        result.Warnings.Should().Contain(warning =>
+            warning.Contains("актив расчёта не определён для области наблюдения", StringComparison.Ordinal));
         result.IsFullyReconciled.Should().BeFalse();
     }
 
