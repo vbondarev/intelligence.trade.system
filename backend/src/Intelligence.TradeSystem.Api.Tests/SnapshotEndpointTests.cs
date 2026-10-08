@@ -5,10 +5,15 @@ using System.Text.Json;
 using Intelligence.TradeSystem.Api.Contracts;
 using Intelligence.TradeSystem.Api.Tests.Helpers;
 using Intelligence.TradeSystem.Application;
+using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Market;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 
 namespace Intelligence.TradeSystem.Api.Tests;
@@ -143,6 +148,51 @@ public sealed class SnapshotEndpointTests : IClassFixture<ApiWebApplicationFacto
         portfolio.GetProperty("openPositions").ValueKind.Should().Be(JsonValueKind.Array);
         portfolio.GetProperty("openPositions").GetArrayLength().Should().Be(0);
         root.GetProperty("h1").GetProperty("trend").ValueKind.Should().Be(JsonValueKind.String);
+    }
+
+    [Fact]
+    public async Task Snapshot_Does_Not_Touch_Private_Account_Path()
+    {
+        var snapshot = ApiSnapshotTestData.CreateSnapshot();
+        var marketAnalysisService = new Mock<IMarketSnapshotService>(MockBehavior.Strict);
+        marketAnalysisService
+            .Setup(x => x.BuildSnapshotAsync(ExchangeId.Bybit, "BTCUSDT", MarketCategory.Linear, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+        var privateAccountProviderFactory = new Mock<IPrivateAccountProviderFactory>(MockBehavior.Strict);
+        var accessVerifier = new Mock<IExchangeAccountAccessVerifier>(MockBehavior.Strict);
+        var exchangeAccountRepository = new Mock<IExchangeAccountRepository>(MockBehavior.Strict);
+
+        using var client = _factory.WithWebHostBuilder(builder =>
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<IMarketSnapshotService>();
+                    services.AddSingleton(marketAnalysisService.Object);
+                    services.RemoveAll<IPrivateAccountProviderFactory>();
+                    services.AddSingleton(privateAccountProviderFactory.Object);
+                    services.RemoveAll<IExchangeAccountAccessVerifier>();
+                    services.AddSingleton(accessVerifier.Object);
+                    services.RemoveAll<IExchangeAccountRepository>();
+                    services.AddSingleton(exchangeAccountRepository.Object);
+                }))
+            .CreateClient();
+
+        using var response = await client.PostAsJsonAsync("/api/market-analysis/snapshot", new
+        {
+            exchange = "Bybit",
+            symbol = "BTCUSDT",
+            category = "Linear",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<MarketAnalysisResponse>();
+        result.Should().NotBeNull();
+        result.Portfolio.TotalEquityUsd.Should().Be(0m);
+        result.Portfolio.TotalUnrealizedPnlUsd.Should().Be(0m);
+        result.Portfolio.OpenPositions.Should().BeEmpty();
+
+        privateAccountProviderFactory.VerifyNoOtherCalls();
+        accessVerifier.VerifyNoOtherCalls();
+        exchangeAccountRepository.VerifyNoOtherCalls();
     }
 
     private static void AssertLegacyRootValueKinds(JsonElement root)

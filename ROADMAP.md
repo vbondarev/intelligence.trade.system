@@ -1,7 +1,7 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.55
-Дата актуализации: 7 октября 2026 года
+Версия документа: 3.56
+Дата актуализации: 8 октября 2026 года
 Проверенная база: `develop` @ `d4973bde4e1bde15b281006f5e48eee77404ea29`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187; G-03: Issue #189
 Последняя учтённая задача: Issue #189 «G-03. Реализовать сводку портфеля и список позиций выбранного подключения»
 Текущий этап: **G — основной React-клиент**; G-01 — G-03 завершены, следующий обязательный шаг — **G-04**
@@ -165,7 +165,7 @@
 
 ### Есть только как заготовка
 
-- 🟡 Legacy-типы `OpenPosition`, `OpenPositionSnapshot`, `PortfolioSnapshot` и их сборщик сохраняются для совместимости текущих путей, но не заменяют новый домен `Position` и `PortfolioState`.
+- 🟡 Legacy-типы `OpenPositionSnapshot` и `PortfolioSnapshot` сохраняются ради совместимости публичного market-analysis contract; `POST /api/market-analysis/snapshot` возвращает `PortfolioSnapshot.Unavailable`. `PortfolioSnapshotAssembler` удалён после введения settlement-aware семантики `OpenPosition`: position-level стоимость и PnL нельзя безопасно проецировать в USD-labelled legacy поля без currency conversion. Пользовательский portfolio source of truth — `Position` / `PortfolioState` / `/api/v1/*`.
 - 🟡 Наблюдаемость имеет общий технический фундамент и телеметрию синхронизации, но непрерывное наблюдение за позициями и пользовательские уведомления относятся к этапам H–I.
 
 ### Пока отсутствует
@@ -581,6 +581,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-10-08 | 3.56 | По второму Approved Plan Amendment Issue #189 удалён legacy `PortfolioSnapshotAssembler`: после G-03 стоимость и PnL `OpenPosition` выражены в `SettlementAsset` и не могут без currency conversion проецироваться в `PositionValueUsd` / `UnrealizedPnlUsd`. `PortfolioSnapshot` и `OpenPositionSnapshot` сохранены как legacy wire types, `POST /api/market-analysis/snapshot` по-прежнему возвращает `PortfolioSnapshot.Unavailable`; `llm-payload` 1.0 и `/api/v1/*` не изменялись, currency conversion не вводилась. |
 | 2026-10-07 | 3.55 | Issue #189 завершает G-03: главная страница Web показывает обзор выбранного подключения — account-level капитал, доступные средства и нереализованный PnL в USD, количество текущих позиций, экспозицию по каждому активу расчёта без суммирования и конвертации разных активов, свежесть (оценивается на момент ответа), полноту и состояние синхронизации; доступна ручная синхронизация без автоматических повторов; списки текущих и закрытых позиций поддерживают фильтры состояния, направления и exact symbol и cursor pagination. В Domain добавлен exchange-neutral `SettlementAsset` позиции (Bybit `settleCoin`), account-level PnL отделён от суммы position-level PnL; migration `AddPositionSettlementAssetAndAccountUnrealizedPnl` выполняет backfill Linear USDT/USDC по суффиксу symbol и fail-fast останавливается на строках, актив которых нельзя определить достоверно. API v1 аддитивно получил `settlementAsset`, `currentPositionCount` и `exposures[]`; BFF — явные `GET /bff/me/exchange-accounts/{id}/portfolio`, `POST /bff/me/exchange-accounts/{id}/sync` (CSRF) и `GET /bff/me/positions` с query allowlist, без generic proxy. Требование «критические позиции» исключено из G-03: risk classification, evaluation и recommendation остаются последующим этапам. Следующий обязательный шаг — G-04. |
 | 2026-10-07 | 3.54 | Issue #187 принял ADR-0005 по расширяемой внешней аутентификации: provider-specific вход остаётся внутри Identity, external login сопоставляется через `LoginProvider + ProviderKey` с единым `ApplicationUser.Id`, который сохраняется как OpenIddict `sub` и Domain `UserId`; email не используется для автоматического объединения identity. В ROADMAP добавлены параллельные G-AUTH-01 — G-AUTH-03 для базовой external authentication, административного управления провайдерами и ЕСИА. G-AUTH не является prerequisite для G-03 — G-08, следующим обязательным шагом остаётся G-03; production code и runtime contracts не изменялись. |
 | 2026-10-06 | 3.53 | Issue #184 завершает G-02: в Web появилась страница «Подключения» для управления read-only подключениями Bybit — список, включая отключённые, добавление, переименование, проверка, замена ключей, отключение с подтверждением и восстановление; после каждой mutation список перечитывается через REST. Подключение получило обязательное пользовательское `displayName` (trim, до 100 символов, сохраняется при disconnect/reconnect; migration `AddExchangeAccountDisplayName` с backfill существующих строк). По pre-release policy v1, зафиксированной в `docs/api-v1-conventions.md`, management API перенесён на `/api/v1/me/exchange-accounts` без compatibility alias, добавлен `PATCH` rename (`renameExchangeAccount`), список включает отключённые подключения; sync и portfolio остаются под `/api/v1/exchange-accounts/{id}`. BFF получил явные `/bff/me/exchange-accounts/**` endpoints без generic proxy, с CSRF, `no-store`, сохранением `ProblemDetails` и единственным повтором после `401` + refresh. Provider identity не публикуется, credentials не попадают в логи, ответы и browser storage. Следующий обязательный шаг — G-03. |

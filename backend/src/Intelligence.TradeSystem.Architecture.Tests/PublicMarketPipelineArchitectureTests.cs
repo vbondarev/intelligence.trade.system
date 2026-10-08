@@ -42,6 +42,14 @@ public sealed class PublicMarketPipelineArchitectureTests
     }
 
     [Fact]
+    public void Legacy_PortfolioSnapshot_Assembler_Is_Absent()
+    {
+        typeof(PublicMarketDataCollector).Assembly.GetTypes()
+            .Select(type => type.Name)
+            .Should().NotContain("PortfolioSnapshotAssembler");
+    }
+
+    [Fact]
     public void Application_And_Domain_Do_Not_Depend_On_BybitNet()
     {
         typeof(PublicMarketDataCollector).Assembly.GetReferencedAssemblies()

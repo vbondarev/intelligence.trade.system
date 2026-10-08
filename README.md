@@ -148,7 +148,7 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 
 ### Есть только как архитектурная заготовка
 
-- legacy-типы `OpenPosition`, `OpenPositionSnapshot`, `PortfolioSnapshot` и их сборщик, сохраняемые для совместимости текущих путей;
+- legacy-типы `OpenPositionSnapshot` и `PortfolioSnapshot`, сохраняемые для совместимости публичного market-analysis contract; `POST /api/market-analysis/snapshot` возвращает `PortfolioSnapshot.Unavailable`, а пользовательский портфель доступен только через `/api/v1`;
 - инфраструктура структурированного логирования, OpenTelemetry и устойчивости внешних вызовов; полный operational-контур наблюдения и пользовательских уведомлений относится к последующим этапам.
 
 Фоновая синхронизация выбирает только активные Bybit-аккаунты (`Connected` и `Unavailable`) и использует существующий application sync workflow.
