@@ -33,6 +33,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20261006125555_EnforceUniqueExchangeAccountProviderIdentity";
     private const string DisplayNameMigration =
         "20261006190840_AddExchangeAccountDisplayName";
+    private const string SettlementAssetMigration =
+        "20261007175659_AddPositionSettlementAssetAndAccountUnrealizedPnl";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -166,7 +168,12 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(TimelineReadIndexesMigration);
         Assert.Equal(
-            [PositionListReadIndexesMigration, UniqueProviderIdentityMigration, DisplayNameMigration],
+            [
+                PositionListReadIndexesMigration,
+                UniqueProviderIdentityMigration,
+                DisplayNameMigration,
+                SettlementAssetMigration,
+            ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_order"));
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_account_order"));
@@ -176,7 +183,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
 
         Assert.Equal(
-            [UniqueProviderIdentityMigration, DisplayNameMigration],
+            [UniqueProviderIdentityMigration, DisplayNameMigration, SettlementAssetMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         await AssertPositionListIndexesAsync(dbContext);
     }
@@ -189,7 +196,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(PositionListReadIndexesMigration);
         Assert.Equal(
-            [UniqueProviderIdentityMigration, DisplayNameMigration],
+            [UniqueProviderIdentityMigration, DisplayNameMigration, SettlementAssetMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(
             dbContext,
@@ -198,7 +205,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(UniqueProviderIdentityMigration);
 
         Assert.Equal(
-            [DisplayNameMigration],
+            [DisplayNameMigration, SettlementAssetMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var definition = await ReadIndexDefinitionAsync(
             dbContext,
@@ -234,7 +241,9 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(DisplayNameMigration);
 
-        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.Equal(
+            [SettlementAssetMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var rows = await dbContext.Database.SqlQueryRaw<DisplayNameRow>(
                 """
                 SELECT exchange_account_id AS "Id", display_name AS "DisplayName", version AS "Version"
@@ -274,6 +283,191 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                     """)
                 .SingleAsync());
     }
+
+    [Fact]
+    public async Task Settlement_asset_migration_backfills_usdt_usdc_positions_and_portfolio_snapshots()
+    {
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
+
+        await dbContext.Database.MigrateAsync(DisplayNameMigration);
+        await SeedLegacyAccountAsync(dbContext);
+        await SeedLegacyPositionAsync(dbContext, "11111111-0000-4000-8000-000000000001", "BTCUSDT", "Linear");
+        await SeedLegacyPositionAsync(dbContext, "11111111-0000-4000-8000-000000000002", "ethusdc", "Linear");
+        await SeedLegacyPositionAsync(dbContext, "11111111-0000-4000-8000-000000000003", "SOLUSDT", "Linear");
+        await SeedLegacyPortfolioAsync(
+            dbContext,
+            "11111111-0000-4000-8000-000000000001",
+            "11111111-0000-4000-8000-000000000002");
+
+        await dbContext.Database.MigrateAsync(SettlementAssetMigration);
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        var positions = await dbContext.Database.SqlQueryRaw<SettlementAssetRow>(
+                """
+                SELECT position_id AS "Id", settlement_asset AS "SettlementAsset"
+                FROM positions
+                ORDER BY position_id
+                """)
+            .ToArrayAsync();
+        Assert.Equal(
+            [
+                new SettlementAssetRow(Guid.Parse("11111111-0000-4000-8000-000000000001"), "USDT"),
+                new SettlementAssetRow(Guid.Parse("11111111-0000-4000-8000-000000000002"), "USDC"),
+                new SettlementAssetRow(Guid.Parse("11111111-0000-4000-8000-000000000003"), "USDT"),
+            ],
+            positions);
+        var snapshotPositions = await dbContext.Database.SqlQueryRaw<SettlementAssetRow>(
+                """
+                SELECT position_id AS "Id", settlement_asset AS "SettlementAsset"
+                FROM portfolio_position_states
+                ORDER BY sequence
+                """)
+            .ToArrayAsync();
+        Assert.Equal(
+            [
+                new SettlementAssetRow(Guid.Parse("11111111-0000-4000-8000-000000000001"), "USDT"),
+                new SettlementAssetRow(Guid.Parse("11111111-0000-4000-8000-000000000002"), "USDC"),
+            ],
+            snapshotPositions);
+        Assert.Equal(
+            1,
+            await dbContext.Database.SqlQueryRaw<int>(
+                    """
+                    SELECT COUNT(*)::integer AS "Value"
+                    FROM portfolio_states
+                    WHERE account_unrealized_pnl IS NULL
+                    """)
+                .SingleAsync());
+        foreach (var table in new[] { "positions", "portfolio_position_states" })
+        {
+            Assert.Equal(
+                "NO",
+                await dbContext.Database.SqlQueryRaw<string>(
+                        """
+                        SELECT is_nullable AS "Value"
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = {0}
+                          AND column_name = 'settlement_asset'
+                        """,
+                        table)
+                    .SingleAsync());
+        }
+
+        await dbContext.Database.MigrateAsync(DisplayNameMigration);
+        Assert.False(await ColumnExistsAsync(dbContext, "positions", "settlement_asset"));
+        Assert.False(await ColumnExistsAsync(dbContext, "portfolio_position_states", "settlement_asset"));
+        Assert.False(await ColumnExistsAsync(dbContext, "portfolio_states", "account_unrealized_pnl"));
+    }
+
+    [Theory]
+    [InlineData("BTCPERP", "Linear")]
+    [InlineData("BTCUSD", "Inverse")]
+    public async Task Settlement_asset_migration_rejects_positions_outside_known_linear_scopes_without_mutation(
+        string instrumentId,
+        string marketCategory)
+    {
+        await using var migrationDatabase = await CreateMigrationDatabaseAsync();
+        await using var dbContext = migrationDatabase.CreateContext();
+
+        await dbContext.Database.MigrateAsync(DisplayNameMigration);
+        await SeedLegacyAccountAsync(dbContext);
+        await SeedLegacyPositionAsync(dbContext, "11111111-0000-4000-8000-000000000001", "BTCUSDT", "Linear");
+        await SeedLegacyPositionAsync(dbContext, "11111111-0000-4000-8000-000000000002", instrumentId, marketCategory);
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => dbContext.Database.MigrateAsync(SettlementAssetMigration));
+
+        Assert.Contains("Невозможно заполнить positions.settlement_asset", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            [SettlementAssetMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
+        Assert.False(await ColumnExistsAsync(dbContext, "positions", "settlement_asset"));
+        Assert.Equal(
+            2,
+            await dbContext.Database.SqlQueryRaw<int>(
+                    """
+                    SELECT COUNT(*)::integer AS "Value"
+                    FROM positions
+                    """)
+                .SingleAsync());
+    }
+
+    private static async Task SeedLegacyAccountAsync(TradeSystemDbContext dbContext) =>
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO exchange_accounts (
+                exchange_account_id, user_id, exchange_id, provider_account_id,
+                display_name, connection_status, capabilities, version)
+            VALUES (
+                'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
+                'Bybit', 'provider-settlement', 'Основной', 'Connected', 3, 1);
+            """);
+
+    private static async Task SeedLegacyPositionAsync(
+        TradeSystemDbContext dbContext,
+        string positionId,
+        string instrumentId,
+        string marketCategory) =>
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO positions (
+                position_id, exchange_account_id, instrument_id, position_side,
+                position_idx, market_category, size, first_detected_at,
+                last_observed_at, tracking_state, version)
+            VALUES (
+                {0}::uuid, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', {1}, 'Long', 0, {2}, 1,
+                '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z', 'Active', 1);
+            """,
+            positionId,
+            instrumentId,
+            marketCategory);
+
+    private static async Task SeedLegacyPortfolioAsync(
+        TradeSystemDbContext dbContext,
+        string firstPositionId,
+        string secondPositionId) =>
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO portfolio_states (
+                portfolio_state_id, exchange_account_id, calculated_at, stale_after,
+                total_equity, available_capital, total_unrealized_pnl, is_complete, is_fresh)
+            VALUES (
+                1, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '2026-10-01T10:01:00Z',
+                interval '5 minutes', 1000, 800, 15, true, true);
+
+            INSERT INTO portfolio_position_states (
+                portfolio_state_id, sequence, position_id, exchange_account_id, instrument_id,
+                market_category, position_side, position_idx, tracking_state, size, last_observed_at)
+            SELECT 1, ordinality, position.position_id, position.exchange_account_id,
+                   position.instrument_id, position.market_category, position.position_side,
+                   position.position_idx, position.tracking_state, position.size, position.last_observed_at
+            FROM unnest(ARRAY[{0}::uuid, {1}::uuid]) WITH ORDINALITY AS selected(position_id, ordinality)
+            INNER JOIN positions AS position ON position.position_id = selected.position_id;
+            """,
+            firstPositionId,
+            secondPositionId);
+
+    private static Task<bool> ColumnExistsAsync(
+        TradeSystemDbContext dbContext,
+        string tableName,
+        string columnName) =>
+        dbContext.Database.SqlQueryRaw<bool>(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = {0}
+                      AND column_name = {1})
+                AS "Value"
+                """,
+                tableName,
+                columnName)
+            .SingleAsync();
+
+    private sealed record SettlementAssetRow(Guid Id, string SettlementAsset);
 
     private sealed record DisplayNameRow(Guid Id, string DisplayName, long Version);
 
@@ -331,6 +525,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 PositionListReadIndexesMigration,
                 UniqueProviderIdentityMigration,
                 DisplayNameMigration,
+                SettlementAssetMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -360,6 +555,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 PositionListReadIndexesMigration,
                 UniqueProviderIdentityMigration,
                 DisplayNameMigration,
+                SettlementAssetMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(

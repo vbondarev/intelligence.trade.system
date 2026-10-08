@@ -807,6 +807,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,
@@ -846,7 +847,8 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
                     null,
                     null,
                     null,
-                    0),
+                    0,
+                    SettlementAsset.From("USDT")),
             ]);
 
     private static MarketSnapshot CreateMarketSnapshot(DateTimeOffset capturedAt)

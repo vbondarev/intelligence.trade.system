@@ -11,6 +11,7 @@ public sealed class PositionEntity
     public PositionSide PositionSide { get; set; }
     public int PositionIdx { get; set; }
     public MarketCategory MarketCategory { get; set; }
+    public string SettlementAsset { get; set; } = null!;
     public decimal Size { get; set; }
     public decimal? AverageEntryPrice { get; set; }
     public decimal? PositionValue { get; set; }

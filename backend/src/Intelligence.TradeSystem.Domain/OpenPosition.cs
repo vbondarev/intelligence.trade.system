@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
 
 namespace Intelligence.TradeSystem.Domain;
@@ -27,7 +28,8 @@ public sealed record OpenPosition(
     decimal? RiskLimitValue,
     DateTimeOffset? CreatedTime,
     DateTimeOffset? UpdatedTime,
-    int PositionIdx = 0)
+    int PositionIdx = 0,
+    SettlementAsset? SettlementAsset = null)
 {
     /// <summary>Тикер инструмента. Например: <c>BTCUSDT</c>.</summary>
     public string Symbol { get; init; } = Symbol;
@@ -50,7 +52,9 @@ public sealed record OpenPosition(
     /// <summary>Средняя цена входа в позицию.</summary>
     public decimal? AvgPrice { get; init; } = AvgPrice;
 
-    /// <summary>Текущая стоимость позиции в USD: <c>Size × AveragePrice</c>.</summary>
+    /// <summary>
+    /// Текущая стоимость позиции в активе расчёта (<see cref="SettlementAsset"/>), а не в USD.
+    /// </summary>
     public decimal? PositionValue { get; init; } = PositionValue;
 
     /// <summary>Кредитное плечо, используемое по позиции.</summary>
@@ -72,7 +76,7 @@ public sealed record OpenPosition(
     public decimal? LiquidationPrice { get; init; } = LiquidationPrice;
 
     /// <summary>
-    /// Нереализованный PnL по позиции в USD.
+    /// Нереализованный PnL по позиции в активе расчёта (<see cref="SettlementAsset"/>), а не в USD.
     /// Положительное — позиция в прибыли, отрицательное — в убытке.
     /// </summary>
     public decimal? UnrealizedPnl { get; init; } = UnrealizedPnl;
@@ -103,4 +107,11 @@ public sealed record OpenPosition(
 
     /// <summary>Индекс позиции на бирже для one-way или hedge mode.</summary>
     public int PositionIdx { get; init; } = PositionIdx;
+
+    /// <summary>
+    /// Актив расчёта, известный из области (scope) биржевого запроса.
+    /// <see langword="null"/>, если запрос не позволяет достоверно определить актив расчёта;
+    /// такое наблюдение не может быть применено к жизненному циклу позиции.
+    /// </summary>
+    public SettlementAsset? SettlementAsset { get; init; } = SettlementAsset;
 }

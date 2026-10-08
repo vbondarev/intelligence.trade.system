@@ -35,6 +35,38 @@ public sealed class PortfolioStateAssemblerTests
         result.Capital.AvailableCapital.Should().Be(8000m);
         result.Capital.TotalWalletBalance.Should().Be(12000m);
         result.Capital.ObservedAt.Should().Be(ObservedAt);
+        result.Capital.AccountUnrealizedPnl.Should().Be(500m);
+    }
+
+    [Theory]
+    [InlineData(-250.5)]
+    [InlineData(0)]
+    public void Maps_Negative_And_Zero_Account_Unrealized_Pnl(decimal pnl)
+    {
+        var balance = new AccountBalance(AccountType.Unified, 12500m, 12000m, 8000m, pnl, []);
+
+        var capital = PortfolioStateAssembler.CreateCapital(balance, ObservedAt);
+
+        capital.AccountUnrealizedPnl.Should().Be(pnl);
+    }
+
+    [Fact]
+    public void Missing_Account_Unrealized_Pnl_Stays_Unknown()
+    {
+        var balance = new AccountBalance(AccountType.Unified, 12500m, 12000m, 8000m, null, []);
+
+        var capital = PortfolioStateAssembler.CreateCapital(balance, ObservedAt);
+
+        capital.AccountUnrealizedPnl.Should().BeNull();
+    }
+
+    [Fact]
+    public void Missing_Balance_Leaves_Account_Unrealized_Pnl_Unknown()
+    {
+        var result = PortfolioStateAssembler.Assemble(
+            null, null, [], Account, ObservedAt.AddMinutes(1), TimeSpan.FromMinutes(5));
+
+        result.Capital.AccountUnrealizedPnl.Should().BeNull();
     }
 
     [Fact]

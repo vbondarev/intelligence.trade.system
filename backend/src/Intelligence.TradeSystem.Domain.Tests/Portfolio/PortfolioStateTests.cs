@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Decisions;
 
@@ -72,7 +73,7 @@ public sealed class PortfolioStateTests
     {
         var otherAccountKey = ExchangePositionKey.Create(
             ExchangeAccountId.New(), InstrumentId.From("ETHUSDT"), PositionSide.Long, 0);
-        var otherPosition = Position.Create(otherAccountKey, MarketCategory.Linear, 1m, T0, T0);
+        var otherPosition = Position.Create(otherAccountKey, MarketCategory.Linear, SettlementAsset.From("USDT"), 1m, T0, T0);
 
         FluentActions.Invoking(() => CreateState([otherPosition]))
             .Should().Throw<ArgumentException>();
@@ -235,7 +236,7 @@ public sealed class PortfolioStateTests
     {
         var key = ExchangePositionKey.Create(
             ExchangeAccountId.New(), InstrumentId.From("ETHUSDT"), PositionSide.Long, 0);
-        var position = Position.Create(key, MarketCategory.Linear, 1m, T0, T0);
+        var position = Position.Create(key, MarketCategory.Linear, SettlementAsset.From("USDT"), 1m, T0, T0);
         position.Close(T0.AddMinutes(1));
 
         FluentActions.Invoking(() => CreateState([position]))
@@ -283,6 +284,60 @@ public sealed class PortfolioStateTests
              ReasonCode.ConcentrationLimitExceeded]);
     }
 
+    [Fact]
+    public void Snapshot_Carries_Position_Settlement_Asset()
+    {
+        var usdt = CreatePosition(PositionSide.Long, 10m, 1m);
+        var usdc = CreatePosition(PositionSide.Short, 5m, 1m, "USDC");
+
+        var state = CreateState([usdt, usdc]);
+
+        state.Positions.Select(position => position.SettlementAsset)
+            .Should().Equal(SettlementAsset.From("USDT"), SettlementAsset.From("USDC"));
+    }
+
+    [Fact]
+    public void Internal_Aggregates_Keep_Existing_Behavior_For_Mixed_Settlement_Assets()
+    {
+        var usdt = CreatePosition(PositionSide.Long, 75m, 10m);
+        var usdc = CreatePosition(PositionSide.Short, 25m, -2m, "USDC");
+
+        var state = CreateState([usdt, usdc]);
+
+        state.GrossExposure.Should().Be(100m);
+        state.NetExposure.Should().Be(50m);
+        state.TotalUnrealizedPnl.Should().Be(8m);
+    }
+
+    [Fact]
+    public void Capital_Keeps_Account_Level_Unrealized_Pnl_Separate_From_Position_Pnl()
+    {
+        var position = CreatePosition(PositionSide.Long, 10m, 5m);
+        var state = PortfolioState.Create(
+            Account,
+            [position],
+            new PortfolioCapitalState(100m, 60m, T0, 90m, accountUnrealizedPnl: -42m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        state.Capital.AccountUnrealizedPnl.Should().Be(-42m);
+        state.TotalUnrealizedPnl.Should().Be(5m);
+    }
+
+    [Fact]
+    public void Restore_Rejects_Uninitialized_Settlement_Asset()
+    {
+        var snapshot = CreateState([CreatePosition(PositionSide.Long, 10m, 1m)]).Positions[0];
+
+        FluentActions.Invoking(() => PortfolioState.Restore(
+                Account,
+                [snapshot with { SettlementAsset = default }],
+                new PortfolioCapitalState(100m, 60m, T0),
+                T0.AddMinutes(1),
+                TimeSpan.FromMinutes(5)))
+            .Should().Throw<ArgumentException>();
+    }
+
     private static PortfolioState CreateState(
         IEnumerable<Position> positions,
         decimal? equity = 100m,
@@ -295,12 +350,16 @@ public sealed class PortfolioStateTests
             T0.AddMinutes(1),
             staleAfter ?? TimeSpan.FromMinutes(5));
 
-    private static Position CreatePosition(PositionSide side, decimal? value, decimal? pnl)
+    private static Position CreatePosition(
+        PositionSide side,
+        decimal? value,
+        decimal? pnl,
+        string settlementAsset = "USDT")
     {
         var key = ExchangePositionKey.Create(
             Account, InstrumentId.From(Guid.NewGuid().ToString("N")), side, 0);
         return Position.Create(
-            key, MarketCategory.Linear, 1m, T0, T0,
+            key, MarketCategory.Linear, SettlementAsset.From(settlementAsset), 1m, T0, T0,
             positionValue: value, unrealizedPnl: pnl, averageEntryPrice: 100m, leverage: 2m);
     }
 }

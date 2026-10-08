@@ -1,10 +1,13 @@
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Microsoft.EntityFrameworkCore;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
-public sealed class PortfolioReadRepository(TradeSystemDbContext dbContext) : IPortfolioReadStore
+public sealed class PortfolioReadRepository(
+    TradeSystemDbContext dbContext,
+    TimeProvider timeProvider) : IPortfolioReadStore
 {
     public async Task<PortfolioReadResult> GetLatestAsync(
         UserId userId,
@@ -26,7 +29,7 @@ public sealed class PortfolioReadRepository(TradeSystemDbContext dbContext) : IP
             return new PortfolioReadResult(false, null);
         }
 
-        var row = await dbContext.PortfolioStates
+        var entity = await dbContext.PortfolioStates
             .AsNoTracking()
             .Where(state =>
                 state.ExchangeAccountId == exchangeAccountId.Value &&
@@ -35,62 +38,25 @@ public sealed class PortfolioReadRepository(TradeSystemDbContext dbContext) : IP
                     account.UserId == userId.Value))
             .OrderByDescending(state => state.CalculatedAt)
             .ThenByDescending(state => state.Id)
-            .Select(state => new
-            {
-                state.ExchangeAccountId,
-                state.CalculatedAt,
-                state.TotalEquity,
-                state.AvailableCapital,
-                state.TotalWalletBalance,
-                state.CapitalObservedAt,
-                state.GrossExposure,
-                state.LongExposure,
-                state.ShortExposure,
-                state.NetExposure,
-                state.TotalUnrealizedPnl,
-                state.UsedCapital,
-                state.FreeCapital,
-                state.FreeCapitalPercent,
-                state.GrossExposureToEquityPercent,
-                state.LargestPositionConcentrationPercent,
-                state.LargestPositionId,
-                state.PositionsFullyReconciled,
-                state.IsComplete,
-                state.IsFresh,
-            })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (row is null)
+        if (entity is null)
         {
             return new PortfolioReadResult(true, null);
         }
 
+        var positions = await dbContext.PortfolioPositionStates
+            .AsNoTracking()
+            .Where(position => position.PortfolioStateId == entity.Id)
+            .OrderBy(position => position.Sequence)
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var state = PortfolioStateMapper.ToDomain(entity, positions);
         return new PortfolioReadResult(
             true,
-            new PortfolioReadSummary(
-                ExchangeAccountId.FromGuid(row.ExchangeAccountId),
-                row.CalculatedAt,
-                row.TotalEquity,
-                row.AvailableCapital,
-                row.TotalWalletBalance,
-                row.CapitalObservedAt,
-                row.GrossExposure,
-                row.LongExposure,
-                row.ShortExposure,
-                row.NetExposure,
-                row.TotalUnrealizedPnl,
-                row.UsedCapital,
-                row.FreeCapital,
-                row.FreeCapitalPercent,
-                row.GrossExposureToEquityPercent,
-                row.LargestPositionConcentrationPercent,
-                row.LargestPositionId is { } largestPositionId
-                    ? PositionId.FromGuid(largestPositionId)
-                    : null,
-                row.PositionsFullyReconciled,
-                row.IsComplete,
-                row.IsFresh));
+            PortfolioReadProjection.Project(state, timeProvider.GetUtcNow()));
     }
 
     private static void EnsureUserId(UserId userId)

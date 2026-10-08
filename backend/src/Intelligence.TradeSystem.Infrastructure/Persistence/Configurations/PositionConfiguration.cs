@@ -37,6 +37,10 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<PositionEnt
             .HasConversion<string>()
             .HasMaxLength(16)
             .IsRequired();
+        builder.Property(position => position.SettlementAsset)
+            .HasColumnName("settlement_asset")
+            .HasMaxLength(32)
+            .IsRequired();
 
         ConfigureDecimal(builder.Property(position => position.Size).HasColumnName("size").IsRequired());
         ConfigureDecimal(builder.Property(position => position.AverageEntryPrice).HasColumnName("average_entry_price"));

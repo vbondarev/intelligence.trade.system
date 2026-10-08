@@ -64,6 +64,11 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         Assert.Equal(new ConcurrencyVersion(2), persistedAccount!.Version);
         Assert.Single(persistedPositions);
         Assert.Equal(PositionTrackingState.Active, persistedPositions.Single().Value.TrackingState);
+        Assert.Equal(SettlementAsset.From("USDT"), persistedPositions.Single().Value.SettlementAsset);
+        var persistedPortfolio = await new PortfolioStateRepository(verificationContext)
+            .GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1_000m, persistedPortfolio!.Capital.AccountUnrealizedPnl);
+        Assert.Equal(SettlementAsset.From("USDT"), Assert.Single(persistedPortfolio.Positions).SettlementAsset);
         Assert.Single(persistedPositions.Single().Value.Changes);
         Assert.Equal(
             PositionChangeKind.New,
@@ -195,6 +200,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             btc = Position.Create(
                 ExchangePositionKey.Create(owner.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
                 MarketCategory.Linear,
+                SettlementAsset.From("USDT"),
                 1m,
                 T1,
                 T1,
@@ -205,6 +211,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             eth = Position.Create(
                 ExchangePositionKey.Create(owner.Id, InstrumentId.From("ETHUSDT"), PositionSide.Long, 0),
                 MarketCategory.Linear,
+                SettlementAsset.From("USDT"),
                 1m,
                 T1,
                 T1,
@@ -215,6 +222,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             foreign = Position.Create(
                 ExchangePositionKey.Create(otherUser.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
                 MarketCategory.Linear,
+                SettlementAsset.From("USDT"),
                 1m,
                 T1,
                 T1,
@@ -258,6 +266,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,
@@ -369,6 +378,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,
@@ -601,7 +611,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                     null,
                     null,
                     null,
-                    0))
+                    0,
+                    SettlementAsset.From("USDT")))
                 .ToArray());
 
     private static OpenPositionsObservation CreateEmptyObservation(

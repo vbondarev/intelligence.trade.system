@@ -5,7 +5,7 @@ namespace Intelligence.TradeSystem.Bff.Endpoints;
 /// <summary>
 /// Browser-facing management API подключений текущего пользователя. Каждый endpoint
 /// соответствует одной заранее определённой операции API; generic proxy отсутствует.
-/// Ручная синхронизация через BFF не публикуется.
+/// Чтение портфеля и ручная синхронизация подключения публикуются в <see cref="PortfolioEndpoints"/>.
 /// </summary>
 internal static class ExchangeAccountEndpoints
 {

@@ -26,6 +26,7 @@ public sealed class PortfolioStateConfiguration : IEntityTypeConfiguration<Portf
             .HasColumnName("capital_observed_at")
             .HasColumnType("timestamp with time zone");
         ConfigureDecimal(builder.Property(state => state.TotalWalletBalance).HasColumnName("total_wallet_balance"));
+        ConfigureDecimal(builder.Property(state => state.AccountUnrealizedPnl).HasColumnName("account_unrealized_pnl"));
         builder.Property(state => state.CalculatedAt)
             .HasColumnName("calculated_at")
             .HasColumnType("timestamp with time zone");

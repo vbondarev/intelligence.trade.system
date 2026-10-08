@@ -74,7 +74,9 @@ public sealed class ExchangeAccountSyncServiceTests
         result.Account.Should().BeSameAs(fixture.Account);
         result.PortfolioState.Should().NotBeNull();
         result.PortfolioState!.Capital.TotalEquity.Should().Be(1_000m);
-        result.PortfolioState.Positions.Should().ContainSingle();
+        result.PortfolioState.Capital.AccountUnrealizedPnl.Should().Be(50m);
+        result.PortfolioState.Positions.Should().ContainSingle()
+            .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
         result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
         result.PortfolioState.IsFresh.Should().BeTrue();
         result.PortfolioState.IsComplete.Should().BeTrue();
@@ -325,7 +327,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var previousPortfolio = PortfolioState.Create(
             fixture.Account.Id,
             [trackedPosition],
-            new PortfolioCapitalState(900m, 700m, previousSyncAt, 800m),
+            new PortfolioCapitalState(900m, 700m, previousSyncAt, 800m, accountUnrealizedPnl: -15m),
             ObservedAt,
             TimeSpan.FromMinutes(5));
         fixture.Provider
@@ -371,6 +373,7 @@ public sealed class ExchangeAccountSyncServiceTests
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         result.PortfolioState!.Capital.TotalEquity.Should().Be(900m);
+        result.PortfolioState.Capital.AccountUnrealizedPnl.Should().Be(-15m);
         result.PortfolioState.Positions.Should().ContainSingle()
             .Which.Size.Should().Be(2m);
         fixture.Account.LastSyncedAt.Should().Be(previousSyncAt);
@@ -647,6 +650,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             ObservedAt.AddMinutes(-1),
             ObservedAt.AddMinutes(-1),
@@ -856,6 +860,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             ObservedAt.AddMinutes(-1),
             ObservedAt.AddMinutes(-1),
@@ -1015,6 +1020,7 @@ public sealed class ExchangeAccountSyncServiceTests
         savedState!.Capital.TotalEquity.Should().BeNull();
         savedState.Capital.AvailableCapital.Should().BeNull();
         savedState.Capital.TotalWalletBalance.Should().BeNull();
+        savedState.Capital.AccountUnrealizedPnl.Should().BeNull();
         savedState.Capital.ObservedAt.Should().BeNull();
         savedState.IsComplete.Should().BeFalse();
         savedState.IsFresh.Should().BeFalse();
@@ -1036,6 +1042,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             ObservedAt.AddMinutes(-1),
             ObservedAt.AddMinutes(-1),
@@ -1597,6 +1604,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 PositionSide.Long,
                 0),
             category,
+            SettlementAsset.From("USDT"),
             1m,
             ObservedAt.AddMinutes(-1),
             ObservedAt.AddMinutes(-1),
@@ -1691,7 +1699,8 @@ public sealed class ExchangeAccountSyncServiceTests
             null,
             null,
             null,
-            0);
+            0,
+            SettlementAsset.From("USDT"));
 
     private static Fixture CreateFixture(ExchangeAccount? account = null)
     {

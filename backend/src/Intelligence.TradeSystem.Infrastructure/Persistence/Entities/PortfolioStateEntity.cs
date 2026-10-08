@@ -10,6 +10,7 @@ public sealed class PortfolioStateEntity
     public decimal? AvailableCapital { get; set; }
     public DateTimeOffset? CapitalObservedAt { get; set; }
     public decimal? TotalWalletBalance { get; set; }
+    public decimal? AccountUnrealizedPnl { get; set; }
     public DateTimeOffset CalculatedAt { get; set; }
     public TimeSpan StaleAfter { get; set; }
     public decimal? GrossExposure { get; set; }

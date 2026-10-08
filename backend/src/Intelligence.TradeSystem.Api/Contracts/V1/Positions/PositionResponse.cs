@@ -1,6 +1,10 @@
 namespace Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 
 /// <summary>Полное текущее состояние позиции без истории и аналитики.</summary>
+/// <remarks>
+/// <see cref="PositionValue"/> и <see cref="UnrealizedPnl"/> выражены в <see cref="SettlementAsset"/>
+/// позиции, а не в USD.
+/// </remarks>
 public sealed record PositionResponse(
     Guid Id,
     Guid ExchangeAccountId,
@@ -21,4 +25,5 @@ public sealed record PositionResponse(
     decimal? BreakEvenPrice,
     decimal? TakeProfit,
     decimal? StopLoss,
-    decimal? TrailingStop);
+    decimal? TrailingStop,
+    string SettlementAsset);

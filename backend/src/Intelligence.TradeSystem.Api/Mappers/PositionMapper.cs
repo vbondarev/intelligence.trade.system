@@ -30,7 +30,8 @@ internal static class PositionMapper
         item.LiquidationPrice,
         item.FirstDetectedAt,
         item.LastObservedAt,
-        item.ClosedAt);
+        item.ClosedAt,
+        item.SettlementAsset.Value);
 
     public static PositionResponse ToResponse(PositionReadDetail detail)
     {
@@ -55,6 +56,7 @@ internal static class PositionMapper
             detail.BreakEvenPrice,
             detail.TakeProfit,
             detail.StopLoss,
-            detail.TrailingStop);
+            detail.TrailingStop,
+            item.SettlementAsset.Value);
     }
 }

@@ -13,6 +13,7 @@ public sealed class PortfolioPositionStateEntity
     public PositionSide PositionSide { get; set; }
     public int PositionIdx { get; set; }
     public MarketCategory MarketCategory { get; set; }
+    public string SettlementAsset { get; set; } = null!;
     public PositionTrackingState TrackingState { get; set; }
     public decimal Size { get; set; }
     public decimal? PositionValue { get; set; }

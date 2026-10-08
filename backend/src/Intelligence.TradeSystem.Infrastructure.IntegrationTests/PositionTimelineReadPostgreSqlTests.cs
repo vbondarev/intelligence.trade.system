@@ -785,6 +785,7 @@ public sealed class PositionTimelineReadPostgreSqlTests(
             PositionSide = PositionSide.Long,
             PositionIdx = 0,
             MarketCategory = MarketCategory.Linear,
+            SettlementAsset = "USDT",
             Size = 1m,
             FirstDetectedAt = T0,
             LastObservedAt = T0,

@@ -1,6 +1,10 @@
 namespace Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 
 /// <summary>Краткое текущее состояние позиции в списке.</summary>
+/// <remarks>
+/// <see cref="PositionValue"/> и <see cref="UnrealizedPnl"/> выражены в <see cref="SettlementAsset"/>
+/// позиции, а не в USD.
+/// </remarks>
 public sealed record PositionListItemResponse(
     Guid Id,
     Guid ExchangeAccountId,
@@ -16,4 +20,5 @@ public sealed record PositionListItemResponse(
     decimal? LiquidationPrice,
     DateTimeOffset FirstDetectedAt,
     DateTimeOffset LastObservedAt,
-    DateTimeOffset? ClosedAt);
+    DateTimeOffset? ClosedAt,
+    string SettlementAsset);

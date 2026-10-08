@@ -47,6 +47,9 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
         body.Items[0].Symbol.Should().Be("BTCUSDT");
         body.Items[0].Side.Should().Be(PositionSideV1.Long);
         body.Items[0].TrackingState.Should().Be(PositionTrackingStateV1.Closed);
+        body.Items[0].SettlementAsset.Should().Be("USDT");
+        body.Items[0].PositionValue.Should().Be(110m);
+        body.Items[0].UnrealizedPnl.Should().Be(10m);
         body.NextCursor.Should().NotBeNullOrWhiteSpace();
         body.HasMore.Should().BeTrue();
         PositionCursorCodec.TryDecode(body.NextCursor!, out var decoded).Should().BeTrue();
@@ -185,6 +188,7 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().Contain("\"marketCategory\":\"linear\"");
+        raw.Should().Contain("\"settlementAsset\":\"USDC\"");
         raw.Should().NotContainAny("positionIdx", "changes", "timeline", "assessment", "recommendation");
     }
 
@@ -229,6 +233,7 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
             positionId,
             ExchangeAccountId.New(),
             "BTCUSDT",
+            SettlementAsset.From("USDT"),
             DomainPositionSide.Long,
             PositionTrackingState.Closed,
             1m,
@@ -247,6 +252,8 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
     {
         var listItem = CreateListItem() with
         {
+            Symbol = "BTCPERP",
+            SettlementAsset = SettlementAsset.From("USDC"),
             TrackingState = PositionTrackingState.Active,
             ClosedAt = null,
         };

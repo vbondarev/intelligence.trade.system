@@ -295,6 +295,7 @@ public sealed class ApplicationEventContractTests
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             detectedAt,
             detectedAt,

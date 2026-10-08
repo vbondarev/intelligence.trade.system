@@ -460,7 +460,9 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Null(await detailRepository.GetByIdAsync(foreign.UserId, ownerPosition.Id));
 
         await using var portfolioContext = fixture.CreateContext();
-        var portfolioRepository = new PortfolioReadRepository(portfolioContext);
+        var portfolioRepository = new PortfolioReadRepository(
+            portfolioContext,
+            new FixedTimeProvider(T0.AddMinutes(2)));
         var summary = await portfolioRepository.GetLatestAsync(owner.UserId, owner.Id);
         var foreignSummary = await portfolioRepository.GetLatestAsync(foreign.UserId, owner.Id);
         var missingSummary = await portfolioRepository.GetLatestAsync(owner.UserId, ExchangeAccountId.New());
@@ -502,7 +504,7 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         }
 
         await using var readContext = fixture.CreateContext();
-        var repository = new PortfolioReadRepository(readContext);
+        var repository = new PortfolioReadRepository(readContext, new FixedTimeProvider(T0.AddMinutes(2)));
         var withoutSnapshotResult = await repository.GetLatestAsync(
             withoutSnapshot.UserId,
             withoutSnapshot.Id);
@@ -553,10 +555,93 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
             command.Contains("position_id", StringComparison.OrdinalIgnoreCase));
 
         capture.Commands.Clear();
-        var portfolioRepository = new PortfolioReadRepository(context);
+        var portfolioRepository = new PortfolioReadRepository(context, new FixedTimeProvider(T0.AddMinutes(2)));
         await portfolioRepository.GetLatestAsync(owner.UserId, owner.Id);
-        Assert.DoesNotContain(capture.Commands, command =>
+        Assert.Contains(capture.Commands, command =>
             command.Contains("portfolio_position_states", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(capture.Commands, command =>
+            command.Contains("position_changes", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task List_and_detail_return_persisted_settlement_asset()
+    {
+        var owner = CreateAccount(UserId.New());
+        var usdt = CreatePosition(owner.Id, "BTCUSDT", T0);
+        var usdc = CreatePosition(owner.Id, "ETHUSDC", T0.AddMinutes(-1), settlementAsset: "USDC");
+        await Persist(owner, [usdt, usdc]);
+
+        await using var context = fixture.CreateContext();
+        var repository = new PositionReadRepository(context);
+        var page = await repository.ListAsync(
+            owner.UserId,
+            PositionReadQuery.Create(owner.Id, null, null, null, 50, null));
+        var detail = await repository.GetByIdAsync(owner.UserId, usdc.Id);
+
+        Assert.Equal(
+            [SettlementAsset.From("USDT"), SettlementAsset.From("USDC")],
+            page.Items.Select(item => item.SettlementAsset));
+        Assert.NotNull(detail);
+        Assert.Equal(SettlementAsset.From("USDC"), detail!.ListItem.SettlementAsset);
+    }
+
+    [Fact]
+    public async Task Portfolio_read_returns_account_pnl_count_and_exposures_grouped_by_settlement_asset()
+    {
+        var owner = CreateAccount(UserId.New());
+        var btcLong = CreatePosition(owner.Id, "BTCUSDT", T0, positionValue: 10000m, unrealizedPnl: 50m);
+        var solShort = CreatePosition(
+            owner.Id, "SOLUSDT", T0, PositionSide.Short, positionValue: 3000m, unrealizedPnl: -20m);
+        var ethLong = CreatePosition(
+            owner.Id, "ETHUSDC", T0, settlementAsset: "USDC", positionValue: 5000m, unrealizedPnl: 7m);
+        var unknownValue = CreatePosition(
+            owner.Id, "XRPUSDC", T0, PositionSide.Short, settlementAsset: "USDC", positionValue: null);
+        var portfolio = PortfolioState.Create(
+            owner.Id,
+            [btcLong, solShort, ethLong, unknownValue],
+            new PortfolioCapitalState(20000m, 15000m, T0, 19000m, accountUnrealizedPnl: -123.45m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        await Persist(owner, [btcLong, solShort, ethLong, unknownValue], portfolio);
+
+        await using var context = fixture.CreateContext();
+        var result = await new PortfolioReadRepository(context, new FixedTimeProvider(T0.AddMinutes(2)))
+            .GetLatestAsync(owner.UserId, owner.Id);
+
+        var summary = Assert.IsType<PortfolioReadSummary>(result.Summary);
+        Assert.Equal(-123.45m, summary.TotalUnrealizedPnl);
+        Assert.Equal(4, summary.CurrentPositionCount);
+        Assert.Equal(
+            [
+                new PortfolioExposureReadSummary(SettlementAsset.From("USDC"), null, 5000m, null),
+                new PortfolioExposureReadSummary(SettlementAsset.From("USDT"), 13000m, 10000m, 3000m),
+            ],
+            summary.Exposures);
+    }
+
+    [Fact]
+    public async Task Portfolio_read_evaluates_freshness_at_read_time()
+    {
+        var owner = CreateAccount(UserId.New());
+        var position = CreatePosition(owner.Id, "BTCUSDT", T0);
+        var portfolio = PortfolioState.Create(
+            owner.Id,
+            [position],
+            new PortfolioCapitalState(1000m, 800m, T0, 1000m),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+        Assert.True(portfolio.IsFresh);
+        await Persist(owner, [position], portfolio);
+
+        await using var freshContext = fixture.CreateContext();
+        var fresh = await new PortfolioReadRepository(freshContext, new FixedTimeProvider(T0.AddMinutes(4)))
+            .GetLatestAsync(owner.UserId, owner.Id);
+        await using var staleContext = fixture.CreateContext();
+        var stale = await new PortfolioReadRepository(staleContext, new FixedTimeProvider(T0.AddMinutes(30)))
+            .GetLatestAsync(owner.UserId, owner.Id);
+
+        Assert.True(fresh.Summary!.IsFresh);
+        Assert.False(stale.Summary!.IsFresh);
     }
 
     private async Task Persist(
@@ -619,7 +704,10 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         ExchangeAccountId accountId,
         string symbol,
         DateTimeOffset firstDetectedAt,
-        PositionSide positionSide = PositionSide.Long) =>
+        PositionSide positionSide = PositionSide.Long,
+        string settlementAsset = "USDT",
+        decimal? positionValue = 100m,
+        decimal? unrealizedPnl = 0m) =>
         Position.Create(
             ExchangePositionKey.Create(
                 accountId,
@@ -627,14 +715,20 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
                 positionSide,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From(settlementAsset),
             1m,
             firstDetectedAt,
             firstDetectedAt,
             averageEntryPrice: 100m,
-            positionValue: 100m,
+            positionValue: positionValue,
             leverage: 2m,
             markPrice: 100m,
-            unrealizedPnl: 0m);
+            unrealizedPnl: unrealizedPnl);
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 
     private sealed class CommandCaptureInterceptor : DbCommandInterceptor
     {

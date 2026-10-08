@@ -143,6 +143,41 @@ Lifecycle timestamps recommendation (acknowledged, dismissed, superseded,
 expired) не являются отдельными timeline events. Следующие типы item могут
 добавляться аддитивно.
 
+## Денежная семантика позиций и портфеля
+
+Позиция (`PositionListItemResponse`, `PositionResponse`) содержит обязательный
+`settlementAsset` — актив расчёта контракта (для Bybit — `settleCoin`,
+например `USDT` или `USDC`). `positionValue` и `unrealizedPnl` позиции выражены
+в `settlementAsset`, а не в USD; клиент не конвертирует их и не складывает
+значения позиций с разными активами расчёта.
+
+`PortfolioResponse` описывает один биржевой аккаунт:
+
+- `capital.totalEquity`, `capital.availableCapital`,
+  `capital.totalWalletBalance` и `totalUnrealizedPnl` — account-level значения,
+  нормализованные биржей в USD. `totalUnrealizedPnl` берётся из account-level
+  баланса биржи и не является суммой position-level PnL; `null` означает, что
+  значение неизвестно.
+- `currentPositionCount` — количество текущих (не закрытых) позиций в snapshot
+  портфеля.
+- `exposures[]` — каноническое settlement-aware представление экспозиции:
+  позиции группируются по `settlementAsset`, а `grossExposure`,
+  `longExposure` и `shortExposure` группы выражены в её активе. Если стоимость
+  хотя бы одной позиции стороны неизвестна, значение стороны и `grossExposure`
+  равны `null`; сторона без позиций равна `0`. Группы упорядочены по
+  `settlementAsset` ordinal. Значения разных групп не складываются: в
+  `exposures[]` нет общей суммы по разным активам расчёта, и settlement-aware
+  клиент её не вычисляет. Web client показывает экспозицию только по
+  `exposures[]`.
+- `isFresh` оценивается на момент ответа, а не на момент сохранения snapshot.
+- Legacy top-level поля `grossExposure`, `longExposure`, `shortExposure`,
+  `netExposure` и производные от них `grossExposureToEquityPercent` и
+  `largestPositionConcentrationPercent` сохраняются ради обратной
+  совместимости с прежней aggregate semantics: они суммируют `positionValue`
+  всех позиций snapshot и могут объединять позиции с разными активами расчёта.
+  Эти значения не являются суммой в одном `settlementAsset` и не нормализованы
+  в USD; settlement-aware клиенты и Web client их не используют.
+
 ## Границы миграции
 
 `/api/v1/me/exchange-accounts` является канонической v1-границей управления

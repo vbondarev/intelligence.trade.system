@@ -12,6 +12,12 @@ const authenticatedSession = {
   user: { userId: '7a0c8b5e-6c1d-4f3e-9a6b-2d4e8f1a3c5b', subject: '7a0c8b5e-6c1d-4f3e-9a6b-2d4e8f1a3c5b' },
 };
 
+const noConnections = { '/bff/me/exchange-accounts': () => jsonResponse({ items: [] }) };
+
+function authRequestUrls(requests: { url: string }[]): string[] {
+  return requests.map((request) => request.url).filter((url) => url.startsWith('/bff/auth/'));
+}
+
 function renderAt(path: string) {
   return render(
     <AuthProvider>
@@ -49,7 +55,7 @@ describe('App routing and session bootstrap', () => {
   });
 
   it('shows the authenticated shell on /app', async () => {
-    mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession) });
+    mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
 
     renderAt('/app');
 
@@ -59,7 +65,7 @@ describe('App routing and session bootstrap', () => {
   });
 
   it('moves an authenticated visitor from the landing to /app', async () => {
-    mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession) });
+    mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
 
     renderAt('/');
 
@@ -132,17 +138,15 @@ describe('App routing and session bootstrap', () => {
       '/bff/auth/session': () => jsonResponse(authenticatedSession),
       '/bff/auth/antiforgery': () => jsonResponse({ requestToken: 'csrf-token' }),
       '/bff/auth/logout': () => jsonResponse({ redirectUrl: '/bff/auth/logout/complete' }),
+      ...noConnections,
     });
     renderAt('/app');
 
     await userEvent.click(await screen.findByRole('button', { name: 'Выйти' }));
 
-    expect(requests.map((request) => request.url)).toEqual([
-      '/bff/auth/session',
-      '/bff/auth/antiforgery',
-      '/bff/auth/logout',
-    ]);
-    expect(new Headers(requests[2]?.init?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token');
+    expect(authRequestUrls(requests)).toEqual(['/bff/auth/session', '/bff/auth/antiforgery', '/bff/auth/logout']);
+    const logout = requests.find((request) => request.url === '/bff/auth/logout');
+    expect(new Headers(logout?.init?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token');
     expect(assign).toHaveBeenCalledWith('/bff/auth/logout/complete');
   });
 
@@ -150,6 +154,7 @@ describe('App routing and session bootstrap', () => {
     mockFetch({
       '/bff/auth/session': () => jsonResponse(authenticatedSession),
       '/bff/auth/antiforgery': () => jsonResponse({}, 503),
+      ...noConnections,
     });
     renderAt('/app');
 

@@ -26,5 +26,13 @@ internal static class PortfolioMapper
         summary.LargestPositionId?.Value,
         summary.PositionsFullyReconciled,
         summary.IsComplete,
-        summary.IsFresh);
+        summary.IsFresh,
+        summary.CurrentPositionCount,
+        summary.Exposures
+            .Select(exposure => new PortfolioExposureResponse(
+                exposure.SettlementAsset.Value,
+                exposure.GrossExposure,
+                exposure.LongExposure,
+                exposure.ShortExposure))
+            .ToArray());
 }

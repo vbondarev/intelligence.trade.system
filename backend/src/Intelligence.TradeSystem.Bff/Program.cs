@@ -29,6 +29,8 @@ public partial class Program
         app.UseMiddleware<BffAntiforgeryMiddleware>();
         app.MapAuthEndpoints();
         app.MapExchangeAccountEndpoints();
+        app.MapPortfolioEndpoints();
+        app.MapPositionEndpoints();
 
         // Неизвестный /bff/** path не должен попадать в SPA fallback frontend или в API.
         // Контракт требует no-store для всех ответов /bff/me/**, включая неизвестные paths.

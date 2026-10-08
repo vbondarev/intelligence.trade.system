@@ -101,6 +101,14 @@ export async function rotateCredentials(id: string, credentials: ExchangeCredent
   );
 }
 
+/**
+ * Ручная синхронизация подключения. Автоматический повтор не выполняется: повторный запрос
+ * снова обратился бы к бирже, поэтому решение о повторе остаётся за пользователем.
+ */
+export async function syncConnection(id: string): Promise<ExchangeAccount> {
+  return readAccount(await sendUnsafe('POST', `${itemUrl(id)}/sync`));
+}
+
 export async function disconnectConnection(id: string): Promise<void> {
   await sendUnsafe('DELETE', itemUrl(id));
 }

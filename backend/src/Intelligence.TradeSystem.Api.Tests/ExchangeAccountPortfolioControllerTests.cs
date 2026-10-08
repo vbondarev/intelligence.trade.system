@@ -50,7 +50,12 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
                 null,
                 true,
                 true,
-                true)));
+                true,
+                3,
+                [
+                    new PortfolioExposureReadSummary(SettlementAsset.From("USDC"), 50m, 50m, 0m),
+                    new PortfolioExposureReadSummary(SettlementAsset.From("USDT"), null, null, 30m),
+                ])));
         using var client = CreateClient(userId, store.Object);
 
         using var response = await client.GetAsync(
@@ -61,8 +66,15 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
             V1JsonSerializerOptions.Default);
         body!.ExchangeAccountId.Should().Be(accountId.Value);
         body.Capital.TotalEquity.Should().Be(1000m);
+        body.TotalUnrealizedPnl.Should().Be(10m);
         body.LargestPositionId.Should().BeNull();
+        body.CurrentPositionCount.Should().Be(3);
+        body.Exposures.Should().Equal(
+            new PortfolioExposureResponse("USDC", 50m, 50m, 0m),
+            new PortfolioExposureResponse("USDT", null, null, 30m));
         var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().Contain("\"currentPositionCount\":3");
+        raw.Should().Contain("\"settlementAsset\":\"USDC\"");
         raw.Should().NotContainAny("\"positions\"", "staleAfter");
         store.VerifyAll();
     }

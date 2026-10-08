@@ -48,10 +48,14 @@ public sealed record PositionReadPage(
     PositionReadCursor? NextCursor,
     bool HasMore);
 
+/// <remarks>
+/// <see cref="PositionValue"/> и <see cref="UnrealizedPnl"/> выражены в <see cref="SettlementAsset"/>.
+/// </remarks>
 public sealed record PositionReadListItem(
     PositionId Id,
     ExchangeAccountId ExchangeAccountId,
     string Symbol,
+    SettlementAsset SettlementAsset,
     PositionSide Side,
     PositionTrackingState TrackingState,
     decimal Size,
@@ -73,6 +77,14 @@ public sealed record PositionReadDetail(
     decimal? StopLoss,
     decimal? TrailingStop);
 
+/// <summary>
+/// Account-scoped read model последнего сохранённого снимка портфеля.
+/// </summary>
+/// <remarks>
+/// <see cref="TotalUnrealizedPnl"/> — нормализованный биржей account-level PnL в USD, а не сумма
+/// position-level PnL. <see cref="Exposures"/> сгруппированы по активу расчёта и никогда не
+/// суммируются между разными активами. <see cref="IsFresh"/> вычисляется на момент чтения.
+/// </remarks>
 public sealed record PortfolioReadSummary(
     ExchangeAccountId ExchangeAccountId,
     DateTimeOffset CalculatedAt,
@@ -93,7 +105,22 @@ public sealed record PortfolioReadSummary(
     PositionId? LargestPositionId,
     bool PositionsFullyReconciled,
     bool IsComplete,
-    bool IsFresh);
+    bool IsFresh,
+    int CurrentPositionCount,
+    IReadOnlyList<PortfolioExposureReadSummary> Exposures);
+
+/// <summary>
+/// Экспозиция позиций снимка портфеля в пределах одного актива расчёта.
+/// </summary>
+/// <remarks>
+/// Агрегат равен <see langword="null"/>, если стоимость хотя бы одной входящей в него позиции
+/// неизвестна; при отсутствии позиций соответствующей стороны агрегат равен нулю.
+/// </remarks>
+public sealed record PortfolioExposureReadSummary(
+    SettlementAsset SettlementAsset,
+    decimal? GrossExposure,
+    decimal? LongExposure,
+    decimal? ShortExposure);
 
 public sealed record PortfolioReadResult(
     bool AccountExists,

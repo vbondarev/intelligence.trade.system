@@ -846,6 +846,7 @@ public sealed class PositionEvaluationControllerTests : IClassFixture<ApiWebAppl
                 PositionSide.Long,
                 0),
             MarketCategory.Linear,
+            SettlementAsset.From("USDT"),
             1m,
             T0,
             T0,

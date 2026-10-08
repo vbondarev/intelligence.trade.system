@@ -37,6 +37,10 @@ public sealed class PortfolioPositionStateConfiguration : IEntityTypeConfigurati
             .HasConversion<string>()
             .HasMaxLength(16)
             .IsRequired();
+        builder.Property(state => state.SettlementAsset)
+            .HasColumnName("settlement_asset")
+            .HasMaxLength(32)
+            .IsRequired();
         builder.Property(state => state.TrackingState)
             .HasColumnName("tracking_state")
             .HasConversion<string>()
