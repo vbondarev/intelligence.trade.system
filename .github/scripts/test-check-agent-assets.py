@@ -14,6 +14,12 @@ validator = runpy.run_path(
 )
 validate_repository = validator["validate_repository"]
 PROJECT_OWNED_SKILLS = validator["PROJECT_OWNED_SKILLS"]
+WORKFLOW_PROJECT_OWNED_SKILLS = validator["WORKFLOW_PROJECT_OWNED_SKILLS"]
+SPECIALIZED_PROJECT_OWNED_SKILLS = validator["SPECIALIZED_PROJECT_OWNED_SKILLS"]
+
+SPECIALIZED_SKILL = "trade-system-web-design-review"
+FRONTEND_AGENTS = "frontend/intelligence-trade-web/AGENTS.md"
+SPECIALIZED_ROUTE = f".agents/skills/{SPECIALIZED_SKILL}/SKILL.md"
 
 
 def write_text(root: Path, relative_path: str, text: str) -> Path:
@@ -23,11 +29,19 @@ def write_text(root: Path, relative_path: str, text: str) -> Path:
     return path
 
 
+def registry_table(skill_names: set[str]) -> list[str]:
+    return [
+        "| Skill | Responsibility |",
+        "| --- | --- |",
+        *(f"| `{skill_name}` | Процесс |" for skill_name in sorted(skill_names)),
+    ]
+
+
 def create_repository(root: Path) -> None:
     write_text(root, "docs/README.md", "# Документация\n")
     workflow_references = "\n".join(
         f".agents/skills/{skill_name}/SKILL.md"
-        for skill_name in sorted(PROJECT_OWNED_SKILLS)
+        for skill_name in sorted(WORKFLOW_PROJECT_OWNED_SKILLS)
     )
     write_text(
         root,
@@ -42,6 +56,12 @@ def create_repository(root: Path) -> None:
     )
     write_text(
         root,
+        FRONTEND_AGENTS,
+        "# Frontend\n\n[Документация](../../docs/README.md)\n\n"
+        f"UI review — `{SPECIALIZED_ROUTE}`.\n",
+    )
+    write_text(
+        root,
         ".agents/skills/README.md",
         "\n".join(
             [
@@ -49,12 +69,13 @@ def create_repository(root: Path) -> None:
                 "",
                 "## Project-owned skills",
                 "",
-                "| Skill | Responsibility |",
-                "| --- | --- |",
-                *(
-                    f"| `{skill_name}` | Процесс |"
-                    for skill_name in sorted(PROJECT_OWNED_SKILLS)
-                ),
+                "### Workflow skills",
+                "",
+                *registry_table(WORKFLOW_PROJECT_OWNED_SKILLS),
+                "",
+                "### Specialized skills",
+                "",
+                *registry_table(SPECIALIZED_PROJECT_OWNED_SKILLS),
                 "",
                 "## External skills",
                 "",
@@ -66,13 +87,21 @@ def create_repository(root: Path) -> None:
         ".github/instructions/example.instructions.md",
         "---\napplyTo: \"src/**\"\n---\n# Инструкции\n",
     )
-    for skill_name in PROJECT_OWNED_SKILLS:
+    for skill_name in WORKFLOW_PROJECT_OWNED_SKILLS:
         write_text(
             root,
             f".agents/skills/{skill_name}/SKILL.md",
             f"---\nname: {skill_name}\ndescription: Описание workflow.\n---\n"
             "# Процесс\n",
         )
+    for skill_name in SPECIALIZED_PROJECT_OWNED_SKILLS:
+        write_text(
+            root,
+            f".agents/skills/{skill_name}/SKILL.md",
+            f"---\nname: {skill_name}\ndescription: Описание review.\n---\n"
+            "# Review\n\n[Guidelines](guidelines.md)\n",
+        )
+        write_text(root, f".agents/skills/{skill_name}/guidelines.md", "# Rules\n")
 
 
 class AgentAssetsValidatorTests(unittest.TestCase):
@@ -431,7 +460,8 @@ class AgentAssetsValidatorTests(unittest.TestCase):
         missing_routes = [
             error for error in errors if "обязательная routing-ссылка" in error
         ]
-        self.assertEqual(len(PROJECT_OWNED_SKILLS), len(missing_routes))
+        self.assertEqual(len(WORKFLOW_PROJECT_OWNED_SKILLS), len(missing_routes))
+        self.assertFalse(any(SPECIALIZED_SKILL in error for error in missing_routes))
 
     def test_instruction_without_apply_to_fails(self) -> None:
         path = self.root / ".github" / "instructions" / "example.instructions.md"
@@ -538,6 +568,188 @@ class AgentAssetsValidatorTests(unittest.TestCase):
             "upstream content without project frontmatter rules",
         )
         self.assertEqual([], self.errors())
+
+
+class SkillCategoriesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.root = Path(self.temporary_directory.name)
+        create_repository(self.root)
+        self.registry = self.root / ".agents" / "skills" / "README.md"
+
+    def errors(self) -> list[str]:
+        return validate_repository(self.root)
+
+    def assert_error(self, *fragments: str) -> None:
+        errors = self.errors()
+        self.assertTrue(
+            any(all(fragment in error for fragment in fragments) for error in errors),
+            errors,
+        )
+
+    def replace_in(self, path: Path, old: str, new: str) -> None:
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    def row(self, skill_name: str) -> str:
+        return f"| `{skill_name}` | Процесс |\n"
+
+    def test_categories_are_disjoint_and_complete(self) -> None:
+        self.assertEqual(
+            set(),
+            WORKFLOW_PROJECT_OWNED_SKILLS & SPECIALIZED_PROJECT_OWNED_SKILLS,
+        )
+        self.assertEqual(
+            PROJECT_OWNED_SKILLS,
+            WORKFLOW_PROJECT_OWNED_SKILLS | SPECIALIZED_PROJECT_OWNED_SKILLS,
+        )
+        self.assertIn(SPECIALIZED_SKILL, SPECIALIZED_PROJECT_OWNED_SKILLS)
+
+    def test_valid_workflow_and_specialized_skills_pass(self) -> None:
+        self.assertEqual([], self.errors())
+
+    def test_missing_workflow_skill_file_fails(self) -> None:
+        (
+            self.root / ".agents" / "skills" / "trade-system-pr-review" / "SKILL.md"
+        ).unlink()
+        self.assert_error("trade-system-pr-review/SKILL.md", "не удалось прочитать файл")
+
+    def test_missing_specialized_skill_file_fails(self) -> None:
+        (self.root / ".agents" / "skills" / SPECIALIZED_SKILL / "SKILL.md").unlink()
+        self.assert_error(f"{SPECIALIZED_SKILL}/SKILL.md", "не удалось прочитать файл")
+
+    def test_specialized_skill_name_must_match_directory(self) -> None:
+        self.replace_in(
+            self.root / ".agents" / "skills" / SPECIALIZED_SKILL / "SKILL.md",
+            f"name: {SPECIALIZED_SKILL}",
+            "name: web-design-guidelines",
+        )
+        self.assert_error(SPECIALIZED_SKILL, "не совпадает с именем каталога")
+
+    def test_specialized_skill_requires_description(self) -> None:
+        self.replace_in(
+            self.root / ".agents" / "skills" / SPECIALIZED_SKILL / "SKILL.md",
+            "description: Описание review.\n",
+            "",
+        )
+        self.assert_error(SPECIALIZED_SKILL, "отсутствует 'description'")
+
+    def test_specialized_skill_is_not_required_in_global_routing(self) -> None:
+        for relative_path in ("AGENTS.md", ".github/copilot-instructions.md"):
+            text = (self.root / relative_path).read_text(encoding="utf-8")
+            self.assertNotIn(SPECIALIZED_ROUTE, text)
+        self.assertEqual([], self.errors())
+
+    def test_missing_frontend_context_route_fails(self) -> None:
+        self.replace_in(self.root / FRONTEND_AGENTS, SPECIALIZED_ROUTE, "UI review skill")
+        self.assert_error(
+            FRONTEND_AGENTS,
+            "обязательная context routing-ссылка",
+            SPECIALIZED_SKILL,
+        )
+
+    def test_frontend_context_route_inside_fenced_code_fails(self) -> None:
+        self.replace_in(
+            self.root / FRONTEND_AGENTS,
+            f"`{SPECIALIZED_ROUTE}`",
+            f"\n```text\n{SPECIALIZED_ROUTE}\n```\n",
+        )
+        self.assert_error(FRONTEND_AGENTS, "обязательная context routing-ссылка")
+
+    def test_missing_frontend_agents_fails(self) -> None:
+        (self.root / FRONTEND_AGENTS).unlink()
+        self.assert_error(FRONTEND_AGENTS, "не удалось прочитать файл")
+
+    def test_broken_link_in_frontend_agents_fails(self) -> None:
+        self.replace_in(
+            self.root / FRONTEND_AGENTS,
+            "../../docs/README.md",
+            "../../docs/missing.md",
+        )
+        self.assert_error(FRONTEND_AGENTS, "внутренняя ссылка не существует")
+
+    def test_workflow_skill_in_specialized_registry_fails(self) -> None:
+        row = self.row("trade-system-delivery")
+        self.replace_in(self.registry, row, "")
+        self.replace_in(self.registry, "\n## External skills", row + "\n## External skills")
+        self.assert_error(
+            "'trade-system-delivery'",
+            "указан в разделе 'Specialized skills'",
+            "относится к разделу 'Workflow skills'",
+        )
+
+    def test_specialized_skill_in_workflow_registry_fails(self) -> None:
+        row = self.row(SPECIALIZED_SKILL)
+        self.replace_in(self.registry, row, "")
+        self.replace_in(self.registry, "\n### Specialized skills", row + "\n### Specialized skills")
+        self.assert_error(
+            f"'{SPECIALIZED_SKILL}'",
+            "указан в разделе 'Workflow skills'",
+            "относится к разделу 'Specialized skills'",
+        )
+
+    def test_unknown_specialized_entry_fails(self) -> None:
+        self.replace_in(
+            self.registry,
+            "\n## External skills",
+            self.row("trade-system-unknown-review") + "\n## External skills",
+        )
+        self.assert_error(
+            "неизвестный project-owned skill 'trade-system-unknown-review'",
+            "'Specialized skills'",
+        )
+
+    def test_missing_specialized_registry_entry_fails(self) -> None:
+        self.replace_in(self.registry, self.row(SPECIALIZED_SKILL), "")
+        self.assert_error(
+            f"обязательный skill '{SPECIALIZED_SKILL}' не указан",
+            "'Specialized skills'",
+        )
+
+    def test_skill_in_both_categories_fails(self) -> None:
+        self.replace_in(
+            self.registry,
+            "\n### Specialized skills",
+            self.row(SPECIALIZED_SKILL) + "\n### Specialized skills",
+        )
+        self.assert_error(f"'{SPECIALIZED_SKILL}'", "указан одновременно")
+
+    def test_duplicate_entry_within_category_fails(self) -> None:
+        row = self.row(SPECIALIZED_SKILL)
+        self.replace_in(self.registry, row, row + row)
+        self.assert_error(f"'{SPECIALIZED_SKILL}'", "указан повторно")
+
+    def test_missing_category_heading_fails(self) -> None:
+        self.replace_in(self.registry, "### Specialized skills\n", "")
+        self.assert_error("отсутствует раздел '### Specialized skills'")
+
+    def test_entry_outside_categories_fails(self) -> None:
+        self.replace_in(
+            self.registry,
+            "### Workflow skills\n",
+            self.row("trade-system-delivery") + "\n### Workflow skills\n",
+        )
+        self.assert_error("'trade-system-delivery'", "указан вне разделов")
+
+    def test_external_skill_stays_outside_project_owned_validation(self) -> None:
+        write_text(
+            self.root,
+            ".agents/skills/external-react/SKILL.md",
+            "---\nname: vendor-react\ndescription:\n  multi-line upstream value\n"
+            "---\n[Upstream link](missing-upstream.md)\n",
+        )
+        self.replace_in(
+            self.root / FRONTEND_AGENTS,
+            "UI review",
+            "React — `.agents/skills/external-react/SKILL.md`; UI review",
+        )
+        self.assertEqual([], self.errors())
+
+    def test_broken_specialized_guidelines_link_fails(self) -> None:
+        (self.root / ".agents" / "skills" / SPECIALIZED_SKILL / "guidelines.md").unlink()
+        self.assert_error(f"{SPECIALIZED_SKILL}/SKILL.md", "внутренняя ссылка не существует")
 
 
 if __name__ == "__main__":

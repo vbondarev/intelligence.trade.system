@@ -14,6 +14,7 @@
 - [ADR](adr/) — принятые архитектурные решения и причины их выбора.
 - [API v1 conventions](api-v1-conventions.md) и другие контрактные документы — точное поведение конкретных подсистем.
 - [Web BFF contract](web-bff-contract.md) — граница React → frontend service → BFF → API: разделение source/build/container/deployment, same-origin routing, server-side browser session, CSRF, refresh, full SSO logout и explicit management boundary `/bff/me/exchange-accounts/**`.
+- [Frontend architecture](frontend-architecture.md) — внутренняя архитектура React Web-клиента: composition и routing, page orchestration, capability-local modules, browser data access, владение состоянием, async consistency, error semantics, styling и testing boundaries. Не заменяет Web BFF contract (browser/BFF/security), API v1 conventions (API contract), руководство по локальной разработке (runtime и запуск) и frontend `AGENTS.md` (правила coding agents); onboarding разработчика — [README Web-клиента](../frontend/intelligence-trade-web/README.md).
 - GitHub Issue — согласованный WHAT конкретной задачи.
 - Approved Implementation Plan — immutable GitHub Issue comment с canonical marker, опубликованный `vbondarev/OWNER` и доступный по permalink; утверждённые изменения HOW сохраняются append-only Amendments. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, требуется `STOP → Human Decision`.
 - [AGENTS.md](../AGENTS.md) — долговечные правила работы coding agents в репозитории.
