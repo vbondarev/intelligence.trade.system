@@ -70,7 +70,7 @@ Web-клиент — React + TypeScript + Vite SPA и самостоятельн
 - чтение пользовательского состояния выполняется с `cache: 'no-store'`;
 - unsafe-запросы получают antiforgery token и передают его по правилам [Web BFF contract](web-bff-contract.md);
 - входящий JSON рассматривается как `unknown` и проверяется type guards до использования; некорректный ответ становится ошибкой, а не частично типизированным объектом;
-- ошибки представлены capability-specific классами (`AuthApiError`, `ConnectionsApiError`, `PortfolioApiError`) с machine-readable полями `status`, `code` и `traceId`;
+- ошибки представлены capability-specific классами: `AuthApiError` хранит machine-readable HTTP `status`, а `ConnectionsApiError` и `PortfolioApiError` дополнительно разбирают стабильные `ProblemDetails.code` и `traceId`; `ConnectionsApiError` также может содержать field-level `errors`;
 - параметры запросов передаются в форме, которую ожидает API; валидацию, фильтрацию и разбор cursor выполняет backend.
 
 Generic API client в текущей архитектуре отсутствует. Его введение, как и генерация TypeScript client из OpenAPI, — отдельное архитектурное решение.
@@ -99,7 +99,7 @@ URL-state используется, когда состояние предста
 
 ## 9. Error semantics
 
-UI ветвится только по HTTP status и стабильному `ProblemDetails.code`. `title` и `detail` не используются для ветвления и не показываются как основной текст ошибки. `traceId` показывается как диагностический код. `401` или `authentication_required` переводят UI в состояние завершённой session с возможностью войти снова.
+UI использует только доступные для конкретной capability machine-readable признаки: HTTP `status`, а для connections/portfolio — также стабильный `ProblemDetails.code`. `AuthApiError` сейчас содержит только `status` и не разбирает `ProblemDetails`. `title` и `detail` не используются для ветвления и не показываются как основной текст ошибки. `traceId` показывается как диагностический код там, где соответствующий client API его разбирает. `401` завершает browser session flow с возможностью войти снова; для connections/portfolio тот же session-ended outcome также определяется по `authentication_required`.
 
 Тексты ошибок пока задаются на уровне страниц. Единый product error UX относится к G-08.
 
