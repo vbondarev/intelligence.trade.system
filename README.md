@@ -98,6 +98,7 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 - отдельный deployable `Intelligence.TradeSystem.Identity` с ASP.NET Core Identity, OpenIddict, discovery/JWKS и отдельной PostgreSQL persistence;
 - `Intelligence.TradeSystem.Api` как JwtBearer resource server с проверкой issuer, audience, lifetime, signature и `trade.api`;
 - адаптивная dark-first React-оболочка `frontend/intelligence-trade-web` (nginx frontend service, проксирующий `/bff/**` и OIDC callbacks) и `Intelligence.TradeSystem.Bff` как внутренний BFF: confidential OIDC client `trade-web-bff` с Authorization Code + PKCE, server-side browser session без выдачи tokens JavaScript, refresh access token, CSRF-защита unsafe `/bff/**` и full SSO logout через standard OIDC end-session ([Web BFF contract](docs/web-bff-contract.md));
+- основной экран `/app` с выбором одного подключения, account-scoped сводкой фактического портфеля, экспозицией по `settlementAsset`, текущими/закрытыми позициями, серверными фильтрами, cursor continuation и ручной синхронизацией через явные BFF endpoints; risk/evaluation/recommendation в G-03 не отображаются;
 - `Intelligence.TradeSystem.Api` требует PostgreSQL и запускается только в полноценном DB-backed runtime-режиме: обязательная конфигурация проверяется при startup, `/alive` отражает liveness процесса, а `/healthz` — readiness зависимостей, включая PostgreSQL;
 - integration tests на реальный PostgreSQL, Authorization Code + PKCE, JWS access token и API boundary;
 - сопоставление user-delegated OIDC `sub` со стабильным Domain `UserId` и явная маркировка user principal;
@@ -110,7 +111,7 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 - детерминированные `entryQuality`, `riskFlags`, рыночные теги и диагностика индикаторов;
 - проверка свежести и частичности рыночных данных;
 - публичный `GET /api/market-analysis/{symbol}/llm-payload` со схемой `1.0`;
-- legacy `POST /api/market-analysis/snapshot`, сохраняемый для совместимости;
+- legacy `POST /api/market-analysis/snapshot`, сохраняемый для совместимости: `OpenPositionSnapshot` и `PortfolioSnapshot` остаются wire types, portfolio section возвращается как `PortfolioSnapshot.Unavailable`, а settlement-aware пользовательский портфель публикуется только через `/api/v1`; `PortfolioSnapshotAssembler` удалён, чтобы не проецировать position-level значения в ложные USD-поля без currency conversion;
 - типизированные идентификаторы пользователя, биржевого аккаунта, позиции и инструмента;
 - `ExchangeAccount`, `Position` и устойчивая идентичность биржевой позиции с учётом `positionIdx`;
 - подключение Bybit-аккаунта, ручная и фоновая синхронизация баланса, позиций и `PortfolioState`;
@@ -148,14 +149,13 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 
 ### Есть только как архитектурная заготовка
 
-- legacy-типы `OpenPositionSnapshot` и `PortfolioSnapshot`, сохраняемые для совместимости публичного market-analysis contract; `POST /api/market-analysis/snapshot` возвращает `PortfolioSnapshot.Unavailable`, а пользовательский портфель доступен только через `/api/v1`;
 - инфраструктура структурированного логирования, OpenTelemetry и устойчивости внешних вызовов; полный operational-контур наблюдения и пользовательских уведомлений относится к последующим этапам.
 
 Фоновая синхронизация выбирает только активные Bybit-аккаунты (`Connected` и `Unavailable`) и использует существующий application sync workflow.
 
 ### Ещё не реализовано
 
-- остальные пользовательские экраны React поверх `/api/v1` (портфель, позиции, карточка и timeline) и browser SignalR integration через BFF;
+- следующие пользовательские сценарии этапа G после G-03: страница позиции (G-04), timeline (G-05), browser SignalR integration через BFF (G-06), а также общие задачи доступности и дизайн-системы G-07/G-08;
 - непрерывный цикл повторной оценки активных позиций;
 - уведомления о рисках конкретных пользовательских позиций;
 - общий cross-account portfolio и расширенная портфельная аналитика, включая correlation model.
