@@ -4,6 +4,22 @@
 
 Этот файл применяется к `frontend/intelligence-trade-web` и дополняет корневой `../../AGENTS.md` правилами React-клиента (Web client).
 
+## Источники истины
+
+- [README Web-клиента](README.md) — onboarding: назначение, stack, структура и команды.
+- [Архитектура Web-клиента](../../docs/frontend-architecture.md) — внутренняя архитектура React: routing, page orchestration, capability modules, владение состоянием, async consistency, error semantics, styling и testing boundaries.
+- [Web BFF contract](../../docs/web-bff-contract.md) — граница browser/BFF и security.
+- [API v1 conventions](../../docs/api-v1-conventions.md) — пользовательский API contract.
+- [Локальная разработка](../../docs/local-development.md) — локальный runtime и тестирование.
+
+## Skills
+
+- Реализация React-кода и производительность — `.agents/skills/react-best-practices/SKILL.md`.
+- Reusable component API, composition, context/provider patterns, разрастание boolean props — `.agents/skills/composition-patterns/SKILL.md`.
+- UI/UX/accessibility review — `.agents/skills/trade-system-web-design-review/SKILL.md`.
+
+Приоритет: Issue и Approved Implementation Plan → repository rules и этот файл → frontend architecture и contracts → рекомендации skill. React skills — external upstream artifacts с примерами Next.js и сторонних библиотек: рекомендация skill не разрешает новую dependency, framework или изменение архитектуры и применяется только когда соответствует React + Vite SPA проекта.
+
 ## Стек
 
 - React + TypeScript + Vite; package manager — npm, lock-file — `package-lock.json`, версия Node.js — `.nvmrc`.

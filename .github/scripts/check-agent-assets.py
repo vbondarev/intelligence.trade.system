@@ -11,12 +11,25 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 
-PROJECT_OWNED_SKILLS = {
+WORKFLOW_PROJECT_OWNED_SKILLS = {
     "trade-system-discovery",
     "trade-system-delivery",
     "trade-system-pr-review",
 }
-REQUIRED_ROUTING_REFERENCES = PROJECT_OWNED_SKILLS
+SPECIALIZED_PROJECT_OWNED_SKILLS = {
+    "trade-system-web-design-review",
+}
+PROJECT_OWNED_SKILLS = WORKFLOW_PROJECT_OWNED_SKILLS | SPECIALIZED_PROJECT_OWNED_SKILLS
+# Глобальные control files маршрутизируют только стадии lifecycle; specialized skills
+# маршрутизируются локальными instructions своей области.
+REQUIRED_ROUTING_REFERENCES = WORKFLOW_PROJECT_OWNED_SKILLS
+CONTEXT_ROUTING_REFERENCES = {
+    "frontend/intelligence-trade-web/AGENTS.md": {"trade-system-web-design-review"},
+}
+PROJECT_OWNED_REGISTRY_CATEGORIES = {
+    "Workflow skills": WORKFLOW_PROJECT_OWNED_SKILLS,
+    "Specialized skills": SPECIALIZED_PROJECT_OWNED_SKILLS,
+}
 FRONTMATTER_KEY = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$")
 DOUBLE_QUOTED_VALUE = re.compile(r'^"((?:[^"\\]|\\.)*)"(?:\s+#.*)?$')
 SINGLE_QUOTED_VALUE = re.compile(r"^'((?:''|[^'])*)'(?:\s+#.*)?$")
@@ -146,7 +159,10 @@ def is_nonempty_frontmatter_value(value: str) -> bool:
     return bool(value)
 
 
-def project_owned_registry_names(text: str) -> list[str]:
+def project_owned_registry_entries(
+    text: str,
+) -> tuple[set[str], list[tuple[str | None, str]]] | None:
+    """Возвращает заголовки категорий и строки реестра с категорией каждой строки."""
     lines = visible_markdown_lines(text)
     start = next(
         (
@@ -157,16 +173,97 @@ def project_owned_registry_names(text: str) -> list[str]:
         None,
     )
     if start is None:
-        return []
+        return None
 
-    names: list[str] = []
+    headings: set[str] = set()
+    entries: list[tuple[str | None, str]] = []
+    category: str | None = None
     for line in lines[start + 1 :]:
         if line.startswith("## "):
             break
+        heading = re.match(r"^###\s+(.+?)\s*$", line)
+        if heading is not None:
+            category = heading.group(1)
+            headings.add(category)
+            continue
         match = re.match(r"^\|\s*`([^`]+)`\s*\|", line)
         if match is not None:
-            names.append(match.group(1))
-    return names
+            entries.append((category, match.group(1)))
+    return headings, entries
+
+
+def validate_project_owned_registry(text: str, errors: list[str]) -> None:
+    prefix = ".agents/skills/README.md"
+    parsed = project_owned_registry_entries(text)
+    if parsed is None:
+        errors.append(f"{prefix}: отсутствует реестр Project-owned skills.")
+        return
+
+    headings, entries = parsed
+    for category in PROJECT_OWNED_REGISTRY_CATEGORIES:
+        if category not in headings:
+            errors.append(
+                f"{prefix}: в реестре Project-owned skills отсутствует раздел "
+                f"'### {category}'."
+            )
+
+    listed: dict[str, list[str]] = {
+        category: [] for category in PROJECT_OWNED_REGISTRY_CATEGORIES
+    }
+    for category, name in entries:
+        if category not in listed:
+            errors.append(
+                f"{prefix}: project-owned skill '{name}' указан вне разделов "
+                f"{', '.join(repr(known) for known in PROJECT_OWNED_REGISTRY_CATEGORIES)}."
+            )
+            continue
+        listed[category].append(name)
+
+    for category, names in listed.items():
+        for name in sorted({name for name in names if names.count(name) > 1}):
+            errors.append(
+                f"{prefix}: project-owned skill '{name}' указан повторно "
+                f"в разделе '{category}'."
+            )
+
+    categories_by_name: dict[str, set[str]] = {}
+    for category, names in listed.items():
+        for name in names:
+            categories_by_name.setdefault(name, set()).add(category)
+    for name, categories in sorted(categories_by_name.items()):
+        if len(categories) > 1:
+            errors.append(
+                f"{prefix}: project-owned skill '{name}' указан одновременно в "
+                f"разделах {', '.join(repr(category) for category in sorted(categories))}."
+            )
+
+    for category, expected_names in PROJECT_OWNED_REGISTRY_CATEGORIES.items():
+        listed_names = set(listed[category])
+        for name in sorted(listed_names - expected_names):
+            expected_category = next(
+                (
+                    candidate
+                    for candidate, candidate_names in PROJECT_OWNED_REGISTRY_CATEGORIES.items()
+                    if name in candidate_names
+                ),
+                None,
+            )
+            if expected_category is None:
+                errors.append(
+                    f"{prefix}: неизвестный project-owned skill '{name}' "
+                    f"в разделе '{category}'."
+                )
+            elif len(categories_by_name[name]) == 1:
+                errors.append(
+                    f"{prefix}: project-owned skill '{name}' указан в разделе "
+                    f"'{category}', но относится к разделу '{expected_category}'."
+                )
+        for name in sorted(expected_names - listed_names):
+            if name not in categories_by_name:
+                errors.append(
+                    f"{prefix}: обязательный skill '{name}' не указан "
+                    f"в разделе '{category}'."
+                )
 
 
 def visible_markdown_lines(text: str) -> list[str]:
@@ -349,33 +446,29 @@ def validate_repository(repository_root: Path) -> list[str]:
                     f".agents/skills/{skill_name}/SKILL.md отсутствует."
                 )
 
+    for relative_control_path, required_skills in sorted(
+        CONTEXT_ROUTING_REFERENCES.items()
+    ):
+        control_path = root / relative_control_path
+        text = read_text(control_path, root, errors)
+        if text is None:
+            continue
+        referenced_skills = validate_markdown_references(
+            root,
+            control_path,
+            text,
+            errors,
+        )
+        for skill_name in sorted(required_skills - referenced_skills):
+            errors.append(
+                f"{relative_control_path}: обязательная context routing-ссылка на "
+                f".agents/skills/{skill_name}/SKILL.md отсутствует."
+            )
+
     registry_path = root / ".agents" / "skills" / "README.md"
     registry_text = read_text(registry_path, root, errors)
     if registry_text is not None:
-        registry_names = project_owned_registry_names(registry_text)
-        if not registry_names:
-            errors.append(
-                ".agents/skills/README.md: отсутствует реестр Project-owned skills."
-            )
-        duplicates = sorted(
-            name for name in set(registry_names) if registry_names.count(name) > 1
-        )
-        for name in duplicates:
-            errors.append(
-                f".agents/skills/README.md: project-owned skill '{name}' указан повторно."
-            )
-        listed_names = set(registry_names)
-        missing_names = PROJECT_OWNED_SKILLS - listed_names
-        extra_names = listed_names - PROJECT_OWNED_SKILLS
-        for name in sorted(missing_names):
-            errors.append(
-                f".agents/skills/README.md: обязательный skill '{name}' не указан."
-            )
-        for name in sorted(extra_names):
-            errors.append(
-                f".agents/skills/README.md: неизвестный project-owned skill "
-                f"'{name}'."
-            )
+        validate_project_owned_registry(registry_text, errors)
         validate_markdown_references(root, registry_path, registry_text, errors)
 
     return errors
