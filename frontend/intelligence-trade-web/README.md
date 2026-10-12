@@ -48,16 +48,6 @@ npm run test:unit
 npm run build
 ```
 
-### Запуск без Docker
-
-`npm run dev` (или `npm run preview` после `npm run build`) поднимает frontend на `http://localhost:8082` и, как nginx-образ, проксирует `/bff/**`, `/signin-oidc` и `/signout-callback-oidc` в BFF. Адрес BFF задаётся обязательной переменной окружения `BFF_UPSTREAM` (`scheme://host[:port]`):
-
-```bash
-BFF_UPSTREAM=http://192.168.1.16:8083 npm run dev
-```
-
-Proxy сохраняет `Host` браузера, поэтому BFF строит OIDC redirect URIs от `http://localhost:8082`. Этот origin должен быть зарегистрирован в Identity (`Identity__WebBffClient__RedirectUris` / `PostLogoutRedirectUris`), а публичный адрес Identity (`Bff__Oidc__Authority`) должен открываться из браузера.
-
 `npm run test:e2e` выполняется против запущенного полного Compose stack; требования, переменные окружения и запуск описаны в [руководстве по локальной разработке](../../docs/local-development.md).
 
 ## Правила для coding agents
