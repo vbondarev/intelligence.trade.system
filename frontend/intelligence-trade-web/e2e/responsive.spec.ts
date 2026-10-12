@@ -1,4 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  candleFixture,
+  candlesFixture,
+  evaluationFixture,
+  marketFixture,
+  positionFixture,
+} from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 
 const viewports = [
@@ -116,6 +123,35 @@ async function mockBusinessData(page: Page) {
   });
 }
 
+function hourlyCandles(count: number, intervalHours: number) {
+  const end = Date.UTC(2026, 9, 12, 9);
+  return Array.from({ length: count }, (_, index) => {
+    const openTime = new Date(end - (count - 1 - index) * intervalHours * 3_600_000).toISOString();
+    return candleFixture(openTime, 60000 + Math.round(Math.sin(index / 6) * 900 + index * 4));
+  });
+}
+
+async function mockPositionPage(page: Page) {
+  const base = '**/bff/me/positions/btc';
+  await page.route(base, (route) =>
+    route.fulfill({ json: positionFixture({ id: 'btc', exchangeAccountId: MAIN_ID, size: 0.15 }) }),
+  );
+  await page.route(`${base}/market`, (route) => route.fulfill({ json: marketFixture({ positionId: 'btc' }) }));
+  await page.route(`${base}/candles?*`, (route) => {
+    const interval = new URL(route.request().url()).searchParams.get('interval') ?? '1h';
+    const hours = { '15m': 0.25, '1h': 1, '4h': 4, '1d': 24 }[interval] ?? 1;
+    return route.fulfill({ json: candlesFixture(interval, hourlyCandles(200, hours)) });
+  });
+  await page.route(`${base}/evaluation`, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.abort();
+      return;
+    }
+
+    await route.fulfill({ json: evaluationFixture({ positionId: 'btc' }) });
+  });
+}
+
 for (const viewport of viewports) {
   test(`shell is usable on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -185,5 +221,38 @@ for (const viewport of viewports) {
     await page.goto('/app/settings/connections');
     await expect(page.getByRole('heading', { name: 'Подключения', level: 1 })).toBeVisible();
     await expectNoHorizontalScroll(page);
+  });
+}
+
+for (const viewport of viewports) {
+  test(`position page is usable on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockBusinessData(page);
+    await mockPositionPage(page);
+
+    await loginThroughLanding(page);
+    await page.goto(`/app?account=${MAIN_ID}&side=long`);
+    await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+    await expect(page).toHaveURL(/\/app\/positions\/btc$/);
+    await expect(page.getByRole('heading', { level: 1, name: /^BTCUSDT/ })).toBeVisible();
+
+    const chart = page.getByRole('group', { name: /^Свечной график BTCUSDT/ });
+    await expect(chart.locator('canvas').first()).toBeVisible();
+    const box = await chart.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(200);
+    expect(box?.height ?? 0).toBeGreaterThan(200);
+    await expect(page.getByRole('heading', { name: 'Рыночный контекст' })).toBeVisible();
+    await expect(page.getByText('Удерживать')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Переоценить' })).toBeEnabled();
+    await expectNoHorizontalScroll(page);
+
+    await page.getByRole('button', { name: '4h' }).click();
+    await expect(page).toHaveURL(/interval=4h/);
+    await expect(page.getByRole('group', { name: /интервал 4h$/ })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    await page.getByRole('link', { name: '← К списку позиций' }).click();
+    await expect(page).toHaveURL(new RegExp(`/app\\?account=${MAIN_ID}&side=long$`));
+    await expect(page.getByRole('article', { name: /^BTCUSDT/ })).toBeVisible();
   });
 }

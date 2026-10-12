@@ -7,6 +7,19 @@ import { AppRoutes } from '../app/router';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import type { Portfolio, PositionListItem } from '../portfolio/portfolioTypes';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { positionFixture } from '../test/positionFixtures';
+
+// jsdom не реализует canvas, который нужен графику страницы позиции.
+vi.mock('lightweight-charts', () => ({
+  CandlestickSeries: {},
+  ColorType: { Solid: 'solid' },
+  LineStyle: { Solid: 0, Dashed: 2 },
+  createChart: () => ({
+    addSeries: () => ({ setData: () => {}, createPriceLine: () => ({}), removePriceLine: () => {} }),
+    timeScale: () => ({ fitContent: () => {} }),
+    remove: () => {},
+  }),
+}));
 
 const ACCOUNTS_URL = '/bff/me/exchange-accounts';
 const MAIN_ID = '2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6';
@@ -752,5 +765,33 @@ describe('HomePage async race protection', () => {
     await new Promise((settle) => setTimeout(settle, 0));
     expect(screen.queryByText(/LATEUSDT/)).not.toBeInTheDocument();
     expect(screen.getAllByRole('article')).toHaveLength(1);
+  });
+});
+
+describe('HomePage position navigation', () => {
+  it('opens the position page from the list and returns to the same account and filters', async () => {
+    const btc = position();
+    const positionPath = `/bff/me/positions/${btc.id}`;
+    const pending = () => new Promise<Response>(() => {});
+    const requests = renderHome(`/app?account=${MAIN_ID}&side=long`, {
+      ...accountRoutes([mainAccount], MAIN_ID),
+      [positionsUrl(MAIN_ID, '&side=long')]: () => page([btc]),
+      [positionPath]: () => jsonResponse(positionFixture({ id: btc.id, exchangeAccountId: MAIN_ID, size: 0.15 })),
+      [`${positionPath}/market`]: pending,
+      [`${positionPath}/candles?interval=1h&limit=200`]: pending,
+      [`${positionPath}/evaluation`]: pending,
+    });
+
+    const link = await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
+    expect(link).toHaveAttribute('href', `/app/positions/${btc.id}`);
+    await userEvent.click(link);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    await userEvent.click(screen.getByRole('link', { name: '← К списку позиций' }));
+
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    expect(searchParams().get('account')).toBe(MAIN_ID);
+    expect(searchParams().get('side')).toBe('long');
+    expect(requests.some((request) => request.url.includes('/sync') || request.init?.method === 'POST')).toBe(false);
   });
 });

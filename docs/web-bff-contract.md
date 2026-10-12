@@ -148,12 +148,30 @@ Browser управляет read-only подключениями Bybit тольк
 | `POST /bff/me/exchange-accounts/{id}/sync` | `POST /api/v1/exchange-accounts/{id}/sync` |
 | `GET /bff/me/positions` | `GET /api/v1/positions` |
 
-- `{id}` принимается только как GUID; upstream path строится из фиксированного route. Другие методы и paths, включая `/bff/me/positions/{id}`, возвращают `404` без обращения к `Api`.
+- `{id}` принимается только как GUID; upstream path строится из фиксированного route. Другие методы и paths возвращают `404` без обращения к `Api`; операции отдельной позиции описаны в следующем разделе.
 - `portfolio` и `sync` не передают в `Api` query string и body запроса.
 - `GET /bff/me/positions` передаёт в `Api` только параметры allowlist: `exchangeAccountId`, `trackingState`, `symbol`, `side`, `pageSize`, `cursor`. Значения передаются без интерпретации и URL-encoded, повторяющиеся значения сохраняются; валидацию, фильтрацию и разбор opaque cursor выполняет `Api`. Остальные параметры, включая `userId`, отбрасываются.
 - `sync` — unsafe-запрос: он проходит centralized CSRF-проверку, и без валидного `X-CSRF-TOKEN` `Api` не вызывается.
 - Статус и JSON body ответа `Api`, кроме `401`, передаются browser без изменения, включая `204` портфеля без данных и `ProblemDetails`; non-JSON body отбрасывается. `401` приводит к одному принудительному refresh и ровно одному повтору; повторный `401` завершает BFF session.
 - Для `sync` других автоматических повторов нет: после network error, timeout (30 секунд) или `5xx` повтор не выполняется, а решение о новой синхронизации принимает пользователь. Ответы, сформированные самим BFF, такие же, как у подключений: `401` без body или `503` без body.
+
+### Страница позиции `/bff/me/positions/{id}/**`
+
+Страница позиции использует пять явных операций. Каждая вызывает ровно одну операцию `Api` с Bearer access token текущей session:
+
+| Browser endpoint | Операция `Api` |
+|---|---|
+| `GET /bff/me/positions/{id}` | `GET /api/v1/positions/{id}` |
+| `GET /bff/me/positions/{id}/market` | `GET /api/v1/positions/{id}/market` |
+| `GET /bff/me/positions/{id}/candles` | `GET /api/v1/positions/{id}/candles` |
+| `GET /bff/me/positions/{id}/evaluation` | `GET /api/v1/positions/{id}/evaluation` |
+| `POST /bff/me/positions/{id}/evaluation` | `POST /api/v1/positions/{id}/evaluation` |
+
+- `{id}` принимается только как GUID; upstream path строится из фиксированного route. Другие методы и paths под `/bff/me/positions/{id}`, включая синхронизацию позиции, возвращают `404` без обращения к `Api`.
+- `candles` передаёт в `Api` только параметры allowlist `interval` и `limit`: значения передаются без интерпретации и URL-encoded, повторяющиеся значения сохраняются; валидацию выполняет `Api`. Остальные параметры отбрасываются. Остальные операции query string не передают.
+- `POST .../evaluation` — unsafe-запрос без body: он проходит centralized CSRF-проверку, и без валидного `X-CSRF-TOKEN` `Api` не вызывается. Оценку запускает только явная команда пользователя; BFF и React не выполняют её автоматически и не запускают синхронизацию подключения.
+- Статус и JSON body ответа `Api`, кроме `401`, передаются browser без изменения, включая `204` оценки, которой ещё нет, и `ProblemDetails` с `code`, `traceId` и extension `reason` (`409 position_not_evaluable`); non-JSON body отбрасывается. `401` приводит к одному принудительному refresh и ровно одному повтору; повторный `401` завершает BFF session.
+- Других автоматических повторов для операций позиций, включая `GET /bff/me/positions` из предыдущего раздела, нет: после network error, timeout (30 секунд) или `5xx` повтор не выполняется. Так повтор не может выполнить оценку дважды; повторное чтение выполняет пользователь. Ответы, сформированные самим BFF: `401` без body или `503` без body.
 
 ## CSRF
 
