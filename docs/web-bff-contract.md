@@ -194,4 +194,4 @@ Browser управляет read-only подключениями Bybit тольк
 
 ## Realtime
 
-Browser SignalR integration через BFF до этапа G-06 отсутствует. Bearer-контракт `/hubs/v1/updates` описан в [Realtime contract v1](realtime-v1-contract.md).
+Browser SignalR integration через BFF до этапа G-07 отсутствует. Bearer-контракт `/hubs/v1/updates` описан в [Realtime contract v1](realtime-v1-contract.md).
