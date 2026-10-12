@@ -43,7 +43,13 @@ function TimeframeCard({ label, timeframe }: { label: string; timeframe: MarketT
       <dl className="value-rows">
         <div>
           <dt>Тренд</dt>
-          <dd>{MARKET_TREND_LABELS[timeframe.trend]}</dd>
+          <dd>
+            <Indicator
+              value={MARKET_TREND_LABELS[timeframe.trend]}
+              reliable={timeframe.emaIsReliable}
+              fallback={timeframe.emaHasFallback}
+            />
+          </dd>
         </div>
         <div>
           <dt>RSI 14</dt>
