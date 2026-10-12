@@ -128,7 +128,7 @@ Backend задаёт semantics значений; frontend отвечает то�
 
 ## 11. Styling
 
-UI kit — [Mantine](https://mantine.dev); `MantineProvider` подключён в `app/App.tsx` с `forceColorScheme="dark"`, светлая схема не поддерживается. Существующие экраны пока используют собственный CSS, и перевод на компоненты Mantine выполняется постепенно.
+UI kit — [Mantine](https://mantine.dev); `MantineProvider` подключён в `app/App.tsx` с `forceColorScheme="dark"`, светлая схема не поддерживается. Новые типовые UI-элементы реализуются с помощью Mantine; собственные компоненты допускаются, если библиотека не предоставляет подходящего решения или требуется специализированное поведение. Существующие экраны сохраняют собственный CSS; их массовая миграция в эту задачу не входит.
 
 - `styles/theme.ts` — тема Mantine: палитры `dark` и `accent` и шрифт синхронизированы с `tokens.css`;
 - `styles/tokens.css` — foundation: CSS custom properties цветов, типографики, отступов и радиусов, `color-scheme: dark`;
