@@ -157,7 +157,7 @@ Browser управляет read-only подключениями Bybit тольк
 
 ### Страница позиции `/bff/me/positions/{id}/**`
 
-Страница позиции использует пять явных операций. Каждая вызывает ровно одну операцию `Api` с Bearer access token текущей session:
+Страница позиции использует шесть явных операций. Каждая вызывает ровно одну операцию `Api` с Bearer access token текущей session:
 
 | Browser endpoint | Операция `Api` |
 |---|---|
@@ -166,9 +166,11 @@ Browser управляет read-only подключениями Bybit тольк
 | `GET /bff/me/positions/{id}/candles` | `GET /api/v1/positions/{id}/candles` |
 | `GET /bff/me/positions/{id}/evaluation` | `GET /api/v1/positions/{id}/evaluation` |
 | `POST /bff/me/positions/{id}/evaluation` | `POST /api/v1/positions/{id}/evaluation` |
+| `GET /bff/me/positions/{id}/timeline` | `GET /api/v1/positions/{id}/timeline` |
 
 - `{id}` принимается только как GUID; upstream path строится из фиксированного route. Другие методы и paths под `/bff/me/positions/{id}`, включая синхронизацию позиции, возвращают `404` без обращения к `Api`.
-- `candles` передаёт в `Api` только параметры allowlist `interval` и `limit`: значения передаются без интерпретации и URL-encoded, повторяющиеся значения сохраняются; валидацию выполняет `Api`. Остальные параметры отбрасываются. Остальные операции query string не передают.
+- `candles` передаёт в `Api` только параметры allowlist `interval` и `limit`: значения передаются без интерпретации и URL-encoded, повторяющиеся значения сохраняются; валидацию выполняет `Api`. Остальные параметры отбрасываются.
+- `timeline` передаёт в `Api` только параметры allowlist `pageSize`, `type` и `cursor`: значения передаются без интерпретации и URL-encoded, повторяющийся `type` и пустые значения сохраняются; валидацию значений, фильтрацию по типам и разбор opaque cursor выполняет `Api`. Остальные параметры, включая `userId`, отбрасываются. Остальные операции query string не передают.
 - `POST .../evaluation` — unsafe-запрос без body: он проходит centralized CSRF-проверку, и без валидного `X-CSRF-TOKEN` `Api` не вызывается. Оценку запускает только явная команда пользователя; BFF и React не выполняют её автоматически и не запускают синхронизацию подключения.
 - Статус и JSON body ответа `Api`, кроме `401`, передаются browser без изменения, включая `204` оценки, которой ещё нет, и `ProblemDetails` с `code`, `traceId` и extension `reason` (`409 position_not_evaluable`); non-JSON body отбрасывается. `401` приводит к одному принудительному refresh и ровно одному повтору; повторный `401` завершает BFF session.
 - Других автоматических повторов для операций позиций, включая `GET /bff/me/positions` из предыдущего раздела, нет: после network error, timeout (30 секунд) или `5xx` повтор не выполняется. Так повтор не может выполнить оценку дважды; повторное чтение выполняет пользователь. Ответы, сформированные самим BFF: `401` без body или `503` без body.

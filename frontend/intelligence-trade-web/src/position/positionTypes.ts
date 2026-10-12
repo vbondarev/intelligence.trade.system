@@ -389,3 +389,120 @@ export type PositionNotEvaluableReason =
   | 'portfolioUnavailable'
   | 'portfolioInconsistent'
   | 'temporalInconsistency';
+
+export type PositionTimelineItemType = 'positionChange' | 'evaluation' | 'recommendation';
+
+export type PositionChangeKind =
+  | 'new'
+  | 'updated'
+  | 'increased'
+  | 'reduced'
+  | 'closed'
+  | 'markedUnknown'
+  | 'markedStale'
+  | 'recovered';
+
+export type PositionChangeCause =
+  | 'initialObservation'
+  | 'exchangeObservation'
+  | 'missingFromCompleteObservation'
+  | 'positionsObservationFailed'
+  | 'partialObservation'
+  | 'freshnessExpired'
+  | 'observationRestored';
+
+/**
+ * Сохранённое наблюдение позиции. `positionValue` и `unrealizedPnl` выражены в активе расчёта
+ * позиции; `null` означает «неизвестно», а не ноль.
+ */
+export interface PositionTimelinePositionSnapshot {
+  size: number;
+  averageEntryPrice: number | null;
+  positionValue: number | null;
+  leverage: number | null;
+  markPrice: number | null;
+  breakEvenPrice: number | null;
+  liquidationPrice: number | null;
+  unrealizedPnl: number | null;
+  takeProfit: number | null;
+  stopLoss: number | null;
+  trailingStop: number | null;
+}
+
+/** Наблюдаемое изменение позиции; это не биржевой ордер и не исполнение. */
+export interface PositionTimelinePositionChange {
+  sequence: number;
+  kind: PositionChangeKind;
+  cause: PositionChangeCause;
+  trackingStateAfter: PositionTrackingState;
+  /** `null`: предыдущее состояние не сохранено. */
+  before: PositionTimelinePositionSnapshot | null;
+  after: PositionTimelinePositionSnapshot;
+}
+
+/** Компактная историческая оценка; полного результата оценки timeline не содержит. */
+export interface PositionTimelineEvaluation {
+  id: string;
+  evaluatedAt: string;
+  validUntil: string;
+  ruleVersion: string;
+  isLegacy: boolean;
+  dataQuality: AssessmentDataQualityState;
+  portfolioRiskDecision: RiskIncreaseDecision;
+  reasonCodes: ReasonCode[];
+}
+
+/**
+ * Историческая рекомендация. `status` — сохранённый статус записи на момент чтения, а не
+ * статус в момент создания.
+ */
+export interface PositionTimelineRecommendation {
+  id: string;
+  assessmentId: string;
+  createdAt: string;
+  validUntil: string;
+  status: RecommendationStatus;
+  action: PositionAction;
+  confidence: number | null;
+  priority: RecommendationPriority | null;
+  addDecision: AddDecision;
+  reasonCodes: ReasonCode[];
+  isLegacy: boolean;
+}
+
+/** Событие истории: заполнен ровно один payload, соответствующий `type`, остальные равны `null`. */
+export type PositionTimelineItem =
+  | {
+      type: 'positionChange';
+      occurredAt: string;
+      positionChange: PositionTimelinePositionChange;
+      evaluation: null;
+      recommendation: null;
+    }
+  | {
+      type: 'evaluation';
+      occurredAt: string;
+      positionChange: null;
+      evaluation: PositionTimelineEvaluation;
+      recommendation: null;
+    }
+  | {
+      type: 'recommendation';
+      occurredAt: string;
+      positionChange: null;
+      evaluation: null;
+      recommendation: PositionTimelineRecommendation;
+    };
+
+export interface PositionTimelinePage {
+  items: PositionTimelineItem[];
+  /** Opaque cursor: передаётся обратно без интерпретации. */
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface PositionTimelineQuery {
+  /** Непустой набор выбранных типов; все три типа означают отсутствие фильтра. */
+  types: readonly PositionTimelineItemType[];
+  cursor?: string | null;
+}

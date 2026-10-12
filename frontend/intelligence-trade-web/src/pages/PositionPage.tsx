@@ -8,6 +8,7 @@ import { PositionDetails } from '../position/PositionDetails';
 import { PositionEvaluation } from '../position/PositionEvaluation';
 import { PositionMarketContext } from '../position/PositionMarketContext';
 import { PositionRecommendation } from '../position/PositionRecommendation';
+import { PositionTimeline } from '../position/PositionTimeline';
 import {
   PositionApiError,
   evaluatePosition,
@@ -102,6 +103,7 @@ function failed<T>(key: string, error: Notice): Load<T> {
  * одной области не скрывает остальные, а `404` позиции означает недоступную страницу. Каждый
  * результат привязан к `positionId` (свечи — ещё и к интервалу), поэтому поздний ответ прежней
  * позиции или интервала не отображается. Оценка запускается только явной командой пользователя.
+ * История позиции загружается своим блоком только после раскрытия и сбрасывается при смене позиции.
  */
 export function PositionPage() {
   const { id = '' } = useParams();
@@ -415,6 +417,15 @@ export function PositionPage() {
           </>
         )}
       </section>
+
+      {positionValue !== null && (
+        <PositionTimeline
+          key={id}
+          positionId={id}
+          settlementAsset={positionValue.settlementAsset}
+          onLogin={login}
+        />
+      )}
     </section>
   );
 }

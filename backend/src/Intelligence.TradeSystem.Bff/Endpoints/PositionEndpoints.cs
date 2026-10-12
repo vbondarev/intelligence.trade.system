@@ -70,6 +70,17 @@ internal static class PositionEndpoints
                 (token, ct) => apiClient.GetEvaluationAsync(id, token, ct),
                 cancellationToken));
 
+        positions.MapGet("/{id:guid}/timeline", (
+                Guid id,
+                HttpContext httpContext,
+                AuthenticatedApiForwarder forwarder,
+                PositionsApiClient apiClient,
+                CancellationToken cancellationToken) =>
+            forwarder.ForwardAsync(
+                httpContext,
+                (token, ct) => apiClient.GetTimelineAsync(id, httpContext.Request.Query, token, ct),
+                cancellationToken));
+
         positions.MapPost("/{id:guid}/evaluation", (
                 Guid id,
                 HttpContext httpContext,

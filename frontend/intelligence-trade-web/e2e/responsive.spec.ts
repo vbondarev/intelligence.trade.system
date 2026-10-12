@@ -1,10 +1,17 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
+  TIMELINE_EVALUATION,
+  TIMELINE_RECOMMENDATION,
   candleFixture,
   candlesFixture,
+  continuationTimelinePage,
   evaluationFixture,
+  firstTimelinePage,
   marketFixture,
   positionFixture,
+  timelineEvaluationItem,
+  timelinePageFixture,
+  timelineRecommendationItem,
 } from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 
@@ -22,6 +29,23 @@ async function expectNoHorizontalScroll(page: Page) {
     innerWidth: window.innerWidth,
   }));
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+}
+
+async function expectContainedHorizontally(container: Locator) {
+  const overflow = await container.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const escaping = [...element.querySelectorAll('*')].filter((child) => {
+      const box = child.getBoundingClientRect();
+      return box.width > 0 && (box.left < bounds.left - 0.5 || box.right > bounds.right + 0.5);
+    });
+    return {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      escaping: escaping.map((child) => child.tagName.toLowerCase()),
+    };
+  });
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+  expect(overflow.escaping).toEqual([]);
 }
 
 function position(id: string, symbol: string, side: 'long' | 'short', settlementAsset: string, overrides = {}) {
@@ -131,8 +155,9 @@ function hourlyCandles(count: number, intervalHours: number) {
   });
 }
 
-async function mockPositionPage(page: Page) {
+async function mockPositionPage(page: Page): Promise<URL[]> {
   const base = '**/bff/me/positions/btc';
+  const timelineRequests: URL[] = [];
   await page.route(base, (route) =>
     route.fulfill({ json: positionFixture({ id: 'btc', exchangeAccountId: MAIN_ID, size: 0.15 }) }),
   );
@@ -150,6 +175,20 @@ async function mockPositionPage(page: Page) {
 
     await route.fulfill({ json: evaluationFixture({ positionId: 'btc' }) });
   });
+  await page.route(`${base}/timeline?*`, (route) => {
+    const url = new URL(route.request().url());
+    timelineRequests.push(url);
+    const types = url.searchParams.getAll('type');
+    if (types.length > 0) {
+      const items = [TIMELINE_RECOMMENDATION, TIMELINE_EVALUATION].filter((item) => types.includes(item.type));
+      return route.fulfill({ json: timelinePageFixture(items) });
+    }
+
+    const cursor = url.searchParams.get('cursor');
+    return route.fulfill({ json: cursor === null ? firstTimelinePage() : continuationTimelinePage() });
+  });
+
+  return timelineRequests;
 }
 
 for (const viewport of viewports) {
@@ -228,7 +267,7 @@ for (const viewport of viewports) {
   test(`position page is usable on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await mockBusinessData(page);
-    await mockPositionPage(page);
+    const timelineRequests = await mockPositionPage(page);
 
     await loginThroughLanding(page);
     await page.goto(`/app?account=${MAIN_ID}&side=long`);
@@ -251,8 +290,96 @@ for (const viewport of viewports) {
     await expect(page.getByRole('group', { name: /интервал 4h$/ })).toBeVisible();
     await expectNoHorizontalScroll(page);
 
+    const history = page.getByRole('region', { name: 'История позиции' });
+    const historyToggle = history.getByRole('button', { name: 'История позиции' });
+    await expect(historyToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(timelineRequests).toHaveLength(0);
+
+    await historyToggle.click();
+    const historyList = history.getByRole('list', { name: 'События истории позиции' });
+    const historyEvents = historyList.getByRole('article');
+    const eventsOfType = (label: string) => historyList.getByRole('article', { name: new RegExp(`^${label}`) });
+    await expect(historyEvents).toHaveCount(3);
+    await expect(eventsOfType('Изменение позиции')).toHaveCount(1);
+    await expect(eventsOfType('Оценка позиции')).toHaveCount(1);
+    await expect(eventsOfType('Рекомендация')).toHaveCount(1);
+    expect(timelineRequests.map((url) => url.search)).toEqual(['?pageSize=25']);
+    await expectNoHorizontalScroll(page);
+
+    const reduced = eventsOfType('Изменение позиции');
+    await reduced.getByText('Подробности').click();
+    await expect(reduced.getByLabel('Состояние до изменения')).toBeVisible();
+    await expect(reduced.getByLabel('Состояние после изменения')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    await history.getByRole('button', { name: 'Показать ещё' }).click();
+    await expect(historyEvents).toHaveCount(5);
+    await expect(history.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+
+    await history.getByRole('checkbox', { name: 'Изменения позиции' }).uncheck();
+    await expect(historyEvents).toHaveCount(2);
+    await expect(eventsOfType('Изменение позиции')).toHaveCount(0);
+    expect(timelineRequests.at(-1)?.searchParams.getAll('type')).toEqual(['evaluation', 'recommendation']);
+    await history.getByRole('checkbox', { name: 'Изменения позиции' }).check();
+    await expect(historyEvents).toHaveCount(3);
+
+    const requestsBeforeRefresh = timelineRequests.length;
+    await history.getByRole('button', { name: 'Обновить' }).click();
+    await expect.poll(() => timelineRequests.length).toBe(requestsBeforeRefresh + 1);
+    await expect(historyEvents).toHaveCount(3);
+    expect(timelineRequests.at(-1)?.search).toBe('?pageSize=25');
+    await expectNoHorizontalScroll(page);
+
+    await expect(chart.locator('canvas').first()).toBeVisible();
+    await expect(page.getByText('Удерживать')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Переоценить' })).toBeEnabled();
+
     await page.getByRole('link', { name: '← К списку позиций' }).click();
     await expect(page).toHaveURL(new RegExp(`/app\\?account=${MAIN_ID}&side=long$`));
     await expect(page.getByRole('article', { name: /^BTCUSDT/ })).toBeVisible();
+  });
+}
+
+const LONG_RULE_VERSION = `assessment-${'v'.repeat(240)}`;
+const LONG_REASON_CODE = `futureReasonCode${'X'.repeat(220)}`;
+
+for (const viewport of viewports) {
+  test(`position timeline wraps long backend values on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockBusinessData(page);
+    await mockPositionPage(page);
+    await page.route('**/bff/me/positions/btc/timeline?*', (route) =>
+      route.fulfill({
+        json: timelinePageFixture([
+          timelineRecommendationItem('2026-10-12T08:00:00Z', { reasonCodes: [LONG_REASON_CODE] }),
+          timelineEvaluationItem('2026-10-12T07:30:00Z', {
+            ruleVersion: LONG_RULE_VERSION,
+            reasonCodes: ['portfolioDataStale', LONG_REASON_CODE],
+          }),
+        ]),
+      }),
+    );
+
+    await loginThroughLanding(page);
+    await page.goto('/app/positions/btc');
+    await expect(page.getByRole('heading', { level: 1, name: /^BTCUSDT/ })).toBeVisible();
+
+    const history = page.getByRole('region', { name: 'История позиции' });
+    await history.getByRole('button', { name: 'История позиции' }).click();
+    const historyList = history.getByRole('list', { name: 'События истории позиции' });
+    const evaluation = historyList.getByRole('article', { name: /^Оценка позиции/ });
+    const recommendation = historyList.getByRole('article', { name: /^Рекомендация/ });
+    await evaluation.getByText('Подробности').click();
+    await recommendation.getByText('Подробности').click();
+
+    await expect(evaluation.getByText(LONG_RULE_VERSION)).toBeVisible();
+    await expect(evaluation.getByText(LONG_REASON_CODE)).toBeVisible();
+    await expect(recommendation.getByText(LONG_REASON_CODE)).toBeVisible();
+    await expectContainedHorizontally(evaluation);
+    await expectContainedHorizontally(recommendation);
+    await expectNoHorizontalScroll(page);
   });
 }

@@ -818,6 +818,204 @@ h5.condition-heading {
   font-size: var(--font-size-small);
 }
 
+.position-timeline-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.position-timeline-header .section-title {
+  margin: 0;
+}
+
+.position-timeline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.position-timeline-toggle::before {
+  content: '▸';
+  color: var(--color-text-muted);
+}
+
+.position-timeline-toggle[aria-expanded='true']::before {
+  content: '▾';
+}
+
+.position-timeline-toggle:hover::before,
+.position-timeline-details summary:hover {
+  color: var(--color-text);
+}
+
+.position-timeline-toggle:focus-visible,
+.position-timeline-details summary:focus-visible,
+.position-timeline-filter input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.position-timeline-content {
+  margin-top: var(--space-3);
+}
+
+.position-timeline-content > .alert,
+.position-timeline-content > .inline-status {
+  margin: 0 0 var(--space-3);
+}
+
+.position-timeline-content .alert .button {
+  margin-top: var(--space-2);
+  margin-right: var(--space-2);
+}
+
+.position-timeline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+}
+
+.position-timeline-filters legend {
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.position-timeline-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.position-timeline-filter input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.position-timeline-filter input:disabled {
+  cursor: not-allowed;
+}
+
+.position-timeline-filters .position-timeline-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.position-timeline-empty {
+  margin: 0 0 var(--space-3);
+}
+
+.position-timeline-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.position-timeline-item {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-raised);
+}
+
+.position-timeline-item-evaluation {
+  border-left-color: var(--color-accent);
+}
+
+.position-timeline-item-recommendation {
+  border-left-color: var(--color-success);
+}
+
+.position-timeline-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+h3.position-timeline-summary {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.position-timeline-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  color: var(--color-text-muted);
+  list-style: none;
+  cursor: pointer;
+}
+
+.position-timeline-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.position-timeline-details summary::before {
+  content: '▸';
+}
+
+.position-timeline-details[open] summary {
+  color: var(--color-text);
+}
+
+.position-timeline-details[open] summary::before {
+  content: '▾';
+}
+
+.position-timeline-body {
+  padding-top: var(--space-2);
+}
+
+.position-timeline-body .muted {
+  margin: 0 0 var(--space-2);
+}
+
+.position-timeline-note {
+  font-size: var(--font-size-small);
+}
+
+.position-timeline-snapshots {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.position-timeline-identifier {
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-small);
+}
+
+.position-timeline-more {
+  width: 100%;
+}
+
 @media (min-width: 768px) {
   .position-details-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -826,6 +1024,14 @@ h5.condition-heading {
 
   .position-chart {
     height: 26rem;
+  }
+
+  .position-timeline-snapshots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .position-timeline-more {
+    width: auto;
   }
 }
 

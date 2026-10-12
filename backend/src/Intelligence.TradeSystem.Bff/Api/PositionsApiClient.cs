@@ -3,7 +3,7 @@ using Microsoft.Extensions.Primitives;
 namespace Intelligence.TradeSystem.Bff.Api;
 
 /// <summary>
-/// Чтение позиций текущего пользователя, их рыночного контекста, свечей и оценки, а также явный
+/// Чтение позиций текущего пользователя, их рыночного контекста, свечей, оценки и истории, а также явный
 /// запуск оценки. Upstream paths фиксированы и строятся только из route и <see cref="Guid"/>;
 /// из browser query передаются только параметры allowlist, без интерпретации значений.
 /// </summary>
@@ -38,6 +38,13 @@ internal sealed partial class PositionsApiClient(
         "limit",
     ];
 
+    private static readonly string[] AllowedTimelineQueryParameters =
+    [
+        "pageSize",
+        "type",
+        "cursor",
+    ];
+
     public Task<ApiForwardResponse> ListAsync(
         IQueryCollection browserQuery,
         string accessToken,
@@ -68,6 +75,17 @@ internal sealed partial class PositionsApiClient(
     public Task<ApiForwardResponse> GetEvaluationAsync(Guid positionId, string accessToken, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Get, PositionPath(positionId) + "/evaluation", accessToken, cancellationToken);
 
+    public Task<ApiForwardResponse> GetTimelineAsync(
+        Guid positionId,
+        IQueryCollection browserQuery,
+        string accessToken,
+        CancellationToken cancellationToken) =>
+        SendAsync(
+            HttpMethod.Get,
+            PositionPath(positionId) + "/timeline" + BuildTimelineQueryString(browserQuery),
+            accessToken,
+            cancellationToken);
+
     public Task<ApiForwardResponse> EvaluateAsync(Guid positionId, string accessToken, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, PositionPath(positionId) + "/evaluation", accessToken, cancellationToken);
 
@@ -76,6 +94,9 @@ internal sealed partial class PositionsApiClient(
 
     internal static string BuildCandlesQueryString(IQueryCollection browserQuery) =>
         BuildQueryString(browserQuery, AllowedCandlesQueryParameters);
+
+    internal static string BuildTimelineQueryString(IQueryCollection browserQuery) =>
+        BuildQueryString(browserQuery, AllowedTimelineQueryParameters);
 
     private static string PositionPath(Guid positionId) => $"{CollectionPath}/{positionId:D}";
 

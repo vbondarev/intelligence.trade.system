@@ -32,11 +32,21 @@ import type {
   PositionAction,
   PositionAssessment,
   PositionCandles,
+  PositionChangeCause,
+  PositionChangeKind,
   PositionDetails,
   PositionEvaluation,
   PositionMarket,
   PositionNotEvaluableReason,
   PositionRecommendation,
+  PositionTimelineEvaluation,
+  PositionTimelineItem,
+  PositionTimelineItemType,
+  PositionTimelinePage,
+  PositionTimelinePositionChange,
+  PositionTimelinePositionSnapshot,
+  PositionTimelineQuery,
+  PositionTimelineRecommendation,
   PricePosition,
   RecommendationActionDetails,
   RecommendationAddConditions,
@@ -57,6 +67,12 @@ const CSRF_HEADER = 'X-CSRF-TOKEN';
 
 /** Начальный и единственный размер выборки свечей страницы позиции. */
 export const CANDLES_LIMIT = 200;
+
+/** Размер страницы истории в Web; default API (50) не меняется. */
+export const TIMELINE_PAGE_SIZE = 25;
+
+/** Поддерживаемые типы событий истории в фиксированном порядке передачи `type`. */
+export const TIMELINE_ITEM_TYPES: readonly PositionTimelineItemType[] = ['positionChange', 'evaluation', 'recommendation'];
 
 const SIDES: readonly PositionSide[] = ['long', 'short'];
 const TRACKING_STATES: readonly PositionTrackingState[] = ['active', 'unknown', 'stale', 'closed'];
@@ -89,6 +105,25 @@ const NOT_EVALUABLE_REASONS: readonly PositionNotEvaluableReason[] = [
   'portfolioUnavailable',
   'portfolioInconsistent',
   'temporalInconsistency',
+];
+const CHANGE_KINDS: readonly PositionChangeKind[] = [
+  'new',
+  'updated',
+  'increased',
+  'reduced',
+  'closed',
+  'markedUnknown',
+  'markedStale',
+  'recovered',
+];
+const CHANGE_CAUSES: readonly PositionChangeCause[] = [
+  'initialObservation',
+  'exchangeObservation',
+  'missingFromCompleteObservation',
+  'positionsObservationFailed',
+  'partialObservation',
+  'freshnessExpired',
+  'observationRestored',
 ];
 
 /**
@@ -168,6 +203,19 @@ export async function evaluatePosition(positionId: string): Promise<PositionEval
   return readBody(response, isPositionEvaluation);
 }
 
+/**
+ * Одна страница истории позиции. Порядок событий, фильтрация и cursor определяются API;
+ * автоматических повторов нет.
+ */
+export async function getPositionTimeline(
+  positionId: string,
+  query: PositionTimelineQuery,
+  signal?: AbortSignal,
+): Promise<PositionTimelinePage> {
+  const response = await get(timelineUrl(positionId, query), signal);
+  return readBody(response, isTimelinePage);
+}
+
 export function positionUrl(positionId: string): string {
   return `${POSITIONS_URL}/${encodeURIComponent(positionId)}`;
 }
@@ -175,6 +223,30 @@ export function positionUrl(positionId: string): string {
 export function candlesUrl(positionId: string, interval: ChartInterval): string {
   const params = new URLSearchParams({ interval, limit: String(CANDLES_LIMIT) });
   return `${positionUrl(positionId)}/candles?${params.toString()}`;
+}
+
+/**
+ * URL страницы истории. Выбор всех типов передаётся отсутствием `type` (default API);
+ * пустой набор запрещён, потому что API трактует отсутствие `type` как «все типы».
+ */
+export function timelineUrl(positionId: string, query: PositionTimelineQuery): string {
+  const selected = TIMELINE_ITEM_TYPES.filter((type) => query.types.includes(type));
+  if (selected.length === 0) {
+    throw new RangeError('Для запроса истории позиции необходимо выбрать хотя бы один тип событий.');
+  }
+
+  const params = new URLSearchParams({ pageSize: String(TIMELINE_PAGE_SIZE) });
+  if (selected.length < TIMELINE_ITEM_TYPES.length) {
+    for (const type of selected) {
+      params.append('type', type);
+    }
+  }
+
+  if (query.cursor) {
+    params.append('cursor', query.cursor);
+  }
+
+  return `${positionUrl(positionId)}/timeline?${params.toString()}`;
 }
 
 async function get(url: string, signal?: AbortSignal): Promise<Response> {
@@ -697,5 +769,95 @@ function isPositionEvaluation(value: unknown): value is PositionEvaluation {
     typeof value.positionId === 'string' &&
     isAssessment(value.assessment) &&
     (value.recommendation === null || isRecommendation(value.recommendation))
+  );
+}
+
+function isTimelineSnapshot(value: unknown): value is PositionTimelinePositionSnapshot {
+  return (
+    isObject(value) &&
+    isNumber(value.size) &&
+    isNullableNumber(value.averageEntryPrice) &&
+    isNullableNumber(value.positionValue) &&
+    isNullableNumber(value.leverage) &&
+    isNullableNumber(value.markPrice) &&
+    isNullableNumber(value.breakEvenPrice) &&
+    isNullableNumber(value.liquidationPrice) &&
+    isNullableNumber(value.unrealizedPnl) &&
+    isNullableNumber(value.takeProfit) &&
+    isNullableNumber(value.stopLoss) &&
+    isNullableNumber(value.trailingStop)
+  );
+}
+
+function isTimelinePositionChange(value: unknown): value is PositionTimelinePositionChange {
+  return (
+    isObject(value) &&
+    Number.isInteger(value.sequence) &&
+    isOneOf(value.kind, CHANGE_KINDS) &&
+    isOneOf(value.cause, CHANGE_CAUSES) &&
+    isOneOf(value.trackingStateAfter, TRACKING_STATES) &&
+    (value.before === null || isTimelineSnapshot(value.before)) &&
+    isTimelineSnapshot(value.after)
+  );
+}
+
+function isTimelineEvaluation(value: unknown): value is PositionTimelineEvaluation {
+  return (
+    isObject(value) &&
+    isNonEmptyString(value.id) &&
+    typeof value.evaluatedAt === 'string' &&
+    typeof value.validUntil === 'string' &&
+    typeof value.ruleVersion === 'string' &&
+    typeof value.isLegacy === 'boolean' &&
+    isDataQuality(value.dataQuality) &&
+    isOneOf(value.portfolioRiskDecision, RISK_DECISIONS) &&
+    isStringArray(value.reasonCodes)
+  );
+}
+
+function isTimelineRecommendation(value: unknown): value is PositionTimelineRecommendation {
+  return (
+    isObject(value) &&
+    isNonEmptyString(value.id) &&
+    typeof value.assessmentId === 'string' &&
+    typeof value.createdAt === 'string' &&
+    typeof value.validUntil === 'string' &&
+    isOneOf(value.status, STATUSES) &&
+    isOneOf(value.action, ACTIONS) &&
+    isNullableNumber(value.confidence) &&
+    (value.priority === null || isOneOf(value.priority, PRIORITIES)) &&
+    isOneOf(value.addDecision, ADD_DECISIONS) &&
+    isStringArray(value.reasonCodes) &&
+    typeof value.isLegacy === 'boolean'
+  );
+}
+
+// Неизвестный type или payload, не соответствующий type, делает всю страницу некорректной:
+// частично отображённая история могла бы выдать предположение за факт.
+function isTimelineItem(value: unknown): value is PositionTimelineItem {
+  if (!isObject(value) || typeof value.occurredAt !== 'string') {
+    return false;
+  }
+
+  switch (value.type) {
+    case 'positionChange':
+      return isTimelinePositionChange(value.positionChange) && value.evaluation === null && value.recommendation === null;
+    case 'evaluation':
+      return value.positionChange === null && isTimelineEvaluation(value.evaluation) && value.recommendation === null;
+    case 'recommendation':
+      return value.positionChange === null && value.evaluation === null && isTimelineRecommendation(value.recommendation);
+    default:
+      return false;
+  }
+}
+
+function isTimelinePage(value: unknown): value is PositionTimelinePage {
+  return (
+    isObject(value) &&
+    Array.isArray(value.items) &&
+    value.items.every(isTimelineItem) &&
+    isNullableString(value.nextCursor) &&
+    typeof value.hasMore === 'boolean' &&
+    (!value.hasMore || isNonEmptyString(value.nextCursor))
   );
 }

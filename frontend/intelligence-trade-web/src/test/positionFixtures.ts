@@ -5,6 +5,12 @@ import type {
   PositionDetails,
   PositionEvaluation,
   PositionMarket,
+  PositionTimelineEvaluation,
+  PositionTimelineItem,
+  PositionTimelinePage,
+  PositionTimelinePositionChange,
+  PositionTimelinePositionSnapshot,
+  PositionTimelineRecommendation,
 } from '../position/positionTypes';
 
 export const POSITION_ID = '8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001';
@@ -270,4 +276,165 @@ export function evaluationFixture(overrides: Partial<PositionEvaluation> = {}): 
     },
     ...overrides,
   };
+}
+
+export function timelineSnapshotFixture(
+  overrides: Partial<PositionTimelinePositionSnapshot> = {},
+): PositionTimelinePositionSnapshot {
+  return {
+    size: 0.3,
+    averageEntryPrice: 60000,
+    positionValue: 18300,
+    leverage: 5,
+    markPrice: 61000,
+    breakEvenPrice: 60100,
+    liquidationPrice: 50000,
+    unrealizedPnl: 300,
+    takeProfit: 65000,
+    stopLoss: 58000,
+    trailingStop: null,
+    ...overrides,
+  };
+}
+
+export function positionChangeItem(
+  occurredAt: string,
+  overrides: Partial<PositionTimelinePositionChange> = {},
+): PositionTimelineItem {
+  return {
+    type: 'positionChange',
+    occurredAt,
+    positionChange: {
+      sequence: 1,
+      kind: 'updated',
+      cause: 'exchangeObservation',
+      trackingStateAfter: 'active',
+      before: timelineSnapshotFixture(),
+      after: timelineSnapshotFixture(),
+      ...overrides,
+    },
+    evaluation: null,
+    recommendation: null,
+  };
+}
+
+export function timelineEvaluationItem(
+  occurredAt: string,
+  overrides: Partial<PositionTimelineEvaluation> = {},
+): PositionTimelineItem {
+  return {
+    type: 'evaluation',
+    occurredAt,
+    positionChange: null,
+    evaluation: {
+      id: 'e0000000-0000-4000-8000-000000000001',
+      evaluatedAt: occurredAt,
+      validUntil: '2026-10-11T10:05:00Z',
+      ruleVersion: 'assessment-v1',
+      isLegacy: false,
+      dataQuality: {
+        market: 'freshCompleteReliable',
+        portfolio: 'stale',
+        overall: 'stale',
+        safetyState: 'blocked',
+      },
+      portfolioRiskDecision: 'blocked',
+      reasonCodes: ['portfolioDataStale', 'futureReasonCode'],
+      ...overrides,
+    },
+    recommendation: null,
+  };
+}
+
+export function timelineRecommendationItem(
+  occurredAt: string,
+  overrides: Partial<PositionTimelineRecommendation> = {},
+): PositionTimelineItem {
+  return {
+    type: 'recommendation',
+    occurredAt,
+    positionChange: null,
+    evaluation: null,
+    recommendation: {
+      id: 'c0000000-0000-4000-8000-000000000001',
+      assessmentId: 'e0000000-0000-4000-8000-000000000001',
+      createdAt: occurredAt,
+      validUntil: '2026-10-11T14:00:00Z',
+      status: 'superseded',
+      action: 'watch',
+      confidence: null,
+      priority: null,
+      addDecision: 'doNotAdd',
+      reasonCodes: ['recommendationLimitedByDataQuality'],
+      isLegacy: false,
+      ...overrides,
+    },
+  };
+}
+
+/** Начальное наблюдение: прежнего состояния нет. */
+export const NEW_POSITION_CHANGE = positionChangeItem('2026-10-10T08:00:00Z', {
+  sequence: 1,
+  kind: 'new',
+  cause: 'initialObservation',
+  before: null,
+  after: timelineSnapshotFixture({ size: 0.2, positionValue: 12000, unrealizedPnl: 0 }),
+});
+
+export const INCREASED_POSITION_CHANGE = positionChangeItem('2026-10-11T09:00:00Z', {
+  sequence: 2,
+  kind: 'increased',
+  before: timelineSnapshotFixture({ size: 0.2, positionValue: 12000, unrealizedPnl: 0 }),
+  after: timelineSnapshotFixture({ size: 0.3 }),
+});
+
+export const REDUCED_POSITION_CHANGE = positionChangeItem('2026-10-12T07:00:00Z', {
+  sequence: 3,
+  kind: 'reduced',
+  before: timelineSnapshotFixture({ size: 0.3 }),
+  after: timelineSnapshotFixture({ size: 0.1, positionValue: 6100, unrealizedPnl: -15.5 }),
+});
+
+export const CLOSED_POSITION_CHANGE = positionChangeItem('2026-10-12T08:30:00Z', {
+  sequence: 4,
+  kind: 'closed',
+  cause: 'missingFromCompleteObservation',
+  trackingStateAfter: 'closed',
+  before: timelineSnapshotFixture({ size: 0.1, positionValue: 6100, unrealizedPnl: -15.5 }),
+  after: timelineSnapshotFixture({
+    size: 0,
+    averageEntryPrice: null,
+    positionValue: null,
+    unrealizedPnl: null,
+    leverage: null,
+    markPrice: null,
+    breakEvenPrice: null,
+    liquidationPrice: null,
+    takeProfit: null,
+    stopLoss: null,
+  }),
+});
+
+export const TIMELINE_EVALUATION = timelineEvaluationItem('2026-10-12T07:30:00Z');
+
+export const TIMELINE_RECOMMENDATION = timelineRecommendationItem('2026-10-12T07:30:00Z');
+
+export function timelinePageFixture(
+  items: PositionTimelineItem[],
+  nextCursor: string | null = null,
+): PositionTimelinePage {
+  return { items, nextCursor, hasMore: nextCursor !== null };
+}
+
+/** Первая страница с тремя типами событий в порядке API (newest-first). */
+export function firstTimelinePage(nextCursor: string | null = 'cursor+page/2=='): PositionTimelinePage {
+  return timelinePageFixture([TIMELINE_RECOMMENDATION, TIMELINE_EVALUATION, REDUCED_POSITION_CHANGE], nextCursor);
+}
+
+export function continuationTimelinePage(nextCursor: string | null = null): PositionTimelinePage {
+  return timelinePageFixture([INCREASED_POSITION_CHANGE, NEW_POSITION_CHANGE], nextCursor);
+}
+
+export function emptyTimelinePage(): PositionTimelinePage {
+  return timelinePageFixture([]);
 }
