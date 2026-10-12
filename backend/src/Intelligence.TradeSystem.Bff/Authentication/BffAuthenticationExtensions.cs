@@ -171,7 +171,18 @@ public static partial class BffAuthenticationExtensions
 #pragma warning restore EXTEXP0001
 
         services.AddHttpClient<PortfolioApiClient>(client => client.BaseAddress = configuration.ApiBaseAddress);
-        services.AddHttpClient<PositionsApiClient>(client => client.BaseAddress = configuration.ApiBaseAddress);
+
+        // Client позиций включает явную оценку: automatic retry после network error, timeout
+        // или 5xx мог бы повторно выполнить уже применённую оценку.
+#pragma warning disable EXTEXP0001
+        services
+            .AddHttpClient<PositionsApiClient>(client =>
+            {
+                client.BaseAddress = configuration.ApiBaseAddress;
+                client.Timeout = PositionsApiClient.RequestTimeout;
+            })
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
 
         // Повтор ручной синхронизации после network error, timeout или 5xx мог бы повторно
         // обратиться к бирже, поэтому automatic retry для неё отсутствует.

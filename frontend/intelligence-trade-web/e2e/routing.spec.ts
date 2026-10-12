@@ -4,7 +4,13 @@ import { identityBaseUrl, webBaseUrl } from './support';
 // Frontend service — единственный browser-facing origin: React routes обслуживает он сам,
 // а /bff/** и OIDC callbacks проксирует во внутренний BFF.
 test('frontend service serves React routes and proxies the BFF boundary on the same origin', async ({ request }) => {
-  for (const path of ['/', '/app', '/app/settings/connections', '/app/nested/route']) {
+  for (const path of [
+    '/',
+    '/app',
+    '/app/settings/connections',
+    '/app/positions/8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001',
+    '/app/nested/route',
+  ]) {
     const page = await request.get(path);
     expect(page.status(), path).toBe(200);
     expect(page.headers()['content-type']).toContain('text/html');
@@ -29,8 +35,20 @@ test('frontend service serves React routes and proxies the BFF boundary on the s
   expect(await anonymousConnections.text()).not.toContain('<div id="root">');
 
   for (const path of [
+    '/bff/me/positions/8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001',
+    '/bff/me/positions/8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001/candles?interval=1h&limit=200',
+    '/bff/me/positions/8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001/evaluation',
+  ]) {
+    const anonymousPosition = await request.get(path);
+    expect(anonymousPosition.status(), path).toBe(401);
+    expect(await anonymousPosition.text(), path).not.toContain('<div id="root">');
+  }
+
+  for (const path of [
     '/bff/me/exchange-accounts/not-a-guid',
     '/bff/me/exchange-accounts/2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6/sync',
+    '/bff/me/positions/not-a-guid',
+    '/bff/me/positions/8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001/sync',
   ]) {
     const unplanned = await request.get(path);
     expect(unplanned.status(), path).toBe(404);

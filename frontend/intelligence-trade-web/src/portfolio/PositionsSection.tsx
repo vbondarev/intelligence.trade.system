@@ -1,4 +1,6 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { positionPagePath, type PositionPageState } from '../position/positionNavigation';
 import type {
   CurrentTrackingState,
   PositionFilters,
@@ -62,6 +64,8 @@ export function PositionsSection({
 }: PositionsSectionProps) {
   const titleId = useId();
   const idPrefix = useId();
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
 
   function handleSymbolSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -163,7 +167,7 @@ export function PositionsSection({
         <ul className="position-list">
           {list.items.map((position) => (
             <li key={position.id}>
-              <PositionCard position={position} />
+              <PositionCard position={position} returnTo={returnTo} />
             </li>
           ))}
         </ul>
@@ -180,15 +184,18 @@ export function PositionsSection({
   );
 }
 
-function PositionCard({ position }: { position: PositionListItem }) {
+function PositionCard({ position, returnTo }: { position: PositionListItem; returnTo: string }) {
   const titleId = useId();
   const asset = position.settlementAsset;
+  const state: PositionPageState = { returnTo };
 
   return (
     <article className="panel position-card" aria-labelledby={titleId}>
       <header className="position-header">
         <h3 id={titleId} className="position-title">
-          {position.symbol} · {formatNumber(position.size)} {SIDE_LABELS[position.side]}
+          <Link className="position-link" to={positionPagePath(position.id)} state={state}>
+            {position.symbol} · {formatNumber(position.size)} {SIDE_LABELS[position.side]}
+          </Link>
         </h3>
         {position.trackingState !== 'active' && (
           <span className={`tracking-state tracking-state-${position.trackingState}`}>

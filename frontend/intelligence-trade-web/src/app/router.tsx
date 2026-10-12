@@ -4,6 +4,7 @@ import { AppShell } from '../layout/AppShell';
 import { ConnectionsPage } from '../pages/ConnectionsPage';
 import { HomePage } from '../pages/HomePage';
 import { LandingPage } from '../pages/LandingPage';
+import { PositionPage } from '../pages/PositionPage';
 
 export function AppRoutes() {
   return (
@@ -18,6 +19,7 @@ export function AppRoutes() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="positions/:id" element={<PositionPage />} />
         <Route path="settings/connections" element={<ConnectionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
