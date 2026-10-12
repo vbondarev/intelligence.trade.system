@@ -23,7 +23,7 @@
 ## Стек
 
 - React + TypeScript + Vite; package manager — npm, lock-file — `package-lock.json`, версия Node.js — `.nvmrc`.
-- UI framework или design system не добавляй без отдельного решения: стили — собственный CSS.
+- UI kit — Mantine (`@mantine/core`, `@mantine/hooks`). Используй компоненты Mantine для новых типовых UI-элементов. Собственные компоненты создавай, когда Mantine не предоставляет подходящей функциональности или требуется специализированное поведение. Не добавляй другие UI-библиотеки без отдельного архитектурного решения. Тему меняй в `src/styles/theme.ts` синхронно с `src/styles/tokens.css`.
 
 ## Build и deployment boundary
 

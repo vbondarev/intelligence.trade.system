@@ -128,10 +128,12 @@ Backend задаёт semantics значений; frontend отвечает то�
 
 ## 11. Styling
 
-Используется собственный CSS без UI framework:
+UI kit — [Mantine](https://mantine.dev); `MantineProvider` подключён в `app/App.tsx` с `forceColorScheme="dark"`, светлая схема не поддерживается. Новые типовые UI-элементы реализуются с помощью Mantine; собственные компоненты допускаются, если библиотека не предоставляет подходящего решения или требуется специализированное поведение. Существующие экраны сохраняют собственный CSS; их массовая миграция в эту задачу не входит.
 
+- `styles/theme.ts` — тема Mantine: палитры `dark` и `accent` и шрифт синхронизированы с `tokens.css`;
 - `styles/tokens.css` — foundation: CSS custom properties цветов, типографики, отступов и радиусов, `color-scheme: dark`;
-- `styles/app.css` — общие стили приложения и компонентов.
+- `styles/app.css` — общие стили приложения и компонентов; подключается после `@mantine/core/styles.css` и имеет приоритет над глобальными стилями Mantine;
+- `postcss.config.js` — `postcss-preset-mantine` и breakpoint-переменные Mantine для собственных CSS-файлов.
 
 Интерфейс dark-first. Tokens — основа визуальной согласованности, но не завершённая design system; её формирование относится к G-09.
 

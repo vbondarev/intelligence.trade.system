@@ -9,7 +9,7 @@ React Web-клиент `Intelligence.TradeSystem` — основной адап�
 - React 19, TypeScript, Vite, React Router;
 - npm с `package-lock.json`; Node.js 24 (`.nvmrc`);
 - Vitest и Testing Library для unit/component tests, Playwright для browser E2E;
-- собственный CSS без UI framework;
+- [Mantine](https://mantine.dev) (`@mantine/core`, `@mantine/hooks`) как UI kit с принудительной тёмной схемой, плюс собственный CSS;
 - [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) (Apache-2.0) для свечного графика позиции, без React wrapper.
 
 ## Структура
