@@ -10,10 +10,14 @@ import {
   OTHER_POSITION_ID,
   POSITION_ID,
   candleFixture,
+  CLOSED_POSITION_CHANGE,
   candlesFixture,
+  continuationTimelinePage,
   evaluationFixture,
+  firstTimelinePage,
   marketFixture,
   positionFixture,
+  timelinePageFixture,
 } from '../test/positionFixtures';
 
 const chart = vi.hoisted(() => ({
@@ -49,6 +53,7 @@ const positionUrl = (id = POSITION_ID) => `/bff/me/positions/${id}`;
 const marketUrl = (id = POSITION_ID) => `${positionUrl(id)}/market`;
 const candlesUrl = (interval = '1h', id = POSITION_ID) => `${positionUrl(id)}/candles?interval=${interval}&limit=200`;
 const evaluationUrl = (id = POSITION_ID) => `${positionUrl(id)}/evaluation`;
+const timelineUrl = (id = POSITION_ID) => `${positionUrl(id)}/timeline?pageSize=25`;
 const pagePath = (id = POSITION_ID) => `/app/positions/${id}`;
 
 function problem(status: number, code: string, extensions: Record<string, unknown> = {}): Response {
@@ -392,6 +397,129 @@ describe('PositionPage evaluation command', () => {
     expect(screen.queryByText('Оценка выполнена.')).not.toBeInTheDocument();
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
     expect(evaluationPosts(requests, OTHER_POSITION_ID)).toHaveLength(0);
+  });
+});
+
+describe('PositionPage history', () => {
+  const historyToggle = () => screen.getByRole('button', { name: 'История позиции' });
+  const timelineRequests = (requests: RecordedRequest[]) => requests.filter((request) => request.url.includes('/timeline'));
+  const findHistoryEvents = (count: number) =>
+    waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(count));
+
+  it('renders the collapsed history block without requesting it on page load', async () => {
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => jsonResponse(firstTimelinePage()) }));
+
+    await findTitle('BTCUSDT · 0,5 LONG');
+    await screen.findByText('Удерживать');
+    await settle();
+
+    expect(screen.getByRole('region', { name: 'История позиции' })).toBeVisible();
+    expect(historyToggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(timelineRequests(requests)).toHaveLength(0);
+  });
+
+  it('keeps position, market, chart and evaluation when the history fails', async () => {
+    renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => problem(500, 'internal_error') }));
+    await findTitle('BTCUSDT · 0,5 LONG');
+    await screen.findByText('Удерживать');
+
+    await userEvent.click(historyToggle());
+
+    const historyRegion = screen.getByRole('region', { name: 'История позиции' });
+    expect(await within(historyRegion).findByRole('alert')).toHaveTextContent(
+      'Не удалось загрузить историю позиции. Повторите попытку позже.',
+    );
+    expect(screen.getByText('Удерживать')).toBeVisible();
+    expect(screen.getByText('Средняя цена входа')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Рыночный контекст' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Переоценить' })).toBeEnabled();
+  });
+
+  it('shows the history when market data and the evaluation are unavailable', async () => {
+    renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, {
+        [marketUrl()]: () => problem(503, 'market_data_unavailable'),
+        [evaluationUrl()]: () => problem(500, 'internal_error'),
+        [timelineUrl()]: () => jsonResponse(firstTimelinePage(null)),
+      }),
+    );
+    await screen.findByText('Рыночные данные временно недоступны. Повторите попытку позже.');
+
+    await userEvent.click(historyToggle());
+
+    await findHistoryEvents(3);
+  });
+
+  it('shows the history of a closed position', async () => {
+    const closed = positionFixture({ trackingState: 'closed', closedAt: '2026-10-12T08:30:00Z' });
+    renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, {
+        [positionUrl()]: () => jsonResponse(closed),
+        [timelineUrl()]: () => jsonResponse(timelinePageFixture([CLOSED_POSITION_CHANGE])),
+      }),
+    );
+    await findTitle(/BTCUSDT/);
+
+    await userEvent.click(historyToggle());
+
+    expect(await screen.findByRole('heading', { level: 3, name: 'Позиция закрыта' })).toBeVisible();
+  });
+
+  it('does not render the history for an unavailable position', async () => {
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [positionUrl()]: () => problem(404, 'resource_not_found') }));
+
+    await findTitle('Позиция недоступна');
+    await settle();
+
+    expect(screen.queryByRole('region', { name: 'История позиции' })).not.toBeInTheDocument();
+    expect(timelineRequests(requests)).toHaveLength(0);
+  });
+
+  it('resets the history when switching to another position and ignores the late previous response', async () => {
+    const lateHistory = deferred<Response>();
+    const requests = renderPage(pagePath(), {
+      ...positionRoutes(POSITION_ID, { [timelineUrl()]: () => lateHistory.promise }),
+      ...positionRoutes(OTHER_POSITION_ID, {
+        [evaluationUrl(OTHER_POSITION_ID)]: () => new Response(null, { status: 204 }),
+        [timelineUrl(OTHER_POSITION_ID)]: () => jsonResponse(continuationTimelinePage()),
+      }),
+    });
+    await findTitle('BTCUSDT · 0,5 LONG');
+    await userEvent.click(historyToggle());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
+    await findTitle('ETHUSDT · 0,5 LONG');
+    expect(historyToggle()).toHaveAttribute('aria-expanded', 'false');
+    lateHistory.resolve(jsonResponse(firstTimelinePage()));
+    await settle();
+    expect(screen.queryAllByRole('article')).toHaveLength(0);
+
+    await userEvent.click(historyToggle());
+    await findHistoryEvents(2);
+    expect(timelineRequests(requests).map((request) => request.url)).toEqual([timelineUrl(), timelineUrl(OTHER_POSITION_ID)]);
+    expect((timelineRequests(requests)[0]?.init?.signal as AbortSignal).aborted).toBe(true);
+  });
+
+  it('does not read the history after an evaluation command', async () => {
+    const requests = renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, {
+        [evaluationUrl()]: () => jsonResponse(evaluationFixture()),
+        [timelineUrl()]: () => jsonResponse(firstTimelinePage(null)),
+      }),
+    );
+    await screen.findByText('Удерживать');
+    await userEvent.click(historyToggle());
+    await findHistoryEvents(3);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
+    await screen.findByText('Оценка выполнена.');
+    await settle();
+
+    expect(timelineRequests(requests)).toHaveLength(1);
+    expect(screen.getAllByRole('article')).toHaveLength(3);
   });
 });
 

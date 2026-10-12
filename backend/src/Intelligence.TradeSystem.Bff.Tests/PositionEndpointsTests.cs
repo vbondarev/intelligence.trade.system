@@ -17,6 +17,9 @@ public sealed class PositionEndpointsTests
     private const string ResourceJson =
         """{"positionId":"8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001","symbol":"BTCUSDT","settlementAsset":"USDT"}""";
 
+    private const string TimelineJson =
+        """{"items":[{"type":"evaluation","occurredAt":"2026-10-12T10:00:00Z","positionChange":null,"evaluation":{"id":"e1"},"recommendation":null}],"nextCursor":"opaque+cursor/==","hasMore":true}""";
+
     private const string PageJson =
         """{"items":[{"id":"8b0f0d4c-7d33-4f4f-9b55-2d36c8f1c001","symbol":"BTCUSDT","settlementAsset":"USDT"}],"nextCursor":"opaque+cursor/=="}""";
 
@@ -188,6 +191,7 @@ public sealed class PositionEndpointsTests
     [InlineData(PositionPath, ApiPosition)]
     [InlineData(PositionPath + "/market", ApiPosition + "/market")]
     [InlineData(PositionPath + "/evaluation", ApiPosition + "/evaluation")]
+    [InlineData(PositionPath + "/timeline", ApiPosition + "/timeline")]
     public async Task Position_reads_forward_to_the_exact_api_route_without_query(string path, string apiUri)
     {
         using var factory = new BffApplicationFactory();
@@ -251,6 +255,59 @@ public sealed class PositionEndpointsTests
             new KeyValuePair<string, string>("interval", "1h"),
             new KeyValuePair<string, string>("interval", "4h"),
             new KeyValuePair<string, string>("limit", string.Empty));
+    }
+
+    [Fact]
+    public async Task Timeline_forwards_only_page_size_repeated_type_and_opaque_cursor_url_encoded()
+    {
+        using var factory = new BffApplicationFactory();
+        factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.OK, TimelineJson));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessToken: "access-visible-only-to-bff");
+
+        var cursor = Uri.EscapeDataString("opaque+cursor/==&userId=other%2F");
+        using var response = await browser.Client.GetAsync(
+            PositionPath + "/timeline?userId=other&cursor=" + cursor
+            + "&type=positionChange&exchangeAccountId=" + AccountId
+            + "&type=evaluation&pageSize=25&limit=10&interval=1h&path=..%2Fevaluation");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Be(TimelineJson);
+        body.Should().NotContain("access-visible-only-to-bff").And.NotContain("refresh-1");
+        var apiRequest = factory.Api.Requests.Should().ContainSingle().Subject;
+        apiRequest.Method.Should().Be(HttpMethod.Get);
+        apiRequest.RequestUri.AbsolutePath.Should().Be("/api/v1/positions/" + PositionId + "/timeline");
+        apiRequest.AuthorizationScheme.Should().Be("Bearer");
+        apiRequest.AuthorizationParameter.Should().Be("access-visible-only-to-bff");
+        ParseQuery(apiRequest.RequestUri).Should().Equal(
+            new KeyValuePair<string, string>("pageSize", "25"),
+            new KeyValuePair<string, string>("type", "positionChange"),
+            new KeyValuePair<string, string>("type", "evaluation"),
+            new KeyValuePair<string, string>("cursor", "opaque+cursor/==&userId=other%2F"));
+    }
+
+    [Fact]
+    public async Task Timeline_repeated_and_empty_values_are_left_for_api_validation()
+    {
+        using var factory = new BffApplicationFactory();
+        factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.OK, TimelineJson));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+
+        using var response = await browser.Client.GetAsync(
+            PositionPath + "/timeline?type=recommendation&type=&type=recommendation&pageSize=&pageSize=500&cursor=");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        ParseQuery(factory.Api.Requests.Should().ContainSingle().Subject.RequestUri).Should().Equal(
+            new KeyValuePair<string, string>("pageSize", string.Empty),
+            new KeyValuePair<string, string>("pageSize", "500"),
+            new KeyValuePair<string, string>("type", "recommendation"),
+            new KeyValuePair<string, string>("type", string.Empty),
+            new KeyValuePair<string, string>("type", "recommendation"),
+            new KeyValuePair<string, string>("cursor", string.Empty));
     }
 
     [Fact]
@@ -321,6 +378,8 @@ public sealed class PositionEndpointsTests
     [InlineData("GET", PositionPath + "/candles?interval=1h", 400, "validation_failed")]
     [InlineData("GET", PositionPath + "/candles?interval=1h", 503, "exchange_unavailable")]
     [InlineData("GET", PositionPath + "/evaluation", 404, "resource_not_found")]
+    [InlineData("GET", PositionPath + "/timeline?cursor=broken", 400, "validation_failed")]
+    [InlineData("GET", PositionPath + "/timeline", 404, "resource_not_found")]
     [InlineData("POST", PositionPath + "/evaluation", 404, "resource_not_found")]
     [InlineData("POST", PositionPath + "/evaluation", 503, "market_data_unavailable")]
     public async Task Position_api_problem_details_are_preserved_without_reclassification(
@@ -377,6 +436,10 @@ public sealed class PositionEndpointsTests
     [InlineData("GET", PositionPath + "/market", ApiPosition + "/market")]
     [InlineData("GET", PositionPath + "/candles?interval=4h&limit=200", ApiPosition + "/candles?interval=4h&limit=200")]
     [InlineData("GET", PositionPath + "/evaluation", ApiPosition + "/evaluation")]
+    [InlineData(
+        "GET",
+        PositionPath + "/timeline?pageSize=25&type=evaluation&cursor=c1",
+        ApiPosition + "/timeline?pageSize=25&type=evaluation&cursor=c1")]
     [InlineData("POST", PositionPath + "/evaluation", ApiPosition + "/evaluation")]
     public async Task Position_operations_retry_once_after_forced_refresh_on_api_unauthorized(
         string method,
@@ -405,6 +468,7 @@ public sealed class PositionEndpointsTests
 
     [Theory]
     [InlineData("GET", PositionPath)]
+    [InlineData("GET", PositionPath + "/timeline")]
     [InlineData("POST", PositionPath + "/evaluation")]
     public async Task Repeated_api_unauthorized_on_position_operations_ends_the_session(string method, string path)
     {
@@ -430,6 +494,7 @@ public sealed class PositionEndpointsTests
     [InlineData(PositionPath + "/market")]
     [InlineData(PositionPath + "/candles?interval=1h")]
     [InlineData(PositionPath + "/evaluation")]
+    [InlineData(PositionPath + "/timeline?type=evaluation&userId=other")]
     public async Task Anonymous_browser_receives_unauthorized_for_position_reads_without_api_calls(string path)
     {
         using var factory = new BffApplicationFactory();
@@ -444,6 +509,7 @@ public sealed class PositionEndpointsTests
 
     [Theory]
     [InlineData("GET", PositionPath + "/market")]
+    [InlineData("GET", PositionPath + "/timeline")]
     [InlineData("POST", PositionPath + "/evaluation")]
     public async Task Network_failure_is_not_retried_and_does_not_leak_exception_text(string method, string path)
     {
@@ -465,6 +531,7 @@ public sealed class PositionEndpointsTests
 
     [Theory]
     [InlineData("GET", PositionPath + "/candles?interval=1h")]
+    [InlineData("GET", PositionPath + "/timeline?type=recommendation")]
     [InlineData("POST", PositionPath + "/evaluation")]
     public async Task Timeout_is_not_retried(string method, string path)
     {
@@ -487,6 +554,8 @@ public sealed class PositionEndpointsTests
     [InlineData("GET", "/bff/me/positions", HttpStatusCode.ServiceUnavailable)]
     [InlineData("GET", PositionPath, HttpStatusCode.InternalServerError)]
     [InlineData("GET", PositionPath + "/evaluation", HttpStatusCode.BadGateway)]
+    [InlineData("GET", PositionPath + "/timeline", HttpStatusCode.InternalServerError)]
+    [InlineData("GET", PositionPath + "/timeline", HttpStatusCode.ServiceUnavailable)]
     [InlineData("POST", PositionPath + "/evaluation", HttpStatusCode.InternalServerError)]
     [InlineData("POST", PositionPath + "/evaluation", HttpStatusCode.ServiceUnavailable)]
     [InlineData("POST", PositionPath + "/evaluation", HttpStatusCode.GatewayTimeout)]
@@ -512,9 +581,12 @@ public sealed class PositionEndpointsTests
     [InlineData("GET", "/bff/me/positions/not-a-guid")]
     [InlineData("GET", "/bff/me/positions/not-a-guid/market")]
     [InlineData("POST", "/bff/me/positions/not-a-guid/evaluation")]
+    [InlineData("GET", "/bff/me/positions/not-a-guid/timeline")]
     [InlineData("GET", PositionPath + "/extra")]
     [InlineData("GET", PositionPath + "/market/extra")]
     [InlineData("GET", PositionPath + "/evaluation/extra")]
+    [InlineData("GET", PositionPath + "/timeline/extra")]
+    [InlineData("GET", PositionPath + "/history")]
     [InlineData("GET", PositionPath + "/sync")]
     [InlineData("POST", PositionPath)]
     [InlineData("PUT", PositionPath)]
@@ -523,6 +595,9 @@ public sealed class PositionEndpointsTests
     [InlineData("POST", PositionPath + "/candles")]
     [InlineData("PUT", PositionPath + "/evaluation")]
     [InlineData("DELETE", PositionPath + "/evaluation")]
+    [InlineData("POST", PositionPath + "/timeline")]
+    [InlineData("PUT", PositionPath + "/timeline")]
+    [InlineData("DELETE", PositionPath + "/timeline")]
     public async Task Unknown_position_paths_return_not_found_without_reaching_the_api(string method, string path)
     {
         using var factory = new BffApplicationFactory();
