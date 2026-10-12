@@ -7,8 +7,6 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "vite",
-    "preview": "vite preview",
     "build": "vite build",
     "typecheck": "tsc -b",
     "lint": "eslint .",
