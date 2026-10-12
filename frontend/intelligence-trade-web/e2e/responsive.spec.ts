@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   TIMELINE_EVALUATION,
   TIMELINE_RECOMMENDATION,
@@ -9,7 +9,9 @@ import {
   firstTimelinePage,
   marketFixture,
   positionFixture,
+  timelineEvaluationItem,
   timelinePageFixture,
+  timelineRecommendationItem,
 } from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 
@@ -27,6 +29,23 @@ async function expectNoHorizontalScroll(page: Page) {
     innerWidth: window.innerWidth,
   }));
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+}
+
+async function expectContainedHorizontally(container: Locator) {
+  const overflow = await container.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const escaping = [...element.querySelectorAll('*')].filter((child) => {
+      const box = child.getBoundingClientRect();
+      return box.width > 0 && (box.left < bounds.left - 0.5 || box.right > bounds.right + 0.5);
+    });
+    return {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      escaping: escaping.map((child) => child.tagName.toLowerCase()),
+    };
+  });
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+  expect(overflow.escaping).toEqual([]);
 }
 
 function position(id: string, symbol: string, side: 'long' | 'short', settlementAsset: string, overrides = {}) {
@@ -319,5 +338,48 @@ for (const viewport of viewports) {
     await page.getByRole('link', { name: '← К списку позиций' }).click();
     await expect(page).toHaveURL(new RegExp(`/app\\?account=${MAIN_ID}&side=long$`));
     await expect(page.getByRole('article', { name: /^BTCUSDT/ })).toBeVisible();
+  });
+}
+
+const LONG_RULE_VERSION = `assessment-${'v'.repeat(240)}`;
+const LONG_REASON_CODE = `futureReasonCode${'X'.repeat(220)}`;
+
+for (const viewport of viewports) {
+  test(`position timeline wraps long backend values on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockBusinessData(page);
+    await mockPositionPage(page);
+    await page.route('**/bff/me/positions/btc/timeline?*', (route) =>
+      route.fulfill({
+        json: timelinePageFixture([
+          timelineRecommendationItem('2026-10-12T08:00:00Z', { reasonCodes: [LONG_REASON_CODE] }),
+          timelineEvaluationItem('2026-10-12T07:30:00Z', {
+            ruleVersion: LONG_RULE_VERSION,
+            reasonCodes: ['portfolioDataStale', LONG_REASON_CODE],
+          }),
+        ]),
+      }),
+    );
+
+    await loginThroughLanding(page);
+    await page.goto('/app/positions/btc');
+    await expect(page.getByRole('heading', { level: 1, name: /^BTCUSDT/ })).toBeVisible();
+
+    const history = page.getByRole('region', { name: 'История позиции' });
+    await history.getByRole('button', { name: 'История позиции' }).click();
+    const historyList = history.getByRole('list', { name: 'События истории позиции' });
+    const evaluation = historyList.getByRole('article', { name: /^Оценка позиции/ });
+    const recommendation = historyList.getByRole('article', { name: /^Рекомендация/ });
+    await evaluation.getByText('Подробности').click();
+    await recommendation.getByText('Подробности').click();
+
+    await expect(evaluation.getByText(LONG_RULE_VERSION)).toBeVisible();
+    await expect(evaluation.getByText(LONG_REASON_CODE)).toBeVisible();
+    await expect(recommendation.getByText(LONG_REASON_CODE)).toBeVisible();
+    await expectContainedHorizontally(evaluation);
+    await expectContainedHorizontally(recommendation);
+    await expectNoHorizontalScroll(page);
   });
 }

@@ -491,23 +491,91 @@ describe('PositionTimeline refresh', () => {
   });
 });
 
-describe('PositionTimeline errors', () => {
-  it('asks to sign in again after 401 without a retry and keeps it on reopen', async () => {
-    const { onLogin, requests } = renderTimeline({ [BASE]: () => new Response(null, { status: 401 }) });
+describe('PositionTimeline session end', () => {
+  const expectNoTimelineCommands = () => {
+    expect(screen.queryByRole('button', { name: 'Обновить' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Повторить/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Показать ещё' })).not.toBeInTheDocument();
+    for (const name of ['Изменения позиции', 'Оценки', 'Рекомендации']) {
+      expect(filter(name)).toBeDisabled();
+    }
+  };
+
+  const tryTimelineCommands = async () => {
+    await userEvent.click(filter('Изменения позиции'));
+    await userEvent.click(filter('Оценки'));
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    await settle();
+  };
+
+  it.each([
+    ['an empty BFF 401', () => new Response(null, { status: 401 })],
+    ['an API authentication_required problem', () => problem(401, 'authentication_required')],
+  ])('after %s on the first page offers only signing in again', async (_, response) => {
+    const { onLogin, requests } = renderTimeline({ [BASE]: response });
     await userEvent.click(toggle());
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(within(alert).queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
-    await userEvent.click(within(alert).getByRole('button', { name: 'Войти снова' }));
-    expect(onLogin).toHaveBeenCalledTimes(1);
+    expect(alert).not.toHaveTextContent('Код диагностики');
+    expectNoTimelineCommands();
 
-    await userEvent.click(toggle());
-    await userEvent.click(toggle());
-    await settle();
+    await tryTimelineCommands();
+    expect(requests).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Сессия завершена. Войдите снова.');
+    expectNoTimelineCommands();
+
+    await userEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Войти снова' }));
+    expect(onLogin).toHaveBeenCalledTimes(1);
     expect(requests).toHaveLength(1);
   });
 
+  it('keeps loaded events and blocks refresh, filters and pagination after 401 on a continuation', async () => {
+    const { onLogin, requests } = renderTimeline({
+      [BASE]: page(firstTimelinePage()),
+      [MORE_URL]: () => new Response(null, { status: 401 }),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
+    expect(alert).toHaveTextContent('Ранее загруженные события сохранены.');
+    expect(events()).toHaveLength(3);
+    expectNoTimelineCommands();
+
+    await tryTimelineCommands();
+    expect(requestUrls(requests)).toEqual([BASE, MORE_URL]);
+    expect(events()).toHaveLength(3);
+    expectNoTimelineCommands();
+
+    await userEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Войти снова' }));
+    expect(onLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the previously loaded history after 401 on a refresh without further requests', async () => {
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage()), () => new Response(null, { status: 401 })),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
+    expect(alert).toHaveTextContent('Показана ранее загруженная история.');
+    expect(events()).toHaveLength(3);
+    expectNoTimelineCommands();
+
+    await tryTimelineCommands();
+    expect(requestUrls(requests)).toEqual([BASE, BASE]);
+    expect(events()).toHaveLength(3);
+  });
+});
+
+describe('PositionTimeline errors', () => {
   it.each([
     [403, 'access_forbidden', 'Недостаточно прав для просмотра истории позиции.'],
     [404, 'resource_not_found', 'История позиции недоступна.'],
@@ -527,6 +595,40 @@ describe('PositionTimeline errors', () => {
     expect(requests).toHaveLength(1);
     expect(screen.getByRole('alert')).toHaveTextContent(text);
     expect(screen.getByRole('alert')).toBeVisible();
+  });
+
+  it.each([
+    [403, 'access_forbidden', 'Недостаточно прав для просмотра истории позиции.'],
+    [404, 'resource_not_found', 'История позиции недоступна.'],
+  ])('keeps the explicit «Обновить» after a %s as a single user-initiated request', async (status, code, text) => {
+    const { requests } = renderTimeline({ [BASE]: () => problem(status, code) });
+    await userEvent.click(toggle());
+    expect(await screen.findByRole('alert')).toHaveTextContent(text);
+    await settle();
+    expect(requests).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(await screen.findByRole('alert')).toHaveTextContent(text);
+    await settle();
+    expect(requestUrls(requests)).toEqual([BASE, BASE]);
+    expect(within(screen.getByRole('alert')).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('clears a temporary error after a successful explicit refresh', async () => {
+    const { requests } = renderTimeline({
+      [BASE]: sequence(() => problem(503, 'service_unavailable'), page(firstTimelinePage())),
+    });
+    await userEvent.click(toggle());
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('button', { name: 'Повторить' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+
+    await findEvents(3);
+    expect(requestUrls(requests)).toEqual([BASE, BASE]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it.each([

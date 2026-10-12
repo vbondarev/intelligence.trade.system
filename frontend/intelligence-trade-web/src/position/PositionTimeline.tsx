@@ -116,6 +116,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const contentId = useId();
   const filterHintId = useId();
   const [state, setState] = useState<TimelineState>(INITIAL_STATE);
+  // После завершения сессии доступ восстанавливает только повторный вход: ни одна команда
+  // блока больше не отправляет timeline-запрос.
+  const sessionEnded = state.error?.notice.sessionEnded === true;
 
   const generation = useRef(0);
   const controller = useRef<AbortController | null>(null);
@@ -198,7 +201,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
   const handleToggleType = (type: PositionTimelineItemType) => {
     const selected = state.selectedTypes.includes(type);
-    if (selected && state.selectedTypes.length === 1) {
+    if (sessionEnded || (selected && state.selectedTypes.length === 1)) {
       return;
     }
 
@@ -222,6 +225,10 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   };
 
   const handleRefresh = () => {
+    if (sessionEnded) {
+      return;
+    }
+
     load(state.hasLoaded ? 'refresh' : 'initial', state.selectedTypes, null);
   };
 
@@ -258,7 +265,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
             История позиции
           </button>
         </h2>
-        {isOpen && (
+        {isOpen && !sessionEnded && (
           <button type="button" className="button button-secondary" onClick={handleRefresh}>
             Обновить
           </button>
@@ -274,7 +281,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
                 <input
                   type="checkbox"
                   checked={checked}
-                  disabled={checked && selectedTypes.length === 1}
+                  disabled={sessionEnded || (checked && selectedTypes.length === 1)}
                   onChange={() => handleToggleType(type)}
                 />
                 {TIMELINE_FILTER_LABELS[type]}
