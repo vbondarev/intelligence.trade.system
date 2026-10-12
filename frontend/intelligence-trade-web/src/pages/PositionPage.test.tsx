@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation, useNavigate, type InitialEntry } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
@@ -392,5 +392,178 @@ describe('PositionPage evaluation command', () => {
     expect(screen.queryByText('Оценка выполнена.')).not.toBeInTheDocument();
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
     expect(evaluationPosts(requests, OTHER_POSITION_ID)).toHaveLength(0);
+  });
+});
+
+// Время двигается только явно: подменены лишь setTimeout и Date. Ожидание ответов fetch
+// использует настоящий setTimeout, сохранённый до подмены.
+describe('PositionPage evaluation validity on an open page', () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const T0 = Date.parse('2026-10-12T10:00:00.000Z');
+  const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
+  const VALID = 'Оценка действительна';
+  const EXPIRED = 'Оценка утратила временную валидность';
+  const RECOMMENDATION_EXPIRED = 'Рекомендация утратила временную валидность';
+
+  function evaluationValidUntil(assessmentValidUntil: string, recommendationValidUntil: string, id = POSITION_ID) {
+    const base = evaluationFixture({ positionId: id });
+    if (base.recommendation === null) {
+      throw new Error('Fixture must contain a recommendation.');
+    }
+
+    return {
+      ...base,
+      assessment: { ...base.assessment, validUntil: assessmentValidUntil },
+      recommendation: { ...base.recommendation, validUntil: recommendationValidUntil },
+    };
+  }
+
+  const listItems = (label: string) =>
+    within(screen.getByRole('list', { name: label }))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent ?? '');
+  const assessmentState = () => listItems('Состояние оценки');
+  const recommendationState = () => listItems('Состояние рекомендации');
+
+  async function settleUntil(assertion: () => void) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        assertion();
+        return;
+      } catch {
+        await act(async () => {
+          await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+        });
+      }
+    }
+
+    assertion();
+  }
+
+  async function advanceTo(seconds: number, offsetMs = 0) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(T0 + seconds * 1000 + offsetMs - Date.now());
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('marks the assessment and recommendation expired at validUntil without new requests', async () => {
+    const requests = renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(60), at(60))) }),
+    );
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    const requestCount = requests.length;
+
+    await advanceTo(60, -1);
+    expect(assessmentState()).toContain(VALID);
+    expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
+
+    await advanceTo(60);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    expect(screen.getByText('Удерживать')).toBeVisible();
+    expect(requests).toHaveLength(requestCount);
+  });
+
+  it('expires a recommendation that ends before the assessment independently', async () => {
+    const requests = renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(120), at(30))) }),
+    );
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    const requestCount = requests.length;
+
+    await advanceTo(30);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    expect(assessmentState()).toContain(VALID);
+
+    await advanceTo(120);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(requests).toHaveLength(requestCount);
+  });
+
+  it('expires an assessment that ends before the recommendation independently', async () => {
+    const requests = renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(30), at(120))) }),
+    );
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    const requestCount = requests.length;
+
+    await advanceTo(30);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
+
+    await advanceTo(120);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    expect(requests).toHaveLength(requestCount);
+  });
+
+  it('follows the validUntil values of a new evaluation after re-evaluation', async () => {
+    const requests = renderPage(
+      pagePath(),
+      positionRoutes(POSITION_ID, {
+        [evaluationUrl()]: (init) =>
+          jsonResponse(init?.method === 'POST' ? evaluationValidUntil(at(200), at(120)) : evaluationValidUntil(at(30), at(30))),
+      }),
+    );
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    await advanceTo(30);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
+    await settleUntil(() => expect(screen.getByText('Оценка выполнена.')).toBeVisible());
+    expect(assessmentState()).toContain(VALID);
+    expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
+    const requestCount = requests.length;
+
+    await advanceTo(120, -1);
+    expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
+    await advanceTo(120);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    expect(assessmentState()).toContain(VALID);
+
+    await advanceTo(200);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(evaluationPosts(requests)).toHaveLength(1);
+    expect(urls(requests, evaluationUrl()).filter((request) => request.init?.method !== 'POST')).toHaveLength(1);
+    expect(requests).toHaveLength(requestCount);
+  });
+
+  it('does not let deadlines of the previous position affect the next one', async () => {
+    const requests = renderPage(pagePath(), {
+      ...positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(30), at(30))) }),
+      ...positionRoutes(OTHER_POSITION_ID, {
+        [evaluationUrl(OTHER_POSITION_ID)]: () =>
+          jsonResponse(evaluationValidUntil(at(120), at(120), OTHER_POSITION_ID)),
+      }),
+    });
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
+    await settleUntil(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ETHUSDT · 0,5 LONG'));
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    const requestCount = requests.length;
+
+    await advanceTo(30);
+    expect(assessmentState()).toContain(VALID);
+    expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
+
+    await advanceTo(120);
+    expect(assessmentState()).toContain(EXPIRED);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    expect(urls(requests, evaluationUrl())).toHaveLength(1);
+    expect(urls(requests, evaluationUrl(OTHER_POSITION_ID))).toHaveLength(1);
+    expect(requests).toHaveLength(requestCount);
   });
 });

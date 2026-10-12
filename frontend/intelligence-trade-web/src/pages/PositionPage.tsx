@@ -23,6 +23,7 @@ import {
   parseChartInterval,
 } from '../position/positionFormatting';
 import { resolveReturnPath } from '../position/positionNavigation';
+import { useValidityClock } from '../position/useValidityClock';
 import type {
   ChartInterval,
   PositionCandles,
@@ -54,8 +55,6 @@ interface Notice {
 
 /** Результат чтения, привязанный к ключу запроса: данные другого ключа не отображаются. */
 type Load<T> = { key: string; value: T; error: null } | { key: string; value: null; error: Notice };
-
-type EvaluationLoad = Load<Evaluation | null> & { loadedAt: number };
 
 interface EvaluateState {
   running: boolean;
@@ -120,7 +119,7 @@ export function PositionPage() {
   const [notFound, setNotFound] = useState<string | null>(null);
   const [market, setMarket] = useState<Load<PositionMarket> | null>(null);
   const [candles, setCandles] = useState<Load<PositionCandles> | null>(null);
-  const [evaluation, setEvaluation] = useState<EvaluationLoad | null>(null);
+  const [evaluation, setEvaluation] = useState<Load<Evaluation | null> | null>(null);
   const [evaluateStates, setEvaluateStates] = useState<Readonly<Record<string, EvaluateState>>>({});
 
   const evaluationGeneration = useRef(0);
@@ -211,15 +210,12 @@ export function PositionPage() {
     getPositionEvaluation(id, controller.signal).then(
       (value) => {
         if (isCurrent()) {
-          setEvaluation({ ...loaded(id, value), loadedAt: Date.now() });
+          setEvaluation(loaded(id, value));
         }
       },
       (error: unknown) => {
         if (isCurrent()) {
-          setEvaluation({
-            ...failed<Evaluation | null>(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.')),
-            loadedAt: Date.now(),
-          });
+          setEvaluation(failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.')));
         }
       },
     );
@@ -230,7 +226,12 @@ export function PositionPage() {
   const currentMarket = market?.key === id ? market : null;
   const currentCandles = candles?.key === candlesKey ? candles : null;
   const currentEvaluation = evaluation?.key === id ? evaluation : null;
+  const evaluationValue = currentEvaluation?.value ?? null;
   const evaluateState = evaluateStates[id];
+  const now = useValidityClock([
+    evaluationValue?.assessment.validUntil,
+    evaluationValue?.recommendation?.validUntil,
+  ]);
 
   const positionValue = currentPosition?.value ?? null;
   const marketValue = currentMarket?.value ?? null;
@@ -258,7 +259,7 @@ export function PositionPage() {
       const value = await evaluatePosition(positionId);
       if (currentIdRef.current === positionId) {
         evaluationGeneration.current += 1;
-        setEvaluation({ ...loaded(positionId, value), loadedAt: Date.now() });
+        setEvaluation(loaded(positionId, value));
       }
 
       notice = { tone: 'success', text: 'Оценка выполнена.' };
@@ -307,7 +308,6 @@ export function PositionPage() {
     positionValue === null
       ? (symbol ?? 'Позиция')
       : `${positionValue.symbol} · ${formatNumber(positionValue.size)} ${SIDE_LABELS[positionValue.side]}`;
-  const evaluationValue = currentEvaluation?.value ?? null;
 
   return (
     <section className="page position-page" aria-labelledby={titleId}>
@@ -404,14 +404,14 @@ export function PositionPage() {
         {currentEvaluation !== null && currentEvaluation.error === null && evaluationValue === null && (
           <p className="muted">Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».</p>
         )}
-        {currentEvaluation !== null && evaluationValue !== null && (
+        {evaluationValue !== null && (
           <>
             <PositionEvaluation
               assessment={evaluationValue.assessment}
               marketCapturedAt={marketValue?.capturedAt ?? null}
-              now={currentEvaluation.loadedAt}
+              now={now}
             />
-            <PositionRecommendation recommendation={evaluationValue.recommendation} now={currentEvaluation.loadedAt} />
+            <PositionRecommendation recommendation={evaluationValue.recommendation} now={now} />
           </>
         )}
       </section>

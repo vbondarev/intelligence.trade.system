@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { evaluationFixture } from '../test/positionFixtures';
 import { PositionEvaluation } from './PositionEvaluation';
 import { PositionRecommendation } from './PositionRecommendation';
-import type { PositionAction, PositionRecommendation as Recommendation } from './positionTypes';
+import type {
+  PositionAction,
+  PositionRecommendation as Recommendation,
+  RecommendationAddConditions,
+} from './positionTypes';
 
 const NOW = Date.parse('2026-10-12T10:00:00Z');
 const MARKET_AT_INPUT = '2026-10-12T09:00:30Z';
@@ -104,6 +108,7 @@ describe('PositionRecommendation', () => {
 
     expect(screen.getByText(/Рекомендации для этой оценки нет/)).toBeVisible();
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+    expect(screen.queryByText('Условия увеличения')).not.toBeInTheDocument();
   });
 
   it.each<[PositionAction, string]>([
@@ -185,5 +190,92 @@ describe('PositionRecommendation', () => {
 
     expect(screen.getByText('Максимальная добавочная стоимость')).toBeVisible();
     expect(screen.getByText('Максимальный добавочный объём')).toBeVisible();
+  });
+
+  describe('add conditions', () => {
+    const conditions: RecommendationAddConditions = {
+      requiredTrendAlignment: 'aligned',
+      requiredMomentumState: 'normal',
+      protectiveStopRequired: true,
+      minimumLiquidationDistancePercent: 7.5,
+    };
+
+    function renderAddAllowed(addConditions: RecommendationAddConditions | null) {
+      const base = recommendation();
+      render(
+        <PositionRecommendation
+          recommendation={{
+            ...base,
+            addDecision: {
+              value: 'addAllowed',
+              reasonCodes: ['addAllowedWithinLimits'],
+              maximumAdditionalPositionValue: 1500,
+              maximumAdditionalQuantity: 0.02,
+              conditions: addConditions,
+            },
+          }}
+          now={NOW}
+        />,
+      );
+    }
+
+    const valueOf = (term: string) => screen.getByText(term).nextElementSibling;
+
+    it('shows all four conditions together with the decision, reasons and limits', () => {
+      renderAddAllowed(conditions);
+
+      expect(screen.getByText('Добавление допустимо')).toBeVisible();
+      expect(
+        within(screen.getByRole('list', { name: 'Причины решения об увеличении' })).getByText(
+          'Добавление допустимо в пределах лимитов',
+        ),
+      ).toBeVisible();
+      expect(valueOf('Максимальная добавочная стоимость')).toHaveTextContent('1 500');
+      expect(valueOf('Максимальный добавочный объём')).toHaveTextContent('0,02');
+      expect(screen.getByText('Условия увеличения')).toBeVisible();
+      expect(valueOf('Требуемое соответствие тренду')).toHaveTextContent('По тренду');
+      expect(valueOf('Требуемое состояние импульса')).toHaveTextContent('Нормальный');
+      expect(valueOf('Защитный стоп')).toHaveTextContent('Требуется');
+      expect(screen.queryByText('Условия увеличения не переданы.')).not.toBeInTheDocument();
+    });
+
+    it.each<[boolean, string]>([
+      [true, 'Требуется'],
+      [false, 'Не требуется'],
+    ])('shows protectiveStopRequired = %s as «%s»', (protectiveStopRequired, label) => {
+      renderAddAllowed({ ...conditions, protectiveStopRequired });
+
+      expect(valueOf('Защитный стоп')).toHaveTextContent(new RegExp(`^${label}$`));
+    });
+
+    it('shows the minimum liquidation distance in percent as provided by the backend', () => {
+      renderAddAllowed({ ...conditions, minimumLiquidationDistancePercent: 5 });
+
+      expect(valueOf('Минимальная дистанция до ликвидации')).toHaveTextContent(/^5,00 %$/);
+    });
+
+    it('does not multiply a fractional percent value', () => {
+      renderAddAllowed(conditions);
+
+      expect(valueOf('Минимальная дистанция до ликвидации')).toHaveTextContent(/^7,50 %$/);
+    });
+
+    it('shows missing conditions neutrally without claiming there are no restrictions', () => {
+      renderAddAllowed(null);
+
+      expect(screen.getByText('Добавление допустимо')).toBeVisible();
+      expect(screen.getByText('Условия увеличения не переданы.')).toBeVisible();
+      expect(screen.queryByText('Защитный стоп')).not.toBeInTheDocument();
+      expect(screen.queryByText(/без ограничений|не требуются|выполнены/i)).not.toBeInTheDocument();
+      expect(screen.getByText('Максимальная добавочная стоимость')).toBeVisible();
+    });
+
+    it('keeps conditions neutral for a decision that does not allow adding', () => {
+      render(<PositionRecommendation recommendation={recommendation()} now={NOW} />);
+
+      expect(screen.getByText('Не добавлять')).toBeVisible();
+      expect(screen.getByText('Условия увеличения не переданы.')).toBeVisible();
+      expect(screen.getByText('Удерживать')).toBeVisible();
+    });
   });
 });

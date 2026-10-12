@@ -4,13 +4,20 @@ import {
   ACTION_LABELS,
   ADD_DECISION_LABELS,
   CONDITION_SCOPE_LABELS,
+  MOMENTUM_STATE_LABELS,
   PRIORITY_LABELS,
   RECOMMENDATION_STATUS_LABELS,
+  TREND_ALIGNMENT_LABELS,
   conditionKindLabel,
   formatFraction,
+  formatPercent,
   isPast,
 } from './positionFormatting';
-import type { PositionRecommendation as Recommendation, RecommendationCondition } from './positionTypes';
+import type {
+  PositionRecommendation as Recommendation,
+  RecommendationAddConditions,
+  RecommendationCondition,
+} from './positionTypes';
 
 interface PositionRecommendationProps {
   /** `null`: рекомендации нет; это не равнозначно действию «Удерживать». */
@@ -31,6 +38,41 @@ function ConditionList({ conditions, label }: { conditions: readonly Recommendat
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Условия, зафиксированные backend при разрешении увеличения. Показываются как требования
+ * решения; выполняются ли они сейчас, frontend не оценивает. `null` не означает отсутствия
+ * ограничений.
+ */
+function AddConditions({ conditions }: { conditions: RecommendationAddConditions | null }) {
+  return (
+    <>
+      <h5 className="condition-heading">Условия увеличения</h5>
+      {conditions === null ? (
+        <p className="muted">Условия увеличения не переданы.</p>
+      ) : (
+        <dl className="value-rows">
+          <div>
+            <dt>Требуемое соответствие тренду</dt>
+            <dd>{TREND_ALIGNMENT_LABELS[conditions.requiredTrendAlignment]}</dd>
+          </div>
+          <div>
+            <dt>Требуемое состояние импульса</dt>
+            <dd>{MOMENTUM_STATE_LABELS[conditions.requiredMomentumState]}</dd>
+          </div>
+          <div>
+            <dt>Защитный стоп</dt>
+            <dd>{conditions.protectiveStopRequired ? 'Требуется' : 'Не требуется'}</dd>
+          </div>
+          <div>
+            <dt>Минимальная дистанция до ликвидации</dt>
+            <dd>{formatPercent(conditions.minimumLiquidationDistancePercent)}</dd>
+          </div>
+        </dl>
+      )}
+    </>
   );
 }
 
@@ -118,6 +160,7 @@ export function PositionRecommendation({ recommendation, now }: PositionRecommen
           )}
         </dl>
       )}
+      <AddConditions conditions={addDecision.conditions} />
 
       <h4 className="evaluation-heading">Пересмотр</h4>
       {continuation === null ? (
