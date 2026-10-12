@@ -511,8 +511,8 @@ describe('PositionTimeline errors', () => {
   it.each([
     [403, 'access_forbidden', 'Недостаточно прав для просмотра истории позиции.'],
     [404, 'resource_not_found', 'История позиции недоступна.'],
-  ])('shows a %s without a retry or server text', async (status, code, text) => {
-    renderTimeline({ [BASE]: () => problem(status, code) });
+  ])('shows a %s without a retry or server text and does not repeat it on reopen', async (status, code, text) => {
+    const { requests } = renderTimeline({ [BASE]: () => problem(status, code) });
     await userEvent.click(toggle());
 
     const alert = await screen.findByRole('alert');
@@ -520,6 +520,13 @@ describe('PositionTimeline errors', () => {
     expect(alert).not.toHaveTextContent('Server title must not be shown');
     expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByText('В истории позиции пока нет событий.')).not.toBeInTheDocument();
+
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    await settle();
+    expect(requests).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent(text);
+    expect(screen.getByRole('alert')).toBeVisible();
   });
 
   it.each([
@@ -540,6 +547,21 @@ describe('PositionTimeline errors', () => {
     await userEvent.click(within(alert).getByRole('button', { name: 'Повторить' }));
     await findEvents(3);
     expect(requestUrls(requests)).toEqual([BASE, BASE]);
+  });
+
+  it('loads the first page again on reopen after a retryable error', async () => {
+    const { requests } = renderTimeline({
+      [BASE]: sequence(() => problem(503, 'service_unavailable'), page(firstTimelinePage())),
+    });
+    await userEvent.click(toggle());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Сервис временно недоступен. Повторите попытку позже.');
+
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+
+    await findEvents(3);
+    expect(requestUrls(requests)).toEqual([BASE, BASE]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('reports a contract violation and a network failure explicitly', async () => {

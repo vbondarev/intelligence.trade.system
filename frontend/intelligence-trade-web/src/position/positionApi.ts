@@ -232,7 +232,7 @@ export function candlesUrl(positionId: string, interval: ChartInterval): string 
 export function timelineUrl(positionId: string, query: PositionTimelineQuery): string {
   const selected = TIMELINE_ITEM_TYPES.filter((type) => query.types.includes(type));
   if (selected.length === 0) {
-    throw new RangeError('Timeline query requires at least one item type.');
+    throw new RangeError('Для запроса истории позиции необходимо выбрать хотя бы один тип событий.');
   }
 
   const params = new URLSearchParams({ pageSize: String(TIMELINE_PAGE_SIZE) });

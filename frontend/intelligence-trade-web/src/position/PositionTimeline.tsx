@@ -191,7 +191,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     }
 
     setState((current) => ({ ...current, isOpen: true }));
-    if (!state.hasLoaded && state.pending === null && state.error?.notice.sessionEnded !== true) {
+    if (!state.hasLoaded && state.pending === null && state.error?.notice.canRetry !== false) {
       load('initial', state.selectedTypes, null);
     }
   };

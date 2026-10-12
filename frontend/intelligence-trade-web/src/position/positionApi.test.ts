@@ -225,7 +225,9 @@ describe('positionApi timeline', () => {
   });
 
   it('refuses an empty type selection instead of requesting all types', () => {
-    expect(() => timelineUrl(POSITION_ID, { types: [] })).toThrow(RangeError);
+    expect(() => timelineUrl(POSITION_ID, { types: [] })).toThrow(
+      new RangeError('Для запроса истории позиции необходимо выбрать хотя бы один тип событий.'),
+    );
   });
 
   it('reads a page with all three item types through the same-origin BFF without caching', async () => {
