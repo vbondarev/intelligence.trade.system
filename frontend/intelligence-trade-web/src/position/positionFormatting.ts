@@ -272,6 +272,11 @@ export function formatSignedPercent(value: number | null): string {
   return value === null ? MISSING_VALUE : `${signed(value, true)}${PERCENT.format(Math.abs(value))} %`;
 }
 
+/** Доля единицы с явным знаком в процентах, например `0.0234` → `+2,34 %`. */
+export function formatSignedFraction(value: number | null): string {
+  return value === null ? MISSING_VALUE : formatSignedPercent(value * 100);
+}
+
 /** Доля `0..1` (например, confidence или long ratio) в процентах. */
 export function formatFraction(value: number | null): string {
   return value === null ? MISSING_VALUE : `${SCORE.format(value * 100)} %`;

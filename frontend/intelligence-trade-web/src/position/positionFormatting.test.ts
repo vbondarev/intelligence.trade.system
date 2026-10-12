@@ -8,6 +8,7 @@ import {
   formatPercent,
   formatPrice,
   formatScore,
+  formatSignedFraction,
   formatSignedPercent,
   isLaterThan,
   isPast,
@@ -22,6 +23,7 @@ describe('positionFormatting', () => {
     expect(formatPrice(null)).toBe('—');
     expect(formatPercent(null)).toBe('—');
     expect(formatSignedPercent(null)).toBe('—');
+    expect(formatSignedFraction(null)).toBe('—');
     expect(formatFraction(null)).toBe('—');
     expect(formatFundingRate(null)).toBe('—');
     expect(formatScore(null)).toBe('—');

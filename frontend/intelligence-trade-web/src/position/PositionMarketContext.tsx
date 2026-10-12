@@ -9,6 +9,7 @@ import {
   formatPercent,
   formatPrice,
   formatScore,
+  formatSignedFraction,
   formatSignedPercent,
 } from './positionFormatting';
 import type { MarketTimeframe, PositionMarket } from './positionTypes';
@@ -108,7 +109,7 @@ export function PositionMarketContext({ market }: { market: PositionMarket }) {
         <div className="metric">
           <dt>Изменение 24ч</dt>
           <dd className={change > 0 ? 'value-positive' : change < 0 ? 'value-negative' : undefined}>
-            {formatSignedPercent(change)}
+            {formatSignedFraction(change)}
           </dd>
         </div>
         <div className="metric">

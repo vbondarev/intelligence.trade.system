@@ -93,7 +93,7 @@ export function marketFixture(overrides: Partial<PositionMarket> = {}): Position
       askPrice: 61001,
       spreadAbs: 2,
       spreadPct: 0.0033,
-      price24hChangePct: -1.25,
+      price24hChangePct: -0.0125,
       high24h: 62000,
       low24h: 59800,
       volume24h: 15_000,
