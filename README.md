@@ -83,9 +83,11 @@
 
 ## Текущее состояние
 
-Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`. В рамках G-01 появились React-клиент `frontend/intelligence-trade-web` с адаптивной оболочкой и отдельный BFF `Intelligence.TradeSystem.Bff` — независимые deployment units за единым browser-facing origin: OAuth/OIDC login, server-side browser session и full SSO logout; browser SignalR integration относится к G-06. G-02 добавил первый пользовательский экран: управление read-only подключениями Bybit в Web через явные BFF endpoints. G-03 добавил сводку портфеля и список позиций выбранного подключения. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
+Этапы **A, B, C, D, E и F завершены**. F-08 зафиксировал полный runtime-generated OpenAPI contract пользовательского `/api/v1`, стабильные operationId, auth/ProblemDetails/pagination/enum invariants и REST ↔ SignalR recovery mapping. User-scoped SignalR invalidation boundary доступна по `/hubs/v1/updates`. В рамках G-01 появились React-клиент `frontend/intelligence-trade-web` с адаптивной оболочкой и отдельный BFF `Intelligence.TradeSystem.Bff` — независимые deployment units за единым browser-facing origin: OAuth/OIDC login, server-side browser session и full SSO logout; browser SignalR integration относится к G-07. G-02 добавил первый пользовательский экран: управление read-only подключениями Bybit в Web через явные BFF endpoints. G-03 добавил сводку портфеля и список позиций выбранного подключения. Статус этапа и следующий шаг определяются только `ROADMAP.md`. Backend умеет синхронизировать read-only Bybit-аккаунт, строить воспроизводимую `PositionAssessment`, детерминированно формировать `Recommendation`, сохранять recommendation lifecycle и защищаться от дребезга решений через persisted stability state. Отдельный Authorization Server на ASP.NET Core Identity + OpenIddict выпускает Authorization Code + PKCE токены, `Api` проверяет signed JWT через OIDC discovery/JWKS, user-owned persistence операции явно ограничены владельцем, а credentials Bybit защищены authenticated encryption и внешним key ring.
 
 F-02 завершён: v1 API публикует lifecycle read-only подключений, включая проверку, ротацию credentials, sync и отключение; в G-02 management routes перенесены на `/api/v1/me/exchange-accounts`. F-03 завершён: доступны user-scoped список и карточка позиций, а также account-scoped portfolio summary с cursor pagination, фильтрами и `204 No Content` до первого snapshot. F-04 завершён: позиция получает актуальный public market context и bounded candle series через `/api/v1/positions/{id}/market` и `/api/v1/positions/{id}/candles`; public market-analysis остаётся отдельным API. F-05 завершён: `/api/v1/positions/{id}/evaluation` объединяет latest assessment и current effective recommendation, а явный POST workflow использует user-scoped portfolio и cached public market snapshot без скрытого private sync. F-06 завершён: `/api/v1/positions/{id}/timeline` объединяет значимые изменения позиции, assessments/evaluations и recommendations в user-scoped timeline с opaque cursor pagination и repeatable type filter. F-07 завершён: user-scoped SignalR invalidation boundary `/hubs/v1/updates` сообщает об изменении account, portfolio, position и evaluation, а актуальное состояние восстанавливается через REST. F-08 завершён: OpenAPI и contract tests защищают полную границу F и пригодность контракта для будущей генерации клиента. Остальные пользовательские экраны React и browser realtime integration относятся к последующим задачам этапа G.
+
+Фактическое состояние аккаунта сейчас обновляется ручной и фоновой REST-синхронизацией. Realtime-наблюдение фактического состояния Bybit ещё не реализовано и запланировано как G-06: после него изменения аккаунта и позиций на бирже должны автоматически доходить до backend и через G-07 — до открытого Web, а полная синхронизация останется reconciliation и recovery механизмом ([ADR-0006](docs/adr/0006-bybit-realtime-observation-and-reconciliation.md)).
 
 ### Уже реализовано
 
@@ -155,8 +157,8 @@ F-02 завершён: v1 API публикует lifecycle read-only подкл�
 
 ### Ещё не реализовано
 
-- следующие пользовательские сценарии этапа G после G-03: страница позиции (G-04), timeline (G-05), browser SignalR integration через BFF (G-06), а также общие задачи доступности и дизайн-системы G-07/G-08;
-- непрерывный цикл повторной оценки активных позиций;
+- следующие задачи этапа G после G-03: страница позиции (G-04), timeline (G-05), realtime-наблюдение фактического состояния Bybit и reconciliation (G-06), browser SignalR integration через BFF (G-07), адаптивность и базовая доступность (G-08), дизайн-система и обработка ошибок (G-09);
+- непрерывное интеллектуальное сопровождение: автоматическая повторная оценка активных позиций, выделение существенных изменений и monitoring events;
 - уведомления о рисках конкретных пользовательских позиций;
 - общий cross-account portfolio и расширенная портфельная аналитика, включая correlation model.
 
@@ -487,8 +489,8 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 Основная ближайшая последовательность:
 
-1. G-04 — G-08: пользовательские сценарии основного React-клиента, начиная со страницы позиции;
-2. непрерывное наблюдение за активными позициями и отказоустойчивость доставки application events;
+1. G-04 — G-09: пользовательские сценарии основного Web-клиента, начиная со страницы позиции, и realtime-контур фактического состояния от Bybit до открытого Web;
+2. непрерывное интеллектуальное сопровождение активных позиций и отказоустойчивость доставки application events;
 3. Telegram-уведомления и детерминированные объяснения;
 4. подготовка пилотной эксплуатации;
 5. измерение качества рекомендаций;
@@ -502,13 +504,13 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 
 - войти в систему;
 - подключить и проверить Bybit-аккаунт только для чтения, при необходимости безопасно заменить credentials без потери идентичности подключения;
-- увидеть актуальные открытые позиции и account-scoped состояние портфеля;
+- увидеть актуальные открытые позиции и account-scoped состояние портфеля: при исправном realtime-наблюдении фактическое состояние обновляется автоматически без обязательной ручной синхронизации, а потеря актуальности явно показывается как degraded/stale;
 - фильтровать позиции по подключению и состоянию, не смешивая закрытую историю с активным рабочим списком;
 - открыть позицию и увидеть её состояние, рыночный контекст и график;
 - получить согласованный `evaluation`, включающий детерминированную оценку, временную/input identity расчёта и текущую рекомендацию, если она опубликована;
-- получать realtime-уведомления об изменении состояния с восстановлением актуальных данных через REST без выдачи browser access token JavaScript-клиенту;
+- получать в browser realtime-уведомления об изменении состояния через SignalR с восстановлением актуальных данных через REST без выдачи browser access token JavaScript-клиенту;
 - получать важные уведомления;
-- просматривать единый timeline существенных изменений позиции, оценок и рекомендаций; market-monitoring events добавляются после появления непрерывного наблюдения.
+- просматривать единый timeline существенных изменений позиции, оценок и рекомендаций; market-monitoring events добавляются после появления непрерывного интеллектуального сопровождения.
 
 Автоматическое исполнение торговых операций остаётся за пределами первого MVP и может рассматриваться только после накопления статистики качества рекомендаций и отдельной проверки рисков. Общий cross-account portfolio также не входит в первый MVP: текущий `PortfolioState` относится к одному биржевому аккаунту.
 
@@ -522,8 +524,9 @@ Release-сборка настроена с `TreatWarningsAsErrors=true` для �
 - PostgreSQL schema, migrations и repository implementations поддерживают ручную/фоновую синхронизацию и recommendation workflow; торговое исполнение отсутствует, а пользовательские биржевые credentials первого MVP имеют только права чтения;
 - канонический `/api/v1/me/exchange-accounts` публикует management read-only подключений; прежние management routes `GET`/`POST /api/v1/exchange-accounts`, `DELETE /api/v1/exchange-accounts/{id}`, `POST /api/v1/exchange-accounts/{id}/verify`, `PUT /api/v1/exchange-accounts/{id}/credentials` и pre-v1 `api/exchange-accounts` удалены и возвращают `404`, а `POST /api/v1/exchange-accounts/{id}/sync` и `GET /api/v1/exchange-accounts/{id}/portfolio` остаются;
 - повторная оценка рекомендаций пока вызывается прикладным workflow, а непрерывный monitoring loop относится к этапу H;
-- React-клиент содержит адаптивную оболочку, login/logout и browser session через BFF, управление read-only подключениями Bybit и G-03 Web-обзор выбранного подключения: выбор подключения, account-scoped сводку портфеля, текущие и закрытые позиции с существующими фильтрами и ручную синхронизацию; страница отдельной позиции, timeline, browser SignalR integration, системная accessibility work и полноценная design system / унифицированный error UX относятся к G-04 — G-08;
-- browser SignalR integration через BFF ещё не реализована и относится к G-06; access token не выдаётся browser JavaScript-коду;
+- фактическое состояние аккаунта сейчас обновляется только ручной и фоновой REST-синхронизацией; realtime-наблюдение фактического состояния Bybit ещё не реализовано и относится к G-06;
+- React-клиент содержит адаптивную оболочку, login/logout и browser session через BFF, управление read-only подключениями Bybit и G-03 Web-обзор выбранного подключения: выбор подключения, account-scoped сводку портфеля, текущие и закрытые позиции с существующими фильтрами и ручную синхронизацию; страница отдельной позиции, timeline, realtime-контур фактического состояния, browser SignalR integration, системная accessibility work и полноценная design system / унифицированный error UX относятся к G-04 — G-09;
+- browser SignalR integration через BFF ещё не реализована и относится к G-07; access token не выдаётся browser JavaScript-коду;
 - BFF хранит browser sessions в памяти процесса: restart BFF завершает sessions, а горизонтальное масштабирование без sticky sessions не поддерживается;
 - общий cross-account portfolio, correlation model и расширенная portfolio analytics перенесены в последующее расширение продукта;
 - BTC Daily Check остаётся отдельным экспериментальным публичным сценарием;
