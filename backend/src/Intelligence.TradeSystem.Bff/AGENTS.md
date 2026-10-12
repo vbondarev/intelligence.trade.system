@@ -42,7 +42,7 @@
 
 ## Realtime
 
-Browser SignalR integration через BFF относится к этапу G-06 и до него не добавляется.
+Browser SignalR integration через BFF добавляется только в scope соответствующей задачи `ROADMAP.md` и сохраняет BFF/security boundaries этого файла и [Web BFF contract](../../../docs/web-bff-contract.md): browser access token не выдаётся JavaScript.
 
 ## Проверки
 

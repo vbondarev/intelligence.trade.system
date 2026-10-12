@@ -107,7 +107,7 @@ URL-state используется, когда состояние предста
 
 UI использует только доступные для конкретной capability machine-readable признаки: HTTP `status`, а для connections/portfolio/position — также стабильный `ProblemDetails.code` (для `409 position_not_evaluable` — и `reason`). `AuthApiError` сейчас содержит только `status` и не разбирает `ProblemDetails`. `title` и `detail` не используются для ветвления и не показываются как основной текст ошибки. `traceId` показывается как диагностический код там, где соответствующий client API его разбирает. `401` завершает browser session flow с возможностью войти снова; для connections/portfolio/position тот же session-ended outcome также определяется по `authentication_required`. `404` позиции означает недоступную страницу без различия между несуществующей и чужой позицией.
 
-Тексты ошибок пока задаются на уровне страниц. Единый product error UX относится к G-08.
+Тексты ошибок пока задаются на уровне страниц. Единый product error UX относится к G-09.
 
 ## 10. Presentation и formatting
 
@@ -130,13 +130,13 @@ Backend задаёт semantics значений; frontend отвечает то�
 - `styles/tokens.css` — foundation: CSS custom properties цветов, типографики, отступов и радиусов, `color-scheme: dark`;
 - `styles/app.css` — общие стили приложения и компонентов.
 
-Интерфейс dark-first. Tokens — основа визуальной согласованности, но не завершённая design system; её формирование относится к G-08.
+Интерфейс dark-first. Tokens — основа визуальной согласованности, но не завершённая design system; её формирование относится к G-09.
 
 ## 12. Responsive и accessibility
 
 - Каждая страница должна быть пригодна для mobile и desktop; responsive E2E проверяет основные сценарии на mobile и desktop viewport и отсутствие горизонтальной прокрутки.
 - Базовый уровень доступности обеспечивается семантическим HTML, связанными labels, landmarks/regions с доступными именами и `role="status"`/`role="alert"` для асинхронных сообщений.
-- Систематическая работа над адаптивностью и доступностью относится к G-07.
+- Систематическая работа над адаптивностью и доступностью относится к G-08.
 
 ## 13. Testing boundaries
 
