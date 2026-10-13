@@ -14,6 +14,11 @@ internal sealed class BybitSocketTestHarness : IDisposable
 {
     private readonly ConcurrentQueue<string> _sent = new();
 
+    // Настоящий websocket доставляет входящие сообщения из одного receive loop, и разбор и маршрутизация
+    // сообщений в CryptoExchange.Net не рассчитаны на конкурентные вызовы: одновременные ответы на
+    // query теряются, и query ожидает таймаута SDK.
+    private readonly Lock _receiveGate = new();
+
     public BybitSocketTestHarness(
         bool authenticated = true,
         bool authSucceeds = true,
@@ -52,7 +57,13 @@ internal sealed class BybitSocketTestHarness : IDisposable
 
     public IReadOnlyCollection<string> SentMessages => _sent.ToArray();
 
-    public void Push(string message) => Socket.InvokeMessage(message);
+    public void Push(string message)
+    {
+        lock (_receiveGate)
+        {
+            Socket.InvokeMessage(message);
+        }
+    }
 
     public void Dispose() => Client.Dispose();
 
@@ -83,7 +94,7 @@ internal sealed class BybitSocketTestHarness : IDisposable
         _ = Task.Run(async () =>
         {
             await Task.Delay(10);
-            Socket.InvokeMessage(response);
+            Push(response);
         });
     }
 

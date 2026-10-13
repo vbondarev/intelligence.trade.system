@@ -608,25 +608,57 @@ public sealed class BybitRealtimeProviderTests
     }
 
     [Fact]
-    public async Task Empty_Position_Array_Fails_Inside_Sdk_And_Reconnect_Requires_Recovery()
+    public async Task Empty_Position_Array_Fails_Inside_Sdk_Before_Provider_Handler()
     {
         using var harness = new BybitSocketTestHarness();
         var observer = new RecordingObserver();
         var provider = CreateProvider(harness);
         await provider.StartAsync(observer, CancellationToken.None);
 
-        // SDK 7.7.0 не может разобрать пустой data позиций до вызова обработчика; в production
-        // CryptoExchange.Net после этого переподключает соединение.
+        // SDK 7.7.0 не может разобрать пустой data позиций до вызова обработчика, поэтому провайдер
+        // не сообщает MessageRejected; в production исключение останавливает receive loop
+        // CryptoExchange.Net, и о потере сообщения сигнализирует последующее переподключение.
         var push = () => harness.Push(PrivateMessage("position", CreationTimeMs));
 
         push.Should().Throw<InvalidOperationException>();
         observer.Positions.Should().BeEmpty();
+        observer.TransportStates.Should().BeEmpty();
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Reconnect_Reports_Lost_And_Restored_Streams_As_Recovery_Required_And_Resumes_Delivery()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var observer = new RecordingObserver();
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        harness.Push(PositionMessage(PositionItem()));
 
         await harness.Socket.ReconnectAsync();
-        await WaitUntilAsync(() => observer.TransportStates.Any(state => state.Status == RealtimeTransportStatus.Restored));
+        await WaitUntilAsync(() => observer.TransportStates.Count(state => state.Status == RealtimeTransportStatus.Restored) == 2);
 
-        observer.TransportStates.Select(state => state.Status).Should().Contain(RealtimeTransportStatus.ConnectionLost);
-        observer.TransportStates.Should().OnlyContain(state => state.RecoveryRequired);
+        // Каждая из подписок position и wallet сообщает о потере и восстановлении своего потока.
+        observer.TransportStates.Select(state => state.Status).Should().BeEquivalentTo(
+        [
+            RealtimeTransportStatus.ConnectionLost,
+            RealtimeTransportStatus.ConnectionLost,
+            RealtimeTransportStatus.Restored,
+            RealtimeTransportStatus.Restored,
+        ]);
+        observer.TransportStates.Should().OnlyContain(state => state.RecoveryRequired && state.Failure == null);
+        harness.SentMessages.Count(message => message.Contains("\"op\":\"auth\"")).Should().Be(2);
+        harness.SentMessages.Count(message => message.Contains("\"subscribe\"") && message.Contains("\"position\"")).Should().Be(2);
+        harness.SentMessages.Count(message => message.Contains("\"subscribe\"") && message.Contains("\"wallet\"")).Should().Be(2);
+
+        harness.Push(PositionMessage(PositionItem(("size", "0.7"), ("seq", Sequence + 1))));
+        harness.Push(WalletMessage());
+
+        observer.Positions.Select(position => (position.Size, position.Kind)).Should().Equal(
+            (0.5m, PrivatePositionObservationKind.Open),
+            (0.7m, PrivatePositionObservationKind.Open));
+        observer.Wallets.Should().ContainSingle();
+        observer.TransportStates.Should().HaveCount(4);
         await provider.StopAsync();
     }
 
