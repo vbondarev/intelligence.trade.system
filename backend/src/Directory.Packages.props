@@ -11,7 +11,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />
-    <PackageVersion Include="Bybit.Net" Version="7.5.0" />
+    <PackageVersion Include="Bybit.Net" Version="7.7.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="FluentAssertions" Version="8.10.0" />
