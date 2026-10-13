@@ -434,6 +434,10 @@ public sealed class BybitRealtimeObservationMapperTests
     [InlineData("""{"accountType":"FUND","totalEquity":"1","coin":[{"coin":"USDT","walletBalance":"1"}]}""")]
     [InlineData("""{"accountType":"INVESTMENT","totalEquity":"5"}""")]
     [InlineData("""{"accountType":"UNIFIED","coin":[]}""")]
+    [InlineData("""{"accountType":"UNIFIED"}""")]
+    [InlineData("""{"accountType":"UNIFIED","coin":[{"coin":"USDT"}]}""")]
+    [InlineData("""{"accountType":"UNIFIED","totalEquity":"","totalWalletBalance":"","coin":[{"coin":"USDT","equity":"","usdValue":"","walletBalance":"","free":"","locked":"","unrealisedPnl":""}]}""")]
+    [InlineData("""{"accountType":"UNIFIED","coin":[{"walletBalance":"100"},{"coin":"","walletBalance":"100"},{"coin":" ","walletBalance":"100"}]}""")]
     public async Task MapWallet_Without_Applicable_Balances_Is_Unconfirmed(string item)
     {
         var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
@@ -443,6 +447,64 @@ public sealed class BybitRealtimeObservationMapperTests
         observation.Kind.Should().Be(PrivateWalletObservationKind.Unconfirmed);
         observation.RequiresRestReconciliation.Should().BeTrue();
         observation.Balances.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MapWallet_Account_Values_Are_Partial_Update_Without_Coin_Lacking_Financial_Values()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","totalEquity":"100","coin":[{"coin":"USDT"}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.RequiresRestReconciliation.Should().BeFalse();
+        var balance = observation.Balances.Should().ContainSingle().Subject;
+        balance.TotalEquity.Should().Be(100m);
+        balance.TotalWalletBalance.Should().BeNull();
+        balance.TotalAvailableBalance.Should().BeNull();
+        balance.TotalPerpUnrealizedPnl.Should().BeNull();
+        balance.Coins.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("100", 100)]
+    [InlineData("0", 0)]
+    public async Task MapWallet_Coin_Financial_Value_Alone_Is_Partial_Update(string walletBalance, int expected)
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            $$"""{"accountType":"UNIFIED","coin":[{"coin":"USDT","walletBalance":"{{walletBalance}}"}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.RequiresRestReconciliation.Should().BeFalse();
+        var balance = observation.Balances.Should().ContainSingle().Subject;
+        balance.TotalEquity.Should().BeNull();
+        balance.TotalWalletBalance.Should().BeNull();
+        balance.Coins.Should().ContainSingle().Which.Should().Be(
+            new CoinBalance("USDT", Equity: null, UsdValue: null, WalletBalance: expected, AvailableBalance: null, Locked: null, UnrealizedPnl: null));
+    }
+
+    [Fact]
+    public async Task MapWallet_Keeps_Only_Coins_With_Financial_Values()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","coin":[{"coin":"BTC","equity":"","walletBalance":""},{"coin":"USDT","locked":"0"},{"coin":"USDC"}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        var coin = observation.Balances.Should().ContainSingle().Subject.Coins.Should().ContainSingle().Subject;
+        coin.Coin.Should().Be("USDT");
+        coin.Locked.Should().Be(0m);
+        coin.WalletBalance.Should().BeNull();
     }
 
     [Fact]

@@ -21,10 +21,14 @@ internal sealed class RecordingObserver : IExchangeRealtimeObserver
 
     public Action<PrivatePositionObservation>? OnPositionCallback { get; set; }
 
+    public Action<RealtimeTransportState>? OnTransportStateCallback { get; set; }
+
+    /// <summary>Все вызовы <see cref="OnPosition"/>, включая завершившиеся исключением.</summary>
     public IReadOnlyList<PrivatePositionObservation> Positions => _positions.ToArray();
 
     public IReadOnlyList<PrivateWalletObservation> Wallets => _wallets.ToArray();
 
+    /// <summary>Все вызовы <see cref="OnTransportState"/>, включая завершившиеся исключением.</summary>
     public IReadOnlyList<RealtimeTransportState> TransportStates => _transportStates.ToArray();
 
     public void OnPosition(PrivatePositionObservation observation)
@@ -35,7 +39,11 @@ internal sealed class RecordingObserver : IExchangeRealtimeObserver
 
     public void OnWallet(PrivateWalletObservation observation) => _wallets.Enqueue(observation);
 
-    public void OnTransportState(RealtimeTransportState state) => _transportStates.Enqueue(state);
+    public void OnTransportState(RealtimeTransportState state)
+    {
+        _transportStates.Enqueue(state);
+        OnTransportStateCallback?.Invoke(state);
+    }
 }
 
 /// <summary>

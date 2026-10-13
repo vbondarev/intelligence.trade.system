@@ -72,8 +72,8 @@ internal static partial class BybitRealtimeObservationMapper
         var envelope = ReadEnvelope(update.OriginalData, receivedAt, readItems: false);
 
         var balances = (update.Data ?? [])
-            .Where(IsApplicableBalance)
-            .Select(balance => balance.MapAccountBalance())
+            .Select(MapApplicableBalance)
+            .OfType<AccountBalance>()
             .ToArray();
 
         return new PrivateWalletObservation
@@ -240,16 +240,47 @@ internal static partial class BybitRealtimeObservationMapper
         };
 
     /// <summary>
-    /// Запись поддерживаемого типа аккаунта хотя бы с одним значением баланса. Остальные типы
-    /// <c>MapAccountType</c> приводит к Unified, что исказило бы источник баланса.
+    /// Нормализует запись поддерживаемого типа аккаунта, если она подтверждает хотя бы одно
+    /// финансовое значение уровня аккаунта или монеты. Остальные типы <c>MapAccountType</c>
+    /// приводит к Unified, что исказило бы источник баланса.
     /// </summary>
-    private static bool IsApplicableBalance(BybitBalance balance) =>
-        balance.AccountType is BybitAccountType.Unified or BybitAccountType.Contract or BybitAccountType.Spot
-        && (balance.TotalEquity is not null
-            || balance.TotalWalletBalance is not null
-            || balance.TotalAvailableBalance is not null
-            || balance.TotalPerpUnrealizedPnl is not null
-            || balance.Assets is { Length: > 0 });
+    /// <remarks>
+    /// Монеты без финансовых значений исключаются: иначе запись вида <c>{"coin":"USDT"}</c> выглядела бы
+    /// подтверждённым балансом монеты со всеми неизвестными суммами. Общий REST-маппинг не меняется.
+    /// </remarks>
+    private static AccountBalance? MapApplicableBalance(BybitBalance balance)
+    {
+        if (balance.AccountType is not (BybitAccountType.Unified or BybitAccountType.Contract or BybitAccountType.Spot))
+        {
+            return null;
+        }
+
+        var mapped = balance.MapAccountBalance();
+        var coins = mapped.Coins.Where(IsConfirmedCoinBalance).ToArray();
+        var hasAccountValues = mapped.TotalEquity is not null
+            || mapped.TotalWalletBalance is not null
+            || mapped.TotalAvailableBalance is not null
+            || mapped.TotalPerpUnrealizedPnl is not null;
+        if (!hasAccountValues && coins.Length == 0)
+        {
+            return null;
+        }
+
+        return mapped with { Coins = coins };
+    }
+
+    /// <summary>
+    /// Монета с идентификатором и хотя бы одним присутствующим финансовым значением; нулевая сумма
+    /// является подтверждённым значением, отсутствующая или пустая — нет.
+    /// </summary>
+    private static bool IsConfirmedCoinBalance(CoinBalance coin) =>
+        !string.IsNullOrWhiteSpace(coin.Coin)
+        && (coin.Equity is not null
+            || coin.UsdValue is not null
+            || coin.WalletBalance is not null
+            || coin.AvailableBalance is not null
+            || coin.Locked is not null
+            || coin.UnrealizedPnl is not null);
 
     private static bool IsSupportedSettlementAsset(SettlementAsset asset) =>
         asset.Value is "USDT" or "USDC";

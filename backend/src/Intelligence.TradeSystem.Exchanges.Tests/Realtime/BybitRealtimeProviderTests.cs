@@ -281,6 +281,9 @@ public sealed class BybitRealtimeProviderTests
         observer.Positions.Should().HaveCount(2);
         sink.Entries.Where(entry => entry.EventId.Id == 1016).Should().HaveCount(2)
             .And.OnlyContain(entry => entry.LogLevel == LogLevel.Error);
+        // Отказ во время остановки не порождает сигнал recovery от имени остановленного провайдера.
+        observer.TransportStates.Should().ContainSingle()
+            .Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
         AssertNoSensitiveData(sink, "observer failed");
     }
 
@@ -326,7 +329,256 @@ public sealed class BybitRealtimeProviderTests
         var entries = sink.Entries.Where(entry => entry.EventId.Id == 1016).ToArray();
         entries.Should().HaveCount(2).And.OnlyContain(entry => entry.LogLevel == LogLevel.Error);
         entries[0].Fields.Should().Contain(new KeyValuePair<string, object?>("ExceptionType", nameof(InvalidOperationException)));
+        observer.TransportStates.Should().HaveCount(2).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+        harness.Socket.IsOpen.Should().BeTrue();
         AssertNoSensitiveData(sink, "observer failed");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Rejected_Position_Observation_Is_Reported_As_Message_Rejected()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ => throw new InvalidOperationException("queue full BTCUSDT"),
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = () => harness.Push(PositionMessage(PositionItem()));
+
+        push.Should().NotThrow();
+        observer.Positions.Should().ContainSingle();
+        var state = observer.TransportStates.Should().ContainSingle().Subject;
+        state.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        state.RecoveryRequired.Should().BeTrue();
+        state.Failure.Should().BeNull();
+        sink.Entries.Should().ContainSingle(entry => entry.EventId.Id == 1016)
+            .Which.Fields.Should().Contain(new KeyValuePair<string, object?>("Stream", BybitRealtimeProvider.PositionStream));
+        sink.Entries.Should().NotContain(entry => entry.EventId.Id == 1018);
+        harness.Socket.IsOpen.Should().BeTrue();
+        AssertNoSensitiveData(sink, "queue full");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Repeat_Of_Rejected_Revision_Is_Not_Duplicate_Until_Delivered()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var rejectNext = true;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (rejectNext)
+                {
+                    rejectNext = false;
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        var message = PositionMessage(PositionItem());
+
+        harness.Push(message);
+        harness.Push(message);
+        harness.Push(message);
+
+        observer.Positions.Select(position => position.Kind).Should().Equal(
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Duplicate);
+        observer.TransportStates.Should().ContainSingle()
+            .Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Rejected_Position_In_Multi_Item_Message_Does_Not_Confirm_Its_Revision()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var rejectBtcUsdt = true;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = position =>
+            {
+                if (position.Symbol == "BTCUSDT" && rejectBtcUsdt)
+                {
+                    rejectBtcUsdt = false;
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        var message = PositionMessage(PositionItem(), PositionItem(("symbol", "BTCPERP")));
+
+        harness.Push(message);
+        harness.Push(message);
+
+        observer.Positions.Select(position => (position.Symbol, position.Kind)).Should().Equal(
+            ("BTCUSDT", PrivatePositionObservationKind.Open),
+            ("BTCPERP", PrivatePositionObservationKind.Open),
+            ("BTCUSDT", PrivatePositionObservationKind.Open),
+            ("BTCPERP", PrivatePositionObservationKind.Duplicate));
+        observer.TransportStates.Should().ContainSingle()
+            .Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Undelivered_Recovery_Signal_Is_Repeated_Before_Next_Observation_Without_Recursion()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var positionAccepted = false;
+        var transportAccepted = false;
+        var observer = new RecordingObserver
+        {
+            OnTransportStateCallback = _ =>
+            {
+                if (!transportAccepted)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var transportStatesBeforePosition = new List<int>();
+        observer.OnPositionCallback = _ =>
+        {
+            if (!positionAccepted)
+            {
+                throw new InvalidOperationException("queue full");
+            }
+
+            transportStatesBeforePosition.Add(observer.TransportStates.Count);
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+        var message = PositionMessage(PositionItem());
+        var push = () => harness.Push(message);
+
+        push.Should().NotThrow();
+
+        // Отказ доставки самого сигнала не порождает новый MessageRejected.
+        observer.Positions.Should().ContainSingle();
+        observer.TransportStates.Should().ContainSingle()
+            .Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        sink.Entries.Where(entry => entry.EventId.Id == 1016).Should().HaveCount(2);
+        sink.Entries.Should().ContainSingle(entry => entry.EventId.Id == 1018)
+            .Which.LogLevel.Should().Be(LogLevel.Error);
+
+        // Пока сигнал не принят, наблюдения не доставляются раньше него.
+        positionAccepted = true;
+        push.Should().NotThrow();
+        harness.Push(WalletMessage());
+
+        observer.Positions.Should().ContainSingle();
+        observer.Wallets.Should().BeEmpty();
+        observer.TransportStates.Should().HaveCount(3);
+
+        // Канал принял сигнал: наблюдение доставлено после него и не стало Duplicate.
+        transportAccepted = true;
+        harness.Push(message);
+        harness.Push(message);
+
+        observer.Positions.Select(position => position.Kind).Should().Equal(
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Duplicate);
+        transportStatesBeforePosition.Should().Equal(4, 4);
+        observer.TransportStates.Should().HaveCount(4).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+        AssertNoSensitiveData(sink, "queue full");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Delivered_Transport_State_Covers_Undelivered_Recovery_Signal()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var transportAccepted = false;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = position =>
+            {
+                if (position.Size == 0.5m)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+            OnTransportStateCallback = _ =>
+            {
+                if (!transportAccepted)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        harness.Push(PositionMessage(PositionItem()));
+        observer.TransportStates.Should().ContainSingle();
+
+        transportAccepted = true;
+        provider.HandlePositions(UnmappablePositions());
+        harness.Push(PositionMessage(PositionItem(("size", "0.7"), ("seq", Sequence + 1))));
+
+        observer.TransportStates.Should().HaveCount(2, "принятое состояние уже сообщило о необходимости recovery")
+            .And.OnlyContain(state => state.Status == RealtimeTransportStatus.MessageRejected);
+        var positions = observer.Positions;
+        positions.Should().HaveCount(2);
+        positions[^1].Size.Should().Be(0.7m);
+        positions[^1].Kind.Should().Be(PrivatePositionObservationKind.Open);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Concurrent_Revisions_Of_Same_Position_Do_Not_Roll_Back_Confirmed_Revision()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var older = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var newer = await CapturePositionsAsync(PositionMessage(PositionItem(("size", "0.7"), ("seq", Sequence + 1))));
+        var callback = new BlockingCallback();
+        var blockOlder = 1;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = position =>
+            {
+                if (position.Size == 0.5m && Interlocked.Exchange(ref blockOlder, 0) == 1)
+                {
+                    callback.Block();
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var olderDelivery = Task.Run(() => provider.HandlePositions(older));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+
+        // Неподтверждённая ревизия не делает конкурентный точный повтор дубликатом.
+        provider.HandlePositions(older);
+        provider.HandlePositions(newer);
+        // Ревизия, классифицированная раньше, завершается последней и не заменяет более новую.
+        callback.Release();
+        await olderDelivery.WaitAsync(CompletionTimeout);
+        provider.HandlePositions(newer);
+        provider.HandlePositions(older);
+
+        observer.Positions.Select(position => (position.Size, position.Kind)).Should().Equal(
+            (0.5m, PrivatePositionObservationKind.Open),
+            (0.5m, PrivatePositionObservationKind.Open),
+            (0.7m, PrivatePositionObservationKind.Open),
+            (0.7m, PrivatePositionObservationKind.Duplicate),
+            (0.5m, PrivatePositionObservationKind.Open));
+        observer.TransportStates.Should().BeEmpty();
         await provider.StopAsync();
     }
 
@@ -406,6 +658,7 @@ public sealed class BybitRealtimeProviderTests
             PrivatePositionObservationKind.Duplicate,
             PrivatePositionObservationKind.Open);
         observer.Positions[1].Position.Should().Be(observer.Positions[0].Position);
+        observer.TransportStates.Should().BeEmpty();
         await provider.StopAsync();
     }
 

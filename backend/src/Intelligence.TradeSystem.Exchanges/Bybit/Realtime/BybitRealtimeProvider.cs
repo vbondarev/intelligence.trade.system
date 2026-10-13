@@ -18,10 +18,18 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 /// Приватные потоки позиций и кошелька одного аккаунта Bybit поверх нативного V5 websocket API.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Обработчики выполняются в receive loop SDK: исключение в нём останавливает обработку
 /// соединения, поэтому обработчики перехватывают все ошибки и сообщают
 /// <see cref="RealtimeTransportStatus.MessageRejected"/>. Переподключение выполняет SDK; провайдер
 /// только сообщает о потере и восстановлении транспорта.
+/// </para>
+/// <para>
+/// Ревизия позиции считается доставленной только после успешного возврата
+/// <see cref="IExchangeRealtimeObserver.OnPosition"/>. Если получатель не принял и сигнал о
+/// необходимости REST recovery, сигнал повторяется перед следующим вызовом получателя, а
+/// наблюдения до его принятия не доставляются.
+/// </para>
 /// </remarks>
 internal sealed partial class BybitRealtimeProvider
 {
@@ -45,13 +53,22 @@ internal sealed partial class BybitRealtimeProvider
     // вызываются получатель и асинхронные операции SDK.
     private readonly Lock _gate = new();
     private readonly List<UpdateSubscription> _subscriptions = [];
+
+    // Защищает подтверждённые ревизии и счётчик порядка классификации. Под ним не вызывается
+    // получатель и не захватывается _gate.
     private readonly Lock _revisionsGate = new();
-    private readonly Dictionary<PositionStreamKey, PositionRevision> _lastRevisions = [];
+    private readonly Dictionary<PositionStreamKey, DeliveredRevision> _deliveredRevisions = [];
+    private long _classifiedRevisions;
     private IExchangeRealtimeObserver? _observer;
     private int _state;
     private int _activeCallbacks;
     private TaskCompletionSource? _callbacksDrained;
     private TaskCompletionSource? _stopCompletion;
+
+    // Число сигналов REST recovery, не принятых получателем, и сколько из них покрыто позже
+    // доставленным сигналом. Пока покрытие отстаёт, recovery ожидает повторной доставки.
+    private long _recoveryDemand;
+    private long _recoveryCovered;
 
     public BybitRealtimeProvider(
         IBybitSocketClient client,
@@ -202,10 +219,10 @@ internal sealed partial class BybitRealtimeProvider
         IReadOnlyList<PrivatePositionObservation> observations;
         try
         {
-            observations = MarkRepeats(BybitRealtimeObservationMapper.MapPositions(
+            observations = BybitRealtimeObservationMapper.MapPositions(
                 update,
                 ExchangeAccountId,
-                ResolveSettlement));
+                ResolveSettlement);
         }
         catch (Exception exception)
         {
@@ -215,7 +232,11 @@ internal sealed partial class BybitRealtimeProvider
 
         foreach (var observation in observations)
         {
-            Notify(PositionStream, observer => observer.OnPosition(observation));
+            // Оставшиеся наблюдения покрывает либо остановка, либо ещё не принятый сигнал recovery.
+            if (DeliverPosition(observation) is DeliveryOutcome.Skipped or DeliveryOutcome.Deferred)
+            {
+                return;
+            }
         }
     }
 
@@ -237,7 +258,7 @@ internal sealed partial class BybitRealtimeProvider
             return;
         }
 
-        Notify(WalletStream, observer => observer.OnWallet(observation));
+        DeliverObservation(WalletStream, observer => observer.OnWallet(observation));
     }
 
     private async Task<ExchangeFailure?> SubscribeAsync(
@@ -298,29 +319,107 @@ internal sealed partial class BybitRealtimeProvider
             status,
             failure?.Kind,
             BybitExchangeFailureMapper.SafeProviderCode(failure?.ProviderCode));
-        var state = new RealtimeTransportState(status, _timeProvider.GetUtcNow(), failure);
-        Notify(stream, observer => observer.OnTransportState(state));
+        ReportRecoveryRequired(stream, status, failure);
     }
 
     private void RejectMessage(string stream, Exception exception)
     {
         LogMessageRejected(_logger, stream, exception.GetType().Name);
-        var state = new RealtimeTransportState(RealtimeTransportStatus.MessageRejected, _timeProvider.GetUtcNow());
-        Notify(stream, observer => observer.OnTransportState(state));
+        ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
+    }
+
+    /// <summary>
+    /// Доставляет наблюдение позиции; ревизия подтверждается только после успешного возврата
+    /// получателя, поэтому повтор непринятого наблюдения не становится
+    /// <see cref="PrivatePositionObservationKind.Duplicate"/>.
+    /// </summary>
+    private DeliveryOutcome DeliverPosition(PrivatePositionObservation observation)
+    {
+        var classified = ClassifyRepeat(observation, out var candidate);
+        var outcome = DeliverObservation(PositionStream, observer => observer.OnPosition(classified));
+        if (outcome == DeliveryOutcome.Delivered)
+        {
+            RecordDeliveredRevision(candidate);
+        }
+        else if (outcome == DeliveryOutcome.Rejected)
+        {
+            ReportRecoveryRequired(PositionStream, RealtimeTransportStatus.MessageRejected);
+        }
+
+        return outcome;
+    }
+
+    /// <summary>
+    /// Вызывает получателя наблюдения, предварительно повторив не принятый им сигнал recovery:
+    /// наблюдение не должно опередить сведения о возможной потере предыдущих.
+    /// </summary>
+    private DeliveryOutcome DeliverObservation(string stream, Action<IExchangeRealtimeObserver> notify)
+    {
+        if (Interlocked.Read(ref _recoveryDemand) > Interlocked.Read(ref _recoveryCovered))
+        {
+            var recovery = ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
+            if (recovery != DeliveryOutcome.Delivered)
+            {
+                return recovery == DeliveryOutcome.Skipped ? DeliveryOutcome.Skipped : DeliveryOutcome.Deferred;
+            }
+        }
+
+        return Notify(stream, notify);
+    }
+
+    /// <summary>
+    /// Сообщает состояние, требующее REST recovery. Отказ получателя не порождает новый
+    /// <see cref="RealtimeTransportStatus.MessageRejected"/>, а оставляет recovery ожидающим повторной
+    /// доставки; доставленный сигнал покрывает все отказы, зафиксированные до его отправки.
+    /// </summary>
+    private DeliveryOutcome ReportRecoveryRequired(
+        string stream,
+        RealtimeTransportStatus status,
+        ExchangeFailure? failure = null)
+    {
+        var demand = Interlocked.Read(ref _recoveryDemand);
+        var state = new RealtimeTransportState(status, _timeProvider.GetUtcNow(), failure);
+        var outcome = Notify(stream, observer => observer.OnTransportState(state));
+        if (outcome == DeliveryOutcome.Delivered)
+        {
+            CoverRecoveryDemand(demand);
+        }
+        else if (outcome == DeliveryOutcome.Rejected)
+        {
+            Interlocked.Increment(ref _recoveryDemand);
+            LogRecoveryNotAccepted(_logger, stream, status);
+        }
+
+        return outcome;
+    }
+
+    private void CoverRecoveryDemand(long demand)
+    {
+        var covered = Interlocked.Read(ref _recoveryCovered);
+        while (covered < demand)
+        {
+            var observed = Interlocked.CompareExchange(ref _recoveryCovered, demand, covered);
+            if (observed == covered)
+            {
+                return;
+            }
+
+            covered = observed;
+        }
     }
 
     /// <summary>
     /// Вызывает получателя, только если остановка ещё не началась; выполняющийся вызов учитывается,
     /// чтобы <see cref="StopAsync"/> дождался его завершения.
     /// </summary>
-    private void Notify(string stream, Action<IExchangeRealtimeObserver> notify)
+    private DeliveryOutcome Notify(string stream, Action<IExchangeRealtimeObserver> notify)
     {
         IExchangeRealtimeObserver observer;
         lock (_gate)
         {
             if (_state is not (Starting or Running) || _observer is null)
             {
-                return;
+                return DeliveryOutcome.Skipped;
             }
 
             observer = _observer;
@@ -330,10 +429,12 @@ internal sealed partial class BybitRealtimeProvider
         try
         {
             notify(observer);
+            return DeliveryOutcome.Delivered;
         }
         catch (Exception exception)
         {
             LogObserverFailed(_logger, stream, exception.GetType().Name);
+            return DeliveryOutcome.Rejected;
         }
         finally
         {
@@ -360,45 +461,61 @@ internal sealed partial class BybitRealtimeProvider
         _settlementResolver.TryResolve(symbol, out var settlementAsset) ? settlementAsset : null;
 
     /// <summary>
-    /// Помечает точный повтор последнего наблюдения позиции. Порядок относительно сохранённых
-    /// курсоров здесь не определяется.
+    /// Помечает точный повтор последней доставленной ревизии позиции, не подтверждая текущую.
+    /// Порядок относительно сохранённых курсоров здесь не определяется.
     /// </summary>
-    private PrivatePositionObservation[] MarkRepeats(IReadOnlyList<PrivatePositionObservation> observations)
+    /// <param name="candidate">
+    /// Ревизия для подтверждения после успешной доставки; <see langword="null"/>, если наблюдение
+    /// не участвует в определении повторов.
+    /// </param>
+    private PrivatePositionObservation ClassifyRepeat(
+        PrivatePositionObservation observation,
+        out RevisionCandidate? candidate)
     {
-        var result = new PrivatePositionObservation[observations.Count];
-        lock (_revisionsGate)
+        candidate = null;
+        if (observation.Kind is not (PrivatePositionObservationKind.Open or PrivatePositionObservationKind.PotentialClose)
+            || observation.Category is not { } category)
         {
-            for (var index = 0; index < observations.Count; index++)
-            {
-                var observation = observations[index];
-                result[index] = observation;
-                if (observation.Kind is not (PrivatePositionObservationKind.Open or PrivatePositionObservationKind.PotentialClose)
-                    || observation.Category is not { } category)
-                {
-                    continue;
-                }
-
-                var key = new PositionStreamKey(category, observation.Symbol, observation.PositionIdx);
-                var revision = new PositionRevision(
-                    observation.Kind,
-                    observation.Side,
-                    observation.Size,
-                    observation.ProviderSequence,
-                    observation.ProviderUpdatedAt,
-                    observation.SettlementAsset,
-                    observation.Position);
-                if (_lastRevisions.TryGetValue(key, out var last) && last == revision)
-                {
-                    result[index] = observation with { Kind = PrivatePositionObservationKind.Duplicate };
-                }
-                else
-                {
-                    _lastRevisions[key] = revision;
-                }
-            }
+            return observation;
         }
 
-        return result;
+        var key = new PositionStreamKey(category, observation.Symbol, observation.PositionIdx);
+        var revision = new PositionRevision(
+            observation.Kind,
+            observation.Side,
+            observation.Size,
+            observation.ProviderSequence,
+            observation.ProviderUpdatedAt,
+            observation.SettlementAsset,
+            observation.Position);
+        bool isRepeat;
+        lock (_revisionsGate)
+        {
+            candidate = new RevisionCandidate(key, revision, ++_classifiedRevisions);
+            isRepeat = _deliveredRevisions.TryGetValue(key, out var delivered) && delivered.Revision == revision;
+        }
+
+        return isRepeat ? observation with { Kind = PrivatePositionObservationKind.Duplicate } : observation;
+    }
+
+    /// <summary>
+    /// Подтверждает доставленную ревизию. Callbacks могут завершаться не в порядке классификации,
+    /// поэтому ревизия, классифицированная раньше уже подтверждённой, её не заменяет.
+    /// </summary>
+    private void RecordDeliveredRevision(RevisionCandidate? candidate)
+    {
+        if (candidate is not { } revision)
+        {
+            return;
+        }
+
+        lock (_revisionsGate)
+        {
+            if (!_deliveredRevisions.TryGetValue(revision.Key, out var delivered) || delivered.Order < revision.Order)
+            {
+                _deliveredRevisions[revision.Key] = new DeliveredRevision(revision.Revision, revision.Order);
+            }
+        }
     }
 
     private static ExchangeFailure MapFailure(Error? error)
@@ -462,7 +579,33 @@ internal sealed partial class BybitRealtimeProvider
         Message = "Не удалось закрыть подписку потока Bybit. ExceptionType={ExceptionType}")]
     private static partial void LogUnsubscribeFailed(ILogger logger, string exceptionType);
 
+    [LoggerMessage(
+        EventId = 1018,
+        Level = LogLevel.Error,
+        Message = "Получатель не принял сигнал о необходимости REST recovery; сигнал будет повторён перед следующим наблюдением. Stream={Stream}, Status={Status}")]
+    private static partial void LogRecoveryNotAccepted(ILogger logger, string stream, RealtimeTransportStatus status);
+
+    private enum DeliveryOutcome
+    {
+        /// <summary>Получатель вернул управление без исключения.</summary>
+        Delivered,
+
+        /// <summary>Получатель завершился исключением и не принял вызов.</summary>
+        Rejected,
+
+        /// <summary>Получатель не вызван: он ещё не принял сигнал о необходимости REST recovery.</summary>
+        Deferred,
+
+        /// <summary>Получатель не вызван: остановка провайдера уже началась.</summary>
+        Skipped,
+    }
+
     private readonly record struct PositionStreamKey(MarketCategory Category, string Symbol, int PositionIdx);
+
+    /// <param name="Order">Порядок классификации наблюдения внутри провайдера.</param>
+    private readonly record struct RevisionCandidate(PositionStreamKey Key, PositionRevision Revision, long Order);
+
+    private readonly record struct DeliveredRevision(PositionRevision Revision, long Order);
 
     private sealed record PositionRevision(
         PrivatePositionObservationKind Kind,
