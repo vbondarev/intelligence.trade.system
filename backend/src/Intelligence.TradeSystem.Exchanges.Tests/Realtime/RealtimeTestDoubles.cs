@@ -38,6 +38,30 @@ internal sealed class RecordingObserver : IExchangeRealtimeObserver
     public void OnTransportState(RealtimeTransportState state) => _transportStates.Enqueue(state);
 }
 
+/// <summary>
+/// Удерживает callback получателя в потоке транспорта до явного освобождения тестом.
+/// </summary>
+internal sealed class BlockingCallback
+{
+    private static readonly TimeSpan BlockTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Entered => _entered.Task;
+
+    public void Block()
+    {
+        _entered.TrySetResult();
+        if (!_released.Task.Wait(BlockTimeout))
+        {
+            throw new TimeoutException("Blocked observer callback was not released.");
+        }
+    }
+
+    public void Release() => _released.TrySetResult();
+}
+
 internal sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = now;

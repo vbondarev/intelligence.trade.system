@@ -71,11 +71,8 @@ internal static partial class BybitRealtimeObservationMapper
         var receivedAt = ToUtc(update.ReceiveTime);
         var envelope = ReadEnvelope(update.OriginalData, receivedAt, readItems: false);
 
-        // Остальные типы MapAccountType приводит к Unified, что исказило бы источник баланса.
         var balances = (update.Data ?? [])
-            .Where(balance => balance.AccountType is BybitAccountType.Unified
-                or BybitAccountType.Contract
-                or BybitAccountType.Spot)
+            .Where(IsApplicableBalance)
             .Select(balance => balance.MapAccountBalance())
             .ToArray();
 
@@ -83,6 +80,9 @@ internal static partial class BybitRealtimeObservationMapper
         {
             Exchange = ExchangeId.Bybit,
             ExchangeAccountId = exchangeAccountId,
+            Kind = balances.Length > 0
+                ? PrivateWalletObservationKind.PartialUpdate
+                : PrivateWalletObservationKind.Unconfirmed,
             Balances = balances,
             MessageCreatedAt = envelope.CreationTime,
             ReceivedAt = receivedAt,
@@ -238,6 +238,18 @@ internal static partial class BybitRealtimeObservationMapper
             Category.Spot => MarketCategory.Spot,
             _ => null,
         };
+
+    /// <summary>
+    /// Запись поддерживаемого типа аккаунта хотя бы с одним значением баланса. Остальные типы
+    /// <c>MapAccountType</c> приводит к Unified, что исказило бы источник баланса.
+    /// </summary>
+    private static bool IsApplicableBalance(BybitBalance balance) =>
+        balance.AccountType is BybitAccountType.Unified or BybitAccountType.Contract or BybitAccountType.Spot
+        && (balance.TotalEquity is not null
+            || balance.TotalWalletBalance is not null
+            || balance.TotalAvailableBalance is not null
+            || balance.TotalPerpUnrealizedPnl is not null
+            || balance.Assets is { Length: > 0 });
 
     private static bool IsSupportedSettlementAsset(SettlementAsset asset) =>
         asset.Value is "USDT" or "USDC";

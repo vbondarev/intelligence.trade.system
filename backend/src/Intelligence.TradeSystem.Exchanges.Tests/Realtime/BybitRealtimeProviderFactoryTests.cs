@@ -107,6 +107,35 @@ public sealed class BybitRealtimeProviderFactoryTests
     }
 
     [Fact]
+    public async Task Lease_Dispose_Waits_For_Running_Callback_Before_Disposing_Client()
+    {
+        var timeout = TimeSpan.FromSeconds(5);
+        using var harness = new BybitSocketTestHarness();
+        var factory = CreateFactory(_ => harness.Client);
+        var callback = new BlockingCallback();
+        var observer = new RecordingObserver { OnPositionCallback = _ => callback.Block() };
+        var lease = factory.Create(ExchangeId.Bybit, ExchangeAccountId.New(), Credential());
+        (await lease.StartAsync(observer)).Status.Should().Be(RealtimeTransportStatus.Subscribed);
+
+        var push = Task.Run(() => harness.Push(PositionMessage(PositionItem())));
+        await callback.Entered.WaitAsync(timeout);
+        var first = Task.Run(() => lease.DisposeAsync().AsTask());
+        var second = Task.Run(() => lease.DisposeAsync().AsTask());
+
+        var anyDisposal = Task.WhenAny(first, second);
+        (await Task.WhenAny(anyDisposal, Task.Delay(TimeSpan.FromMilliseconds(200))))
+            .Should().NotBeSameAs(anyDisposal, "dispose must wait for the running observer callback");
+        harness.Socket.IsOpen.Should().BeTrue();
+
+        callback.Release();
+        await Task.WhenAll(first, second, push).WaitAsync(timeout);
+
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+        observer.Positions.Should().ContainSingle();
+        await lease.DisposeAsync().AsTask().WaitAsync(timeout);
+    }
+
+    [Fact]
     public void CreatePrivateSocketClient_Sets_Credentials_And_Original_Data_For_Each_Client()
     {
         using var first = BybitClientFactory.CreatePrivateSocketClient(new BybitCredentials("first-key", "first-secret"));

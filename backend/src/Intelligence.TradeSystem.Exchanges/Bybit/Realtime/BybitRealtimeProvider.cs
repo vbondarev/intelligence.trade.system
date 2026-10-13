@@ -40,12 +40,18 @@ internal sealed partial class BybitRealtimeProvider
     private readonly BybitInstrumentSettlementResolver _settlementResolver;
     private readonly ILogger<BybitRealtimeProvider> _logger;
     private readonly TimeProvider _timeProvider;
-    private readonly Lock _subscriptionsGate = new();
+
+    // Защищает жизненный цикл: состояние, допуск callbacks получателя и подписки. Под ним не
+    // вызываются получатель и асинхронные операции SDK.
+    private readonly Lock _gate = new();
     private readonly List<UpdateSubscription> _subscriptions = [];
     private readonly Lock _revisionsGate = new();
     private readonly Dictionary<PositionStreamKey, PositionRevision> _lastRevisions = [];
     private IExchangeRealtimeObserver? _observer;
     private int _state;
+    private int _activeCallbacks;
+    private TaskCompletionSource? _callbacksDrained;
+    private TaskCompletionSource? _stopCompletion;
 
     public BybitRealtimeProvider(
         IBybitSocketClient client,
@@ -79,12 +85,17 @@ internal sealed partial class BybitRealtimeProvider
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(observer);
-        if (Interlocked.CompareExchange(ref _state, Starting, Created) != Created)
+        lock (_gate)
         {
-            throw new InvalidOperationException("Realtime provider can be started only once.");
+            if (_state != Created)
+            {
+                throw new InvalidOperationException("Realtime provider can be started only once.");
+            }
+
+            _state = Starting;
+            _observer = observer;
         }
 
-        Volatile.Write(ref _observer, observer);
         try
         {
             await _settlementResolver.EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
@@ -104,10 +115,17 @@ internal sealed partial class BybitRealtimeProvider
                 return new RealtimeTransportState(RealtimeTransportStatus.SubscribeFailed, _timeProvider.GetUtcNow(), failure);
             }
 
-            if (Interlocked.CompareExchange(ref _state, Running, Starting) != Starting)
+            bool running;
+            lock (_gate)
             {
-                ObjectDisposedException.ThrowIf(true, this);
+                running = _state == Starting;
+                if (running)
+                {
+                    _state = Running;
+                }
             }
+
+            ObjectDisposedException.ThrowIf(!running, this);
 
             return new RealtimeTransportState(RealtimeTransportStatus.Subscribed, _timeProvider.GetUtcNow());
         }
@@ -119,25 +137,58 @@ internal sealed partial class BybitRealtimeProvider
     }
 
     /// <summary>
-    /// Закрывает подписки. Повторный вызов ничего не делает; после остановки наблюдения не доставляются.
+    /// Запрещает новые callbacks получателя, дожидается уже выполняющихся и закрывает подписки.
+    /// После завершения задачи получатель не вызывается.
     /// </summary>
+    /// <remarks>
+    /// Повторные и конкурентные вызовы завершаются вместе с первой остановкой. Callback получателя
+    /// не должен синхронно ожидать остановку: она ожидает завершения этого callback.
+    /// </remarks>
     public async Task StopAsync()
     {
-        if (Interlocked.Exchange(ref _state, Stopped) == Stopped)
+        TaskCompletionSource stopCompletion;
+        var callbacksDrained = Task.CompletedTask;
+        bool ownsStop;
+        lock (_gate)
         {
+            ownsStop = _stopCompletion is null;
+            stopCompletion = _stopCompletion ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (ownsStop)
+            {
+                _state = Stopped;
+                if (_activeCallbacks > 0)
+                {
+                    _callbacksDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    callbacksDrained = _callbacksDrained.Task;
+                }
+            }
+        }
+
+        if (!ownsStop)
+        {
+            await stopCompletion.Task.ConfigureAwait(false);
             return;
         }
 
-        UpdateSubscription[] subscriptions;
-        lock (_subscriptionsGate)
+        try
         {
-            subscriptions = [.. _subscriptions];
-            _subscriptions.Clear();
-        }
+            await callbacksDrained.ConfigureAwait(false);
 
-        foreach (var subscription in subscriptions)
+            UpdateSubscription[] subscriptions;
+            lock (_gate)
+            {
+                subscriptions = [.. _subscriptions];
+                _subscriptions.Clear();
+            }
+
+            foreach (var subscription in subscriptions)
+            {
+                await CloseQuietlyAsync(subscription).ConfigureAwait(false);
+            }
+        }
+        finally
         {
-            await CloseQuietlyAsync(subscription).ConfigureAwait(false);
+            stopCompletion.TrySetResult();
         }
     }
 
@@ -216,9 +267,9 @@ internal sealed partial class BybitRealtimeProvider
 
     private async Task TrackAsync(string stream, UpdateSubscription subscription)
     {
-        lock (_subscriptionsGate)
+        lock (_gate)
         {
-            if (IsActive)
+            if (_state is Starting or Running)
             {
                 _subscriptions.Add(subscription);
                 subscription.ConnectionLost += () => ReportTransport(stream, RealtimeTransportStatus.ConnectionLost);
@@ -258,11 +309,22 @@ internal sealed partial class BybitRealtimeProvider
         Notify(stream, observer => observer.OnTransportState(state));
     }
 
+    /// <summary>
+    /// Вызывает получателя, только если остановка ещё не началась; выполняющийся вызов учитывается,
+    /// чтобы <see cref="StopAsync"/> дождался его завершения.
+    /// </summary>
     private void Notify(string stream, Action<IExchangeRealtimeObserver> notify)
     {
-        if (Volatile.Read(ref _observer) is not { } observer)
+        IExchangeRealtimeObserver observer;
+        lock (_gate)
         {
-            return;
+            if (_state is not (Starting or Running) || _observer is null)
+            {
+                return;
+            }
+
+            observer = _observer;
+            _activeCallbacks++;
         }
 
         try
@@ -273,6 +335,25 @@ internal sealed partial class BybitRealtimeProvider
         {
             LogObserverFailed(_logger, stream, exception.GetType().Name);
         }
+        finally
+        {
+            ExitCallback();
+        }
+    }
+
+    private void ExitCallback()
+    {
+        TaskCompletionSource? callbacksDrained = null;
+        lock (_gate)
+        {
+            if (--_activeCallbacks == 0)
+            {
+                callbacksDrained = _callbacksDrained;
+                _callbacksDrained = null;
+            }
+        }
+
+        callbacksDrained?.TrySetResult();
     }
 
     private SettlementAsset? ResolveSettlement(string symbol) =>

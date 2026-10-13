@@ -14,6 +14,8 @@ public sealed class BybitRealtimeProviderTests
 {
     private const string ApiKey = "realtime-api-key-secret-value";
     private const string ApiSecret = "realtime-api-secret-secret-value";
+    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PendingProbe = TimeSpan.FromMilliseconds(200);
 
     [Fact]
     public async Task StartAsync_Subscribes_Private_Streams_And_Delivers_Normalized_Observations()
@@ -157,6 +159,154 @@ public sealed class BybitRealtimeProviderTests
     }
 
     [Fact]
+    public async Task StopAsync_Waits_For_Running_Callback_And_Rejects_Remaining_Observations()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var callback = new BlockingCallback();
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = position =>
+            {
+                if (position.Symbol == "BTCUSDT")
+                {
+                    callback.Block();
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = Task.Run(() => harness.Push(PositionMessage(PositionItem(), PositionItem(("symbol", "BTCPERP")))));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        var stop = provider.StopAsync();
+
+        await AssertPendingAsync(stop);
+        harness.Socket.IsOpen.Should().BeTrue();
+
+        callback.Release();
+        await stop.WaitAsync(CompletionTimeout);
+        await push.WaitAsync(CompletionTimeout);
+
+        observer.Positions.Should().ContainSingle().Which.Symbol.Should().Be("BTCUSDT");
+        observer.TransportStates.Should().BeEmpty();
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+    }
+
+    [Fact]
+    public async Task Position_Wallet_And_Transport_Events_After_Stop_Are_Not_Delivered()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var observer = new RecordingObserver();
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+        var positions = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var wallet = await CaptureWalletAsync(WalletMessage());
+
+        await provider.StopAsync();
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+
+        provider.HandlePositions(positions);
+        provider.HandleWallet(wallet);
+        provider.HandlePositions(UnmappablePositions());
+
+        observer.Positions.Should().BeEmpty();
+        observer.Wallets.Should().BeEmpty();
+        observer.TransportStates.Should().BeEmpty();
+        sink.Entries.Select(entry => entry.EventId.Id).Should().NotContain([1014, 1015, 1016]);
+    }
+
+    [Fact]
+    public async Task Concurrent_StopAsync_Calls_All_Wait_For_Running_Callback()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var callback = new BlockingCallback();
+        var observer = new RecordingObserver { OnPositionCallback = _ => callback.Block() };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = Task.Run(() => harness.Push(PositionMessage(PositionItem())));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        var first = Task.Run(provider.StopAsync);
+        var second = Task.Run(provider.StopAsync);
+
+        await AssertPendingAsync(Task.WhenAny(first, second));
+
+        callback.Release();
+        await Task.WhenAll(first, second, push).WaitAsync(CompletionTimeout);
+
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+        provider.StopAsync().IsCompletedSuccessfully.Should().BeTrue();
+        observer.Positions.Should().ContainSingle();
+        sink.Entries.Should().NotContain(entry => entry.EventId.Id == 1017);
+    }
+
+    [Fact]
+    public async Task Observer_Failure_Releases_Callback_So_Stop_Completes()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var callback = new BlockingCallback();
+        var calls = 0;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (Interlocked.Increment(ref calls) == 2)
+                {
+                    callback.Block();
+                }
+
+                throw new InvalidOperationException("observer failed BTCUSDT");
+            },
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        harness.Push(PositionMessage(PositionItem()));
+        var push = Task.Run(() => harness.Push(PositionMessage(PositionItem(("size", "0.7")))));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        var stop = provider.StopAsync();
+
+        await AssertPendingAsync(stop);
+
+        callback.Release();
+        await stop.WaitAsync(CompletionTimeout);
+        await push.WaitAsync(CompletionTimeout);
+
+        observer.Positions.Should().HaveCount(2);
+        sink.Entries.Where(entry => entry.EventId.Id == 1016).Should().HaveCount(2)
+            .And.OnlyContain(entry => entry.LogLevel == LogLevel.Error);
+        AssertNoSensitiveData(sink, "observer failed");
+    }
+
+    [Fact]
+    public async Task Wallet_Message_Without_Applicable_Balances_Is_Delivered_As_Unconfirmed()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var observer = new RecordingObserver();
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        harness.Push(PrivateMessage("wallet", CreationTimeMs));
+        harness.Push(PrivateMessage("wallet", CreationTimeMs, """{"accountType":"FUND","totalEquity":"1"}"""));
+        harness.Push(WalletMessage());
+
+        observer.Wallets.Select(wallet => wallet.Kind).Should().Equal(
+            PrivateWalletObservationKind.Unconfirmed,
+            PrivateWalletObservationKind.Unconfirmed,
+            PrivateWalletObservationKind.PartialUpdate);
+        observer.Wallets.Select(wallet => wallet.RequiresRestReconciliation).Should().Equal(true, true, false);
+        observer.Wallets[0].Balances.Should().BeEmpty();
+        observer.Wallets[1].Balances.Should().BeEmpty();
+        await provider.StopAsync();
+    }
+
+    [Fact]
     public async Task Observer_Failure_Is_Logged_And_Does_Not_Stop_Transport()
     {
         using var harness = new BybitSocketTestHarness();
@@ -190,12 +340,7 @@ public sealed class BybitRealtimeProviderTests
         var provider = CreateProvider(harness, loggerFactory: loggerFactory);
         await provider.StartAsync(observer, CancellationToken.None);
 
-        // Время получения на границе DateTime делает проверку правдоподобия отметок невычислимой.
-        provider.HandlePositions(new DataEvent<BybitPositionUpdate[]>(
-            "Bybit",
-            [new BybitPositionUpdate { Symbol = "BTCUSDT", UpdateTime = new DateTime(2023, 10, 19, 0, 0, 0, DateTimeKind.Utc) }],
-            DateTime.MaxValue,
-            "{}"));
+        provider.HandlePositions(UnmappablePositions());
 
         observer.Positions.Should().BeEmpty();
         var state = observer.TransportStates.Should().ContainSingle().Subject;
@@ -311,6 +456,20 @@ public sealed class BybitRealtimeProviderTests
             TimeProvider.System);
 
         act.Should().Throw<ArgumentException>();
+    }
+
+    // Время получения на границе DateTime делает проверку правдоподобия отметок невычислимой.
+    private static DataEvent<BybitPositionUpdate[]> UnmappablePositions() =>
+        new(
+            "Bybit",
+            [new BybitPositionUpdate { Symbol = "BTCUSDT", UpdateTime = new DateTime(2023, 10, 19, 0, 0, 0, DateTimeKind.Utc) }],
+            DateTime.MaxValue,
+            "{}");
+
+    private static async Task AssertPendingAsync(Task task)
+    {
+        var completed = await Task.WhenAny(task, Task.Delay(PendingProbe));
+        completed.Should().NotBeSameAs(task, "the task must wait for the running observer callback");
     }
 
     private static BybitRealtimeProvider CreateProvider(

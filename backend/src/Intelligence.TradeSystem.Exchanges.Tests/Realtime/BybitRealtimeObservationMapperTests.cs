@@ -412,17 +412,82 @@ public sealed class BybitRealtimeObservationMapperTests
         unified.TotalEquity.Should().Be(12_500m);
         unified.TotalAvailableBalance.Should().Be(8_000m);
         unified.Coins.Should().ContainSingle(coin => coin.Coin == "USDT" && coin.WalletBalance == 12_000m);
+        // Неподдерживаемый FUND отброшен: наблюдение остаётся частичным и не подтверждает состав аккаунта.
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.RequiresRestReconciliation.Should().BeFalse();
     }
 
     [Fact]
-    public async Task MapWallet_Maps_Empty_Data_To_Empty_Balances()
+    public async Task MapWallet_Empty_Data_Is_Unconfirmed_And_Requires_Rest_Reconciliation()
     {
         var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs));
 
         var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
 
+        observation.Kind.Should().Be(PrivateWalletObservationKind.Unconfirmed);
+        observation.RequiresRestReconciliation.Should().BeTrue();
         observation.Balances.Should().BeEmpty();
         observation.MessageCreatedAt.Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData("""{"accountType":"FUND","totalEquity":"1","coin":[{"coin":"USDT","walletBalance":"1"}]}""")]
+    [InlineData("""{"accountType":"INVESTMENT","totalEquity":"5"}""")]
+    [InlineData("""{"accountType":"UNIFIED","coin":[]}""")]
+    public async Task MapWallet_Without_Applicable_Balances_Is_Unconfirmed(string item)
+    {
+        var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.Unconfirmed);
+        observation.RequiresRestReconciliation.Should().BeTrue();
+        observation.Balances.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MapWallet_Unified_Balance_Is_Partial_Update_With_Preserved_Values()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","totalEquity":"12500","totalWalletBalance":"12000","totalAvailableBalance":"8000","totalPerpUPL":"500","coin":[{"coin":"USDT","equity":"12500","usdValue":"12499.5","walletBalance":"12000","locked":"10","unrealisedPnl":"500"}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.RequiresRestReconciliation.Should().BeFalse();
+        observation.Balances.Should().ContainSingle().Which.Should().BeEquivalentTo(new AccountBalance(
+            DomainAccountType.Unified,
+            TotalEquity: 12_500m,
+            TotalWalletBalance: 12_000m,
+            TotalAvailableBalance: 8_000m,
+            TotalPerpUnrealizedPnl: 500m,
+            [new CoinBalance("USDT", 12_500m, 12_499.5m, 12_000m, AvailableBalance: null, 10m, 500m)]));
+    }
+
+    [Fact]
+    public async Task MapWallet_Keeps_Missing_Financial_Values_As_Null()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","totalWalletBalance":"12000","totalAvailableBalance":"","coin":[{"coin":"BTC","equity":"0.5","walletBalance":""}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        var balance = observation.Balances.Should().ContainSingle().Subject;
+        balance.TotalWalletBalance.Should().Be(12_000m);
+        balance.TotalEquity.Should().BeNull();
+        balance.TotalAvailableBalance.Should().BeNull();
+        balance.TotalPerpUnrealizedPnl.Should().BeNull();
+        var coin = balance.Coins.Should().ContainSingle().Subject;
+        coin.Equity.Should().Be(0.5m);
+        coin.WalletBalance.Should().BeNull();
+        coin.UsdValue.Should().BeNull();
+        coin.Locked.Should().BeNull();
+        coin.UnrealizedPnl.Should().BeNull();
     }
 
     [Fact]
