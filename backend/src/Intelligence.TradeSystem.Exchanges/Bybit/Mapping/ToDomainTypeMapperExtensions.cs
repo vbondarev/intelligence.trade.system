@@ -139,7 +139,7 @@ internal static class ToDomainTypeMapperExtensions
         };
 
 
-    private static PositionSide MapPositionSide(this BybitPositionSide? side) =>
+    internal static PositionSide MapPositionSide(this BybitPositionSide? side) =>
         side switch
         {
             BybitPositionSide.Buy => PositionSide.Long,
