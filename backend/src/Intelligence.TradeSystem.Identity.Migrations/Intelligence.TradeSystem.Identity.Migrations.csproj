@@ -7,6 +7,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!--
+      OpenIddict 7.7.2 транзитивно требует System.Security.Cryptography.Xml/Pkcs 10.0.11 с известными уязвимостями.
+      В проекте без FrameworkReference на Microsoft.AspNetCore.App эти пакеты не перекрываются shared framework,
+      поэтому безопасная версия задаётся явно. Ссылку можно удалить, когда OpenIddict будет зависеть от исправленной версии.
+    -->
+    <PackageReference Include="System.Security.Cryptography.Xml" />
   </ItemGroup>
 
   <ItemGroup>
