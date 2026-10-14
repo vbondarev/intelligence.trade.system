@@ -48,6 +48,8 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
 
         // Одна команда атомарно создаёт первое поколение или увеличивает текущее; строка
         // предлагается только для аккаунта пользователя, поэтому чужой аккаунт не изменяется.
+        // Строка аккаунта блокируется до вставки или изменения состояния, в порядке каскадного
+        // удаления аккаунта: удалённый конкурентно аккаунт даёт пустую выборку, а не FK violation.
         var entity = await TradeSystemDbCommand.ExecuteAsync(
             dbContext,
             """
@@ -65,6 +67,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
             FROM exchange_accounts AS account
             WHERE account.exchange_account_id = @exchange_account_id
               AND account.user_id = @user_id
+            FOR KEY SHARE OF account
             ON CONFLICT (exchange_account_id) DO UPDATE
             SET generation = observation.generation + 1,
                 transport_status = EXCLUDED.transport_status,

@@ -3,8 +3,10 @@ using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
@@ -13,6 +15,7 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly TimeSpan BlockedCommandProbe = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
     private static readonly DateTimeOffset BaseTime = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -460,6 +463,135 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
     }
 
     [Fact]
+    public async Task Cursor_insert_racing_with_account_deletion_is_rejected_without_deadlock()
+    {
+        var account = await CreateSavedAccountAsync();
+        await SaveCredentialAsync(account);
+        var generation = await StartObservationAsync(account);
+        var key = CreateKey(account, "BTCUSDT");
+
+        await using var sessions = await AccountDeletionRace.StartAsync(fixture, account);
+        var write = new PositionObservationCursorStore(sessions.ObserverContext)
+            .SaveAsync(account.UserId, CreateCursor(key, 1, BaseTime), null, generation);
+        await sessions.WaitUntilObserverIsBlockedByDeletionAsync(write);
+
+        await sessions.ReleaseDeletionAsync();
+
+        await sessions.Deletion;
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => write);
+        await AssertAccountDataDeletedAsync(account);
+    }
+
+    [Fact]
+    public async Task Cursor_update_racing_with_account_deletion_is_rejected_without_deadlock()
+    {
+        var account = await CreateSavedAccountAsync();
+        await SaveCredentialAsync(account);
+        var generation = await StartObservationAsync(account);
+        var key = CreateKey(account, "ETHUSDT");
+        ConcurrencyVersion version;
+        await using (var context = fixture.CreateContext())
+        {
+            version = await new PositionObservationCursorStore(context)
+                .SaveAsync(account.UserId, CreateCursor(key, 1, BaseTime), null, generation);
+        }
+
+        await using var sessions = await AccountDeletionRace.StartAsync(fixture, account);
+        var write = new PositionObservationCursorStore(sessions.ObserverContext)
+            .SaveAsync(account.UserId, CreateCursor(key, 2, BaseTime.AddSeconds(1)), version, generation);
+        await sessions.WaitUntilObserverIsBlockedByDeletionAsync(write);
+
+        await sessions.ReleaseDeletionAsync();
+
+        await sessions.Deletion;
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => write);
+        await AssertAccountDataDeletedAsync(account);
+    }
+
+    [Fact]
+    public async Task First_generation_racing_with_account_deletion_is_rejected_as_a_conflict()
+    {
+        var account = await CreateSavedAccountAsync();
+        await SaveCredentialAsync(account);
+
+        await using var sessions = await AccountDeletionRace.StartAsync(fixture, account);
+        var advance = new RealtimeObservationStateStore(sessions.ObserverContext).AdvanceGenerationAsync(
+            account.UserId,
+            account.Id,
+            RealtimeObservationTransportStatus.Initializing);
+        await sessions.WaitUntilObserverIsBlockedByDeletionAsync(advance);
+
+        await sessions.ReleaseDeletionAsync();
+
+        await sessions.Deletion;
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => advance);
+        await AssertAccountDataDeletedAsync(account);
+    }
+
+    [Fact]
+    public async Task Account_deletion_in_progress_does_not_delay_cursor_writes_of_another_account()
+    {
+        var deleted = await CreateSavedAccountAsync();
+        await SaveCredentialAsync(deleted);
+        await StartObservationAsync(deleted);
+        var independent = await CreateSavedAccountAsync();
+        var generation = await StartObservationAsync(independent);
+        var key = CreateKey(independent, "SOLUSDT");
+
+        await using var sessions = await AccountDeletionRace.StartAsync(fixture, deleted);
+        var store = new PositionObservationCursorStore(sessions.ObserverContext);
+        var version = await store
+            .SaveAsync(independent.UserId, CreateCursor(key, 1, BaseTime), null, generation)
+            .WaitAsync(LockWaitTimeout);
+        await store
+            .SaveAsync(independent.UserId, CreateCursor(key, 2, BaseTime.AddSeconds(1)), version, generation)
+            .WaitAsync(LockWaitTimeout);
+        await new RealtimeObservationStateStore(sessions.ObserverContext)
+            .AdvanceGenerationAsync(independent.UserId, independent.Id, RealtimeObservationTransportStatus.Reconnecting)
+            .WaitAsync(LockWaitTimeout);
+        Assert.False(sessions.Deletion.IsCompleted);
+
+        await sessions.ReleaseDeletionAsync();
+        await sessions.Deletion;
+        await AssertAccountDataDeletedAsync(deleted);
+    }
+
+    [Fact]
+    public async Task Account_deletion_waits_for_an_open_cursor_transaction_and_cascades_after_it()
+    {
+        var account = await CreateSavedAccountAsync();
+        var generation = await StartObservationAsync(account);
+        var key = CreateKey(account, "TRXUSDT");
+
+        await using var observerContext = fixture.CreateContext();
+        await using var lifecycleContext = fixture.CreateContext();
+        var observerPid = await OpenSessionAsync(observerContext);
+        var lifecyclePid = await OpenSessionAsync(lifecycleContext);
+        await using var monitor = await OpenConnectionAsync();
+        var observerTransaction = await observerContext.Database.BeginTransactionAsync();
+        Task? deletion = null;
+        try
+        {
+            await new PositionObservationCursorStore(observerContext)
+                .SaveAsync(account.UserId, CreateCursor(key, 1, BaseTime), null, generation);
+
+            deletion = new ExchangeAccountRepository(lifecycleContext)
+                .DeleteAsync(account.UserId, account.Id, ConcurrencyVersion.Initial);
+            await WaitUntilBlockedAsync(monitor, deletion, lifecyclePid, observerPid);
+
+            await observerTransaction.CommitAsync();
+            await deletion.WaitAsync(LockWaitTimeout);
+        }
+        finally
+        {
+            await observerTransaction.DisposeAsync();
+            await DrainAsync(deletion);
+        }
+
+        await AssertAccountDataDeletedAsync(account);
+    }
+
+    [Fact]
     public async Task Mark_price_upsert_applies_only_strictly_newer_observations()
     {
         var symbol = UniqueSymbol();
@@ -521,6 +653,33 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
         await using var context = fixture.CreateContext();
         await new ExchangeAccountRepository(context).SaveAsync(account.UserId, account, expectedVersion: null);
         return account;
+    }
+
+    private async Task SaveCredentialAsync(ExchangeAccount account)
+    {
+        await using var context = fixture.CreateContext();
+        context.ExchangeAccountCredentials.Add(new ExchangeAccountCredentialEntity
+        {
+            ExchangeAccountId = account.Id.Value,
+            Ciphertext = [1],
+            Nonce = new byte[12],
+            AuthenticationTag = new byte[16],
+            EncryptionKeyId = "v1",
+            FormatVersion = 1,
+            Version = 1,
+            UpdatedAt = BaseTime,
+        });
+        await context.SaveChangesAsync();
+    }
+
+    private async Task AssertAccountDataDeletedAsync(ExchangeAccount account)
+    {
+        await using var context = fixture.CreateContext();
+        Assert.False(await context.ExchangeAccounts.AnyAsync(entity => entity.Id == account.Id.Value));
+        Assert.False(await context.ExchangeRealtimeObservations
+            .AnyAsync(observation => observation.ExchangeAccountId == account.Id.Value));
+        Assert.False(await context.PositionObservationCursors
+            .AnyAsync(cursor => cursor.ExchangeAccountId == account.Id.Value));
     }
 
     private async Task<long> StartObservationAsync(ExchangeAccount account)
@@ -598,4 +757,225 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
             ReceivedAt = observedAt.AddMilliseconds(150),
             Source = MarketMarkPriceSource.PublicTicker,
         };
+
+    private async Task<NpgsqlConnection> OpenConnectionAsync()
+    {
+        var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        return connection;
+    }
+
+    private static async Task<int> OpenSessionAsync(TradeSystemDbContext context)
+    {
+        await context.Database.OpenConnectionAsync();
+        return await context.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"").SingleAsync();
+    }
+
+    private static async Task ExecuteAsync(
+        NpgsqlConnection connection,
+        string sql,
+        NpgsqlTransaction? transaction,
+        params (string Name, object Value)[] parameters)
+    {
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Ждёт, пока сессия <paramref name="waitingPid"/> начнёт ожидать блокировку сессии
+    /// <paramref name="blockingPid"/>. Порядок подтверждается PostgreSQL, а не задержкой.
+    /// </summary>
+    private static async Task WaitUntilBlockedAsync(
+        NpgsqlConnection monitor,
+        Task operation,
+        int waitingPid,
+        int blockingPid)
+    {
+        var deadline = DateTimeOffset.UtcNow + LockWaitTimeout;
+        while (true)
+        {
+            if (operation.IsCompleted)
+            {
+                await operation;
+                Assert.Fail($"Сессия {waitingPid} завершила операцию, не ожидая сессию {blockingPid}.");
+            }
+
+            await using var command = new NpgsqlCommand(
+                "SELECT @blocking = ANY(pg_blocking_pids(@waiting))",
+                monitor);
+            command.Parameters.AddWithValue("blocking", blockingPid);
+            command.Parameters.AddWithValue("waiting", waitingPid);
+            if ((bool)(await command.ExecuteScalarAsync())!)
+            {
+                return;
+            }
+
+            if (DateTimeOffset.UtcNow > deadline)
+            {
+                Assert.Fail($"Сессия {waitingPid} не начала ожидать сессию {blockingPid}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20));
+        }
+    }
+
+    private static async Task<bool> IsLockedAsync(
+        NpgsqlConnection monitor,
+        string lockingQuery,
+        params (string Name, object Value)[] parameters)
+    {
+        try
+        {
+            await ExecuteAsync(monitor, lockingQuery + " NOWAIT", null, parameters);
+            return false;
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.LockNotAvailable)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Дожидается завершения операций, оставшихся после неуспешной проверки, чтобы контекст не
+    /// освобождался во время выполняющейся команды. Результат операций проверяет сам тест.
+    /// </summary>
+    private static async Task DrainAsync(params Task?[] operations)
+    {
+        foreach (var operation in operations)
+        {
+            if (operation is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await operation.WaitAsync(LockWaitTimeout);
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    /// <summary>
+    /// Останавливает удаление аккаунта после блокировки его строки, но до каскадного удаления
+    /// состояния наблюдения: отдельная сессия держит строку credentials, каскад на которые
+    /// срабатывает раньше. Это воспроизводит окно, в котором запись наблюдателя конкурирует
+    /// с уже начатым удалением.
+    /// </summary>
+    private sealed class AccountDeletionRace : IAsyncDisposable
+    {
+        private readonly NpgsqlConnection monitor;
+        private readonly NpgsqlConnection blocker;
+        private readonly NpgsqlTransaction blockerTransaction;
+        private readonly TradeSystemDbContext lifecycleContext;
+        private readonly int lifecyclePid;
+        private readonly int observerPid;
+        private Task? observerOperation;
+        private bool released;
+
+        private AccountDeletionRace(
+            NpgsqlConnection monitor,
+            NpgsqlConnection blocker,
+            NpgsqlTransaction blockerTransaction,
+            TradeSystemDbContext lifecycleContext,
+            int lifecyclePid,
+            TradeSystemDbContext observerContext,
+            int observerPid,
+            Task deletion)
+        {
+            this.monitor = monitor;
+            this.blocker = blocker;
+            this.blockerTransaction = blockerTransaction;
+            this.lifecycleContext = lifecycleContext;
+            this.lifecyclePid = lifecyclePid;
+            ObserverContext = observerContext;
+            this.observerPid = observerPid;
+            Deletion = deletion;
+        }
+
+        public TradeSystemDbContext ObserverContext { get; }
+
+        public Task Deletion { get; }
+
+        public static async Task<AccountDeletionRace> StartAsync(PostgreSqlFixture fixture, ExchangeAccount account)
+        {
+            var monitor = new NpgsqlConnection(fixture.ConnectionString);
+            await monitor.OpenAsync();
+            var blocker = new NpgsqlConnection(fixture.ConnectionString);
+            await blocker.OpenAsync();
+            var blockerPid = blocker.ProcessID;
+            var blockerTransaction = await blocker.BeginTransactionAsync();
+            await ExecuteAsync(
+                blocker,
+                "SELECT 1 FROM exchange_account_credentials WHERE exchange_account_id = @id FOR SHARE",
+                blockerTransaction,
+                ("id", account.Id.Value));
+
+            var lifecycleContext = fixture.CreateContext();
+            var lifecyclePid = await OpenSessionAsync(lifecycleContext);
+            var observerContext = fixture.CreateContext();
+            var observerPid = await OpenSessionAsync(observerContext);
+            var deletion = new ExchangeAccountRepository(lifecycleContext)
+                .DeleteAsync(account.UserId, account.Id, ConcurrencyVersion.Initial);
+
+            var race = new AccountDeletionRace(
+                monitor,
+                blocker,
+                blockerTransaction,
+                lifecycleContext,
+                lifecyclePid,
+                observerContext,
+                observerPid,
+                deletion);
+            await WaitUntilBlockedAsync(monitor, deletion, lifecyclePid, blockerPid);
+
+            Assert.True(
+                await IsLockedAsync(
+                    monitor,
+                    "SELECT 1 FROM exchange_accounts WHERE exchange_account_id = @id FOR KEY SHARE",
+                    ("id", account.Id.Value)),
+                "Удаление должно удерживать строку аккаунта.");
+            Assert.False(
+                await IsLockedAsync(
+                    monitor,
+                    "SELECT 1 FROM exchange_realtime_observations WHERE exchange_account_id = @id FOR KEY SHARE",
+                    ("id", account.Id.Value)),
+                "Каскад удаления не должен дойти до состояния наблюдения.");
+            return race;
+        }
+
+        public Task WaitUntilObserverIsBlockedByDeletionAsync(Task operation)
+        {
+            observerOperation = operation;
+            return WaitUntilBlockedAsync(monitor, operation, observerPid, lifecyclePid);
+        }
+
+        public async Task ReleaseDeletionAsync()
+        {
+            await blockerTransaction.CommitAsync();
+            released = true;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!released)
+            {
+                await blockerTransaction.RollbackAsync();
+            }
+
+            await DrainAsync(Deletion, observerOperation);
+            await blockerTransaction.DisposeAsync();
+            await blocker.DisposeAsync();
+            await monitor.DisposeAsync();
+            await lifecycleContext.DisposeAsync();
+            await ObserverContext.DisposeAsync();
+        }
+    }
 }

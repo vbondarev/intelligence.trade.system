@@ -13,6 +13,18 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbContext)
     : IPositionObservationCursorStore
 {
+    // Строка аккаунта блокируется отдельной командой раньше строки состояния: так порядок
+    // блокировок account → состояние наблюдения совпадает с порядком каскадного удаления аккаунта,
+    // а FK-проверка вставки курсора не ждёт строку аккаунта, удерживая строку состояния.
+    private const string AccountLock =
+        """
+        SELECT 1
+        FROM exchange_accounts
+        WHERE exchange_account_id = @exchange_account_id
+          AND user_id = @user_id
+        FOR KEY SHARE
+        """;
+
     // Разделяемая блокировка строки состояния удерживается до конца транзакции: смена поколения
     // (UPDATE этой строки) ждёт фиксации записи курсора, а уже зафиксированная смена поколения
     // делает fence пустым при повторной проверке условия в READ COMMITTED.
@@ -87,6 +99,50 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
             throw new ArgumentException(
                 "A cursor requires a provider sequence or a provider update time.",
                 nameof(cursor));
+        }
+
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            return await LockAccountAndWriteAsync(
+                userId,
+                cursor,
+                expectedVersion,
+                expectedGeneration,
+                cancellationToken);
+        }
+
+        // Блокировка аккаунта отдельной командой действует только внутри транзакции.
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var version = await LockAccountAndWriteAsync(
+            userId,
+            cursor,
+            expectedVersion,
+            expectedGeneration,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return version;
+    }
+
+    private async Task<ConcurrencyVersion> LockAccountAndWriteAsync(
+        UserId userId,
+        PositionObservationCursor cursor,
+        ConcurrencyVersion? expectedVersion,
+        long expectedGeneration,
+        CancellationToken cancellationToken)
+    {
+        var lockedAccount = await TradeSystemDbCommand.ExecuteAsync(
+            dbContext,
+            AccountLock,
+            [
+                Parameter("exchange_account_id", NpgsqlDbType.Uuid, cursor.Key.ExchangeAccountId.Value),
+                Parameter("user_id", NpgsqlDbType.Uuid, userId.Value),
+            ],
+            static (command, token) => command.ExecuteScalarAsync(token),
+            cancellationToken);
+        if (lockedAccount is null)
+        {
+            throw new ConcurrencyConflictException(
+                $"Exchange account {cursor.Key.ExchangeAccountId} is unavailable in the requested user scope.");
         }
 
         var nextVersion = expectedVersion is { } current ? current.Next() : ConcurrencyVersion.Initial;
