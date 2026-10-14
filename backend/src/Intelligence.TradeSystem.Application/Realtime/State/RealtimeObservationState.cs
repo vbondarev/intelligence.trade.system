@@ -73,14 +73,19 @@ public sealed record RealtimeObservationState
     /// <see cref="RealtimeObservationTransportStatus.Connected"/> и heartbeat не старше
     /// <paramref name="heartbeatStaleAfter"/>. Сохранённый признак подключения без свежего
     /// heartbeat, например после перезапуска процесса, работу транспорта не подтверждает.
+    /// Heartbeat позже <paramref name="now"/> недостоверен и работу транспорта также не подтверждает.
     /// </summary>
     public bool IsTransportOperational(DateTimeOffset now, TimeSpan heartbeatStaleAfter)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(heartbeatStaleAfter, TimeSpan.Zero);
 
-        return TransportStatus == RealtimeObservationTransportStatus.Connected
-            && LastHeartbeatAt is { } heartbeat
-            && now - heartbeat <= heartbeatStaleAfter;
+        if (TransportStatus != RealtimeObservationTransportStatus.Connected || LastHeartbeatAt is not { } heartbeat)
+        {
+            return false;
+        }
+
+        var age = now - heartbeat;
+        return age >= TimeSpan.Zero && age <= heartbeatStaleAfter;
     }
 
     private static bool IsValidFailureCode(string? value)

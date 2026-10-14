@@ -9,10 +9,12 @@ public sealed class RealtimeObservationStateModelTests
     private static readonly DateTimeOffset Now = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(60);
 
-    [Fact]
-    public void Connected_state_with_fresh_heartbeat_confirms_operational_transport()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-60)]
+    public void Connected_state_with_heartbeat_within_threshold_confirms_operational_transport(int heartbeatOffsetSeconds)
     {
-        var state = CreateState() with { LastHeartbeatAt = Now.AddSeconds(-60) };
+        var state = CreateState() with { LastHeartbeatAt = Now.AddSeconds(heartbeatOffsetSeconds) };
 
         state.IsTransportOperational(Now, StaleAfter).Should().BeTrue();
     }
@@ -39,10 +41,23 @@ public sealed class RealtimeObservationStateModelTests
             .BeFalse();
     }
 
-    [Fact]
-    public void Non_positive_heartbeat_threshold_is_rejected()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3600)]
+    public void Connected_status_with_heartbeat_ahead_of_now_does_not_confirm_transport(int heartbeatOffsetSeconds)
     {
-        var act = () => CreateState().IsTransportOperational(Now, TimeSpan.Zero);
+        var state = CreateState() with { LastHeartbeatAt = Now.AddSeconds(heartbeatOffsetSeconds) };
+
+        state.IsTransportOperational(Now, StaleAfter).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Non_positive_heartbeat_threshold_is_rejected(int thresholdSeconds)
+    {
+        var act = () => (CreateState() with { LastHeartbeatAt = Now })
+            .IsTransportOperational(Now, TimeSpan.FromSeconds(thresholdSeconds));
 
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
