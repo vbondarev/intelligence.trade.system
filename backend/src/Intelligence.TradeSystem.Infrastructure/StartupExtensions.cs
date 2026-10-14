@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Application.Evaluations;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Portfolio.Timeline;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.ApplicationEvents;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
@@ -84,6 +85,9 @@ public static class StartupExtensions
         services.AddScoped<IPositionReadStore, PositionReadRepository>();
         services.AddScoped<IPositionTimelineReadStore, PositionTimelineReadRepository>();
         services.AddScoped<IPositionMarketIdentityStore, PositionMarketIdentityRepository>();
+        services.AddScoped<IRealtimeObservationStateStore, RealtimeObservationStateStore>();
+        services.AddScoped<IPositionObservationCursorStore, PositionObservationCursorStore>();
+        services.AddScoped<IMarketMarkPriceStore, MarketMarkPriceStore>();
         services.AddScoped<PositionReadService>();
         services.AddScoped<PositionTimelineService>();
         services.AddScoped<ApplicationEventOutbox>();

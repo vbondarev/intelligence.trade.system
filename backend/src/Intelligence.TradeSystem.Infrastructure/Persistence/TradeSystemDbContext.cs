@@ -20,6 +20,11 @@ public sealed class TradeSystemDbContext(DbContextOptions<TradeSystemDbContext> 
     public DbSet<RecommendationStabilityStateEntity> RecommendationStabilityStates =>
         Set<RecommendationStabilityStateEntity>();
     public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
+    public DbSet<ExchangeRealtimeObservationEntity> ExchangeRealtimeObservations =>
+        Set<ExchangeRealtimeObservationEntity>();
+    public DbSet<PositionObservationCursorEntity> PositionObservationCursors =>
+        Set<PositionObservationCursorEntity>();
+    public DbSet<MarketMarkPriceEntity> MarketMarkPrices => Set<MarketMarkPriceEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TradeSystemDbContext).Assembly);

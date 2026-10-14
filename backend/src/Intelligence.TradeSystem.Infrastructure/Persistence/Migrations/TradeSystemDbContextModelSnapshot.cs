@@ -17,7 +17,7 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -158,6 +158,105 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                     b.ToTable("exchange_accounts", null, t =>
                         {
                             t.HasCheckConstraint("ck_exchange_accounts_version_positive", "version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeRealtimeObservationEntity", b =>
+                {
+                    b.Property<Guid>("ExchangeAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exchange_account_id");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<DateTimeOffset?>("LastConnectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_connected_at");
+
+                    b.Property<DateTimeOffset?>("LastFullyReconciledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_fully_reconciled_at");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<bool>("RecoveryRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("recovery_required");
+
+                    b.Property<string>("TransportStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("transport_status");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L)
+                        .HasColumnName("version");
+
+                    b.HasKey("ExchangeAccountId");
+
+                    b.ToTable("exchange_realtime_observations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_exchange_realtime_observations_failure_code_format", "failure_code IS NULL OR failure_code ~ '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'");
+
+                            t.HasCheckConstraint("ck_exchange_realtime_observations_generation_positive", "generation > 0");
+
+                            t.HasCheckConstraint("ck_exchange_realtime_observations_version_positive", "version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.MarketMarkPriceEntity", b =>
+                {
+                    b.Property<string>("ExchangeId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("exchange_id");
+
+                    b.Property<string>("MarketCategory")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("market_category");
+
+                    b.Property<string>("InstrumentId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("instrument_id");
+
+                    b.Property<decimal>("MarkPrice")
+                        .HasColumnType("numeric(38,18)")
+                        .HasColumnName("mark_price");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("observed_at");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
+
+                    b.HasKey("ExchangeId", "MarketCategory", "InstrumentId");
+
+                    b.ToTable("market_mark_prices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_market_mark_prices_mark_price_positive", "mark_price > 0");
                         });
                 });
 
@@ -827,6 +926,67 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.PositionObservationCursorEntity", b =>
+                {
+                    b.Property<Guid>("ExchangeAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exchange_account_id");
+
+                    b.Property<string>("MarketCategory")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("market_category");
+
+                    b.Property<string>("InstrumentId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("instrument_id");
+
+                    b.Property<int>("PositionIdx")
+                        .HasColumnType("integer")
+                        .HasColumnName("position_idx");
+
+                    b.Property<string>("LastAcceptedFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("last_accepted_fingerprint");
+
+                    b.Property<DateTimeOffset?>("LastMessageCreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_message_created_at");
+
+                    b.Property<long?>("LastProviderSequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_provider_sequence");
+
+                    b.Property<DateTimeOffset?>("LastProviderUpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_provider_updated_at");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L)
+                        .HasColumnName("version");
+
+                    b.HasKey("ExchangeAccountId", "MarketCategory", "InstrumentId", "PositionIdx");
+
+                    b.ToTable("position_observation_cursors", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_position_observation_cursors_fingerprint_format", "last_accepted_fingerprint ~ '^[A-Za-z0-9:_.-]{1,128}$'");
+
+                            t.HasCheckConstraint("ck_position_observation_cursors_position_idx_non_negative", "position_idx >= 0");
+
+                            t.HasCheckConstraint("ck_position_observation_cursors_revision_present", "last_provider_sequence IS NOT NULL OR last_provider_updated_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_position_observation_cursors_sequence_positive", "last_provider_sequence IS NULL OR last_provider_sequence > 0");
+
+                            t.HasCheckConstraint("ck_position_observation_cursors_version_positive", "version > 0");
+                        });
+                });
+
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.RecommendationEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1042,6 +1202,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_exchange_account_credentials_exchange_accounts");
                 });
 
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeRealtimeObservationEntity", b =>
+                {
+                    b.HasOne("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeAccountEntity", null)
+                        .WithOne()
+                        .HasForeignKey("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeRealtimeObservationEntity", "ExchangeAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_exchange_realtime_observations_exchange_accounts");
+                });
+
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.PortfolioPositionStateEntity", b =>
                 {
                     b.HasOne("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeAccountEntity", null)
@@ -1127,6 +1297,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_positions_exchange_accounts");
+                });
+
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.PositionObservationCursorEntity", b =>
+                {
+                    b.HasOne("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeAccountEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ExchangeAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_position_observation_cursors_exchange_accounts");
                 });
 
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.RecommendationEntity", b =>
