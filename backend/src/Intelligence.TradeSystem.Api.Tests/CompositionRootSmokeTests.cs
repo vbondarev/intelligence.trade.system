@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Portfolio.Timeline;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Exchanges.Bybit.PrivateAccounts;
@@ -55,6 +56,9 @@ public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationF
         serviceProvider.GetRequiredService<IPositionReadStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionTimelineReadStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPortfolioReadStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IRealtimeObservationStateStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IPositionObservationCursorStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IMarketMarkPriceStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionAssessmentRepository>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IRecommendationRepository>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IRecommendationPublicationTransaction>().Should().NotBeNull();
