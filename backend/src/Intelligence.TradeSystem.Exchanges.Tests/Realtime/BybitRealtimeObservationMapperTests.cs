@@ -8,6 +8,7 @@ using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 using static Intelligence.TradeSystem.Exchanges.Tests.Realtime.BybitRealtimeTestData;
+using BybitAccountType = Bybit.Net.Enums.AccountType;
 using BybitPositionSide = Bybit.Net.Enums.PositionSide;
 using DomainAccountType = Intelligence.TradeSystem.Domain.AccountType;
 using PositionSide = Intelligence.TradeSystem.Domain.Snapshots.PositionSide;
@@ -397,6 +398,57 @@ public sealed class BybitRealtimeObservationMapperTests
     }
 
     [Fact]
+    public void ReadWalletEnvelope_Reads_CreationTime_And_Confirmed_Account_Type_Per_Item()
+    {
+        var originalData = PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED"}""",
+            """{"accountType":"CONTRACT"}""",
+            """{"accountType":"SPOT"}""",
+            """{"accountType":"FUND"}""",
+            """{"accountType":""}""",
+            """{"totalEquity":"1"}""",
+            "42",
+            "null");
+
+        var envelope = BybitRealtimeObservationMapper.ReadWalletEnvelope(originalData, DateTimeOffset.UtcNow);
+
+        envelope.CreationTime.Should().Be(DateTimeOffset.FromUnixTimeMilliseconds(CreationTimeMs));
+        envelope.AccountTypes.Should().Equal(
+            BybitAccountType.Unified,
+            BybitAccountType.Contract,
+            BybitAccountType.Spot,
+            null,
+            null,
+            null,
+            null,
+            null);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[1,2,3]")]
+    [InlineData("")]
+    public void ReadWalletEnvelope_Returns_Unavailable_For_Invalid_Message(string originalData)
+    {
+        var envelope = BybitRealtimeObservationMapper.ReadWalletEnvelope(originalData, DateTimeOffset.UtcNow);
+
+        envelope.Should().BeSameAs(BybitRealtimeObservationMapper.WalletEnvelope.Unavailable);
+    }
+
+    [Fact]
+    public void ReadWalletEnvelope_Without_Data_Array_Has_No_Account_Types()
+    {
+        var originalData = $$$"""{"topic":"wallet","creationTime":{{{CreationTimeMs}}},"data":{"accountType":"UNIFIED"}}""";
+
+        var envelope = BybitRealtimeObservationMapper.ReadWalletEnvelope(originalData, DateTimeOffset.UtcNow);
+
+        envelope.CreationTime.Should().Be(DateTimeOffset.FromUnixTimeMilliseconds(CreationTimeMs));
+        envelope.AccountTypes.Should().BeNull();
+    }
+
+    [Fact]
     public async Task MapWallet_Keeps_Only_Supported_Account_Types_And_CreationTime()
     {
         var update = await CaptureWalletAsync(WalletMessage());
@@ -564,6 +616,180 @@ public sealed class BybitRealtimeObservationMapperTests
         observation.Balances.Should().ContainSingle();
     }
 
+    [Theory]
+    [InlineData("""{"totalEquity":"100"}""")]
+    [InlineData("""{"totalEquity":"100","totalWalletBalance":"90","coin":[{"coin":"USDT","walletBalance":"90"}]}""")]
+    public async Task MapWallet_Without_AccountType_Is_Unconfirmed_Instead_Of_Sdk_Default(string item)
+    {
+        var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
+
+        // SDK подставляет значение enum по умолчанию, которое совпадает с поддерживаемым Contract.
+        update.Data.Should().ContainSingle().Which.AccountType.Should().Be(BybitAccountType.Contract);
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    [Theory]
+    [InlineData("\"\"")]
+    [InlineData("\"   \"")]
+    [InlineData("null")]
+    [InlineData("1")]
+    [InlineData("true")]
+    public async Task MapWallet_Empty_Null_Or_Non_String_AccountType_Is_Unconfirmed(string accountType)
+    {
+        var item = $$"""{"accountType":{{accountType}},"totalEquity":"100","coin":[{"coin":"USDT","walletBalance":"100"}]}""";
+        var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    // SDK не доставляет такие сообщения обработчику; mapper проверяется на худшем случае модели Unified.
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[\"UNIFIED\"]")]
+    [InlineData("\"\"")]
+    [InlineData("null")]
+    public void MapWallet_Does_Not_Trust_Sdk_AccountType_When_Original_Value_Is_Not_Valid_String(string accountType)
+    {
+        var originalData = PrivateMessage("wallet", CreationTimeMs, $$"""{"accountType":{{accountType}},"totalEquity":"100"}""");
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(WalletEvent(originalData, UnifiedBalance()), AccountId));
+    }
+
+    [Theory]
+    [InlineData("FUND")]
+    [InlineData("OPTION")]
+    [InlineData("COPYTRADING")]
+    [InlineData("NEW_ACCOUNT_TYPE")]
+    [InlineData("unified")]
+    [InlineData(" UNIFIED")]
+    [InlineData("CONTRACT ")]
+    public async Task MapWallet_Unsupported_Or_Non_Canonical_AccountType_Is_Not_Coerced(string accountType)
+    {
+        var item = $$"""{"accountType":"{{accountType}}","totalEquity":"100","coin":[{"coin":"USDT","walletBalance":"100"}]}""";
+        var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    [Theory]
+    [InlineData("UNIFIED", DomainAccountType.Unified)]
+    [InlineData("CONTRACT", DomainAccountType.Contract)]
+    [InlineData("SPOT", DomainAccountType.Spot)]
+    public async Task MapWallet_Maps_Confirmed_Supported_AccountType(string accountType, DomainAccountType expected)
+    {
+        var item = $$"""{"accountType":"{{accountType}}","totalEquity":"100","coin":[{"coin":"USDT","walletBalance":"90"}]}""";
+        var update = await CaptureWalletAsync(PrivateMessage("wallet", CreationTimeMs, item));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.RequiresRestReconciliation.Should().BeFalse();
+        var balance = observation.Balances.Should().ContainSingle().Subject;
+        balance.AccountType.Should().Be(expected);
+        balance.TotalEquity.Should().Be(100m);
+        balance.Coins.Should().ContainSingle().Which.WalletBalance.Should().Be(90m);
+    }
+
+    [Fact]
+    public async Task MapWallet_Mixed_Items_Keeps_Only_Balances_With_Confirmed_AccountType()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","totalEquity":"10"}""",
+            """{"totalEquity":"20"}""",
+            """{"accountType":"CONTRACT","totalEquity":"30"}""",
+            """{"accountType":"","totalEquity":"40"}""",
+            """{"accountType":"FUND","totalEquity":"50"}""",
+            """{"accountType":null,"totalEquity":"60"}""",
+            """{"accountType":"SPOT","totalEquity":"70"}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        observation.Balances.Select(balance => (balance.AccountType, balance.TotalEquity)).Should().Equal(
+            (DomainAccountType.Unified, 10m),
+            (DomainAccountType.Contract, 30m),
+            (DomainAccountType.Spot, 70m));
+    }
+
+    [Theory]
+    [InlineData(1, 2)]
+    [InlineData(2, 1)]
+    [InlineData(0, 1)]
+    public void MapWallet_With_Item_Count_Mismatch_Does_Not_Assign_AccountType(int rawItems, int sdkItems)
+    {
+        var originalData = PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            [.. Enumerable.Repeat("""{"accountType":"UNIFIED","totalEquity":"100"}""", rawItems)]);
+        var update = WalletEvent(originalData, [.. Enumerable.Range(0, sdkItems).Select(_ => UnifiedBalance())]);
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    [Fact]
+    public void MapWallet_Rejects_Sdk_AccountType_Contradicting_Original_Message()
+    {
+        var originalData = PrivateMessage("wallet", CreationTimeMs, """{"accountType":"UNIFIED","totalEquity":"100"}""");
+        var contract = UnifiedBalance();
+        contract.AccountType = BybitAccountType.Contract;
+        var update = WalletEvent(originalData, contract);
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("[1]")]
+    [InlineData("""{"topic":"wallet","creationTime":1697682317044}""")]
+    [InlineData("""{"topic":"wallet","creationTime":1697682317044,"data":{"accountType":"UNIFIED","totalEquity":"100"}}""")]
+    [InlineData("""{"topic":"wallet","creationTime":1697682317044,"data":["UNIFIED"]}""")]
+    public void MapWallet_Without_Verifiable_Original_Message_Does_Not_Trust_Sdk_Model(string? originalData)
+    {
+        var update = WalletEvent(originalData, UnifiedBalance());
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(update, AccountId));
+    }
+
+    [Fact]
+    public void MapWallet_Oversized_Or_Too_Deep_Original_Message_Does_Not_Trust_Sdk_Model()
+    {
+        var item = """{"accountType":"UNIFIED","totalEquity":"100"}""";
+        var oversized = PrivateMessage("wallet", CreationTimeMs, item)
+            + new string(' ', BybitRealtimeObservationMapper.MaxOriginalDataLength);
+        var tooDeep = PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"UNIFIED","totalEquity":"100","x":""" + new string('[', 32) + new string(']', 32) + "}");
+
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(WalletEvent(oversized, UnifiedBalance()), AccountId));
+        AssertUnconfirmed(BybitRealtimeObservationMapper.MapWallet(WalletEvent(tooDeep, UnifiedBalance()), AccountId));
+    }
+
+    [Fact]
+    public async Task MapWallet_Keeps_Confirmed_Zero_Values_And_Missing_Values_As_Null()
+    {
+        var update = await CaptureWalletAsync(PrivateMessage(
+            "wallet",
+            CreationTimeMs,
+            """{"accountType":"CONTRACT","totalEquity":"0","totalAvailableBalance":"0","coin":[{"coin":"USDT","walletBalance":"0"}]}"""));
+
+        var observation = BybitRealtimeObservationMapper.MapWallet(update, AccountId);
+
+        observation.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        var balance = observation.Balances.Should().ContainSingle().Subject;
+        balance.AccountType.Should().Be(DomainAccountType.Contract);
+        balance.TotalEquity.Should().Be(0m);
+        balance.TotalAvailableBalance.Should().Be(0m);
+        balance.TotalWalletBalance.Should().BeNull();
+        balance.TotalPerpUnrealizedPnl.Should().BeNull();
+        balance.Coins.Should().ContainSingle().Which.Should().Be(
+            new CoinBalance("USDT", Equity: null, UsdValue: null, WalletBalance: 0m, AvailableBalance: null, Locked: null, UnrealizedPnl: null));
+    }
+
     [Fact]
     public async Task MapMarkPrice_Maps_Snapshot_And_Delta_Without_Mark_Price()
     {
@@ -627,8 +853,26 @@ public sealed class BybitRealtimeObservationMapperTests
         observation.Position.Should().BeNull();
     }
 
+    private static void AssertUnconfirmed(PrivateWalletObservation observation)
+    {
+        observation.Kind.Should().Be(PrivateWalletObservationKind.Unconfirmed);
+        observation.RequiresRestReconciliation.Should().BeTrue();
+        observation.Balances.Should().BeEmpty();
+    }
+
     private static DataEvent<BybitPositionUpdate[]> PositionEvent(string? originalData, params BybitPositionUpdate[] positions) =>
         new("Bybit", positions, DateTime.UtcNow, originalData);
+
+    private static DataEvent<BybitBalance[]> WalletEvent(string? originalData, params BybitBalance[] balances) =>
+        new("Bybit", balances, DateTime.UtcNow, originalData);
+
+    private static BybitBalance UnifiedBalance() =>
+        new()
+        {
+            AccountType = BybitAccountType.Unified,
+            TotalEquity = 100m,
+            Assets = [],
+        };
 
     private static BybitPositionUpdate ValidPosition() =>
         new()

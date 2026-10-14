@@ -19,7 +19,7 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 /// </summary>
 /// <remarks>
 /// SDK заполняет отсутствующие поля значениями по умолчанию (например, отсутствующая
-/// <c>category</c> становится <c>linear</c>, а <c>size</c> — нулём) и не передаёт
+/// <c>category</c> становится <c>linear</c>, <c>size</c> — нулём, а <c>accountType</c> — Contract) и не передаёт
 /// <c>creationTime</c> приватных сообщений. Поэтому исходное сообщение читается ограниченным
 /// разбором только внутри этого класса; оно не покидает адаптер и не логируется.
 /// </remarks>
@@ -68,22 +68,33 @@ internal static partial class BybitRealtimeObservationMapper
     {
         ArgumentNullException.ThrowIfNull(update);
 
+        var models = update.Data ?? [];
         var receivedAt = ToUtc(update.ReceiveTime);
-        var envelope = ReadEnvelope(update.OriginalData, receivedAt, readItems: false);
+        var envelope = ReadWalletEnvelope(update.OriginalData, receivedAt);
 
-        var balances = (update.Data ?? [])
-            .Select(MapApplicableBalance)
-            .OfType<AccountBalance>()
-            .ToArray();
+        // Тип аккаунта сопоставляется по индексу элемента data; при расхождении количества ни одна
+        // запись не подтверждена, иначе тип был бы приписан чужому балансу.
+        var accountTypes = envelope.AccountTypes is { } rawTypes && rawTypes.Count == models.Length ? rawTypes : null;
+
+        var balances = new List<AccountBalance>(models.Length);
+        for (var index = 0; index < models.Length; index++)
+        {
+            if (accountTypes?[index] is { } accountType
+                && models[index] is { } model
+                && MapApplicableBalance(model, accountType) is { } balance)
+            {
+                balances.Add(balance);
+            }
+        }
 
         return new PrivateWalletObservation
         {
             Exchange = ExchangeId.Bybit,
             ExchangeAccountId = exchangeAccountId,
-            Kind = balances.Length > 0
+            Kind = balances.Count > 0
                 ? PrivateWalletObservationKind.PartialUpdate
                 : PrivateWalletObservationKind.Unconfirmed,
-            Balances = balances,
+            Balances = [.. balances],
             MessageCreatedAt = envelope.CreationTime,
             ReceivedAt = receivedAt,
         };
@@ -241,16 +252,20 @@ internal static partial class BybitRealtimeObservationMapper
 
     /// <summary>
     /// Нормализует запись поддерживаемого типа аккаунта, если она подтверждает хотя бы одно
-    /// финансовое значение уровня аккаунта или монеты. Остальные типы <c>MapAccountType</c>
-    /// приводит к Unified, что исказило бы источник баланса.
+    /// финансовое значение уровня аккаунта или монеты.
     /// </summary>
+    /// <param name="confirmedAccountType">
+    /// Поддерживаемый тип аккаунта, присутствующий в исходном элементе. Модель SDK для отсутствующего
+    /// <c>accountType</c> содержит значение enum по умолчанию (Contract), а <c>MapAccountType</c>
+    /// приводит неподдерживаемые типы к Unified, поэтому один тип модели источник баланса не подтверждает.
+    /// </param>
     /// <remarks>
     /// Монеты без финансовых значений исключаются: иначе запись вида <c>{"coin":"USDT"}</c> выглядела бы
     /// подтверждённым балансом монеты со всеми неизвестными суммами. Общий REST-маппинг не меняется.
     /// </remarks>
-    private static AccountBalance? MapApplicableBalance(BybitBalance balance)
+    private static AccountBalance? MapApplicableBalance(BybitBalance balance, BybitAccountType confirmedAccountType)
     {
-        if (balance.AccountType is not (BybitAccountType.Unified or BybitAccountType.Contract or BybitAccountType.Spot))
+        if (balance.AccountType != confirmedAccountType)
         {
             return null;
         }
@@ -316,11 +331,37 @@ internal static partial class BybitRealtimeObservationMapper
             ? timestamp
             : null;
 
-    internal static PrivateEnvelope ReadEnvelope(string? originalData, DateTimeOffset receivedAt, bool readItems)
+    internal static PrivateEnvelope ReadEnvelope(string? originalData, DateTimeOffset receivedAt, bool readItems) =>
+        TryReadEnvelope<RawPositionFields>(originalData, receivedAt, readItems ? ReadPositionFields : null, out var creationTime, out var items)
+            ? new PrivateEnvelope(creationTime, items)
+            : PrivateEnvelope.Unavailable;
+
+    internal static WalletEnvelope ReadWalletEnvelope(string? originalData, DateTimeOffset receivedAt) =>
+        TryReadEnvelope<BybitAccountType?>(originalData, receivedAt, ReadAccountType, out var creationTime, out var accountTypes)
+            ? new WalletEnvelope(creationTime, accountTypes)
+            : WalletEnvelope.Unavailable;
+
+    /// <param name="readItem">
+    /// Читает элемент массива <c>data</c>, в том числе не являющийся объектом; <see langword="null"/>,
+    /// если элементы не нужны.
+    /// </param>
+    /// <param name="items">
+    /// Элементы <c>data</c> в исходном порядке; <see langword="null"/>, если элементы не читались или
+    /// <c>data</c> не является массивом.
+    /// </param>
+    /// <returns><see langword="false"/>, если сообщение недоступно, слишком велико или не разобрано.</returns>
+    private static bool TryReadEnvelope<TItem>(
+        string? originalData,
+        DateTimeOffset receivedAt,
+        Func<JsonElement, TItem>? readItem,
+        out DateTimeOffset? creationTime,
+        out IReadOnlyList<TItem>? items)
     {
+        creationTime = null;
+        items = null;
         if (string.IsNullOrEmpty(originalData) || originalData.Length > MaxOriginalDataLength)
         {
-            return PrivateEnvelope.Unavailable;
+            return false;
         }
 
         try
@@ -329,16 +370,16 @@ internal static partial class BybitRealtimeObservationMapper
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return PrivateEnvelope.Unavailable;
+                return false;
             }
 
-            return new PrivateEnvelope(
-                ReadCreationTime(root, receivedAt),
-                readItems ? ReadPositionFields(root) : null);
+            creationTime = ReadCreationTime(root, receivedAt);
+            items = readItem is null ? null : ReadItems(root, readItem);
+            return true;
         }
         catch (JsonException)
         {
-            return PrivateEnvelope.Unavailable;
+            return false;
         }
     }
 
@@ -356,33 +397,59 @@ internal static partial class BybitRealtimeObservationMapper
         return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
     }
 
-    private static List<RawPositionFields>? ReadPositionFields(JsonElement root)
+    private static List<TItem>? ReadItems<TItem>(JsonElement root, Func<JsonElement, TItem> readItem)
     {
         if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
 
-        var items = new List<RawPositionFields>(data.GetArrayLength());
+        var items = new List<TItem>(data.GetArrayLength());
         foreach (var item in data.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object)
-            {
-                items.Add(default);
-                continue;
-            }
-
-            var category = item.TryGetProperty("category", out var categoryElement)
-                && categoryElement.ValueKind == JsonValueKind.String
-                    ? categoryElement.GetString()
-                    : null;
-            items.Add(new RawPositionFields(
-                string.IsNullOrEmpty(category) ? null : category,
-                HasValue(item, "positionIdx"),
-                HasValue(item, "size")));
+            items.Add(readItem(item));
         }
 
         return items;
+    }
+
+    private static RawPositionFields ReadPositionFields(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return default;
+        }
+
+        var category = item.TryGetProperty("category", out var categoryElement)
+            && categoryElement.ValueKind == JsonValueKind.String
+                ? categoryElement.GetString()
+                : null;
+        return new RawPositionFields(
+            string.IsNullOrEmpty(category) ? null : category,
+            HasValue(item, "positionIdx"),
+            HasValue(item, "size"));
+    }
+
+    /// <summary>
+    /// Поддерживаемый тип аккаунта элемента wallet в точной форме Bybit V5; иначе
+    /// <see langword="null"/>. Другие написания не принимаются, хотя SDK может их распознать.
+    /// </summary>
+    private static BybitAccountType? ReadAccountType(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("accountType", out var element)
+            || element.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return element.GetString() switch
+        {
+            "UNIFIED" => BybitAccountType.Unified,
+            "CONTRACT" => BybitAccountType.Contract,
+            "SPOT" => BybitAccountType.Spot,
+            _ => null,
+        };
     }
 
     private static bool HasValue(JsonElement item, string propertyName) =>
@@ -398,6 +465,17 @@ internal static partial class BybitRealtimeObservationMapper
         IReadOnlyList<RawPositionFields>? Items)
     {
         public static PrivateEnvelope Unavailable { get; } = new(null, null);
+    }
+
+    /// <param name="AccountTypes">
+    /// Подтверждённый тип аккаунта каждого элемента <c>data</c> в исходном порядке;
+    /// <see langword="null"/> внутри списка — тип отсутствует, некорректен или не поддерживается.
+    /// </param>
+    internal sealed record WalletEnvelope(
+        DateTimeOffset? CreationTime,
+        IReadOnlyList<BybitAccountType?>? AccountTypes)
+    {
+        public static WalletEnvelope Unavailable { get; } = new(null, null);
     }
 
     internal readonly record struct RawPositionFields(

@@ -298,14 +298,18 @@ public sealed class BybitRealtimeProviderTests
         harness.Push(PrivateMessage("wallet", CreationTimeMs));
         harness.Push(PrivateMessage("wallet", CreationTimeMs, """{"accountType":"FUND","totalEquity":"1"}"""));
         harness.Push(WalletMessage());
+        harness.Push(PrivateMessage("wallet", CreationTimeMs, """{"totalEquity":"100"}"""));
 
         observer.Wallets.Select(wallet => wallet.Kind).Should().Equal(
             PrivateWalletObservationKind.Unconfirmed,
             PrivateWalletObservationKind.Unconfirmed,
-            PrivateWalletObservationKind.PartialUpdate);
-        observer.Wallets.Select(wallet => wallet.RequiresRestReconciliation).Should().Equal(true, true, false);
+            PrivateWalletObservationKind.PartialUpdate,
+            PrivateWalletObservationKind.Unconfirmed);
+        observer.Wallets.Select(wallet => wallet.RequiresRestReconciliation).Should().Equal(true, true, false, true);
         observer.Wallets[0].Balances.Should().BeEmpty();
         observer.Wallets[1].Balances.Should().BeEmpty();
+        observer.Wallets[3].Balances.Should().BeEmpty();
+        observer.TransportStates.Should().BeEmpty();
         await provider.StopAsync();
     }
 
