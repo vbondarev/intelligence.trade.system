@@ -57,18 +57,19 @@ internal sealed class MarketMarkPriceStore(TradeSystemDbContext dbContext) : IMa
             return 0;
         }
 
-        // Одна строка на ключ и стабильный порядок ключей: ON CONFLICT не допускает повторного
-        // изменения строки в одной команде, а одинаковый порядок блокировок исключает deadlock
-        // между параллельными пакетами.
+        // ON CONFLICT не допускает повторного изменения строки в одной команде, поэтому на ключ
+        // остаётся одно, самое новое наблюдение.
         var latest = prices
             .Select(price => price ?? throw new ArgumentException("Prices must not contain null.", nameof(prices)))
             .GroupBy(price => (price.Exchange, price.Category, Symbol: price.Symbol.Value))
             .Select(group => group.MaxBy(price => PersistenceDateTime.ToUtc(price.ObservedAt))!)
-            .OrderBy(price => price.Exchange.ToString(), StringComparer.Ordinal)
-            .ThenBy(price => price.Category.ToString(), StringComparer.Ordinal)
-            .ThenBy(price => price.Symbol.Value, StringComparer.Ordinal)
             .ToArray();
 
+        // INSERT обрабатывает строки в порядке ORDER BY, поэтому каждая команда блокирует строки
+        // и ожидает конкурентные вставки ключей в одном порядке независимо от порядка пакета.
+        // COLLATE "C" делает порядок побайтовым и не зависящим от collation базы. Порядок
+        // согласован только внутри одной команды: несколько upsert или другие блокировки в одной
+        // транзакции требуют собственного согласования порядка.
         return await TradeSystemDbCommand.ExecuteNonQueryAsync(
             dbContext,
             """
@@ -80,7 +81,14 @@ internal sealed class MarketMarkPriceStore(TradeSystemDbContext dbContext) : IMa
                 observed_at,
                 received_at,
                 source)
-            SELECT *
+            SELECT
+                incoming.exchange_id,
+                incoming.market_category,
+                incoming.instrument_id,
+                incoming.mark_price,
+                incoming.observed_at,
+                incoming.received_at,
+                incoming.source
             FROM unnest(
                 @exchange_ids,
                 @market_categories,
@@ -89,6 +97,11 @@ internal sealed class MarketMarkPriceStore(TradeSystemDbContext dbContext) : IMa
                 @observed_at,
                 @received_at,
                 @sources)
+                AS incoming(exchange_id, market_category, instrument_id, mark_price, observed_at, received_at, source)
+            ORDER BY
+                incoming.exchange_id COLLATE "C",
+                incoming.market_category COLLATE "C",
+                incoming.instrument_id COLLATE "C"
             ON CONFLICT (exchange_id, market_category, instrument_id) DO UPDATE
             SET mark_price = EXCLUDED.mark_price,
                 observed_at = EXCLUDED.observed_at,

@@ -640,6 +640,185 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
         Assert.Equal(0, await store.UpsertAsync([]));
     }
 
+    [Fact]
+    public async Task Mark_price_batch_keeps_categories_of_one_symbol_independent()
+    {
+        var symbol = UniqueSymbol();
+        var other = UniqueSymbol();
+
+        await using var context = fixture.CreateContext();
+        var store = new MarketMarkPriceStore(context);
+
+        Assert.Equal(3, await store.UpsertAsync(
+        [
+            CreatePrice(symbol, 10m, BaseTime),
+            CreatePrice(symbol, 20m, BaseTime) with { Category = MarketCategory.Inverse },
+            CreatePrice(other, 30m, BaseTime),
+        ]));
+
+        var linear = await store.GetAsync(ExchangeId.Bybit, MarketCategory.Linear, [symbol, other]);
+        var inverse = Assert.Single(await store.GetAsync(ExchangeId.Bybit, MarketCategory.Inverse, [symbol, other]));
+        Assert.Equal(10m, linear.Single(price => price.Symbol == symbol).MarkPrice);
+        Assert.Equal(30m, linear.Single(price => price.Symbol == other).MarkPrice);
+        Assert.Equal(symbol, inverse.Symbol);
+        Assert.Equal(20m, inverse.MarkPrice);
+    }
+
+    [Fact]
+    public async Task Overlapping_mark_price_batches_update_existing_rows_in_one_key_order()
+    {
+        var (first, middle, last) = OrderedSymbols();
+        await using (var context = fixture.CreateContext())
+        {
+            await new MarketMarkPriceStore(context).UpsertAsync(
+                [CreatePrice(first, 1m, BaseTime), CreatePrice(middle, 1m, BaseTime), CreatePrice(last, 1m, BaseTime)]);
+        }
+
+        await using var firstContext = fixture.CreateContext();
+        await using var secondContext = fixture.CreateContext();
+        var firstPid = await OpenSessionAsync(firstContext);
+        var secondPid = await OpenSessionAsync(secondContext);
+        await using var monitor = await OpenConnectionAsync();
+        await using var blocker = await OpenConnectionAsync();
+        var blockerTransaction = await blocker.BeginTransactionAsync();
+        Task<int>? firstBatch = null;
+        Task<int>? secondBatch = null;
+        try
+        {
+            await ExecuteAsync(
+                blocker,
+                "SELECT 1 FROM market_mark_prices WHERE instrument_id = @symbol FOR UPDATE",
+                blockerTransaction,
+                ("symbol", middle.Value));
+
+            firstBatch = new MarketMarkPriceStore(firstContext).UpsertAsync(
+            [
+                CreatePrice(first, 2m, BaseTime.AddSeconds(1)),
+                CreatePrice(middle, 2m, BaseTime.AddSeconds(1)),
+                CreatePrice(last, 2m, BaseTime.AddSeconds(1)),
+            ]);
+            await WaitUntilBlockedAsync(monitor, firstBatch, firstPid, blocker.ProcessID);
+
+            // Пакет в обратном порядке ждёт первый ключ, уже заблокированный первым пакетом, и не
+            // захватывает последний ключ, который понадобится первому пакету.
+            secondBatch = new MarketMarkPriceStore(secondContext).UpsertAsync(
+            [
+                CreatePrice(last, 3m, BaseTime.AddSeconds(2)),
+                CreatePrice(middle, 3m, BaseTime.AddSeconds(2)),
+                CreatePrice(first, 3m, BaseTime.AddSeconds(2)),
+            ]);
+            await WaitUntilBlockedAsync(monitor, secondBatch, secondPid, firstPid);
+            Assert.False(await IsMarkPriceLockedAsync(monitor, last));
+
+            await blockerTransaction.CommitAsync();
+
+            Assert.Equal(3, await firstBatch.WaitAsync(LockWaitTimeout));
+            Assert.Equal(3, await secondBatch.WaitAsync(LockWaitTimeout));
+        }
+        finally
+        {
+            await blockerTransaction.DisposeAsync();
+            await DrainAsync(firstBatch, secondBatch);
+        }
+
+        await AssertMarkPricesAsync([first, middle, last], 3m, BaseTime.AddSeconds(2));
+    }
+
+    [Fact]
+    public async Task Concurrent_first_inserts_of_the_same_mark_price_keys_store_one_row_per_key()
+    {
+        var (first, middle, last) = OrderedSymbols();
+
+        await using var firstContext = fixture.CreateContext();
+        await using var secondContext = fixture.CreateContext();
+        var firstPid = await OpenSessionAsync(firstContext);
+        var secondPid = await OpenSessionAsync(secondContext);
+        await using var monitor = await OpenConnectionAsync();
+        await using var blocker = await OpenConnectionAsync();
+        var blockerTransaction = await blocker.BeginTransactionAsync();
+        Task<int>? firstBatch = null;
+        Task<int>? secondBatch = null;
+        try
+        {
+            await ExecuteAsync(
+                blocker,
+                """
+                INSERT INTO market_mark_prices (
+                    exchange_id, market_category, instrument_id, mark_price, observed_at, received_at, source)
+                VALUES ('Bybit', 'Linear', @symbol, 1, @observed_at, @observed_at, 'PublicTicker')
+                """,
+                blockerTransaction,
+                ("symbol", middle.Value),
+                ("observed_at", BaseTime));
+
+            firstBatch = new MarketMarkPriceStore(firstContext).UpsertAsync(
+            [
+                CreatePrice(first, 2m, BaseTime.AddSeconds(1)),
+                CreatePrice(middle, 2m, BaseTime.AddSeconds(1)),
+                CreatePrice(last, 2m, BaseTime.AddSeconds(1)),
+            ]);
+            await WaitUntilBlockedAsync(monitor, firstBatch, firstPid, blocker.ProcessID);
+
+            secondBatch = new MarketMarkPriceStore(secondContext).UpsertAsync(
+            [
+                CreatePrice(last, 3m, BaseTime.AddSeconds(2)),
+                CreatePrice(middle, 3m, BaseTime.AddSeconds(2)),
+                CreatePrice(first, 3m, BaseTime.AddSeconds(2)),
+            ]);
+            await WaitUntilBlockedAsync(monitor, secondBatch, secondPid, firstPid);
+
+            await blockerTransaction.CommitAsync();
+
+            Assert.Equal(3, await firstBatch.WaitAsync(LockWaitTimeout));
+            Assert.Equal(3, await secondBatch.WaitAsync(LockWaitTimeout));
+        }
+        finally
+        {
+            await blockerTransaction.DisposeAsync();
+            await DrainAsync(firstBatch, secondBatch);
+        }
+
+        await AssertMarkPricesAsync([first, middle, last], 3m, BaseTime.AddSeconds(2));
+    }
+
+    [Fact]
+    public async Task Older_mark_price_waiting_for_a_newer_concurrent_upsert_does_not_overwrite_it()
+    {
+        var symbol = UniqueSymbol();
+        await using (var context = fixture.CreateContext())
+        {
+            await new MarketMarkPriceStore(context).UpsertAsync([CreatePrice(symbol, 1m, BaseTime)]);
+        }
+
+        await using var newerContext = fixture.CreateContext();
+        await using var olderContext = fixture.CreateContext();
+        var newerPid = await OpenSessionAsync(newerContext);
+        var olderPid = await OpenSessionAsync(olderContext);
+        await using var monitor = await OpenConnectionAsync();
+        var newerTransaction = await newerContext.Database.BeginTransactionAsync();
+        Task<int>? older = null;
+        try
+        {
+            Assert.Equal(
+                1,
+                await new MarketMarkPriceStore(newerContext).UpsertAsync([CreatePrice(symbol, 3m, BaseTime.AddSeconds(2))]));
+
+            older = new MarketMarkPriceStore(olderContext).UpsertAsync([CreatePrice(symbol, 2m, BaseTime.AddSeconds(1))]);
+            await WaitUntilBlockedAsync(monitor, older, olderPid, newerPid);
+
+            await newerTransaction.CommitAsync();
+
+            Assert.Equal(0, await older.WaitAsync(LockWaitTimeout));
+        }
+        finally
+        {
+            await newerTransaction.DisposeAsync();
+            await DrainAsync(older);
+        }
+
+        await AssertMarkPricesAsync([symbol], 3m, BaseTime.AddSeconds(2));
+    }
+
     private async Task<ExchangeAccount> CreateSavedAccountAsync()
     {
         var account = ExchangeAccount.Create(
@@ -758,6 +937,31 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
             Source = MarketMarkPriceSource.PublicTicker,
         };
 
+    private static (InstrumentId First, InstrumentId Middle, InstrumentId Last) OrderedSymbols()
+    {
+        var symbols = new[] { UniqueSymbol(), UniqueSymbol(), UniqueSymbol() }
+            .OrderBy(symbol => symbol.Value, StringComparer.Ordinal)
+            .ToArray();
+        return (symbols[0], symbols[1], symbols[2]);
+    }
+
+    private async Task AssertMarkPricesAsync(
+        IReadOnlyCollection<InstrumentId> symbols,
+        decimal markPrice,
+        DateTimeOffset observedAt)
+    {
+        await using var context = fixture.CreateContext();
+        var prices = await new MarketMarkPriceStore(context)
+            .GetAsync(ExchangeId.Bybit, MarketCategory.Linear, symbols);
+
+        Assert.Equal(symbols.Count, prices.Count);
+        Assert.All(prices, price =>
+        {
+            Assert.Equal(markPrice, price.MarkPrice);
+            Assert.Equal(observedAt, price.ObservedAt);
+        });
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync()
     {
         var connection = new NpgsqlConnection(fixture.ConnectionString);
@@ -839,6 +1043,12 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
             return true;
         }
     }
+
+    private static Task<bool> IsMarkPriceLockedAsync(NpgsqlConnection monitor, InstrumentId symbol) =>
+        IsLockedAsync(
+            monitor,
+            "SELECT 1 FROM market_mark_prices WHERE instrument_id = @symbol FOR NO KEY UPDATE",
+            ("symbol", symbol.Value));
 
     /// <summary>
     /// Дожидается завершения операций, оставшихся после неуспешной проверки, чтобы контекст не
