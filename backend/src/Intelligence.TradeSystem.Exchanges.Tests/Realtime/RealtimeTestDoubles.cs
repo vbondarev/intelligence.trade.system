@@ -13,11 +13,27 @@ using Moq;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests.Realtime;
 
+internal enum ObserverCallKind
+{
+    Position,
+    Wallet,
+    TransportState,
+}
+
+/// <param name="StartedAt">Порядковый номер входа в вызов среди всех событий получателя.</param>
+/// <param name="CompletedAt">Порядковый номер завершения вызова среди всех событий получателя.</param>
+/// <param name="Accepted">Вызов вернул управление без исключения.</param>
+internal sealed record ObserverCall(ObserverCallKind Kind, long StartedAt, long CompletedAt, bool Accepted);
+
 internal sealed class RecordingObserver : IExchangeRealtimeObserver
 {
     private readonly ConcurrentQueue<PrivatePositionObservation> _positions = new();
     private readonly ConcurrentQueue<PrivateWalletObservation> _wallets = new();
     private readonly ConcurrentQueue<RealtimeTransportState> _transportStates = new();
+    private readonly ConcurrentQueue<ObserverCall> _calls = new();
+    private long _clock;
+    private int _inFlight;
+    private int _maxInFlight;
 
     public Action<PrivatePositionObservation>? OnPositionCallback { get; set; }
 
@@ -34,22 +50,57 @@ internal sealed class RecordingObserver : IExchangeRealtimeObserver
     /// <summary>Все вызовы <see cref="OnTransportState"/>, включая завершившиеся исключением.</summary>
     public IReadOnlyList<RealtimeTransportState> TransportStates => _transportStates.ToArray();
 
+    /// <summary>Завершённые вызовы получателя в порядке входа в них.</summary>
+    public IReadOnlyList<ObserverCall> Calls => [.. _calls.OrderBy(call => call.StartedAt)];
+
+    /// <summary>Наибольшее число одновременно выполнявшихся вызовов получателя.</summary>
+    public int MaxConcurrentCalls => Volatile.Read(ref _maxInFlight);
+
     public void OnPosition(PrivatePositionObservation observation)
     {
         _positions.Enqueue(observation);
-        OnPositionCallback?.Invoke(observation);
+        Record(ObserverCallKind.Position, () => OnPositionCallback?.Invoke(observation));
     }
 
     public void OnWallet(PrivateWalletObservation observation)
     {
         _wallets.Enqueue(observation);
-        OnWalletCallback?.Invoke(observation);
+        Record(ObserverCallKind.Wallet, () => OnWalletCallback?.Invoke(observation));
     }
 
     public void OnTransportState(RealtimeTransportState state)
     {
         _transportStates.Enqueue(state);
-        OnTransportStateCallback?.Invoke(state);
+        Record(ObserverCallKind.TransportState, () => OnTransportStateCallback?.Invoke(state));
+    }
+
+    private void Record(ObserverCallKind kind, Action callback)
+    {
+        var startedAt = Interlocked.Increment(ref _clock);
+        var inFlight = Interlocked.Increment(ref _inFlight);
+        var max = Volatile.Read(ref _maxInFlight);
+        while (inFlight > max)
+        {
+            var observed = Interlocked.CompareExchange(ref _maxInFlight, inFlight, max);
+            if (observed == max)
+            {
+                break;
+            }
+
+            max = observed;
+        }
+
+        var accepted = false;
+        try
+        {
+            callback();
+            accepted = true;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _inFlight);
+            _calls.Enqueue(new ObserverCall(kind, startedAt, Interlocked.Increment(ref _clock), accepted));
+        }
     }
 }
 

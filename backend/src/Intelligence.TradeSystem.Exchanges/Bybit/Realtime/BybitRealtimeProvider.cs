@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Bybit.Net.Interfaces.Clients;
 using Bybit.Net.Objects.Models.V5;
 using CryptoExchange.Net.Objects;
@@ -30,6 +31,12 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 /// необходимости REST recovery, сигнал повторяется перед следующим вызовом получателя, а
 /// наблюдения до его принятия не доставляются.
 /// </para>
+/// <para>
+/// Вызовы получателя одного провайдера сериализованы: проверка ожидающего recovery, вызов
+/// получателя и учёт его результата выполняются атомарно относительно других наблюдений и
+/// сигналов. Поэтому получатель не должен синхронно ожидать доставку этого же провайдера из
+/// другого потока; вложенный вызов провайдера из callback не доставляется и требует REST recovery.
+/// </para>
 /// </remarks>
 internal sealed partial class BybitRealtimeProvider
 {
@@ -54,11 +61,11 @@ internal sealed partial class BybitRealtimeProvider
     private readonly Lock _gate = new();
     private readonly List<UpdateSubscription> _subscriptions = [];
 
-    // Защищает подтверждённые ревизии и счётчик порядка классификации. Под ним не вызывается
-    // получатель и не захватывается _gate.
-    private readonly Lock _revisionsGate = new();
-    private readonly Dictionary<PositionStreamKey, DeliveredRevision> _deliveredRevisions = [];
-    private long _classifiedRevisions;
+    // Сериализует вызовы получателя этого провайдера вместе с учётом recovery и подтверждением
+    // ревизий. Удерживается во время callback, поэтому захватывается раньше _gate и никогда под
+    // ним; асинхронные операции SDK под ним не выполняются.
+    private readonly Lock _deliveryGate = new();
+    private readonly Dictionary<PositionStreamKey, PositionRevision> _deliveredRevisions = [];
     private IExchangeRealtimeObserver? _observer;
     private int _state;
     private int _activeCallbacks;
@@ -67,6 +74,7 @@ internal sealed partial class BybitRealtimeProvider
 
     // Число сигналов REST recovery, не принятых получателем, и сколько из них покрыто позже
     // доставленным сигналом. Пока покрытие отстаёт, recovery ожидает повторной доставки.
+    // Изменяются только под _deliveryGate.
     private long _recoveryDemand;
     private long _recoveryCovered;
 
@@ -230,13 +238,25 @@ internal sealed partial class BybitRealtimeProvider
             return;
         }
 
-        foreach (var observation in observations)
+        if (!TryEnterDelivery(PositionStream))
         {
-            // Оставшиеся наблюдения покрывает либо остановка, либо ещё не принятый сигнал recovery.
-            if (DeliverPosition(observation) is DeliveryOutcome.Skipped or DeliveryOutcome.Deferred)
+            return;
+        }
+
+        try
+        {
+            foreach (var observation in observations)
             {
-                return;
+                // Оставшиеся наблюдения покрывает либо остановка, либо ещё не принятый сигнал recovery.
+                if (DeliverPosition(observation) is DeliveryOutcome.Skipped or DeliveryOutcome.Deferred)
+                {
+                    return;
+                }
             }
+        }
+        finally
+        {
+            _deliveryGate.Exit();
         }
     }
 
@@ -258,7 +278,19 @@ internal sealed partial class BybitRealtimeProvider
             return;
         }
 
-        DeliverObservation(WalletStream, observer => observer.OnWallet(observation));
+        if (!TryEnterDelivery(WalletStream))
+        {
+            return;
+        }
+
+        try
+        {
+            DeliverObservation(WalletStream, observer => observer.OnWallet(observation));
+        }
+        finally
+        {
+            _deliveryGate.Exit();
+        }
     }
 
     private async Task<ExchangeFailure?> SubscribeAsync(
@@ -319,13 +351,64 @@ internal sealed partial class BybitRealtimeProvider
             status,
             failure?.Kind,
             BybitExchangeFailureMapper.SafeProviderCode(failure?.ProviderCode));
-        ReportRecoveryRequired(stream, status, failure);
+        if (!TryEnterDelivery(stream))
+        {
+            return;
+        }
+
+        try
+        {
+            ReportRecoveryRequired(stream, status, failure);
+        }
+        finally
+        {
+            _deliveryGate.Exit();
+        }
     }
 
     private void RejectMessage(string stream, Exception exception)
     {
         LogMessageRejected(_logger, stream, exception.GetType().Name);
-        ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
+        if (!TryEnterDelivery(stream))
+        {
+            return;
+        }
+
+        try
+        {
+            ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
+        }
+        finally
+        {
+            _deliveryGate.Exit();
+        }
+    }
+
+    /// <summary>
+    /// Захватывает сериализацию вызовов получателя. Вложенный вызов из callback этого провайдера
+    /// не ждёт сам себя и не вызывает получателя повторно: событие теряется, поэтому
+    /// регистрируется непринятый сигнал REST recovery.
+    /// </summary>
+    private bool TryEnterDelivery(string stream)
+    {
+        if (_deliveryGate.IsHeldByCurrentThread)
+        {
+            _recoveryDemand++;
+            LogReentrantDeliveryRejected(_logger, stream);
+            return false;
+        }
+
+        _deliveryGate.Enter();
+        return true;
+    }
+
+    private bool RecoveryPending
+    {
+        get
+        {
+            Debug.Assert(_deliveryGate.IsHeldByCurrentThread, "Recovery demand is guarded by the delivery gate.");
+            return _recoveryDemand > _recoveryCovered;
+        }
     }
 
     /// <summary>
@@ -353,12 +436,18 @@ internal sealed partial class BybitRealtimeProvider
     /// </summary>
     private DeliveryOutcome DeliverObservation(string stream, Action<IExchangeRealtimeObserver> notify)
     {
-        if (Interlocked.Read(ref _recoveryDemand) > Interlocked.Read(ref _recoveryCovered))
+        if (RecoveryPending)
         {
             var recovery = ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
             if (recovery != DeliveryOutcome.Delivered)
             {
                 return recovery == DeliveryOutcome.Skipped ? DeliveryOutcome.Skipped : DeliveryOutcome.Deferred;
+            }
+
+            // Потеря, вложенно зарегистрированная во время принятого сигнала, им не покрыта.
+            if (RecoveryPending)
+            {
+                return DeliveryOutcome.Deferred;
             }
         }
 
@@ -381,35 +470,21 @@ internal sealed partial class BybitRealtimeProvider
         RealtimeTransportStatus status,
         ExchangeFailure? failure = null)
     {
-        var demand = Interlocked.Read(ref _recoveryDemand);
+        Debug.Assert(_deliveryGate.IsHeldByCurrentThread, "Recovery demand is guarded by the delivery gate.");
+        var demand = _recoveryDemand;
         var state = new RealtimeTransportState(status, _timeProvider.GetUtcNow(), failure);
         var outcome = Notify(stream, observer => observer.OnTransportState(state));
         if (outcome == DeliveryOutcome.Delivered)
         {
-            CoverRecoveryDemand(demand);
+            _recoveryCovered = Math.Max(_recoveryCovered, demand);
         }
         else if (outcome == DeliveryOutcome.Rejected)
         {
-            Interlocked.Increment(ref _recoveryDemand);
+            _recoveryDemand++;
             LogRecoveryNotAccepted(_logger, stream, status);
         }
 
         return outcome;
-    }
-
-    private void CoverRecoveryDemand(long demand)
-    {
-        var covered = Interlocked.Read(ref _recoveryCovered);
-        while (covered < demand)
-        {
-            var observed = Interlocked.CompareExchange(ref _recoveryCovered, demand, covered);
-            if (observed == covered)
-            {
-                return;
-            }
-
-            covered = observed;
-        }
     }
 
     /// <summary>
@@ -492,33 +567,21 @@ internal sealed partial class BybitRealtimeProvider
             observation.ProviderUpdatedAt,
             observation.SettlementAsset,
             observation.Position);
-        bool isRepeat;
-        lock (_revisionsGate)
-        {
-            candidate = new RevisionCandidate(key, revision, ++_classifiedRevisions);
-            isRepeat = _deliveredRevisions.TryGetValue(key, out var delivered) && delivered.Revision == revision;
-        }
+        candidate = new RevisionCandidate(key, revision);
+        var isRepeat = _deliveredRevisions.TryGetValue(key, out var delivered) && delivered == revision;
 
         return isRepeat ? observation with { Kind = PrivatePositionObservationKind.Duplicate } : observation;
     }
 
     /// <summary>
-    /// Подтверждает доставленную ревизию. Callbacks могут завершаться не в порядке классификации,
-    /// поэтому ревизия, классифицированная раньше уже подтверждённой, её не заменяет.
+    /// Подтверждает доставленную ревизию. Доставки сериализованы, поэтому последняя
+    /// подтверждённая ревизия всегда классифицирована последней.
     /// </summary>
     private void RecordDeliveredRevision(RevisionCandidate? candidate)
     {
-        if (candidate is not { } revision)
+        if (candidate is { } revision)
         {
-            return;
-        }
-
-        lock (_revisionsGate)
-        {
-            if (!_deliveredRevisions.TryGetValue(revision.Key, out var delivered) || delivered.Order < revision.Order)
-            {
-                _deliveredRevisions[revision.Key] = new DeliveredRevision(revision.Revision, revision.Order);
-            }
+            _deliveredRevisions[revision.Key] = revision.Revision;
         }
     }
 
@@ -589,6 +652,12 @@ internal sealed partial class BybitRealtimeProvider
         Message = "Получатель не принял сигнал о необходимости REST recovery; сигнал будет повторён перед следующим наблюдением. Stream={Stream}, Status={Status}")]
     private static partial void LogRecoveryNotAccepted(ILogger logger, string stream, RealtimeTransportStatus status);
 
+    [LoggerMessage(
+        EventId = 1019,
+        Level = LogLevel.Error,
+        Message = "Вложенный вызов провайдера из callback получателя не доставлен; потребуется REST recovery. Stream={Stream}")]
+    private static partial void LogReentrantDeliveryRejected(ILogger logger, string stream);
+
     private enum DeliveryOutcome
     {
         /// <summary>Получатель вернул управление без исключения.</summary>
@@ -606,10 +675,7 @@ internal sealed partial class BybitRealtimeProvider
 
     private readonly record struct PositionStreamKey(MarketCategory Category, string Symbol, int PositionIdx);
 
-    /// <param name="Order">Порядок классификации наблюдения внутри провайдера.</param>
-    private readonly record struct RevisionCandidate(PositionStreamKey Key, PositionRevision Revision, long Order);
-
-    private readonly record struct DeliveredRevision(PositionRevision Revision, long Order);
+    private readonly record struct RevisionCandidate(PositionStreamKey Key, PositionRevision Revision);
 
     private sealed record PositionRevision(
         PrivatePositionObservationKind Kind,

@@ -778,22 +778,510 @@ public sealed class BybitRealtimeProviderTests
         var olderDelivery = Task.Run(() => provider.HandlePositions(older));
         await callback.Entered.WaitAsync(CompletionTimeout);
 
-        // Неподтверждённая ревизия не делает конкурентный точный повтор дубликатом.
-        provider.HandlePositions(older);
-        provider.HandlePositions(newer);
-        // Ревизия, классифицированная раньше, завершается последней и не заменяет более новую.
+        // Конкурентные ревизии ждут завершения доставки и классифицируются после её подтверждения.
+        var concurrentDelivery = Task.Run(() =>
+        {
+            provider.HandlePositions(older);
+            provider.HandlePositions(newer);
+        });
+        await AssertPendingAsync(concurrentDelivery);
         callback.Release();
-        await olderDelivery.WaitAsync(CompletionTimeout);
+        await Task.WhenAll(olderDelivery, concurrentDelivery).WaitAsync(CompletionTimeout);
+        // Более старая ревизия после подтверждения новой не заменяет её.
         provider.HandlePositions(newer);
         provider.HandlePositions(older);
 
         observer.Positions.Select(position => (position.Size, position.Kind)).Should().Equal(
             (0.5m, PrivatePositionObservationKind.Open),
-            (0.5m, PrivatePositionObservationKind.Open),
+            (0.5m, PrivatePositionObservationKind.Duplicate),
             (0.7m, PrivatePositionObservationKind.Open),
             (0.7m, PrivatePositionObservationKind.Duplicate),
             (0.5m, PrivatePositionObservationKind.Open));
         observer.TransportStates.Should().BeEmpty();
+        observer.MaxConcurrentCalls.Should().Be(1);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Recovery_Demand_Registered_During_Recovery_Signal_Delivery_Is_Not_Covered_By_It()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var first = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var second = await CapturePositionsAsync(PositionMessage(PositionItem(("size", "0.7"), ("seq", Sequence + 1))));
+        var third = await CapturePositionsAsync(PositionMessage(PositionItem(("size", "0.8"), ("seq", Sequence + 2))));
+        var repeatedSignal = new BlockingCallback();
+        var positionCalls = 0;
+        var transportCalls = 0;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (Interlocked.Increment(ref positionCalls) == 1)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+            OnTransportStateCallback = _ =>
+            {
+                switch (Interlocked.Increment(ref transportCalls))
+                {
+                    case 1:
+                    case 3:
+                        throw new InvalidOperationException("queue full");
+                    case 2:
+                        repeatedSignal.Block();
+                        break;
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        // Первый demand: получатель отклонил и наблюдение, и сигнал о его потере.
+        provider.HandlePositions(first);
+
+        // Повтор сигнала удерживается получателем, пока конкурентно возникает новая потеря.
+        var deliverSecond = Task.Run(() => provider.HandlePositions(second));
+        await repeatedSignal.Entered.WaitAsync(CompletionTimeout);
+        var reportLoss = Task.Run(() => provider.HandlePositions(UnmappablePositions()));
+        var lossReportedDuringSignal = await Task.WhenAny(reportLoss, Task.Delay(PendingProbe)) == reportLoss;
+
+        repeatedSignal.Release();
+        await Task.WhenAll(deliverSecond, reportLoss).WaitAsync(CompletionTimeout);
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+
+        // Второй demand покрывается только принятым повтором сигнала перед следующим наблюдением.
+        provider.HandlePositions(third);
+
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+        lossReportedDuringSignal.Should().BeFalse("регистрация recovery сериализована с доставкой сигнала");
+        observer.Calls.Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.Position, false),
+            (ObserverCallKind.TransportState, false),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Position, true),
+            (ObserverCallKind.TransportState, false),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Position, true));
+        observer.Positions.Select(position => (position.Size, position.Kind)).Should().Equal(
+            (0.5m, PrivatePositionObservationKind.Open),
+            (0.7m, PrivatePositionObservationKind.Open),
+            (0.8m, PrivatePositionObservationKind.Open));
+        observer.TransportStates.Should().HaveCount(4).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Observation_Is_Not_Admitted_While_Recovery_Signal_Delivery_Is_Unresolved()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var signal = new BlockingCallback();
+        var transportCalls = 0;
+        var observer = new RecordingObserver
+        {
+            OnTransportStateCallback = _ =>
+            {
+                if (Interlocked.Increment(ref transportCalls) == 1)
+                {
+                    signal.Block();
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        // Сигнал о потере начат, но получатель ещё не принял и не отклонил его.
+        var reportLoss = Task.Run(() => provider.HandlePositions(UnmappablePositions()));
+        await signal.Entered.WaitAsync(CompletionTimeout);
+        var deliverPosition = Task.Run(() => provider.HandlePositions(position));
+        var admittedDuringSignal = await Task.WhenAny(deliverPosition, Task.Delay(PendingProbe)) == deliverPosition;
+
+        // Отказ регистрирует demand раньше допуска наблюдения: оно ждёт принятого повтора.
+        signal.Release();
+        await Task.WhenAll(reportLoss, deliverPosition).WaitAsync(CompletionTimeout);
+
+        observer.Calls.Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.TransportState, false),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Position, true));
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+        admittedDuringSignal.Should().BeFalse();
+        observer.MaxConcurrentCalls.Should().Be(1);
+        observer.Positions.Should().ContainSingle().Which.Kind.Should().Be(PrivatePositionObservationKind.Open);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Concurrent_Position_And_Wallet_Callbacks_Wait_For_Recovery_Of_Rejected_Observation()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var walletCallback = new BlockingCallback();
+        var walletCalls = 0;
+        var observer = new RecordingObserver
+        {
+            OnWalletCallback = _ =>
+            {
+                if (Interlocked.Increment(ref walletCalls) == 1)
+                {
+                    walletCallback.Block();
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var rejectedWallet = Task.Run(() => provider.HandleWallet(wallet));
+        await walletCallback.Entered.WaitAsync(CompletionTimeout);
+        var deliverPosition = Task.Run(() => provider.HandlePositions(position));
+        var deliverWallet = Task.Run(() => provider.HandleWallet(wallet));
+        await Task.WhenAny(deliverPosition, deliverWallet, Task.Delay(PendingProbe));
+        var admittedDuringRejectedWallet = deliverPosition.IsCompleted || deliverWallet.IsCompleted;
+
+        walletCallback.Release();
+        await Task.WhenAll(rejectedWallet, deliverPosition, deliverWallet).WaitAsync(CompletionTimeout);
+
+        var calls = observer.Calls;
+        calls.Take(2).Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.Wallet, false),
+            (ObserverCallKind.TransportState, true));
+        calls.Skip(2).Select(call => (call.Kind, call.Accepted)).Should().BeEquivalentTo(
+            [(ObserverCallKind.Position, true), (ObserverCallKind.Wallet, true)]);
+        AssertNoObservationOvertakesPendingRecovery(calls);
+        admittedDuringRejectedWallet.Should().BeFalse();
+        observer.MaxConcurrentCalls.Should().Be(1);
+        observer.TransportStates.Should().ContainSingle().Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Concurrent_Position_Wallet_And_Transport_Callbacks_Preserve_Recovery_Order()
+    {
+        using var harness = new BybitSocketTestHarness();
+        DataEvent<BybitPositionUpdate[]>[] revisions =
+        [
+            await CapturePositionsAsync(PositionMessage(PositionItem())),
+            await CapturePositionsAsync(PositionMessage(PositionItem(("size", "0.7"), ("seq", Sequence + 1)))),
+            await CapturePositionsAsync(PositionMessage(PositionItem(("size", "0.9"), ("seq", Sequence + 2)))),
+        ];
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var calls = 0;
+        void RejectEveryFourthCall()
+        {
+            if (Interlocked.Increment(ref calls) % 4 == 0)
+            {
+                throw new InvalidOperationException("queue full");
+            }
+        }
+
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ => RejectEveryFourthCall(),
+            OnWalletCallback = _ => RejectEveryFourthCall(),
+            OnTransportStateCallback = _ => RejectEveryFourthCall(),
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var workers = Enumerable.Range(0, 4).Select(worker => Task.Run(async () =>
+        {
+            await start.Task;
+            for (var iteration = 0; iteration < 30; iteration++)
+            {
+                switch ((worker + iteration) % 3)
+                {
+                    case 0:
+                        provider.HandlePositions(revisions[iteration % revisions.Length]);
+                        break;
+                    case 1:
+                        provider.HandleWallet(wallet);
+                        break;
+                    default:
+                        provider.HandlePositions(UnmappablePositions());
+                        break;
+                }
+            }
+        })).ToArray();
+        start.SetResult();
+        await Task.WhenAll(workers).WaitAsync(CompletionTimeout);
+
+        observer.MaxConcurrentCalls.Should().Be(1);
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+        observer.Calls.Should().Contain(call => call.Kind == ObserverCallKind.Position && call.Accepted)
+            .And.Contain(call => call.Kind == ObserverCallKind.Wallet && call.Accepted)
+            .And.Contain(call => !call.Accepted);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Repeatedly_Rejected_Recovery_Signal_Stays_Pending_Under_Concurrency_Without_Recursion()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var positionCalls = 0;
+        var transportAccepted = 0;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (Interlocked.Increment(ref positionCalls) == 1)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+            OnTransportStateCallback = _ =>
+            {
+                if (Volatile.Read(ref transportAccepted) == 0)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+        provider.HandlePositions(position);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var workers = Enumerable.Range(0, 4).Select(_ => Task.Run(async () =>
+        {
+            await start.Task;
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                provider.HandlePositions(position);
+            }
+        })).ToArray();
+        start.SetResult();
+        await Task.WhenAll(workers).WaitAsync(CompletionTimeout);
+
+        // Каждая попытка повторяет сигнал ровно один раз; отказ сигнала не порождает новый сигнал.
+        observer.Positions.Should().ContainSingle();
+        observer.TransportStates.Should().HaveCount(21).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+        sink.Entries.Count(entry => entry.EventId.Id == 1018).Should().Be(21);
+        observer.MaxConcurrentCalls.Should().Be(1);
+
+        Volatile.Write(ref transportAccepted, 1);
+        provider.HandlePositions(position);
+        provider.HandlePositions(position);
+
+        observer.Positions.Select(observation => observation.Kind).Should().Equal(
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Duplicate);
+        observer.TransportStates.Should().HaveCount(22);
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+        AssertNoSensitiveData(sink, "queue full");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Waiting_Repeat_Of_Rejected_Position_Revision_Is_Delivered_After_Recovery_And_Not_As_Duplicate()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var callback = new BlockingCallback();
+        var positionCalls = 0;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (Interlocked.Increment(ref positionCalls) == 1)
+                {
+                    callback.Block();
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var rejected = Task.Run(() => provider.HandlePositions(position));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        var repeat = Task.Run(() => provider.HandlePositions(position));
+        var repeatDeliveredBeforeRejection = await Task.WhenAny(repeat, Task.Delay(PendingProbe)) == repeat;
+
+        callback.Release();
+        await Task.WhenAll(rejected, repeat).WaitAsync(CompletionTimeout);
+        provider.HandlePositions(position);
+
+        observer.Calls.Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.Position, false),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Position, true),
+            (ObserverCallKind.Position, true));
+        observer.Positions.Select(observation => observation.Kind).Should().Equal(
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Open,
+            PrivatePositionObservationKind.Duplicate);
+        repeatDeliveredBeforeRejection.Should().BeFalse();
+        AssertNoObservationOvertakesPendingRecovery(observer.Calls);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task StopAsync_During_Transport_Callback_Skips_Waiting_Position_And_Wallet_Deliveries()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var signal = new BlockingCallback();
+        var observer = new RecordingObserver { OnTransportStateCallback = _ => signal.Block() };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var reportLoss = Task.Run(() => provider.HandlePositions(UnmappablePositions()));
+        await signal.Entered.WaitAsync(CompletionTimeout);
+        var deliverPosition = Task.Run(() => provider.HandlePositions(position));
+        var deliverWallet = Task.Run(() => provider.HandleWallet(wallet));
+        await Task.WhenAny(deliverPosition, deliverWallet, Task.Delay(PendingProbe));
+        var first = Task.Run(provider.StopAsync);
+        var second = Task.Run(provider.StopAsync);
+
+        await AssertPendingAsync(Task.WhenAny(first, second));
+        harness.Socket.IsOpen.Should().BeTrue();
+
+        signal.Release();
+        await Task.WhenAll(first, second, reportLoss, deliverPosition, deliverWallet).WaitAsync(CompletionTimeout);
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+        provider.HandlePositions(position);
+        provider.HandleWallet(wallet);
+        provider.HandlePositions(UnmappablePositions());
+
+        provider.StopAsync().IsCompletedSuccessfully.Should().BeTrue();
+        observer.Positions.Should().BeEmpty();
+        observer.Wallets.Should().BeEmpty();
+        observer.Calls.Should().ContainSingle().Which.Kind.Should().Be(ObserverCallKind.TransportState);
+        sink.Entries.Should().NotContain(entry => entry.EventId.Id == 1016 || entry.EventId.Id == 1017 || entry.EventId.Id == 1018);
+    }
+
+    [Fact]
+    public async Task Blocked_Callback_Of_One_Account_Does_Not_Block_Provider_Of_Another_Account()
+    {
+        using var firstHarness = new BybitSocketTestHarness();
+        using var secondHarness = new BybitSocketTestHarness();
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var callback = new BlockingCallback();
+        var firstObserver = new RecordingObserver { OnPositionCallback = _ => callback.Block() };
+        var secondObserver = new RecordingObserver();
+        var firstProvider = CreateProvider(firstHarness);
+        var secondProvider = CreateProvider(secondHarness);
+        await firstProvider.StartAsync(firstObserver, CancellationToken.None);
+        await secondProvider.StartAsync(secondObserver, CancellationToken.None);
+
+        var blocked = Task.Run(() => firstProvider.HandlePositions(position));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        await Task.Run(() =>
+        {
+            secondProvider.HandlePositions(position);
+            secondProvider.HandleWallet(wallet);
+            secondProvider.HandlePositions(UnmappablePositions());
+        }).WaitAsync(CompletionTimeout);
+
+        blocked.IsCompleted.Should().BeFalse();
+        secondObserver.Positions.Should().ContainSingle().Which.ExchangeAccountId.Should().Be(secondProvider.ExchangeAccountId);
+        secondObserver.Wallets.Should().ContainSingle();
+        secondObserver.TransportStates.Should().ContainSingle();
+        firstObserver.Wallets.Should().BeEmpty();
+        firstObserver.TransportStates.Should().BeEmpty();
+
+        callback.Release();
+        await blocked.WaitAsync(CompletionTimeout);
+        await Task.WhenAll(firstProvider.StopAsync(), secondProvider.StopAsync()).WaitAsync(CompletionTimeout);
+    }
+
+    [Fact]
+    public async Task Reentrant_Observation_From_Observer_Callback_Is_Not_Delivered_And_Requires_Recovery()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        var reentered = 0;
+        var observer = new RecordingObserver();
+        observer.OnPositionCallback = _ =>
+        {
+            if (Interlocked.Exchange(ref reentered, 1) == 0)
+            {
+                provider.HandleWallet(wallet);
+            }
+        };
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        provider.HandlePositions(position);
+
+        observer.Wallets.Should().BeEmpty();
+        observer.TransportStates.Should().BeEmpty();
+        sink.Entries.Should().ContainSingle(entry => entry.EventId.Id == 1019)
+            .Which.Fields.Should().Contain(new KeyValuePair<string, object?>("Stream", BybitRealtimeProvider.WalletStream));
+
+        provider.HandleWallet(wallet);
+
+        observer.Calls.Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.Position, true),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Wallet, true));
+        observer.TransportStates.Should().ContainSingle().Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Recovery_Demand_Registered_Reentrantly_During_Recovery_Signal_Is_Not_Covered_By_It()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var position = await CapturePositionsAsync(PositionMessage(PositionItem()));
+        var provider = CreateProvider(harness);
+        var positionCalls = 0;
+        var transportCalls = 0;
+        var observer = new RecordingObserver
+        {
+            OnPositionCallback = _ =>
+            {
+                if (Interlocked.Increment(ref positionCalls) == 1)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        observer.OnTransportStateCallback = _ =>
+        {
+            switch (Interlocked.Increment(ref transportCalls))
+            {
+                case 1:
+                    throw new InvalidOperationException("queue full");
+                case 2:
+                    provider.HandlePositions(UnmappablePositions());
+                    break;
+            }
+        };
+        await provider.StartAsync(observer, CancellationToken.None);
+        provider.HandlePositions(position);
+
+        // Принятый повтор не покрывает demand, зарегистрированный во время его доставки.
+        provider.HandlePositions(position);
+
+        observer.Positions.Should().ContainSingle();
+        provider.HandlePositions(position);
+
+        observer.Calls.Select(call => (call.Kind, call.Accepted)).Should().Equal(
+            (ObserverCallKind.Position, false),
+            (ObserverCallKind.TransportState, false),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.TransportState, true),
+            (ObserverCallKind.Position, true));
+        observer.Positions[^1].Kind.Should().Be(PrivatePositionObservationKind.Open);
         await provider.StopAsync();
     }
 
@@ -965,6 +1453,33 @@ public sealed class BybitRealtimeProviderTests
             [new BybitPositionUpdate { Symbol = "BTCUSDT", UpdateTime = new DateTime(2023, 10, 19, 0, 0, 0, DateTimeKind.Utc) }],
             DateTime.MaxValue,
             "{}");
+
+    /// <summary>
+    /// Каждое наблюдение начинается только после принятого сигнала recovery, начатого позже
+    /// последнего завершившегося до наблюдения отказа получателя.
+    /// </summary>
+    private static void AssertNoObservationOvertakesPendingRecovery(IReadOnlyList<ObserverCall> calls)
+    {
+        foreach (var observation in calls.Where(call => call.Kind != ObserverCallKind.TransportState))
+        {
+            var lastRejection = calls
+                .Where(call => !call.Accepted && call.CompletedAt < observation.StartedAt)
+                .MaxBy(call => call.CompletedAt);
+            if (lastRejection is null)
+            {
+                continue;
+            }
+
+            calls.Should().Contain(
+                call => call.Kind == ObserverCallKind.TransportState
+                    && call.Accepted
+                    && call.StartedAt > lastRejection.CompletedAt
+                    && call.CompletedAt < observation.StartedAt,
+                "наблюдение {0} не должно опережать непринятый сигнал recovery после отказа {1}",
+                observation,
+                lastRejection);
+        }
+    }
 
     private static async Task AssertPendingAsync(Task task)
     {
