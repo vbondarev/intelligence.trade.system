@@ -540,6 +540,217 @@ public sealed class BybitRealtimeProviderTests
     }
 
     [Fact]
+    public async Task Accepted_Wallet_Observation_Is_Not_Reported_As_Message_Rejected()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var observer = new RecordingObserver();
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        harness.Push(WalletMessage());
+
+        var wallet = observer.Wallets.Should().ContainSingle().Subject;
+        wallet.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        wallet.RequiresRestReconciliation.Should().BeFalse();
+        observer.TransportStates.Should().BeEmpty();
+        sink.Entries.Should().NotContain(entry => entry.EventId.Id == 1016 || entry.EventId.Id == 1018);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Rejected_Wallet_Partial_Update_Is_Reported_As_Message_Rejected()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var walletAccepted = false;
+        var observer = new RecordingObserver
+        {
+            OnWalletCallback = _ =>
+            {
+                if (!walletAccepted)
+                {
+                    throw new InvalidOperationException("queue full 12500");
+                }
+            },
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = () => harness.Push(WalletMessage());
+
+        push.Should().NotThrow();
+        observer.Wallets.Should().ContainSingle().Which.Kind.Should().Be(PrivateWalletObservationKind.PartialUpdate);
+        var state = observer.TransportStates.Should().ContainSingle().Subject;
+        state.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        state.RecoveryRequired.Should().BeTrue();
+        state.Failure.Should().BeNull();
+        var entry = sink.Entries.Should().ContainSingle(log => log.EventId.Id == 1016).Subject;
+        entry.LogLevel.Should().Be(LogLevel.Error);
+        entry.Fields.Should().Contain(new KeyValuePair<string, object?>("Stream", BybitRealtimeProvider.WalletStream));
+        sink.Entries.Should().NotContain(log => log.EventId.Id == 1018);
+        harness.Socket.IsOpen.Should().BeTrue();
+
+        walletAccepted = true;
+        harness.Push(WalletMessage());
+
+        observer.Wallets.Should().HaveCount(2);
+        observer.TransportStates.Should().ContainSingle();
+        AssertNoSensitiveData(sink, "queue full", "12500", "8000", "UNIFIED");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Rejected_Unconfirmed_Wallet_Observation_Is_Reported_As_Message_Rejected()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var observer = new RecordingObserver
+        {
+            OnWalletCallback = _ => throw new InvalidOperationException("queue full"),
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        harness.Push(PrivateMessage("wallet", CreationTimeMs, """{"accountType":"FUND","totalEquity":"1"}"""));
+
+        var wallet = observer.Wallets.Should().ContainSingle().Subject;
+        wallet.Kind.Should().Be(PrivateWalletObservationKind.Unconfirmed);
+        wallet.RequiresRestReconciliation.Should().BeTrue();
+        wallet.Balances.Should().BeEmpty();
+        var state = observer.TransportStates.Should().ContainSingle().Subject;
+        state.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        state.RecoveryRequired.Should().BeTrue();
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Undelivered_Recovery_Signal_After_Rejected_Wallet_Defers_Next_Observations_Without_Recursion()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var observer = new RecordingObserver
+        {
+            OnWalletCallback = _ => throw new InvalidOperationException("queue full"),
+            OnTransportStateCallback = _ => throw new InvalidOperationException("queue full"),
+        };
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = () => harness.Push(WalletMessage());
+
+        push.Should().NotThrow();
+        observer.Wallets.Should().ContainSingle();
+        observer.TransportStates.Should().ContainSingle()
+            .Which.Status.Should().Be(RealtimeTransportStatus.MessageRejected);
+        sink.Entries.Where(entry => entry.EventId.Id == 1016).Should().HaveCount(2);
+        sink.Entries.Should().ContainSingle(entry => entry.EventId.Id == 1018)
+            .Which.Fields.Should().Contain(new KeyValuePair<string, object?>("Stream", BybitRealtimeProvider.WalletStream));
+
+        // Каждое следующее наблюдение сначала повторяет непринятый сигнал и не доставляется без него.
+        push.Should().NotThrow();
+        harness.Push(PositionMessage(PositionItem()));
+
+        observer.Wallets.Should().ContainSingle();
+        observer.Positions.Should().BeEmpty();
+        observer.TransportStates.Should().HaveCount(3).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+        sink.Entries.Where(entry => entry.EventId.Id == 1018).Should().HaveCount(3);
+        harness.Socket.IsOpen.Should().BeTrue();
+        AssertNoSensitiveData(sink, "queue full", "12500");
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Pending_Recovery_Signal_From_Rejected_Wallet_Is_Delivered_Before_Next_Wallet_Observation()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var walletAccepted = false;
+        var transportAccepted = false;
+        var observer = new RecordingObserver
+        {
+            OnTransportStateCallback = _ =>
+            {
+                if (!transportAccepted)
+                {
+                    throw new InvalidOperationException("queue full");
+                }
+            },
+        };
+        var transportStatesBeforeWallet = new List<int>();
+        observer.OnWalletCallback = _ =>
+        {
+            if (!walletAccepted)
+            {
+                throw new InvalidOperationException("queue full");
+            }
+
+            transportStatesBeforeWallet.Add(observer.TransportStates.Count);
+        };
+        var provider = CreateProvider(harness);
+        await provider.StartAsync(observer, CancellationToken.None);
+        harness.Push(WalletMessage());
+        observer.TransportStates.Should().ContainSingle();
+
+        walletAccepted = true;
+        transportAccepted = true;
+        harness.Push(WalletMessage());
+
+        transportStatesBeforeWallet.Should().Equal(2);
+        observer.Wallets.Should().HaveCount(2);
+        observer.TransportStates.Should().HaveCount(2).And.OnlyContain(state =>
+            state.Status == RealtimeTransportStatus.MessageRejected && state.RecoveryRequired);
+
+        // Доставленный сигнал покрыл потерю: следующее наблюдение его не повторяет.
+        harness.Push(WalletMessage());
+
+        transportStatesBeforeWallet.Should().Equal(2, 2);
+        observer.TransportStates.Should().HaveCount(2);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task StopAsync_Waits_For_Rejecting_Wallet_Callback_Without_Recovery_Signal_After_Stop()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var sink = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(sink));
+        var callback = new BlockingCallback();
+        var observer = new RecordingObserver
+        {
+            OnWalletCallback = _ =>
+            {
+                callback.Block();
+                throw new InvalidOperationException("queue full");
+            },
+        };
+        var wallet = await CaptureWalletAsync(WalletMessage());
+        var provider = CreateProvider(harness, loggerFactory: loggerFactory);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        var push = Task.Run(() => harness.Push(WalletMessage()));
+        await callback.Entered.WaitAsync(CompletionTimeout);
+        var stop = provider.StopAsync();
+
+        await AssertPendingAsync(stop);
+        harness.Socket.IsOpen.Should().BeTrue();
+
+        callback.Release();
+        await stop.WaitAsync(CompletionTimeout);
+        await push.WaitAsync(CompletionTimeout);
+        await WaitUntilAsync(() => !harness.Socket.IsOpen);
+        provider.HandleWallet(wallet);
+
+        observer.Wallets.Should().ContainSingle();
+        // Отказ во время остановки не порождает сигнал recovery от имени остановленного провайдера.
+        observer.TransportStates.Should().BeEmpty();
+        sink.Entries.Should().ContainSingle(entry => entry.EventId.Id == 1016);
+        sink.Entries.Should().NotContain(entry => entry.EventId.Id == 1018);
+    }
+
+    [Fact]
     public async Task Concurrent_Revisions_Of_Same_Position_Do_Not_Roll_Back_Confirmed_Revision()
     {
         using var harness = new BybitSocketTestHarness();

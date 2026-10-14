@@ -341,17 +341,15 @@ internal sealed partial class BybitRealtimeProvider
         {
             RecordDeliveredRevision(candidate);
         }
-        else if (outcome == DeliveryOutcome.Rejected)
-        {
-            ReportRecoveryRequired(PositionStream, RealtimeTransportStatus.MessageRejected);
-        }
 
         return outcome;
     }
 
     /// <summary>
     /// Вызывает получателя наблюдения, предварительно повторив не принятый им сигнал recovery:
-    /// наблюдение не должно опередить сведения о возможной потере предыдущих.
+    /// наблюдение не должно опередить сведения о возможной потере предыдущих. Непринятое
+    /// получателем наблюдение потеряно, поэтому о нём сообщается
+    /// <see cref="RealtimeTransportStatus.MessageRejected"/>.
     /// </summary>
     private DeliveryOutcome DeliverObservation(string stream, Action<IExchangeRealtimeObserver> notify)
     {
@@ -364,7 +362,13 @@ internal sealed partial class BybitRealtimeProvider
             }
         }
 
-        return Notify(stream, notify);
+        var outcome = Notify(stream, notify);
+        if (outcome == DeliveryOutcome.Rejected)
+        {
+            ReportRecoveryRequired(stream, RealtimeTransportStatus.MessageRejected);
+        }
+
+        return outcome;
     }
 
     /// <summary>
