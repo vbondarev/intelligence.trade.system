@@ -1014,6 +1014,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         public OpenPositionsObservationStatus Status { get; set; } = OpenPositionsObservationStatus.Complete;
 
+        /// <summary>REST-запрос баланса завершается ошибкой биржи.</summary>
+        public bool BalanceFails { get; set; }
+
         /// <summary>Выполняется во время REST-запроса позиций: после снимка баланса, до ответа.</summary>
         public Func<Task>? BeforePositionsResponse { get; set; }
 
@@ -1037,7 +1040,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             }
 
             var observedAt = Clock?.GetUtcNow() ?? ObservedAt;
-            return AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt);
+            return BalanceFails
+                ? AccountBalanceObservation.Failed(
+                    new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false),
+                    observedAt,
+                    requestStartedAt)
+                : AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt);
         }
 
         public async Task<OpenPositionsObservation> GetOpenPositionsAsync(
@@ -1052,13 +1060,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             }
 
             var observedAt = Clock?.GetUtcNow() ?? ObservedAt;
-            return Status == OpenPositionsObservationStatus.Complete
-                ? OpenPositionsObservation.Complete(
-                    category,
-                    symbol,
-                    observedAt,
-                    positions.Where(position => symbol is null || position.Symbol == symbol).ToArray())
-                : OpenPositionsObservation.Failed(category, symbol, observedAt, "failed");
+            var observed = positions.Where(position => symbol is null || position.Symbol == symbol).ToArray();
+            return Status switch
+            {
+                OpenPositionsObservationStatus.Complete =>
+                    OpenPositionsObservation.Complete(category, symbol, observedAt, observed),
+                OpenPositionsObservationStatus.Partial =>
+                    OpenPositionsObservation.Partial(category, symbol, observedAt, observed, "partial"),
+                _ => OpenPositionsObservation.Failed(category, symbol, observedAt, "failed"),
+            };
         }
     }
 

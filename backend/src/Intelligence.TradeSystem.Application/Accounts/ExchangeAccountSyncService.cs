@@ -435,22 +435,26 @@ public sealed class ExchangeAccountSyncService(
                 var synchronizedPortfolioState = persistedPortfolioState
                     ?? throw new InvalidOperationException(
                         "A successful synchronization did not persist a portfolio state.");
-                var balanceRead = ResolveAcceptedBalanceReadWindow(
-                    hasFreshBalance,
-                    balanceDisposition,
-                    balanceObservation);
                 if (persistedFullSync)
                 {
                     var synchronizedAt = persistedAccount?.LastSyncedAt
                         ?? throw new InvalidOperationException(
                             "A successful synchronization did not persist account metadata.");
                     account.RecordSuccessfulSync(synchronizedAt);
-                    return ExchangeAccountSyncResult.FullyReconciled(account, synchronizedPortfolioState)
-                        .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt);
+                    return AttachAcceptedResourceEvidence(
+                        ExchangeAccountSyncResult.FullyReconciled(account, synchronizedPortfolioState),
+                        hasFreshBalance,
+                        balanceDisposition,
+                        balanceObservation,
+                        positionsDisposition);
                 }
 
-                return ExchangeAccountSyncResult.Synchronized(account, synchronizedPortfolioState)
-                    .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt);
+                return AttachAcceptedResourceEvidence(
+                    ExchangeAccountSyncResult.Synchronized(account, synchronizedPortfolioState),
+                    hasFreshBalance,
+                    balanceDisposition,
+                    balanceObservation,
+                    positionsDisposition);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -465,6 +469,14 @@ public sealed class ExchangeAccountSyncService(
                     persistedFailureReason
                     ?? throw new InvalidOperationException(
                         "The synchronization persistence boundary completed without a failure reason."));
+                // Деградированная сверка могла принять баланс и/или позиции: окна порядка нужны
+                // независимо от общего Outcome, иначе coordinator теряет доказательство.
+                return AttachAcceptedResourceEvidence(
+                    attemptResult,
+                    hasFreshBalance,
+                    balanceDisposition,
+                    balanceObservation,
+                    positionsDisposition);
             }
 
             return attemptResult;
@@ -573,6 +585,25 @@ public sealed class ExchangeAccountSyncService(
         var completedAt = balanceObservation.ObservedAt;
         var startedAt = balanceObservation.RequestStartedAt ?? completedAt;
         return (startedAt, completedAt);
+    }
+
+    /// <summary>
+    /// Передаёт coordinator сведения о фактически принятых REST-ресурсах без подмены общего Outcome.
+    /// </summary>
+    private static ExchangeAccountSyncResult AttachAcceptedResourceEvidence(
+        ExchangeAccountSyncResult result,
+        bool hasFreshBalance,
+        ExchangeAccountObservationDisposition balanceDisposition,
+        AccountBalanceObservation balanceObservation,
+        ExchangeAccountObservationDisposition positionsDisposition)
+    {
+        var balanceRead = ResolveAcceptedBalanceReadWindow(
+            hasFreshBalance,
+            balanceDisposition,
+            balanceObservation);
+        return result
+            .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt)
+            .WithAcceptedPositionsObservation(IsApplied(positionsDisposition));
     }
 
     private OpenPositionsObservation NormalizePositionsObservation(

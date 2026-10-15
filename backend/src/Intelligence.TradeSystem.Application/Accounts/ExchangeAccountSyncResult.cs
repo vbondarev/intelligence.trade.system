@@ -29,6 +29,17 @@ public sealed record ExchangeAccountSyncResult(
     /// </summary>
     public DateTimeOffset? BalanceReadCompletedAt { get; private init; }
 
+    /// <summary>
+    /// Транзакция этой попытки зафиксировала применение REST-наблюдения позиций
+    /// (watermark Advanced как <see cref="ExchangeAccountObservationDisposition.Applied"/>).
+    /// </summary>
+    /// <remarks>
+    /// Независим от <see cref="Outcome"/> и <see cref="FullReconciliationCommitted"/>: баланс мог
+    /// завершиться Failed, а позиции — Complete или Partial. Признак не означает полноты сверки
+    /// аккаунта; coordinator использует его только как доказательство временного порядка.
+    /// </remarks>
+    public bool AcceptedPositionsObservation { get; private init; }
+
     public static ExchangeAccountSyncResult Synchronized(
         ExchangeAccount account,
         PortfolioState portfolioState) =>
@@ -47,6 +58,9 @@ public sealed record ExchangeAccountSyncResult(
             BalanceReadStartedAt = startedAt,
             BalanceReadCompletedAt = completedAt,
         };
+
+    internal ExchangeAccountSyncResult WithAcceptedPositionsObservation(bool accepted) =>
+        this with { AcceptedPositionsObservation = accepted };
 
     public static ExchangeAccountSyncResult NotFound() =>
         new(ExchangeAccountSyncOutcome.NotFound, null, null);

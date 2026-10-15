@@ -523,9 +523,12 @@ public sealed class ExchangeAccountObservationCoordinator(
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
-            // Неуспешная сверка не уничтожает доказательство порядка предыдущей успешной: иначе
-            // буферизованное наблюдение может быть применено поверх уже принятого REST-состояния.
-            if (result.Outcome == ExchangeAccountSyncOutcome.Synchronized)
+            // Окно позиций сохраняется по факту принятого REST-наблюдения позиций, а не по общему
+            // Outcome: Complete/Partial positions при Failed balance дают ExchangeUnavailable, но
+            // зафиксированные позиции всё равно требуют доказательства порядка для буфера.
+            // Неуспешная сверка без принятых позиций не уничтожает прежнее окно.
+            if (result.Outcome == ExchangeAccountSyncOutcome.Synchronized ||
+                result.AcceptedPositionsObservation)
             {
                 channel.FullSyncWindow = RestWindow.Merge(
                     channel.FullSyncWindow,

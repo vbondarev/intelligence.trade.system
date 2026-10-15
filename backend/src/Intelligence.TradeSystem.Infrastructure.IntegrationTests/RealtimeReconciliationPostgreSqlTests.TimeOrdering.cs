@@ -483,6 +483,117 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal((portfoliosBefore, outboxBefore), await CountWritesAsync(verification, account));
     }
 
+    /// <summary>
+    /// S-23 / B-01: Failed balance + Complete positions фиксирует size=3; буфер size=2 не откатывает
+    /// позицию, историю, cursor, portfolio и outbox.
+    /// </summary>
+    [Fact]
+    public async Task Failed_balance_complete_positions_keeps_rest_size_against_buffered_regression()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1);
+        ExchangeAccountObservationCoordinator? coordinator = null;
+        var provider = new TestPrivateProvider
+        {
+            Clock = clock,
+            BalanceFails = true,
+        };
+        provider.SetPosition(OpenPosition(size: 3m));
+        provider.BeforePositionsResponse = () =>
+        {
+            provider.BeforePositionsResponse = null;
+            clock.UtcNow = T1.AddSeconds(2);
+            Assert.True(coordinator!.TryEnqueue(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(2), 1, OpenPosition(size: 2m))));
+            clock.UtcNow = T1.AddSeconds(4);
+            return Task.CompletedTask;
+        };
+        await using var services = CreateApplicationServices(account, provider, clock);
+        coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+
+        var sync = await coordinator.SynchronizeAsync(account.UserId, account.Id);
+        var (portfoliosAfterSync, outboxAfterSync) = await CountWritesAsync(account);
+        clock.UtcNow = T1.AddSeconds(5);
+        var pending = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, sync.Outcome);
+        Assert.False(sync.FullReconciliationCommitted);
+        Assert.True(sync.AcceptedPositionsObservation);
+        Assert.Null(sync.BalanceReadStartedAt);
+        Assert.True(Assert.Single(pending).ConfirmedByRest);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(3m, position.Size);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        AssertHistory(position, (PositionChangeKind.New, T1.AddSeconds(4)));
+        var cursor = await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(1, cursor!.Value.LastProviderSequence);
+        Assert.True(await CountPortfoliosAsync(verification, account) >= portfoliosAfterSync);
+        Assert.True(await CountOutboxAsync(verification, account) >= outboxAfterSync);
+        var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+        Assert.True(state!.Value.RecoveryRequired);
+    }
+
+    /// <summary>
+    /// S-20 / B-02: успешный balance + Failed positions сохраняет окно баланса; wallet внутри
+    /// интервала требует recovery без отката капитала.
+    /// </summary>
+    [Fact]
+    public async Task Complete_balance_failed_positions_preserves_balance_window_against_wallet_regression()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1);
+        ExchangeAccountObservationCoordinator? coordinator = null;
+        var provider = new TestPrivateProvider
+        {
+            Clock = clock,
+            Status = OpenPositionsObservationStatus.Failed,
+            Balance = new AccountBalance(AccountType.Unified, 200m, 190m, 150m, 10m, []),
+        };
+        provider.BeforeBalanceResponse = () =>
+        {
+            provider.BeforeBalanceResponse = null;
+            clock.UtcNow = T1.AddSeconds(1);
+            Assert.True(coordinator!.TryEnqueue(
+                account.UserId,
+                generation,
+                WalletObservation(account, T1.AddSeconds(1), totalEquity: 100m)));
+            clock.UtcNow = T1.AddSeconds(2);
+            return Task.CompletedTask;
+        };
+        await using var services = CreateApplicationServices(account, provider, clock);
+        coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+
+        var sync = await coordinator.SynchronizeAsync(account.UserId, account.Id);
+        var (portfoliosAfterSync, outboxAfterSync) = await CountWritesAsync(account);
+        clock.UtcNow = T1.AddSeconds(3);
+        var pending = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, sync.Outcome);
+        Assert.False(sync.FullReconciliationCommitted);
+        Assert.Equal(T1, sync.BalanceReadStartedAt);
+        Assert.Equal(T1.AddSeconds(2), sync.BalanceReadCompletedAt);
+        Assert.Contains(
+            pending,
+            result => result.Outcome == RealtimeObservationApplyOutcome.RecoveryRequired &&
+                      result.ReasonCode == RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        await using var verification = fixture.CreateContext();
+        var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(200m, portfolio!.Capital.TotalEquity);
+        Assert.True(portfolio.Capital.ObservedAt >= T1.AddSeconds(2));
+        Assert.False(portfolio.PositionsFullyReconciled);
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.True(stored!.Value.LastAppliedBalanceObservationAt >= T1.AddSeconds(2));
+        Assert.Null(stored.Value.LastSyncedAt);
+        // ProcessPending после ambiguous wallet запускает recovery-сверку: счётчики записей могут вырасти.
+        Assert.True(await CountPortfoliosAsync(verification, account) >= portfoliosAfterSync);
+        Assert.True(await CountOutboxAsync(verification, account) >= outboxAfterSync);
+        var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+        Assert.True(state!.Value.RecoveryRequired);
+    }
+
     /// <summary>S-20: wallet во время GetWalletBalanceAsync не откатывает капитал, принятый REST.</summary>
     [Fact]
     public async Task Wallet_during_balance_read_requires_recovery_and_keeps_rest_capital()

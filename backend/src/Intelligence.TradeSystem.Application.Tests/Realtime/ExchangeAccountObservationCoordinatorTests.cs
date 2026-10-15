@@ -1533,6 +1533,201 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             world.Clock.UtcNow = balanceCompletedAt;
         };
 
+    /// <summary>
+    /// S-23 / B-01: Failed balance + Complete positions сохраняет окно порядка; буферизованный
+    /// size=2 не откатывает принятый REST size=3.
+    /// </summary>
+    [Fact]
+    public async Task Failed_Balance_Complete_Positions_Preserves_Accepted_Positions_Rest_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.BalanceFails = true;
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = world.Clock.UtcNow;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = restStartedAt.AddSeconds(2);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(restStartedAt.AddSeconds(2), 1, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+            world.Clock.UtcNow = restStartedAt.AddSeconds(4);
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.ActivePositions.Single().Size.Should().Be(3m);
+        var historyAfterSync = world.ActivePositions.Single().Changes
+            .Select(change => (change.Kind, change.OccurredAt))
+            .ToArray();
+        world.Clock.UtcNow = restStartedAt.AddSeconds(5);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        sync.BalanceReadStartedAt.Should().BeNull();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        var result = results.Should().ContainSingle().Subject;
+        result.ConfirmedByRest.Should().BeTrue();
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        world.ActivePositions.Single().Changes.Select(change => (change.Kind, change.OccurredAt))
+            .Should()
+            .Equal(historyAfterSync);
+    }
+
+    /// <summary>
+    /// S-24 / B-01: Failed balance + Partial positions сохраняет окно для реально принятых позиций.
+    /// </summary>
+    [Fact]
+    public async Task Failed_Balance_Partial_Positions_Preserves_Order_Evidence_For_Applied_Positions()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.BalanceFails = true;
+        world.Provider.Status = OpenPositionsObservationStatus.Partial;
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = world.Clock.UtcNow;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = restStartedAt.AddSeconds(2);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(restStartedAt.AddSeconds(2), 1, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+            world.Clock.UtcNow = restStartedAt.AddSeconds(4);
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var historyAfterSync = world.ActivePositions.Single().Changes
+            .Select(change => (change.Kind, change.OccurredAt))
+            .ToArray();
+        world.Clock.UtcNow = restStartedAt.AddSeconds(5);
+        // Scoped confirmation требует Complete; Status остаётся Partial → recovery без отката размера.
+        world.Provider.Status = OpenPositionsObservationStatus.Partial;
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        var result = results.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.ActivePositions.Single().Changes.Select(change => (change.Kind, change.OccurredAt))
+            .Should()
+            .Equal(historyAfterSync);
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// S-20 / B-02: успешный balance + Failed positions сохраняет окно баланса; wallet внутри
+    /// интервала требует recovery без отката капитала.
+    /// </summary>
+    [Fact]
+    public async Task Complete_Balance_Failed_Positions_Preserves_Accepted_Balance_Read_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 200m, 190m, 150m, 10m, []);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = world.Clock.UtcNow;
+        var duringBalanceAt = restStartedAt.AddSeconds(1);
+        var balanceCompletedAt = restStartedAt.AddSeconds(2);
+        EnqueueDuringBalanceRequest(
+            world,
+            coordinator,
+            world.WalletObservation(duringBalanceAt, totalEquity: 100m),
+            balanceCompletedAt);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var portfoliosAfterSync = world.Portfolios.Count;
+        world.Clock.UtcNow = balanceCompletedAt.AddSeconds(1);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        sync.BalanceReadStartedAt.Should().Be(restStartedAt);
+        sync.BalanceReadCompletedAt.Should().Be(balanceCompletedAt);
+        world.Portfolios[portfoliosAfterSync - 1].Capital.TotalEquity.Should().Be(200m);
+        world.Portfolios[portfoliosAfterSync - 1].Capital.ObservedAt.Should().Be(balanceCompletedAt);
+        results.Should().Contain(result =>
+            result.Outcome == RealtimeObservationApplyOutcome.RecoveryRequired &&
+            result.ReasonCode == RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        world.Portfolios.Should().OnlyContain(portfolio => portfolio.Capital.TotalEquity == 200m);
+        world.Portfolios.Should().NotContain(portfolio => portfolio.Capital.TotalEquity == 100m);
+        world.Account.LastAppliedBalanceObservationAt.Should().BeOnOrAfter(balanceCompletedAt);
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.Account.LastSyncedAt.Should().BeNull();
+    }
+
+    /// <summary>
+    /// S-20 / B-02: успешный balance + Partial positions сохраняет окно баланса без полной сверки.
+    /// </summary>
+    [Fact]
+    public async Task Complete_Balance_Partial_Positions_Preserves_Accepted_Balance_Read_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 200m, 190m, 150m, 10m, []);
+        world.Provider.Status = OpenPositionsObservationStatus.Partial;
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = world.Clock.UtcNow;
+        var duringBalanceAt = restStartedAt.AddSeconds(1);
+        var balanceCompletedAt = restStartedAt.AddSeconds(2);
+        EnqueueDuringBalanceRequest(
+            world,
+            coordinator,
+            world.WalletObservation(duringBalanceAt, totalEquity: 100m),
+            balanceCompletedAt);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Clock.UtcNow = balanceCompletedAt.AddSeconds(1);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        sync.BalanceReadStartedAt.Should().Be(restStartedAt);
+        sync.BalanceReadCompletedAt.Should().Be(balanceCompletedAt);
+        results.Should().ContainSingle().Which.Outcome
+            .Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(200m);
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// B-01/B-02: проигранный commit не сохраняет капитал и watermark; evidence окон не возвращается.
+    /// </summary>
+    [Fact]
+    public async Task Rolled_Back_Degraded_Sync_Does_Not_Record_Accepted_Rest_Windows()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 200m, 190m, 150m, 10m, []);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        world.CommitFailuresToInject = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId));
+
+        world.Portfolios.Should().BeEmpty();
+        world.Account.LastAppliedBalanceObservationAt.Should().BeNull();
+        world.Account.LastAppliedPositionsObservationAt.Should().BeNull();
+        world.Events.Should().BeEmpty();
+        world.ActivePositions.Should().BeEmpty();
+    }
+
     /// <summary>S-20: wallet во время REST-чтения баланса не откатывает принятый капитал.</summary>
     [Fact]
     public async Task Wallet_During_Successful_Balance_Read_Requires_Recovery_Without_Capital_Regression()
