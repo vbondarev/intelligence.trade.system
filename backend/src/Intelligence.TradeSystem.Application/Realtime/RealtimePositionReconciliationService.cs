@@ -364,6 +364,15 @@ public sealed class RealtimePositionReconciliationService(
             return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanPosition);
         }
 
+        // Пометки Unknown и Stale фиксируются временем REST-попытки или оценки свежести, которое может быть
+        // позже последнего наблюдения. Более раннее сообщение не опровергает пометку и не может быть
+        // записано в append-only историю перед ней; актуальное состояние восстанавливает полная сверка.
+        if (prepared.ObservedAt < existing.Changes[^1].OccurredAt)
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.OlderThanPositionHistory);
+        }
+
         if (existing.SettlementAsset != prepared.Observation.SettlementAsset)
         {
             return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.SettlementMismatch);

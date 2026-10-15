@@ -24,7 +24,7 @@ using Xunit;
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 [Collection("PostgreSql-A")]
-public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixture)
+public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixture)
 {
     private static readonly DateTimeOffset T1 = new(2026, 10, 15, 9, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan BlockedCommandProbe = TimeSpan.FromMilliseconds(500);
@@ -711,21 +711,26 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         ExchangeAccount account,
         long generation,
         PrivatePositionObservation observation,
-        TestPrivateProvider? provider = null)
+        TestPrivateProvider? provider = null,
+        TimeProvider? clock = null,
+        bool confirmWithRest = false)
     {
         await using var context = fixture.CreateContext();
-        return await CreateRealtimeService(context, provider ?? new TestPrivateProvider())
-            .ApplyAsync(account.UserId, generation, observation);
+        return await CreateRealtimeService(context, provider ?? new TestPrivateProvider(), clock: clock)
+            .ApplyAsync(account.UserId, generation, observation, confirmWithRest);
     }
 
     /// <summary>
     /// Production-регистрация Application поверх PostgreSQL-репозиториев: REST-синхронизации проходят
     /// через тот же coordinator, что и в API и фоновой синхронизации.
     /// </summary>
-    private ServiceProvider CreateApplicationServices(ExchangeAccount account, TestPrivateProvider provider)
+    private ServiceProvider CreateApplicationServices(
+        ExchangeAccount account,
+        TestPrivateProvider provider,
+        TimeProvider? clock = null)
     {
         var services = new ServiceCollection();
-        services.AddSingleton<TimeProvider>(new FixedTimeProvider(T1.AddMinutes(1)));
+        services.AddSingleton(clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
         services.AddScoped(_ => fixture.CreateContext());
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
         services.AddScoped<IPositionRepository, PositionRepository>();
@@ -745,7 +750,8 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
     private static RealtimePositionReconciliationService CreateRealtimeService(
         TradeSystemDbContext context,
         TestPrivateProvider provider,
-        IExchangeAccountSyncTransaction? transaction = null) =>
+        IExchangeAccountSyncTransaction? transaction = null,
+        TimeProvider? clock = null) =>
         new(
             new ExchangeAccountRepository(context),
             new TestCredentialStore(),
@@ -756,7 +762,7 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
             new RealtimeObservationStateStore(context),
             transaction ?? new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
-            new FixedTimeProvider(T1.AddMinutes(1)));
+            clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
 
     private static RealtimeWalletObservationService CreateWalletService(
         TradeSystemDbContext context,
@@ -856,13 +862,17 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         };
     }
 
-    private static PrivatePositionObservation CloseObservation(ExchangeAccount account, DateTimeOffset at, long sequence) =>
+    private static PrivatePositionObservation CloseObservation(
+        ExchangeAccount account,
+        DateTimeOffset at,
+        long sequence,
+        string symbol = "BTCUSDT") =>
         new()
         {
             Exchange = ExchangeId.Bybit,
             ExchangeAccountId = account.Id,
             Kind = PrivatePositionObservationKind.PotentialClose,
-            Symbol = "BTCUSDT",
+            Symbol = symbol,
             Category = MarketCategory.Linear,
             PositionIdx = 0,
             Side = PositionSide.Unknown,
@@ -994,12 +1004,12 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
     {
         private readonly List<OpenPosition> positions = [];
 
-        public DateTimeOffset ObservedAt { get; init; } = T1;
+        public DateTimeOffset ObservedAt { get; set; } = T1;
 
-        public OpenPositionsObservationStatus Status { get; init; } = OpenPositionsObservationStatus.Complete;
+        public OpenPositionsObservationStatus Status { get; set; } = OpenPositionsObservationStatus.Complete;
 
         /// <summary>Выполняется во время REST-запроса позиций: после снимка баланса, до ответа.</summary>
-        public Func<Task>? BeforePositionsResponse { get; init; }
+        public Func<Task>? BeforePositionsResponse { get; set; }
 
         public void SetPosition(OpenPosition position) => positions.Add(position);
 

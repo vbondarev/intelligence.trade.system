@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -991,7 +992,7 @@ public sealed class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Synchronizations_Without_Realtime_Observation_Do_Not_Retain_The_Channel()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(observed: false);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
 
@@ -1069,7 +1070,7 @@ public sealed class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Waiting_Operation_Keeps_The_Channel_So_One_Account_Never_Has_Two_Gates()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(observed: false);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         var active = 0;
@@ -1153,6 +1154,269 @@ public sealed class ExchangeAccountObservationCoordinatorTests
         })));
 
         coordinator.ChannelCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Startup_Sync_Without_Stream_Observations_Reconciles_The_Persisted_Generation()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var syncAt = world.Clock.UtcNow;
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.State!.Generation.Should().Be(1);
+        world.State.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(syncAt);
+        coordinator.ChannelCount.Should().Be(1, "the observed account keeps its REST windows");
+    }
+
+    [Fact]
+    public async Task Generation_Advanced_During_Rest_Without_Stream_Observations_Is_Reconciled_By_The_Next_Sync()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.AdvanceGeneration();
+        };
+
+        var first = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        first.FullReconciliationCommitted.Should().BeTrue();
+        world.State!.Generation.Should().Be(2);
+        world.State.RecoveryRequired.Should().BeTrue("the older generation sync does not prove the newer one");
+        world.State.LastFullyReconciledAt.Should().BeNull();
+
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(world.Clock.UtcNow);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeFalse();
+        coordinator.TryEnqueue(world.UserId, 2, world.OpenObservation(T0, 1)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Released_Channel_Learns_A_Generation_Started_After_Its_Release()
+    {
+        var world = new RealtimeTestWorld(observed: false);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        coordinator.ChannelCount.Should().Be(0);
+
+        world.StartObservation();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(world.Clock.UtcNow);
+        coordinator.ChannelCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Foreign_User_Synchronization_Neither_Learns_Nor_Reconciles_The_Owner_Generation()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+
+        (await coordinator.SynchronizeAsync(UserId.New(), world.AccountId))
+            .Outcome.Should().Be(ExchangeAccountSyncOutcome.NotFound);
+
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+        coordinator.ChannelCount.Should().Be(0);
+        world.Provider.PositionRequests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Rest_Exception_After_Overflow_During_A_Regular_Sync_Persists_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var firstSyncAt = world.Clock.UtcNow;
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.OnPositionsRequestAsync = _ =>
+        {
+            world.Provider.OnPositionsRequestAsync = null;
+            coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+            throw new HttpRequestException("exchange unavailable");
+        };
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => coordinator.SynchronizeAsync(world.UserId, world.AccountId));
+
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt);
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt.AddSeconds(2));
+    }
+
+    [Fact]
+    public async Task Cancellation_After_Overflow_During_A_Regular_Sync_Persists_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        using var cancellation = new CancellationTokenSource();
+        world.Provider.OnPositionsRequestAsync = cancellationToken =>
+        {
+            world.Provider.OnPositionsRequestAsync = null;
+            coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+            cancellation.Cancel();
+            return Task.FromCanceled(cancellationToken);
+        };
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.SynchronizeAsync(world.UserId, world.AccountId, cancellation.Token));
+
+        world.State!.RecoveryRequired.Should().BeTrue("the recovery write does not use the cancelled request token");
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Cancellation_Before_Rest_After_Overflow_Persists_Recovery(int cancelledStateRead)
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        RequestRecoveryByOverflow(world, coordinator);
+        using var cancellation = new CancellationTokenSource();
+        var stateReads = 0;
+        world.BeforeStateRead = () =>
+        {
+            if (++stateReads == cancelledStateRead)
+            {
+                world.BeforeStateRead = null;
+                cancellation.Cancel();
+            }
+        };
+        var requestsBefore = world.Provider.PositionRequests.Count;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.SynchronizeAsync(world.UserId, world.AccountId, cancellation.Token));
+
+        world.State!.RecoveryRequired.Should().BeTrue("cancellation before REST must not lose the overflow");
+        world.Provider.PositionRequests.Should().HaveCount(requestsBefore);
+    }
+
+    [Fact]
+    public async Task Stream_Apply_Exception_Persists_Recovery_Of_A_Reconciled_Account()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var firstSyncAt = world.Clock.UtcNow;
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.BeforeTransactionExecuteAsync = _ =>
+        {
+            world.BeforeTransactionExecuteAsync = null;
+            throw new InvalidOperationException("Injected apply failure.");
+        };
+        var requestsBefore = world.Provider.PositionRequests.Count;
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+
+        thrown.Message.Should().Be("Injected apply failure.");
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt);
+        world.Provider.PositionRequests.Should().HaveCount(requestsBefore);
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Failed_Recovery_Write_On_An_Exceptional_Path_Keeps_The_Original_Exception_And_The_Local_Request(
+        bool conflict)
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.OnPositionsRequestAsync = _ =>
+        {
+            world.Provider.OnPositionsRequestAsync = null;
+            coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+            if (conflict)
+            {
+                world.StateConflictsToInject = 3;
+            }
+            else
+            {
+                world.StateSaveFailuresToInject = 1;
+            }
+
+            throw new HttpRequestException("exchange unavailable");
+        };
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+
+        var thrown = await Assert.ThrowsAsync<HttpRequestException>(
+            () => coordinator.SynchronizeAsync(world.UserId, world.AccountId));
+
+        thrown.Message.Should().Be("exchange unavailable");
+        world.State!.RecoveryRequired.Should().BeFalse("the recovery write failed and only the local request remains");
+        var recoveryFlags = new List<bool>();
+        world.Provider.OnPositionsRequest = () => recoveryFlags.Add(world.State!.RecoveryRequired);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        recoveryFlags.Should().Equal(true);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Rest_Exception_After_A_Generation_Change_Does_Not_Write_Recovery_Into_Another_Generation()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        var stateWrites = new List<RealtimeObservationState>();
+        world.BeforeStateSave = stateWrites.Add;
+        world.Provider.OnPositionsRequestAsync = _ =>
+        {
+            world.Provider.OnPositionsRequestAsync = null;
+            world.AdvanceGeneration();
+            coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+            throw new HttpRequestException("exchange unavailable");
+        };
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => coordinator.SynchronizeAsync(world.UserId, world.AccountId));
+
+        stateWrites.Should().BeEmpty();
+        world.State!.Generation.Should().Be(2);
+        world.State.RecoveryRequired.Should().BeTrue();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.Generation.Should().Be(2);
+        world.State.RecoveryRequired.Should().BeFalse();
+        stateWrites.Should().ContainSingle().Which.Generation.Should().Be(2);
     }
 
     private static void InterlockedMax(ref int target, int value)

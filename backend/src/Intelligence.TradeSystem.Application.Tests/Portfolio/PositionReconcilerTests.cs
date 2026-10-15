@@ -520,6 +520,57 @@ public sealed class PositionReconcilerTests
         position.TrackingState.Should().Be(PositionTrackingState.Active);
     }
 
+    [Theory]
+    [InlineData(OpenPositionsObservationStatus.Complete)]
+    [InlineData(OpenPositionsObservationStatus.Partial)]
+    [InlineData(OpenPositionsObservationStatus.Failed)]
+    public void Observation_Older_Than_The_Latest_History_Change_Is_Ignored(OpenPositionsObservationStatus status)
+    {
+        var position = CreateTrackedPosition(AccountA);
+        var markedAt = T0.AddMinutes(30);
+        position.MarkUnknown(markedAt, PositionChangeCause.PositionsObservationFailed);
+        var observedAt = T0.AddMinutes(20);
+        var observation = status switch
+        {
+            OpenPositionsObservationStatus.Complete => OpenPositionsObservation.Complete(
+                MarketCategory.Linear, null, observedAt, [CreateOpenPosition(size: 2m)]),
+            OpenPositionsObservationStatus.Partial => OpenPositionsObservation.Partial(
+                MarketCategory.Linear, null, observedAt, []),
+            _ => OpenPositionsObservation.Failed(MarketCategory.Linear, null, observedAt, "boom"),
+        };
+
+        var result = PositionReconciler.Reconcile(AccountA, [position], observation, markedAt, StaleAfter);
+
+        result.IsFullyReconciled.Should().BeFalse();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+        position.TrackingState.Should().Be(PositionTrackingState.Unknown);
+        position.Size.Should().Be(1m);
+        position.Changes.Select(change => change.OccurredAt).Should().Equal(T0, markedAt);
+    }
+
+    [Fact]
+    public void Closed_Lifecycle_Observed_After_The_Evaluation_Time_Does_Not_Block_Freshness()
+    {
+        var closed = CreateTrackedPosition(AccountA, at: T0.AddMinutes(10));
+        closed.Close(T0.AddMinutes(10), PositionChangeCause.MissingFromCompleteObservation);
+        var active = CreateTrackedPosition(AccountA, symbol: "ETHUSDT", at: T0);
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear, "ETHUSDT", T0.AddMinutes(5), [CreateOpenPosition("ETHUSDT")]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [closed, active],
+            observation,
+            T0.AddMinutes(5),
+            StaleAfter);
+
+        result.IsFullyReconciled.Should().BeTrue();
+        result.PositionsToPersist.Should().Equal(active);
+        closed.Changes.Should().HaveCount(2);
+        active.LastObservedAt.Should().Be(T0.AddMinutes(5));
+    }
+
     [Fact]
     public void Older_Observation_Still_Refreshes_Stale_Freshness()
     {

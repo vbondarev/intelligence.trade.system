@@ -49,10 +49,12 @@ public static class PositionReconciler
         void RefreshAccountFreshness()
         {
             // Свежесть не зависит от category и symbol scope, но reconciliation не должна
-            // изменять позицию, принадлежащую другому биржевому аккаунту.
+            // изменять позицию, принадлежащую другому биржевому аккаунту. Закрытый lifecycle не
+            // устаревает, а его последнее наблюдение может быть новее времени оценки другого scope.
             foreach (var position in trackedPositions.Concat(newPositions))
             {
-                if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId)
+                if (position.ExchangePositionKey.ExchangeAccountId != exchangeAccountId ||
+                    position.TrackingState == PositionTrackingState.Closed)
                     continue;
 
                 var staleChange = position.RefreshFreshness(now, staleAfter);
@@ -78,14 +80,18 @@ public static class PositionReconciler
         }
 
         // Ответ, который старше активного lifecycle, не может подтверждать новое состояние или
-        // отсутствие. Его данные игнорируются, но свежесть по-прежнему оценивается.
+        // отсутствие. Его данные игнорируются, но свежесть по-прежнему оценивается. Последнее изменение
+        // истории (пометка Unknown или Stale) может быть новее последнего наблюдения, а история
+        // append-only, поэтому более ранний ответ не записывается и после неё.
         var scopedActivePositions = trackedPositions
             .Where(position =>
                 position.TrackingState != PositionTrackingState.Closed &&
                 InScope(position))
             .ToArray();
         var hasNewerScopedObservation = scopedActivePositions
-            .Any(position => position.LastObservedAt > observation.ObservedAt);
+            .Any(position =>
+                position.LastObservedAt > observation.ObservedAt ||
+                position.Changes[^1].OccurredAt > observation.ObservedAt);
         if (hasNewerScopedObservation)
         {
             RefreshAccountFreshness();

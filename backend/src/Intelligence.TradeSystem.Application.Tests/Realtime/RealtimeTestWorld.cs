@@ -32,7 +32,11 @@ internal sealed class RealtimeTestWorld
     private List<IApplicationEvent> events = [];
     private Versioned<RealtimeObservationState>? state;
 
-    public RealtimeTestWorld()
+    /// <param name="observed">
+    /// Аккаунт уже наблюдается потоком: сохранено поколение 1 с требуемым recovery. Иначе состояние
+    /// наблюдения отсутствует до <see cref="StartObservation"/>.
+    /// </param>
+    public RealtimeTestWorld(bool observed = true)
     {
         account = new Versioned<ExchangeAccount>(
             ExchangeAccount.Create(
@@ -44,15 +48,11 @@ internal sealed class RealtimeTestWorld
                 ExchangeAccountConnectionStatus.Connected,
                 ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions),
             ConcurrencyVersion.Initial);
-        state = new Versioned<RealtimeObservationState>(
-            new RealtimeObservationState
-            {
-                ExchangeAccountId = AccountId,
-                Generation = 1,
-                TransportStatus = RealtimeObservationTransportStatus.Connected,
-                RecoveryRequired = true,
-            },
-            ConcurrencyVersion.Initial);
+        if (observed)
+        {
+            StartObservation();
+        }
+
         Provider = new FakePrivateProvider(this);
     }
 
@@ -70,6 +70,9 @@ internal sealed class RealtimeTestWorld
     /// <summary>Количество искусственных ошибок сохранения состояния наблюдения.</summary>
     public int StateSaveFailuresToInject { get; set; }
 
+    /// <summary>Количество сохранений аккаунта, завершающихся проигранным CAS.</summary>
+    public int AccountSaveConflictsToInject { get; set; }
+
     /// <summary>Количество записей состояния наблюдения, завершающихся проигранным CAS.</summary>
     public int StateConflictsToInject { get; set; }
 
@@ -78,6 +81,9 @@ internal sealed class RealtimeTestWorld
 
     /// <summary>Вызывается перед записью состояния наблюдения с сохраняемым значением.</summary>
     public Action<RealtimeObservationState>? BeforeStateSave { get; set; }
+
+    /// <summary>Вызывается перед чтением состояния наблюдения.</summary>
+    public Action? BeforeStateRead { get; set; }
 
     /// <summary>Количество транзакций, фиксация которых завершится ошибкой после выполнения операции.</summary>
     public int CommitFailuresToInject { get; set; }
@@ -90,6 +96,10 @@ internal sealed class RealtimeTestWorld
     public IReadOnlyList<IApplicationEvent> Events => events;
 
     public IReadOnlyList<PortfolioState> Portfolios => portfolios;
+
+    /// <summary>Сводка, которую вернёт <see cref="IPortfolioStateRepository.GetLatestAsync"/>.</summary>
+    public PortfolioState? LatestPortfolio =>
+        new PortfolioRepository(this).GetLatestAsync(UserId, AccountId).GetAwaiter().GetResult();
 
     public RealtimeObservationState? State => state?.Value;
 
@@ -107,12 +117,49 @@ internal sealed class RealtimeTestWorld
             ? cursor.Value
             : null;
 
+    /// <summary>Сохраняет первое поколение наблюдателя, как <c>AdvanceGenerationAsync</c> без прежнего состояния.</summary>
+    public void StartObservation() =>
+        state = new Versioned<RealtimeObservationState>(
+            new RealtimeObservationState
+            {
+                ExchangeAccountId = AccountId,
+                Generation = 1,
+                TransportStatus = RealtimeObservationTransportStatus.Connected,
+                RecoveryRequired = true,
+            },
+            ConcurrencyVersion.Initial);
+
     public void AdvanceGeneration()
     {
         var current = state!;
         state = new Versioned<RealtimeObservationState>(
             current.Value with { Generation = current.Value.Generation + 1, RecoveryRequired = true },
             current.Version.Next());
+    }
+
+    /// <summary>Сохраняет готовую позицию аккаунта без курсора, сводки и событий.</summary>
+    public Position SeedPosition(
+        string symbol,
+        DateTimeOffset firstDetectedAt,
+        DateTimeOffset lastObservedAt,
+        Action<Position>? evolve = null)
+    {
+        var position = Position.Create(
+            ExchangePositionKey.Create(AccountId, InstrumentId.From(symbol), PositionSide.Long, 0),
+            MarketCategory.Linear,
+            Usdt,
+            1m,
+            firstDetectedAt,
+            lastObservedAt,
+            averageEntryPrice: 100m,
+            positionValue: 100m,
+            leverage: 2m,
+            markPrice: 100m,
+            breakEvenPrice: 100m,
+            unrealizedPnl: 0m);
+        evolve?.Invoke(position);
+        SeedPosition(position);
+        return position;
     }
 
     public void DisableAccount()
@@ -149,6 +196,17 @@ internal sealed class RealtimeTestWorld
             new PortfolioRepository(this),
             new CursorStore(this),
             new StateStore(this),
+            new Transaction(this),
+            new Outbox(this),
+            Clock);
+
+    public ExchangeAccountSyncService CreateSyncService() =>
+        new(
+            new AccountRepository(this),
+            CreateCredentialStore(),
+            new ProviderFactory(Provider),
+            new PositionRepository(this),
+            new PortfolioRepository(this),
             new Transaction(this),
             new Outbox(this),
             Clock);
@@ -545,6 +603,12 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, account.Id);
+            if (world.AccountSaveConflictsToInject > 0)
+            {
+                world.AccountSaveConflictsToInject--;
+                throw new ConcurrencyConflictException("Injected account conflict.");
+            }
+
             if (world.account is not { } current || expectedVersion != current.Version)
             {
                 throw new ConcurrencyConflictException("Account version conflict.");
@@ -636,7 +700,13 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, exchangeAccountId);
-            return Task.FromResult(world.portfolios.LastOrDefault());
+            // Как PostgreSQL-репозиторий, последней считается сводка с наибольшим CalculatedAt.
+            return Task.FromResult(world.portfolios
+                .Select((state, index) => (State: state, Index: index))
+                .OrderByDescending(entry => entry.State.CalculatedAt)
+                .ThenByDescending(entry => entry.Index)
+                .Select(entry => entry.State)
+                .FirstOrDefault());
         }
 
         public Task SaveAsync(UserId userId, PortfolioState state, CancellationToken cancellationToken = default)
@@ -703,8 +773,11 @@ internal sealed class RealtimeTestWorld
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken = default)
         {
-            world.EnsureScope(userId, exchangeAccountId);
-            return Task.FromResult(world.state);
+            world.BeforeStateRead?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Как и PostgreSQL-хранилище, чужой или неизвестный аккаунт не имеет состояния.
+            return Task.FromResult(userId == world.UserId && exchangeAccountId == world.AccountId ? world.state : null);
         }
 
         public Task<Versioned<RealtimeObservationState>> AdvanceGenerationAsync(

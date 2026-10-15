@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,7 +29,9 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// возможный пропуск событий: состояние наблюдения помечается как требующее recovery и выполняется
 /// полная REST-сверка. Признак recovery снимается только полной сверкой текущего запроса, во время
 /// которой события не терялись. Потеря во время любой сверки или записи её итога снова устанавливает
-/// persisted-признак текущего поколения.
+/// persisted-признак текущего поколения, в том числе когда сверка или применение завершаются
+/// исключением или отменой. Поколение сверки берётся из сохранённого состояния наблюдения, поэтому
+/// стартовая сверка снимает признак и без потоковых наблюдений.
 /// </para>
 /// <para>
 /// Канал аккаунта существует, пока его удерживает операция, и после неё — только если хранит
@@ -44,6 +47,7 @@ public sealed class ExchangeAccountObservationCoordinator(
 {
     public const int DefaultBufferCapacity = 256;
     private const int MaxStateAttempts = 3;
+    private static readonly TimeSpan RecoveryStateWriteTimeout = TimeSpan.FromSeconds(5);
 
     private readonly Dictionary<(UserId UserId, ExchangeAccountId AccountId), AccountChannel> channels = new();
     private readonly object channelsSync = new();
@@ -220,6 +224,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                     channel.RecoveryRequests++;
                 }
 
+                await TryPersistUnhandledRecoveryAsync(userId, exchangeAccountId, channel).ConfigureAwait(false);
                 throw;
             }
 
@@ -288,21 +293,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                 return false;
             }
 
-            if (pending.Generation > channel.Generation)
-            {
-                // Новое поколение начинается с собственной стартовой сверки; наблюдения прежнего
-                // поколения к нему не относятся.
-                var recoveryWasRequired = channel.HasUnhandledRecoveryRequest;
-                channel.Generation = pending.Generation;
-                channel.Pending.Clear();
-                channel.HandledRecoveryRequests = channel.RecoveryRequests;
-                if (recoveryWasRequired)
-                {
-                    // Успешная сверка старого поколения не доказывает полноту нового.
-                    channel.RecoveryRequests++;
-                }
-            }
-
+            AdvanceGeneration(channel, pending.Generation);
             if (channel.Pending.Count >= capacity)
             {
                 channel.RecoveryRequests++;
@@ -311,6 +302,27 @@ public sealed class ExchangeAccountObservationCoordinator(
 
             channel.Pending.Enqueue(pending);
             return true;
+        }
+    }
+
+    /// <summary>Переводит канал на более новое поколение; вызывается под блокировкой канала.</summary>
+    private static void AdvanceGeneration(AccountChannel channel, long generation)
+    {
+        if (generation <= channel.Generation)
+        {
+            return;
+        }
+
+        // Новое поколение начинается с собственной стартовой сверки; наблюдения прежнего
+        // поколения к нему не относятся.
+        var recoveryWasRequired = channel.HasUnhandledRecoveryRequest;
+        channel.Generation = generation;
+        channel.Pending.Clear();
+        channel.HandledRecoveryRequests = channel.RecoveryRequests;
+        if (recoveryWasRequired)
+        {
+            // Успешная сверка старого поколения не доказывает полноту нового.
+            channel.RecoveryRequests++;
         }
     }
 
@@ -361,22 +373,79 @@ public sealed class ExchangeAccountObservationCoordinator(
         AccountChannel channel,
         CancellationToken cancellationToken)
     {
-        long generation;
-        long recoveryRequestsAtStart;
-        bool recoveryRequested;
-        lock (channel.Sync)
+        try
         {
-            generation = channel.Generation;
-            recoveryRequestsAtStart = channel.RecoveryRequests;
-            recoveryRequested = channel.HasUnhandledRecoveryRequest;
-        }
+            await LearnPersistedGenerationAsync(userId, exchangeAccountId, channel, cancellationToken)
+                .ConfigureAwait(false);
 
-        if (recoveryRequested && generation > 0)
+            long generation;
+            long recoveryRequestsAtStart;
+            bool recoveryRequested;
+            lock (channel.Sync)
+            {
+                generation = channel.Generation;
+                recoveryRequestsAtStart = channel.RecoveryRequests;
+                recoveryRequested = channel.HasUnhandledRecoveryRequest;
+            }
+
+            if (recoveryRequested && generation > 0)
+            {
+                await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return await SynchronizeAndRecordAsync(
+                    userId,
+                    exchangeAccountId,
+                    channel,
+                    generation,
+                    recoveryRequestsAtStart,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
         {
-            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+            await TryPersistUnhandledRecoveryAsync(userId, exchangeAccountId, channel).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Узнаёт поколение наблюдателя из сохранённого состояния: стартовая и переподключённая сверки могут
+    /// выполняться до первого наблюдения нового поколения, а канал мог быть освобождён и создан заново.
+    /// </summary>
+    private async Task LearnPersistedGenerationAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel,
+        CancellationToken cancellationToken)
+    {
+        Versioned<RealtimeObservationState>? persisted;
+        await using (var scope = scopeFactory.CreateAsyncScope())
+        {
+            persisted = await scope.ServiceProvider
+                .GetRequiredService<IRealtimeObservationStateStore>()
+                .GetAsync(userId, exchangeAccountId, cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        if (persisted is not null)
+        {
+            lock (channel.Sync)
+            {
+                AdvanceGeneration(channel, persisted.Value.Generation);
+            }
+        }
+    }
+
+    private async Task<ExchangeAccountSyncResult> SynchronizeAndRecordAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel,
+        long generation,
+        long recoveryRequestsAtStart,
+        CancellationToken cancellationToken)
+    {
         var startedAt = clock.GetUtcNow();
         ExchangeAccountSyncResult result;
         await using (var scope = scopeFactory.CreateAsyncScope())
@@ -434,6 +503,43 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Сохраняет необработанный запрос recovery текущего поколения при исключении операции, чтобы
+    /// потеря событий не терялась вместе с процессом.
+    /// </summary>
+    /// <remarks>
+    /// Запись использует собственный ограниченный по времени токен: отмена операции не отменяет фиксацию
+    /// потери. Ошибка записи не заменяет исходное исключение; локальный запрос остаётся
+    /// необработанным, и следующий проход сохранит признак до REST-сверки.
+    /// </remarks>
+    private async Task TryPersistUnhandledRecoveryAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel)
+    {
+        long generation;
+        lock (channel.Sync)
+        {
+            if (!channel.HasUnhandledRecoveryRequest || channel.Generation == 0)
+            {
+                return;
+            }
+
+            generation = channel.Generation;
+        }
+
+        using var timeout = new CancellationTokenSource(RecoveryStateWriteTimeout);
+        try
+        {
+            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, timeout.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Исходное исключение операции пробрасывает вызывающий код.
+        }
     }
 
     private async Task<bool> SetRecoveryRequiredAsync(

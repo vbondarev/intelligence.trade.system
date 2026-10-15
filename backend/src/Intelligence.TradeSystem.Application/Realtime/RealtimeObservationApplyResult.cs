@@ -18,6 +18,7 @@ public sealed record RealtimeObservationApplyResult
     public const string RevisionConflict = "revision_conflict";
     public const string OlderRevision = "older_revision";
     public const string OlderThanPosition = "older_than_position";
+    public const string OlderThanPositionHistory = "older_than_position_history";
     public const string OlderThanClosure = "older_than_closure";
     public const string OlderThanBalance = "older_than_balance";
     public const string BalanceConflict = "balance_conflict";

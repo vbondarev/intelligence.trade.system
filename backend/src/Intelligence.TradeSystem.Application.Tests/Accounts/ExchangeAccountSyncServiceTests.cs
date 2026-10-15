@@ -1732,6 +1732,12 @@ public sealed class ExchangeAccountSyncServiceTests
         var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
         lease.SetupGet(value => value.Provider).Returns(provider.Object);
         lease.Setup(value => value.Dispose());
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                ownedAccount.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PortfolioState?)null);
         positionRepository
             .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
                 userId,

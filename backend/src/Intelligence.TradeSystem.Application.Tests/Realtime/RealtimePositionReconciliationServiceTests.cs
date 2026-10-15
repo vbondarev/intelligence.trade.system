@@ -743,6 +743,128 @@ public sealed class RealtimePositionReconciliationServiceTests
     }
 
     [Fact]
+    public async Task Delayed_Update_Older_Than_The_Latest_History_Change_Requires_Recovery_Without_Writes()
+    {
+        var world = new RealtimeTestWorld();
+        var position = world.SeedPosition("BTCUSDT", T0, T0, seeded => seeded.MarkUnknown(T0.AddSeconds(10)));
+        world.Clock.UtcNow = T0.AddSeconds(12);
+
+        var result = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(5), 5, OpenPosition(size: 2m)));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanPositionHistory);
+        var stored = world.Positions.Should().ContainSingle().Subject;
+        stored.Id.Should().Be(position.Id);
+        stored.TrackingState.Should().Be(PositionTrackingState.Unknown);
+        stored.Size.Should().Be(1m);
+        stored.LastObservedAt.Should().Be(T0);
+        stored.Changes.Select(change => (change.Kind, change.OccurredAt)).Should().Equal(
+            (PositionChangeKind.New, T0),
+            (PositionChangeKind.MarkedUnknown, T0.AddSeconds(10)));
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.Portfolios.Should().BeEmpty();
+        world.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_Newer_Than_The_Latest_History_Change_Recovers_The_Position()
+    {
+        var world = new RealtimeTestWorld();
+        world.SeedPosition("BTCUSDT", T0, T0, seeded => seeded.MarkUnknown(T0.AddSeconds(10)));
+        world.Clock.UtcNow = T0.AddSeconds(12);
+
+        var result = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(11), 11));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        var stored = world.ActivePositions.Should().ContainSingle().Subject;
+        stored.LastObservedAt.Should().Be(T0.AddSeconds(11));
+        stored.Changes.Select(change => (change.Kind, change.OccurredAt)).Should().Equal(
+            (PositionChangeKind.New, T0),
+            (PositionChangeKind.MarkedUnknown, T0.AddSeconds(10)),
+            (PositionChangeKind.Recovered, T0.AddSeconds(11)));
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(11);
+        world.Events.OfType<PositionChangedEventV1>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Scoped_Rest_Snapshot_Older_Than_The_Latest_History_Change_Does_Not_Rewrite_History()
+    {
+        var world = new RealtimeTestWorld();
+        var staleAt = T0.AddMinutes(10);
+        world.SeedPosition("BTCUSDT", T0, T0, seeded => seeded.RefreshFreshness(staleAt, TimeSpan.FromMinutes(5)));
+        // Часы backend откатились после пометки устаревания, сделанной сверкой другого символа.
+        world.Clock.UtcNow = T0.AddMinutes(6);
+
+        var result = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.CloseObservation(T0.AddMinutes(5), 11));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.Provider.PositionRequests.Should().Equal("BTCUSDT");
+        var stored = world.Positions.Should().ContainSingle().Subject;
+        stored.TrackingState.Should().Be(PositionTrackingState.Stale);
+        stored.Changes.Select(change => (change.Kind, change.OccurredAt)).Should().Equal(
+            (PositionChangeKind.New, T0),
+            (PositionChangeKind.MarkedStale, staleAt));
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.Portfolios.Should().BeEmpty();
+        world.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Closed_Lifecycles_Observed_After_A_Clock_Rollback_Do_Not_Break_Scoped_Confirmation()
+    {
+        var world = new RealtimeTestWorld();
+        var closedBtc = new[]
+        {
+            world.SeedPosition("BTCUSDT", T0.AddSeconds(8), T0.AddSeconds(8), seeded => seeded.Close(T0.AddSeconds(8))),
+            world.SeedPosition("BTCUSDT", T0.AddSeconds(9), T0.AddSeconds(10), seeded => seeded.Close(T0.AddSeconds(10))),
+        };
+        var closedSol = world.SeedPosition(
+            "SOLUSDT",
+            T0.AddSeconds(12),
+            T0.AddSeconds(12),
+            seeded => seeded.Close(T0.AddSeconds(12)));
+        world.SeedPosition("ETHUSDT", T0.AddSeconds(1), T0.AddSeconds(1));
+        world.Provider.SetExchangePosition(OpenPosition("ETHUSDT", size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(6);
+
+        var result = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.CloseObservation(T0.AddSeconds(2), 1, "ETHUSDT"));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        result.ConfirmedByRest.Should().BeTrue();
+        var eth = world.ActivePositions.Should().ContainSingle().Subject;
+        eth.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
+        eth.Size.Should().Be(2m);
+        eth.LastObservedAt.Should().Be(T0.AddSeconds(6));
+        foreach (var closed in closedBtc.Append(closedSol))
+        {
+            var stored = world.Positions.Single(position => position.Id == closed.Id);
+            stored.TrackingState.Should().Be(PositionTrackingState.Closed);
+            stored.LastObservedAt.Should().Be(closed.LastObservedAt);
+            stored.ClosedAt.Should().Be(closed.ClosedAt);
+            stored.Changes.Select(change => (change.Kind, change.OccurredAt))
+                .Should().Equal(closed.Changes.Select(change => (change.Kind, change.OccurredAt)));
+        }
+
+        world.Cursor("ETHUSDT")!.LastProviderSequence.Should().Be(1);
+        var latest = world.LatestPortfolio!;
+        latest.Positions.Should().ContainSingle().Which.Size.Should().Be(2m);
+        latest.CalculatedAt.Should().BeOnOrAfter(T0.AddSeconds(6));
+    }
+
+    [Fact]
     public async Task Persistent_Conflicts_Exhaust_Bounded_Retries_Atomically()
     {
         var world = new RealtimeTestWorld { CursorConflictsToInject = 10 };

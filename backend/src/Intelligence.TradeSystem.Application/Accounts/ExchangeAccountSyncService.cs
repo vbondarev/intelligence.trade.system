@@ -91,7 +91,7 @@ public sealed class ExchangeAccountSyncService(
         var normalizedPositionsObservation = NormalizePositionsObservation(positionsObservation);
         var balanceObservationAt = NormalizeObservationTimestamp(balanceObservation.ObservedAt);
         var positionsObservationAt = normalizedPositionsObservation.ObservedAt;
-        var calculatedAt = Max(
+        var observationCompletedAt = Max(
             clock.GetUtcNow(),
             balanceObservation.ObservedAt,
             positionsObservationAt);
@@ -186,28 +186,33 @@ public sealed class ExchangeAccountSyncService(
                                 .Select(versioned => versioned.Value)
                                 .ToArray();
 
-                            PortfolioState? previousPortfolioState = null;
-                            if (!IsApplied(balanceDisposition) ||
-                                !IsApplied(positionsDisposition) ||
-                                !hasFreshBalance)
-                            {
-                                previousPortfolioState = await portfolioStateRepository
-                                    .GetLatestAsync(
-                                        userId,
-                                        exchangeAccountId,
-                                        persistenceCancellationToken)
-                                    .ConfigureAwait(false);
-                            }
+                            // Читается под блокировкой аккаунта при каждой попытке: новая сводка должна
+                            // стать последней и после сводки потока, записанной экземпляром с опережающими
+                            // часами.
+                            var previousPortfolioState = await portfolioStateRepository
+                                .GetLatestAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
 
                             persistenceCancellationToken.ThrowIfCancellationRequested();
 
+                            // Свежесть оценивается не раньше последнего подтверждённого наблюдения позиций:
+                            // факт потока мог быть записан при опережающих часах. Время REST-наблюдения при
+                            // этом не меняется и определяет только применимость снимка.
+                            var freshnessEvaluatedAt = trackedPositions
+                                .Where(position => position.TrackingState != PositionTrackingState.Closed)
+                                .Select(position => position.LastObservedAt)
+                                .Append(observationCompletedAt)
+                                .Max();
                             var positionsAreCurrent =
                                 IsApplied(positionsDisposition);
                             var reconciliation = PositionReconciler.Reconcile(
                                 exchangeAccountId,
                                 trackedPositions,
                                 normalizedPositionsObservation,
-                                calculatedAt,
+                                freshnessEvaluatedAt,
                                 PortfolioStaleAfter,
                                 applyObservation: positionsAreCurrent);
                             attemptedNewPositionKeys = reconciliation.NewPositions
@@ -255,6 +260,11 @@ public sealed class ExchangeAccountSyncService(
                                     balanceObservation.ObservedAt)
                                 : previousPortfolioState?.Capital
                                     ?? new PortfolioCapitalState(null, null, null);
+                            var calculatedAt = PortfolioStateCalculatedAt.Resolve(
+                                capital.ObservedAt is { } capitalObservedAt && capitalObservedAt > freshnessEvaluatedAt
+                                    ? capitalObservedAt
+                                    : freshnessEvaluatedAt,
+                                previousPortfolioState?.CalculatedAt);
                             var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
                                 capital,
                                 reconciledPositions,
