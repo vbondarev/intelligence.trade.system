@@ -30,7 +30,8 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// полная REST-сверка. Признак recovery снимается только полной сверкой текущего запроса, во время
 /// которой события не терялись. Потеря во время любой сверки или записи её итога снова устанавливает
 /// persisted-признак текущего поколения, в том числе когда сверка или применение завершаются
-/// исключением или отменой. Поколение сверки берётся из сохранённого состояния наблюдения, поэтому
+/// исключением или отменой. Запрос, который ограниченный проход оставляет следующему вызову, сохраняется
+/// до возврата из прохода. Поколение сверки берётся из сохранённого состояния наблюдения, поэтому
 /// стартовая сверка снимает признак и без потоковых наблюдений.
 /// </para>
 /// <para>
@@ -121,7 +122,8 @@ public sealed class ExchangeAccountObservationCoordinator(
     /// <returns>
     /// Итоги ограниченного прохода в порядке обработки. Один проход применяет не больше ёмкости
     /// буфера и выполняет не больше одной recovery-сверки; вызывающий код обязан повторить вызов,
-    /// если новые наблюдения продолжают поступать.
+    /// если новые наблюдения продолжают поступать. Оставшийся необработанным запрос recovery к моменту
+    /// возврата сохранён в состоянии наблюдения, если его поколение не сменилось.
     /// </returns>
     public async Task<IReadOnlyList<RealtimeObservationApplyResult>> ProcessPendingAsync(
         UserId userId,
@@ -266,7 +268,46 @@ public sealed class ExchangeAccountObservationCoordinator(
             }
         }
 
+        await PersistUnhandledRecoveryAsync(userId, exchangeAccountId, channel, cancellationToken).ConfigureAwait(false);
         return results;
+    }
+
+    /// <summary>
+    /// Сохраняет запрос recovery, который проход оставляет следующему вызову: исчерпанный бюджет наблюдений
+    /// или уже использованная recovery-попытка не должны оставлять потерю событий только в памяти процесса.
+    /// </summary>
+    /// <remarks>
+    /// Ошибка записи не подавляется. После неё выполняется повторная попытка с собственным ограниченным
+    /// токеном, как на исключительных путях, и исходное исключение пробрасывается; локальный запрос остаётся
+    /// необработанным до полной сверки. Переполнение буфера после этой проверки относится к следующему проходу.
+    /// </remarks>
+    private async Task PersistUnhandledRecoveryAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel,
+        CancellationToken cancellationToken)
+    {
+        long generation;
+        lock (channel.Sync)
+        {
+            if (!channel.HasUnhandledRecoveryRequest || channel.Generation == 0)
+            {
+                return;
+            }
+
+            generation = channel.Generation;
+        }
+
+        try
+        {
+            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            await TryPersistUnhandledRecoveryAsync(userId, exchangeAccountId, channel).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private bool TryEnqueue(UserId userId, ExchangeAccountId exchangeAccountId, PendingObservation pending)
@@ -542,6 +583,14 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
     }
 
+    /// <summary>
+    /// Устанавливает persisted-признак recovery поколения <paramref name="generation"/>, не изменяя версию
+    /// состояния, если признак уже установлен.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true"/>, если признак этого поколения сохранён; <see langword="false"/>, если состояние
+    /// отсутствует или уже относится к другому поколению.
+    /// </returns>
     private async Task<bool> SetRecoveryRequiredAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,

@@ -11,7 +11,7 @@ using static Intelligence.TradeSystem.Application.Tests.Realtime.RealtimeTestWor
 
 namespace Intelligence.TradeSystem.Application.Tests.Realtime;
 
-public sealed class ExchangeAccountObservationCoordinatorTests
+public sealed partial class ExchangeAccountObservationCoordinatorTests
 {
     [Fact]
     public void AddApplication_Routes_All_Rest_Synchronizations_Through_One_Coordinator()

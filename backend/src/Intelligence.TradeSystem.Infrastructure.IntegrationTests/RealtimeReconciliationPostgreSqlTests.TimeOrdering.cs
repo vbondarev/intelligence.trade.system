@@ -240,6 +240,70 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
+    public async Task Recovery_required_by_the_last_observation_of_a_bounded_pass_survives_a_coordinator_restart()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var provider = new TestPrivateProvider();
+        await using var services = CreateApplicationServices(account, provider);
+        var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+        var coordinator = new ExchangeAccountObservationCoordinator(
+            scopeFactory,
+            new FixedTimeProvider(T1.AddMinutes(1)),
+            bufferCapacity: 1);
+        Assert.True((await coordinator.SynchronizeAsync(account.UserId, account.Id)).FullReconciliationCommitted);
+        var reconciled = await ReadStateAsync(account);
+        Assert.False(reconciled.RecoveryRequired);
+        Assert.Equal(T1.AddMinutes(1), reconciled.LastFullyReconciledAt);
+        var openAt = T1.AddMinutes(2);
+        Assert.True(coordinator.TryEnqueue(account.UserId, generation, OpenObservation(account, openAt, 10)));
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            Assert.Single(await coordinator.ProcessPendingAsync(account.UserId, account.Id)).Outcome);
+        var (portfoliosBefore, outboxBefore) = await CountWritesAsync(account);
+
+        Assert.True(coordinator.TryEnqueue(
+            account.UserId,
+            generation,
+            OpenObservation(account, openAt, 10, OpenPosition(size: 2m))));
+        var conflict = Assert.Single(await coordinator.ProcessPendingAsync(account.UserId, account.Id));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, conflict.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.RevisionConflict, conflict.ReasonCode);
+        await using (var verification = fixture.CreateContext())
+        {
+            var persisted = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+            Assert.Equal(generation, persisted!.Value.Generation);
+            Assert.True(persisted.Value.RecoveryRequired);
+            Assert.Equal(reconciled.LastFullyReconciledAt, persisted.Value.LastFullyReconciledAt);
+            var position = await SinglePositionAsync(verification, account);
+            Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+            Assert.Equal(1m, position.Size);
+            AssertHistory(position, (PositionChangeKind.New, openAt));
+            Assert.Equal(10, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
+            Assert.Equal((portfoliosBefore, outboxBefore), await CountWritesAsync(verification, account));
+        }
+
+        var restarted = new ExchangeAccountObservationCoordinator(
+            scopeFactory,
+            new FixedTimeProvider(T1.AddMinutes(3)),
+            bufferCapacity: 1);
+        Assert.Empty(await restarted.ProcessPendingAsync(account.UserId, account.Id));
+        Assert.True((await ReadStateAsync(account)).RecoveryRequired);
+        provider.ObservedAt = T1.AddMinutes(3);
+        provider.SetPosition(OpenPosition(size: 2m));
+
+        var recovery = await restarted.SynchronizeAsync(account.UserId, account.Id);
+
+        Assert.True(recovery.FullReconciliationCommitted);
+        var recovered = await ReadStateAsync(account);
+        Assert.Equal(generation, recovered.Generation);
+        Assert.False(recovered.RecoveryRequired);
+        Assert.Equal(T1.AddMinutes(3), recovered.LastFullyReconciledAt);
+        await using var reread = fixture.CreateContext();
+        Assert.Equal(2m, (await SinglePositionAsync(reread, account)).Size);
+    }
+
+    [Fact]
     public async Task Closed_lifecycles_observed_later_do_not_break_scoped_confirmation_of_another_symbol()
     {
         var (account, generation) = await CreateObservedAccountAsync();
