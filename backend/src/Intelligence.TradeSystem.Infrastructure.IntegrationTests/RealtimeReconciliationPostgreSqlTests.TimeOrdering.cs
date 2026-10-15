@@ -639,6 +639,149 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.False(state!.Value.RecoveryRequired);
     }
 
+    /// <summary>
+    /// R-208-01: Failed REST не создаёт ложное окно; более новая stream-revision восстанавливает позицию.
+    /// </summary>
+    [Fact]
+    public async Task Failed_rest_then_newer_stream_observation_persists_recovered_position()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+
+        var failed = await SynchronizeAsync(
+            account,
+            new TestPrivateProvider { ObservedAt = T1.AddSeconds(10), Status = OpenPositionsObservationStatus.Failed },
+            new FixedTimeProvider(T1.AddSeconds(10)));
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, failed.Outcome);
+        Assert.False(failed.AcceptedPositionsObservation);
+        Assert.False(failed.FullReconciliationCommitted);
+
+        var recovered = await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddSeconds(12), 2, OpenPosition(size: 2m)));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, recovered.Outcome);
+        Assert.False(recovered.ConfirmedByRest);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(2m, position.Size);
+        Assert.Equal(T1.AddSeconds(12), position.LastObservedAt);
+        AssertHistory(
+            position,
+            (PositionChangeKind.New, T1),
+            (PositionChangeKind.MarkedUnknown, T1.AddSeconds(10)),
+            (PositionChangeKind.Increased, T1.AddSeconds(12)));
+        Assert.Equal(2, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
+        var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(2m, Assert.Single(portfolio!.Positions).Size);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+        Assert.True(state!.Value.RecoveryRequired);
+        Assert.Null(state.Value.LastFullyReconciledAt);
+    }
+
+    /// <summary>
+    /// R-208-02: противоречащий Complete с равным временем не снимает recovery и не меняет позицию.
+    /// </summary>
+    [Fact]
+    public async Task Equal_timestamp_conflicting_complete_keeps_recovery_and_position()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        int changedBefore;
+        int closedBefore;
+        await using (var beforeContext = fixture.CreateContext())
+        {
+            changedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionChanged);
+            closedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionClosed);
+        }
+
+        var provider = new TestPrivateProvider { ObservedAt = T1 };
+        provider.SetPosition(OpenPosition(size: 2m));
+        var sync = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, sync.Outcome);
+        Assert.False(sync.FullReconciliationCommitted);
+        Assert.True(sync.AcceptedPositionsObservation);
+        await using (var verification = fixture.CreateContext())
+        {
+            var position = await SinglePositionAsync(verification, account);
+            Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+            Assert.Equal(1m, position.Size);
+            Assert.Equal(T1, position.LastObservedAt);
+            Assert.Single(position.Changes);
+            var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+            Assert.False(portfolio!.PositionsFullyReconciled);
+            Assert.Equal(1m, Assert.Single(portfolio.Positions).Size);
+            Assert.Equal(changedBefore, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+            Assert.Equal(closedBefore, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+            var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+            Assert.True(state!.Value.RecoveryRequired);
+            Assert.Null(state.Value.LastFullyReconciledAt);
+            Assert.Equal(1, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
+        }
+
+        var recovery = new TestPrivateProvider { ObservedAt = T1.AddSeconds(30) };
+        recovery.SetPosition(OpenPosition(size: 2m));
+        await using var services = CreateApplicationServices(
+            account,
+            recovery,
+            new FixedTimeProvider(T1.AddSeconds(30)));
+        var recovered = await services.GetRequiredService<ExchangeAccountObservationCoordinator>()
+            .SynchronizeAsync(account.UserId, account.Id);
+
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, recovered.Outcome);
+        Assert.True(recovered.FullReconciliationCommitted);
+        await using var reread = fixture.CreateContext();
+        var recoveredPosition = await SinglePositionAsync(reread, account);
+        Assert.Equal(2m, recoveredPosition.Size);
+        Assert.Equal(T1.AddSeconds(30), recoveredPosition.LastObservedAt);
+        var recoveredState = await new RealtimeObservationStateStore(reread).GetAsync(account.UserId, account.Id);
+        Assert.False(recoveredState!.Value.RecoveryRequired);
+        Assert.Equal(T1.AddSeconds(30), recoveredState.Value.LastFullyReconciledAt);
+    }
+
+    /// <summary>
+    /// R-208-02: scoped confirmation с равным временем и пустым Complete не закрывает позицию.
+    /// </summary>
+    [Fact]
+    public async Task Equal_timestamp_empty_scoped_rest_does_not_close_or_advance_cursor()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var confirmation = new TestPrivateProvider { ObservedAt = T1 };
+        var (portfoliosBefore, outboxBefore) = await CountWritesAsync(account);
+        var close = CloseObservation(account, T1.AddSeconds(2), 2) with { ReceivedAt = T1 };
+
+        var result = await ApplyAsync(
+            account,
+            generation,
+            close,
+            confirmation,
+            new FixedTimeProvider(T1.AddSeconds(3)),
+            confirmWithRest: true);
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, result.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.RestConfirmationIncomplete, result.ReasonCode);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(1m, position.Size);
+        Assert.Equal(T1, position.LastObservedAt);
+        Assert.Equal(1, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
+        Assert.Equal((portfoliosBefore, outboxBefore), await CountWritesAsync(verification, account));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+    }
+
     private async Task<ExchangeAccountSyncResult> SynchronizeAsync(
         ExchangeAccount account,
         TestPrivateProvider provider,

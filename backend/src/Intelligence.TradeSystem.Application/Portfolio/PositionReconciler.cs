@@ -138,6 +138,9 @@ public static class PositionReconciler
 
         var observedKeys = new HashSet<ExchangePositionKey>();
         var hasMappingIssues = false;
+        // Равное время без совпадающего материального состояния не доказывает полноту:
+        // снимок не новее persisted факта и не подтверждает противоречие или отсутствие.
+        var hasEqualTimestampConflict = false;
 
         foreach (var observed in observation.Positions)
         {
@@ -194,8 +197,21 @@ public static class PositionReconciler
 
             if (activeByKey.TryGetValue(key, out var existing))
             {
-                if (observation.ObservedAt <= existing.LastObservedAt)
+                if (observation.ObservedAt < existing.LastObservedAt)
                     continue;
+
+                if (observation.ObservedAt == existing.LastObservedAt)
+                {
+                    // Совпадающий Active-повтор идемпотентен; Unknown/Stale или иной материал —
+                    // неподтверждённый конфликт порядка.
+                    if (existing.TrackingState != PositionTrackingState.Active ||
+                        !HasSameMaterialState(existing, observed))
+                    {
+                        hasEqualTimestampConflict = true;
+                    }
+
+                    continue;
+                }
 
                 positionsToPersist.Add(existing);
                 var change = existing.ApplyObservation(
@@ -271,8 +287,15 @@ public static class PositionReconciler
             if (observedKeys.Contains(position.ExchangePositionKey))
                 continue;
 
-            if (observation.ObservedAt <= position.LastObservedAt)
+            if (observation.ObservedAt < position.LastObservedAt)
                 continue;
+
+            if (observation.ObservedAt == position.LastObservedAt)
+            {
+                // Пустой Complete при равном времени не доказывает отсутствие активной позиции.
+                hasEqualTimestampConflict = true;
+                continue;
+            }
 
             var change = canInferClosed
                 ? position.Close(observation.ObservedAt, missingCause)
@@ -288,7 +311,41 @@ public static class PositionReconciler
         return new PositionReconciliationResult(newPositions, changes, warnings)
         {
             PositionsToPersist = positionsToPersist.ToArray(),
-            IsFullyReconciled = canInferClosed,
+            IsFullyReconciled = canInferClosed && !hasEqualTimestampConflict,
         };
     }
+
+    /// <summary>
+    /// Сравнивает существенные поля по той же семантике, что <see cref="PositionStateSnapshot.HasSameMaterialStateAs"/>.
+    /// </summary>
+    private static bool HasSameMaterialState(Position position, OpenPosition observed) =>
+        ToMaterialSnapshot(position).HasSameMaterialStateAs(ToMaterialSnapshot(observed));
+
+    private static PositionStateSnapshot ToMaterialSnapshot(Position position) =>
+        new(
+            position.Size,
+            position.AverageEntryPrice,
+            position.PositionValue,
+            position.Leverage,
+            position.MarkPrice,
+            position.BreakEvenPrice,
+            position.LiquidationPrice,
+            position.UnrealizedPnl,
+            position.TakeProfit,
+            position.StopLoss,
+            position.TrailingStop);
+
+    private static PositionStateSnapshot ToMaterialSnapshot(OpenPosition observed) =>
+        new(
+            observed.Size,
+            observed.AvgPrice,
+            observed.PositionValue,
+            observed.Leverage,
+            observed.MarkPrice,
+            observed.BreakEvenPrice,
+            observed.LiquidationPrice,
+            observed.UnrealizedPnl,
+            observed.TakeProfit,
+            observed.StopLoss,
+            observed.TrailingStop);
 }

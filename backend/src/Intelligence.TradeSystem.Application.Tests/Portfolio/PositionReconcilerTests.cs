@@ -198,25 +198,111 @@ public sealed class PositionReconcilerTests
     }
 
     [Fact]
-    public void Equal_Active_Observation_Is_Idempotent()
+    public void Equal_Active_Observation_With_Identical_Material_State_Is_Idempotent_And_Fully_Reconciled()
     {
-        var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(1));
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
         var result = PositionReconciler.Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
                 MarketCategory.Linear,
                 null,
-                T0.AddMinutes(1),
-                [CreateOpenPosition(size: 2m)]),
-            T0.AddMinutes(1),
+                observedAt,
+                [CreateOpenPosition(size: 1m)]),
+            observedAt,
             StaleAfter);
 
         position.Size.Should().Be(1m);
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
         position.Changes.Should().ContainSingle();
         result.Changes.Should().BeEmpty();
         result.PositionsToPersist.Should().BeEmpty();
         result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Equal_Timestamp_With_Conflicting_Size_Does_Not_Fully_Reconcile()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                [CreateOpenPosition(size: 2m)]),
+            observedAt,
+            StaleAfter);
+
+        position.Size.Should().Be(1m);
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.Changes.Should().ContainSingle();
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equal_Timestamp_Empty_Complete_Does_Not_Close_Or_Fully_Reconcile()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(MarketCategory.Linear, null, observedAt, []),
+            observedAt,
+            StaleAfter);
+
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.Size.Should().Be(1m);
+        result.Changes.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equal_Timestamp_With_Conflicting_Leverage_Does_Not_Fully_Reconcile()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        var conflicting = CreateOpenPosition(size: 1m) with { Leverage = 5m };
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(MarketCategory.Linear, null, observedAt, [conflicting]),
+            observedAt,
+            StaleAfter);
+
+        position.Size.Should().Be(1m);
+        position.Leverage.Should().Be(2m);
+        result.Changes.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equal_Timestamp_Does_Not_Fully_Reconcile_Unknown_Position()
+    {
+        var observedAt = T0.AddMinutes(1);
+        var position = CreateTrackedPosition(AccountA, at: observedAt);
+        position.MarkUnknown(observedAt, PositionChangeCause.PositionsObservationFailed);
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [position],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                [CreateOpenPosition(size: 1m)]),
+            observedAt,
+            StaleAfter);
+
+        position.TrackingState.Should().Be(PositionTrackingState.Unknown);
+        result.Changes.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
     }
 
     [Fact]

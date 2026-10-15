@@ -446,7 +446,8 @@ public sealed class ExchangeAccountSyncService(
                         hasFreshBalance,
                         balanceDisposition,
                         balanceObservation,
-                        positionsDisposition);
+                        positionsDisposition,
+                        normalizedPositionsObservation);
                 }
 
                 return AttachAcceptedResourceEvidence(
@@ -454,7 +455,8 @@ public sealed class ExchangeAccountSyncService(
                     hasFreshBalance,
                     balanceDisposition,
                     balanceObservation,
-                    positionsDisposition);
+                    positionsDisposition,
+                    normalizedPositionsObservation);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -476,7 +478,8 @@ public sealed class ExchangeAccountSyncService(
                     hasFreshBalance,
                     balanceDisposition,
                     balanceObservation,
-                    positionsDisposition);
+                    positionsDisposition,
+                    normalizedPositionsObservation);
             }
 
             return attemptResult;
@@ -595,7 +598,8 @@ public sealed class ExchangeAccountSyncService(
         bool hasFreshBalance,
         ExchangeAccountObservationDisposition balanceDisposition,
         AccountBalanceObservation balanceObservation,
-        ExchangeAccountObservationDisposition positionsDisposition)
+        ExchangeAccountObservationDisposition positionsDisposition,
+        OpenPositionsObservation positionsObservation)
     {
         var balanceRead = ResolveAcceptedBalanceReadWindow(
             hasFreshBalance,
@@ -603,8 +607,16 @@ public sealed class ExchangeAccountSyncService(
             balanceObservation);
         return result
             .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt)
-            .WithAcceptedPositionsObservation(IsApplied(positionsDisposition));
+            .WithAcceptedPositionsObservation(
+                IsApplied(positionsDisposition) &&
+                IsAcceptedPositionsStatus(positionsObservation.Status));
     }
+
+    /// <summary>
+    /// Failed не даёт доказательств порядка: watermark мог продвинуться, но окно позиций не создаётся.
+    /// </summary>
+    private static bool IsAcceptedPositionsStatus(OpenPositionsObservationStatus status) =>
+        status is OpenPositionsObservationStatus.Complete or OpenPositionsObservationStatus.Partial;
 
     private OpenPositionsObservation NormalizePositionsObservation(
         OpenPositionsObservation observation)

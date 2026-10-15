@@ -1793,6 +1793,130 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.Portfolios[^1].Capital.ObservedAt.Should().Be(duringBalanceAt);
     }
 
+    /// <summary>
+    /// R-208-01: Failed positions при Applied watermark не создаёт окно REST; более новая
+    /// допустимая revision применяется напрямую без scoped confirmation.
+    /// </summary>
+    [Fact]
+    public async Task Failed_Positions_Does_Not_Create_Rest_Window_Or_Force_Scoped_Confirmation()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await world.CreatePositionService().ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(10), 1));
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = T0.AddSeconds(11);
+        world.Clock.UtcNow = restStartedAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            // Интервал запроса [T11, T14]: ObservedAt снимка зафиксирован до колбэка как T11.
+            world.Clock.UtcNow = restStartedAt.AddSeconds(3);
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.AcceptedPositionsObservation.Should().BeFalse();
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Single().TrackingState.Should().Be(PositionTrackingState.Unknown);
+        world.ActivePositions.Single().LastObservedAt.Should().Be(T0.AddSeconds(10));
+        world.ActivePositions.Single().Changes[^1].OccurredAt.Should().Be(restStartedAt);
+
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Clock.UtcNow = restStartedAt.AddSeconds(4);
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(T0.AddSeconds(12), 2, OpenPosition(size: 2m)))
+            .Should()
+            .BeTrue();
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var applied = results.Should().ContainSingle().Subject;
+        applied.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        applied.ConfirmedByRest.Should().BeFalse();
+        world.Provider.PositionRequests.Should().Equal([null]);
+        var position = world.ActivePositions.Should().ContainSingle().Subject;
+        position.Size.Should().Be(2m);
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.LastObservedAt.Should().Be(T0.AddSeconds(12));
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
+    }
+
+    /// <summary>
+    /// R-208-01: Failed positions не уничтожает ранее принятое успешное окно порядка.
+    /// </summary>
+    [Fact]
+    public async Task Failed_Positions_Preserves_Previous_Successful_Rest_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstSyncAt = world.Clock.UtcNow;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(firstSyncAt.AddSeconds(1), 1, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+            world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        };
+
+        var first = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        first.AcceptedPositionsObservation.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(3m);
+
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(5);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        var failed = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        failed.AcceptedPositionsObservation.Should().BeFalse();
+        failed.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(6);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+    }
+
+    /// <summary>
+    /// R-208-02 / S-27: Complete REST с равным временем и противоречащим снимком не снимает recovery.
+    /// </summary>
+    [Fact]
+    public async Task Equal_Timestamp_Conflicting_Complete_Rest_Does_Not_Clear_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(10), 1, OpenPosition(size: 1m)));
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+    }
+
     /// <summary>S-24: неуспешная сверка после успешной не уничтожает доказательство порядка для буфера.</summary>
     [Fact]
     public async Task Failed_Sync_After_Successful_Does_Not_Allow_Buffered_Position_Regression()

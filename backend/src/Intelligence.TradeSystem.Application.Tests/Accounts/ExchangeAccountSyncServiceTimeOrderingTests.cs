@@ -171,6 +171,98 @@ public sealed class ExchangeAccountSyncServiceTimeOrderingTests
         world.Account.LastAppliedPositionsObservationAt.Should().Be(T0.AddSeconds(20));
     }
 
+    /// <summary>
+    /// R-208-01: Failed positions + Applied watermark не выставляет AcceptedPositionsObservation.
+    /// </summary>
+    [Fact]
+    public async Task Failed_Positions_With_Applied_Watermark_Does_Not_Accept_Positions_Observation()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.AcceptedPositionsObservation.Should().BeFalse();
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(T0.AddSeconds(20));
+        world.ActivePositions.Single().TrackingState.Should().Be(PositionTrackingState.Unknown);
+    }
+
+    /// <summary>
+    /// R-208-01: Complete/Partial при Applied сохраняют свидетельство принятого наблюдения позиций.
+    /// </summary>
+    [Theory]
+    [InlineData(OpenPositionsObservationStatus.Complete)]
+    [InlineData(OpenPositionsObservationStatus.Partial)]
+    public async Task Accepted_Positions_Statuses_With_Applied_Watermark_Keep_Observation_Evidence(
+        OpenPositionsObservationStatus status)
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.Status = status;
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.AcceptedPositionsObservation.Should().BeTrue();
+        if (status == OpenPositionsObservationStatus.Complete)
+        {
+            result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+            result.FullReconciliationCommitted.Should().BeTrue();
+        }
+        else
+        {
+            result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+            result.FullReconciliationCommitted.Should().BeFalse();
+        }
+    }
+
+    /// <summary>
+    /// R-208-01: Stale Complete не создаёт свидетельство принятия наблюдения позиций.
+    /// </summary>
+    [Fact]
+    public async Task Stale_Complete_Positions_Do_Not_Accept_Positions_Observation()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.SetExchangePosition(OpenPosition());
+        var first = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        first.AcceptedPositionsObservation.Should().BeTrue();
+
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        var stale = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        stale.Outcome.Should().Be(ExchangeAccountSyncOutcome.Superseded);
+        stale.AcceptedPositionsObservation.Should().BeFalse();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+    }
+
+    /// <summary>
+    /// R-208-02: Complete с равным временем и противоречащим размером не подтверждает полноту.
+    /// </summary>
+    [Fact]
+    public async Task Equal_Timestamp_Conflicting_Complete_Does_Not_Commit_Full_Reconciliation()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
+        result.AcceptedPositionsObservation.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+        world.Events.OfType<PositionChangedEventV1>().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Full_Rest_Older_Than_The_Latest_History_Change_Does_Not_Rewrite_History()
     {

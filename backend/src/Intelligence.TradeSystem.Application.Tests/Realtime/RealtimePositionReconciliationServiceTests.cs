@@ -205,6 +205,57 @@ public sealed class RealtimePositionReconciliationServiceTests
         world.Events.OfType<PositionClosedEventV1>().Should().ContainSingle();
     }
 
+    /// <summary>
+    /// R-208-02: scoped confirmation с равным временем и пустым Complete не закрывает позицию
+    /// и не продвигает cursor (ReceivedAt отката часов ≤ LastObservedAt).
+    /// </summary>
+    [Fact]
+    public async Task Equal_Timestamp_Empty_Complete_Scoped_Rest_Does_Not_Confirm_Close()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        var eventsBefore = world.Events.Count;
+        world.Provider.SnapshotObservedAt = T0;
+        world.Clock.UtcNow = T0.AddSeconds(3);
+        var close = world.CloseObservation(T0.AddSeconds(2), 2) with { ReceivedAt = T0 };
+
+        var result = await service.ApplyAsync(world.UserId, 1, close);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(1m);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        world.Events.Should().HaveCount(eventsBefore);
+        world.Events.OfType<PositionClosedEventV1>().Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// R-208-02: scoped confirmation с равным временем и противоречащим размером не подтверждает закрытие.
+    /// </summary>
+    [Fact]
+    public async Task Equal_Timestamp_Conflicting_Size_Scoped_Rest_Does_Not_Confirm_Close()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        var eventsBefore = world.Events.Count;
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Provider.SnapshotObservedAt = T0;
+        world.Clock.UtcNow = T0.AddSeconds(3);
+        var close = world.CloseObservation(T0.AddSeconds(2), 2) with { ReceivedAt = T0 };
+
+        var result = await service.ApplyAsync(world.UserId, 1, close);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(1m);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        world.Events.Should().HaveCount(eventsBefore);
+    }
+
     [Theory]
     [InlineData(OpenPositionsObservationStatus.Partial)]
     [InlineData(OpenPositionsObservationStatus.Failed)]

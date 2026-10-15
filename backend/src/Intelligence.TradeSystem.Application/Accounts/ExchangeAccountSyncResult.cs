@@ -30,13 +30,14 @@ public sealed record ExchangeAccountSyncResult(
     public DateTimeOffset? BalanceReadCompletedAt { get; private init; }
 
     /// <summary>
-    /// Транзакция этой попытки зафиксировала применение REST-наблюдения позиций
-    /// (watermark Advanced как <see cref="ExchangeAccountObservationDisposition.Applied"/>).
+    /// Транзакция этой попытки зафиксировала достоверное REST-наблюдение позиций
+    /// (Complete или Partial при <see cref="ExchangeAccountObservationDisposition.Applied"/>).
     /// </summary>
     /// <remarks>
     /// Независим от <see cref="Outcome"/> и <see cref="FullReconciliationCommitted"/>: баланс мог
-    /// завершиться Failed, а позиции — Complete или Partial. Признак не означает полноты сверки
-    /// аккаунта; coordinator использует его только как доказательство временного порядка.
+    /// завершиться Failed, а позиции — Complete или Partial. Failed positions при продвинутом
+    /// watermark не считается принятым наблюдением. Признак не означает полноты сверки аккаунта;
+    /// coordinator использует его только как доказательство временного порядка.
     /// </remarks>
     public bool AcceptedPositionsObservation { get; private init; }
 
