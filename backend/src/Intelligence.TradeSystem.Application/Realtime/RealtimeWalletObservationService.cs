@@ -226,6 +226,7 @@ public sealed class RealtimeWalletObservationService(
             }
         }
 
+        calculatedAt = PortfolioStateCalculatedAt.Resolve(calculatedAt, previous?.CalculatedAt);
         var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
             capital,
             positions,

@@ -643,6 +643,7 @@ public sealed class RealtimePositionReconciliationService(
             }
         }
 
+        calculatedAt = PortfolioStateCalculatedAt.Resolve(calculatedAt, previous?.CalculatedAt);
         var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
             capital,
             positions,

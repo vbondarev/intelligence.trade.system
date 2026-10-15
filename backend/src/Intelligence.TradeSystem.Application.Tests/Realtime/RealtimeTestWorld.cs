@@ -67,6 +67,15 @@ internal sealed class RealtimeTestWorld
     /// <summary>Количество оставшихся искусственных CAS-конфликтов при сохранении курсора.</summary>
     public int CursorConflictsToInject { get; set; }
 
+    /// <summary>Количество искусственных ошибок сохранения состояния наблюдения.</summary>
+    public int StateSaveFailuresToInject { get; set; }
+
+    /// <summary>Вызывается перед очередной транзакцией применения наблюдения.</summary>
+    public Func<CancellationToken, Task>? BeforeTransactionExecuteAsync { get; set; }
+
+    /// <summary>Credentials недоступны при scoped REST-подтверждении позиции.</summary>
+    public bool CredentialsUnavailable { get; set; }
+
     public int TransactionAttempts { get; private set; }
 
     public IReadOnlyList<IApplicationEvent> Events => events;
@@ -255,7 +264,7 @@ internal sealed class RealtimeTestWorld
             ReceivedAt = at.AddMilliseconds(50),
         };
 
-    private static IExchangeAccountCredentialStore CreateCredentialStore()
+    private IExchangeAccountCredentialStore CreateCredentialStore()
     {
         var store = new Mock<IExchangeAccountCredentialStore>();
         store
@@ -263,9 +272,13 @@ internal sealed class RealtimeTestWorld
                 It.IsAny<UserId>(),
                 It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ExchangeAccountCredential(
-                new ExchangeAccountCredentialSecret("test-key", "test-secret"),
-                ConcurrencyVersion.Initial));
+            .Returns(() => CredentialsUnavailable
+                ? Task.FromException<ExchangeAccountCredential?>(
+                    new ExchangeAccountCredentialsUnavailableException())
+                : Task.FromResult<ExchangeAccountCredential?>(
+                    new ExchangeAccountCredential(
+                        new ExchangeAccountCredentialSecret("test-key", "test-secret"),
+                        ConcurrencyVersion.Initial)));
         return store.Object;
     }
 
@@ -344,6 +357,12 @@ internal sealed class RealtimeTestWorld
         /// <summary>Выполняется во время REST-запроса позиций, до формирования ответа.</summary>
         public Action? OnPositionsRequest { get; set; }
 
+        /// <summary>Асинхронно выполняется во время REST-запроса позиций, до формирования ответа.</summary>
+        public Func<CancellationToken, Task>? OnPositionsRequestAsync { get; set; }
+
+        /// <summary>Исключение, которым завершается следующий REST-запрос позиций.</summary>
+        public Exception? PositionsException { get; set; }
+
         public void SetExchangePosition(OpenPosition position) =>
             exchangePositions[$"{position.Symbol}/{position.PositionIdx}"] = position;
 
@@ -354,25 +373,36 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<OpenPositionsObservation> GetOpenPositionsAsync(
+        public async Task<OpenPositionsObservation> GetOpenPositionsAsync(
             MarketCategory category,
             string? symbol = null,
             CancellationToken cancellationToken = default)
         {
             PositionRequests.Add(symbol);
+            if (PositionsException is { } exception)
+            {
+                throw exception;
+            }
+
             var observedAt = SnapshotObservedAt ?? world.Clock.GetUtcNow() - SnapshotLag;
             OnPositionsRequest?.Invoke();
+            if (OnPositionsRequestAsync is { } callback)
+            {
+                await callback(cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             var observed = exchangePositions.Values
                 .Where(position => symbol is null || position.Symbol == symbol)
                 .ToArray();
-            return Task.FromResult(Status switch
+            return Status switch
             {
                 OpenPositionsObservationStatus.Complete =>
                     OpenPositionsObservation.Complete(category, symbol, observedAt, observed),
                 OpenPositionsObservationStatus.Partial =>
                     OpenPositionsObservation.Partial(category, symbol, observedAt, observed, "partial"),
                 _ => OpenPositionsObservation.Failed(category, symbol, observedAt, "failed"),
-            });
+            };
         }
 
         public Task<AccountBalanceObservation> GetWalletBalanceAsync(
@@ -427,6 +457,11 @@ internal sealed class RealtimeTestWorld
             var stateSnapshot = world.state;
             try
             {
+                if (world.BeforeTransactionExecuteAsync is { } beforeExecute)
+                {
+                    await beforeExecute(cancellationToken);
+                }
+
                 await operation(cancellationToken);
             }
             catch
@@ -672,6 +707,12 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, state.ExchangeAccountId);
+            if (world.StateSaveFailuresToInject > 0)
+            {
+                world.StateSaveFailuresToInject--;
+                throw new InvalidOperationException("Injected observation state persistence failure.");
+            }
+
             if (world.state is not { } current ||
                 current.Version != expectedVersion ||
                 current.Value.Generation != state.Generation)

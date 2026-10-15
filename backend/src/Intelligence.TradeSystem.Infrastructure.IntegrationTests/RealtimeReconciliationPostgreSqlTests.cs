@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Application;
 using Intelligence.TradeSystem.Infrastructure.BackgroundSynchronization;
@@ -248,6 +249,107 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task Position_update_after_a_clock_rollback_remains_the_latest_portfolio_snapshot()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        await ApplyAsync(account, generation, OpenObservation(account, T1, 1));
+        var persistedAt = T1.AddMinutes(10);
+        await SeedNewerPortfolioTimestampAsync(account, persistedAt);
+
+        var result = await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddSeconds(1), 2, OpenPosition(size: 2m)));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, result.Outcome);
+        await using var verification = fixture.CreateContext();
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(latest);
+        Assert.Equal(persistedAt.AddTicks(TimeSpan.TicksPerMicrosecond), latest.CalculatedAt);
+        Assert.Equal(2m, Assert.Single(latest.Positions).Size);
+    }
+
+    [Fact]
+    public async Task Wallet_update_after_a_clock_rollback_remains_the_latest_portfolio_snapshot()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        await using (var context = fixture.CreateContext())
+        {
+            await CreateWalletService(context).ApplyAsync(account.UserId, generation, WalletObservation(account, T1));
+        }
+
+        var persistedAt = T1.AddMinutes(10);
+        await SeedNewerPortfolioTimestampAsync(account, persistedAt);
+        await using (var context = fixture.CreateContext())
+        {
+            var result = await CreateWalletService(context)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, T1.AddSeconds(1)));
+            Assert.Equal(RealtimeObservationApplyOutcome.Applied, result.Outcome);
+        }
+
+        await using var verification = fixture.CreateContext();
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(latest);
+        Assert.Equal(persistedAt.AddTicks(TimeSpan.TicksPerMicrosecond), latest.CalculatedAt);
+        Assert.Equal(1_100m, latest.Capital.TotalEquity);
+        Assert.Equal(T1.AddSeconds(1), latest.Capital.ObservedAt);
+    }
+
+    [Fact]
+    public async Task An_equal_portfolio_timestamp_is_advanced_by_one_postgresql_microsecond()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        await ApplyAsync(account, generation, OpenObservation(account, T1, 1));
+        var persistedAt = T1.AddMinutes(10);
+        await SeedNewerPortfolioTimestampAsync(account, persistedAt);
+
+        var result = await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, persistedAt, 2, OpenPosition(size: 2m)));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, result.Outcome);
+        await using var verification = fixture.CreateContext();
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(latest);
+        Assert.Equal(persistedAt.AddTicks(TimeSpan.TicksPerMicrosecond), latest.CalculatedAt);
+        Assert.Equal(2m, Assert.Single(latest.Positions).Size);
+    }
+
+    [Fact]
+    public async Task Fast_position_wallet_position_updates_keep_the_latest_read_model_monotonic()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        await ApplyAsync(account, generation, OpenObservation(account, T1, 1));
+        var persistedAt = T1.AddMinutes(10);
+        await SeedNewerPortfolioTimestampAsync(account, persistedAt);
+
+        await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddSeconds(1), 2, OpenPosition(size: 2m)));
+        await using (var walletContext = fixture.CreateContext())
+        {
+            await CreateWalletService(walletContext)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, T1.AddSeconds(2)));
+        }
+
+        await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddSeconds(3), 3, OpenPosition(size: 3m)));
+
+        await using var verification = fixture.CreateContext();
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(latest);
+        Assert.Equal(persistedAt.AddTicks(3 * TimeSpan.TicksPerMicrosecond), latest.CalculatedAt);
+        Assert.Equal(1_100m, latest.Capital.TotalEquity);
+        Assert.Equal(T1.AddSeconds(2), latest.Capital.ObservedAt);
+        Assert.Equal(3m, Assert.Single(latest.Positions).Size);
+        Assert.Equal(T1.AddSeconds(3), latest.Positions.Single().LastObservedAt);
+    }
+
+    [Fact]
     public async Task Stale_rest_confirmation_keeps_position_cursor_portfolio_and_outbox_unchanged()
     {
         var (account, generation) = await CreateObservedAccountAsync();
@@ -455,6 +557,25 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         var portfolio = await new PortfolioStateRepository(context).GetLatestAsync(account.UserId, account.Id);
         Assert.Equal(1_100m, portfolio!.Capital.TotalEquity);
         Assert.Equal(walletAt, portfolio.Capital.ObservedAt);
+    }
+
+    private async Task SeedNewerPortfolioTimestampAsync(ExchangeAccount account, DateTimeOffset calculatedAt)
+    {
+        await using var context = fixture.CreateContext();
+        var positions = (await new PositionRepository(context)
+                .GetByExchangeAccountAsync(account.UserId, account.Id))
+            .Select(versioned => versioned.Value)
+            .ToArray();
+        var previous = await new PortfolioStateRepository(context).GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(previous);
+        var state = PortfolioState.Create(
+            account.Id,
+            positions,
+            previous.Capital,
+            calculatedAt,
+            TimeSpan.FromMinutes(5),
+            previous.PositionsFullyReconciled);
+        await new PortfolioStateRepository(context).SaveAsync(account.UserId, state);
     }
 
     private async Task<(ExchangeAccount Account, long Generation)> CreateObservedAccountAsync()
