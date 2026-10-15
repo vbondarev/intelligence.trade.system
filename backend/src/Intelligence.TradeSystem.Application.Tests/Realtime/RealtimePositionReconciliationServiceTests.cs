@@ -229,6 +229,31 @@ public sealed class RealtimePositionReconciliationServiceTests
         world.Portfolios.Should().ContainSingle();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Zero_Size_Requires_Recovery_When_Credentials_Of_An_Enabled_Account_Are_Unavailable(bool missing)
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        var eventsBefore = world.Events.Count;
+        world.CredentialsUnavailable = !missing;
+        world.CredentialsMissing = missing;
+        world.Clock.UtcNow = T0.AddSeconds(3);
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(2), 2));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.Provider.PositionRequests.Should().BeEmpty();
+        world.ActivePositions.Should().ContainSingle().Which.TrackingState.Should().Be(PositionTrackingState.Active);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        world.Events.Should().HaveCount(eventsBefore);
+        world.Portfolios.Should().ContainSingle();
+    }
+
     [Fact]
     public async Task Rest_Snapshot_Older_Than_The_Confirmed_Close_Event_Does_Not_Close_Or_Advance_Cursor()
     {

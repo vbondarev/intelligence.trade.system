@@ -425,6 +425,8 @@ public sealed class RealtimePositionReconciliationService(
             return RealtimeObservationApplyResult.AccountUnavailable();
         }
 
+        // Недоступные credentials включённого аккаунта — недоступный REST, а не недоступный аккаунт:
+        // неподтверждённое событие остаётся потерянным, и его восстанавливает только полная сверка.
         ExchangeAccountCredential? credentials;
         try
         {
@@ -434,12 +436,14 @@ public sealed class RealtimePositionReconciliationService(
         }
         catch (ExchangeAccountCredentialsUnavailableException)
         {
-            return RealtimeObservationApplyResult.AccountUnavailable();
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.RestConfirmationUnavailable);
         }
 
         if (credentials is null)
         {
-            return RealtimeObservationApplyResult.AccountUnavailable();
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.RestConfirmationUnavailable);
         }
 
         OpenPositionsObservation snapshot;

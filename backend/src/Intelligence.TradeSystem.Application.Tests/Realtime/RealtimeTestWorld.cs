@@ -91,6 +91,9 @@ internal sealed class RealtimeTestWorld
     /// <summary>Credentials недоступны при scoped REST-подтверждении позиции.</summary>
     public bool CredentialsUnavailable { get; set; }
 
+    /// <summary>Credentials аккаунта отсутствуют в хранилище.</summary>
+    public bool CredentialsMissing { get; set; }
+
     public int TransactionAttempts { get; private set; }
 
     public IReadOnlyList<IApplicationEvent> Events => events;
@@ -342,8 +345,9 @@ internal sealed class RealtimeTestWorld
             .Returns(() => CredentialsUnavailable
                 ? Task.FromException<ExchangeAccountCredential?>(
                     new ExchangeAccountCredentialsUnavailableException())
-                : Task.FromResult<ExchangeAccountCredential?>(
-                    new ExchangeAccountCredential(
+                : Task.FromResult<ExchangeAccountCredential?>(CredentialsMissing
+                    ? null
+                    : new ExchangeAccountCredential(
                         new ExchangeAccountCredentialSecret("test-key", "test-secret"),
                         ConcurrencyVersion.Initial)));
         return store.Object;

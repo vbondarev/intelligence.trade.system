@@ -471,6 +471,44 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.State!.RecoveryRequired.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unconfirmed_Close_Without_Credentials_Persists_Recovery_And_Keeps_The_Channel(bool missing)
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        var syncAt = await ReconcileWithEmptyBufferAsync(world, coordinator);
+        world.Clock.UtcNow = syncAt.AddSeconds(2);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(syncAt.AddSeconds(1), 1)).Should().BeTrue();
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        world.CredentialsUnavailable = !missing;
+        world.CredentialsMissing = missing;
+        world.Clock.UtcNow = syncAt.AddSeconds(4);
+        coordinator.TryEnqueue(world.UserId, 1, world.CloseObservation(syncAt.AddSeconds(3), 2)).Should().BeTrue();
+
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ReasonCode
+            .Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(syncAt);
+        world.ActivePositions.Should().ContainSingle();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        coordinator.ChannelCount.Should().Be(1);
+        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(syncAt.AddSeconds(5))).Should().BeTrue();
+
+        world.CredentialsUnavailable = false;
+        world.CredentialsMissing = false;
+        world.Clock.UtcNow = syncAt.AddSeconds(10);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.ActivePositions.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Rest_Exception_Does_Not_Acknowledge_Recovery()
     {
