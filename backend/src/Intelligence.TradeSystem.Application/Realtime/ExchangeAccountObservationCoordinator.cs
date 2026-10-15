@@ -21,8 +21,9 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// <para>
 /// Наблюдение позиции, время которого попадает в окно REST-запроса, могло быть уже отражено этим
 /// снимком; его новизна не доказана, поэтому состояние слота подтверждается scoped REST-наблюдением.
-/// Наблюдение кошелька окном не фильтруется: его новизну относительно фактически принятого баланса
-/// определяет <see cref="RealtimeWalletObservationService"/> в транзакции под блокировкой аккаунта.
+/// Наблюдение кошелька, попадающее в интервал успешного REST-чтения баланса, требует recovery:
+/// <c>ObservedAt</c> REST-запроса само по себе не доказывает порядок относительно потока. Остальную
+/// новизну относительно принятого капитала определяет <see cref="RealtimeWalletObservationService"/>.
 /// </para>
 /// <para>
 /// Переполнение буфера, необработанное исключение применения и неоднозначный порядок означают
@@ -359,6 +360,9 @@ public sealed class ExchangeAccountObservationCoordinator(
         var recoveryWasRequired = channel.HasUnhandledRecoveryRequest;
         channel.Generation = generation;
         channel.Pending.Clear();
+        channel.FullSyncWindow = null;
+        channel.BalanceReadWindow = null;
+        channel.SymbolWindows.Clear();
         channel.HandledRecoveryRequests = channel.RecoveryRequests;
         if (recoveryWasRequired)
         {
@@ -392,19 +396,37 @@ public sealed class ExchangeAccountObservationCoordinator(
                 .ConfigureAwait(false);
             if (result.ConfirmedByRest)
             {
-                var window = new RestWindow(startedAt, clock.GetUtcNow());
+                var window = RestWindow.FromBounds(startedAt, clock.GetUtcNow());
                 lock (channel.Sync)
                 {
-                    channel.SymbolWindows[position.Symbol] = window;
+                    channel.SymbolWindows[position.Symbol] = RestWindow.Merge(
+                        channel.SymbolWindows.GetValueOrDefault(position.Symbol),
+                        window);
                 }
             }
 
             return result;
         }
 
+        var wallet = pending.Wallet!;
+        var walletObservedAt = RealtimeWalletObservationService.ResolveObservedAt(wallet);
+        bool overlapsBalanceRead;
+        lock (channel.Sync)
+        {
+            overlapsBalanceRead = channel.BalanceReadWindow is { } balanceWindow &&
+                ((walletObservedAt is { } at && balanceWindow.ContainsStrictInterior(at)) ||
+                 (wallet.MessageCreatedAt is { } exchangeAt && balanceWindow.ContainsStrictInterior(exchangeAt)));
+        }
+
+        if (overlapsBalanceRead)
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        }
+
         return await scope.ServiceProvider
             .GetRequiredService<RealtimeWalletObservationService>()
-            .ApplyAsync(userId, pending.Generation, pending.Wallet!, cancellationToken)
+            .ApplyAsync(userId, pending.Generation, wallet, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -501,7 +523,23 @@ public sealed class ExchangeAccountObservationCoordinator(
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
-            channel.FullSyncWindow = new RestWindow(startedAt, completedAt);
+            // Неуспешная сверка не уничтожает доказательство порядка предыдущей успешной: иначе
+            // буферизованное наблюдение может быть применено поверх уже принятого REST-состояния.
+            if (result.Outcome == ExchangeAccountSyncOutcome.Synchronized)
+            {
+                channel.FullSyncWindow = RestWindow.Merge(
+                    channel.FullSyncWindow,
+                    RestWindow.FromBounds(startedAt, completedAt));
+            }
+
+            if (result.BalanceReadStartedAt is { } balanceStarted &&
+                result.BalanceReadCompletedAt is { } balanceCompleted)
+            {
+                channel.BalanceReadWindow = RestWindow.Merge(
+                    channel.BalanceReadWindow,
+                    RestWindow.FromBounds(balanceStarted, balanceCompleted));
+            }
+
             channel.AccountUnavailable = result.Outcome is
                 ExchangeAccountSyncOutcome.NotFound or ExchangeAccountSyncOutcome.AccountDisabled;
             eventsMayBeMissing = channel.RecoveryRequests != recoveryRequestsAtStart || channel.Generation != generation;
@@ -730,7 +768,38 @@ public sealed class ExchangeAccountObservationCoordinator(
 
     private readonly record struct RestWindow(DateTimeOffset StartedAt, DateTimeOffset CompletedAt)
     {
+        /// <summary>
+        /// Полное окно REST-запроса, включая границы: используется для позиций, которые могли быть
+        /// отражены снимком, запрошенным в этот интервал.
+        /// </summary>
         public bool Contains(DateTimeOffset observedAt) => observedAt >= StartedAt && observedAt <= CompletedAt;
+
+        /// <summary>
+        /// Открытый интервал чтения баланса: точка завершения уже зафиксирована в
+        /// <c>Capital.ObservedAt</c> и сравнивается обычным путём, а совпадение с нулевой длительностью
+        /// не создаёт ложной неоднозначности.
+        /// </summary>
+        public bool ContainsStrictInterior(DateTimeOffset observedAt) =>
+            StartedAt < CompletedAt && observedAt > StartedAt && observedAt < CompletedAt;
+
+        /// <summary>
+        /// Нормализует границы: при откате часов backend <c>CompletedAt</c> может быть раньше
+        /// <c>StartedAt</c>, но интервал неопределённости всё равно должен покрывать оба момента.
+        /// </summary>
+        public static RestWindow FromBounds(DateTimeOffset first, DateTimeOffset second) =>
+            first <= second ? new RestWindow(first, second) : new RestWindow(second, first);
+
+        public static RestWindow Merge(RestWindow? previous, RestWindow next)
+        {
+            if (previous is not { } existing)
+            {
+                return next;
+            }
+
+            var startedAt = existing.StartedAt <= next.StartedAt ? existing.StartedAt : next.StartedAt;
+            var completedAt = existing.CompletedAt >= next.CompletedAt ? existing.CompletedAt : next.CompletedAt;
+            return new RestWindow(startedAt, completedAt);
+        }
     }
 
     private sealed class AccountChannel
@@ -750,6 +819,12 @@ public sealed class ExchangeAccountObservationCoordinator(
         public long HandledRecoveryRequests { get; set; }
 
         public RestWindow? FullSyncWindow { get; set; }
+
+        /// <summary>
+        /// Интервал успешного REST-чтения баланса текущего поколения. Неуспешное чтение окно не
+        /// заменяет и не создаёт.
+        /// </summary>
+        public RestWindow? BalanceReadWindow { get; set; }
 
         /// <summary>Число операций, удерживающих канал; изменяется только под блокировкой словаря каналов.</summary>
         public int Leases { get; set; }

@@ -110,6 +110,7 @@ public sealed class RealtimeWalletObservationService(
                                     exchangeAccountId,
                                     generation,
                                     observedAt,
+                                    observation.MessageCreatedAt,
                                     capital,
                                     token)
                                 .ConfigureAwait(false);
@@ -146,6 +147,7 @@ public sealed class RealtimeWalletObservationService(
         ExchangeAccountId exchangeAccountId,
         long generation,
         DateTimeOffset observedAt,
+        DateTimeOffset? messageCreatedAt,
         PortfolioCapitalState capital,
         CancellationToken cancellationToken)
     {
@@ -186,27 +188,23 @@ public sealed class RealtimeWalletObservationService(
             .GetLatestAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
         var account = latest.Value;
+        if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
+        {
+            var capitalOrder = CompareWalletObservationOrder(
+                observedAt,
+                messageCreatedAt,
+                acceptedCapitalAt,
+                previous.Capital,
+                capital);
+            if (capitalOrder is not null)
+            {
+                return capitalOrder;
+            }
+        }
+
         var watermarkDisposition = account.AdvanceObservationWatermark(
             ExchangeAccountObservationResource.Balance,
             observedAt);
-        if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
-        {
-            var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
-            var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
-            if (normalizedObservedAt < normalizedCapitalAt)
-            {
-                return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
-            }
-
-            if (normalizedObservedAt == normalizedCapitalAt)
-            {
-                // Равное время не доказывает повтор: разные значения одного момента делают порядок
-                // неоднозначным, и принятый капитал не перезаписывается.
-                return HasSameValues(previous.Capital, capital)
-                    ? RealtimeObservationApplyResult.Duplicate()
-                    : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
-            }
-        }
 
         var tracked = await positionRepository
             .GetByExchangeAccountAsync(userId, exchangeAccountId, cancellationToken)
@@ -261,6 +259,43 @@ public sealed class RealtimeWalletObservationService(
                 cancellationToken)
             .ConfigureAwait(false);
         return RealtimeObservationApplyResult.Applied();
+    }
+
+    /// <summary>
+    /// Сравнивает wallet-наблюдение с принятым капиталом. Ограниченный ObservedAt сам по себе не
+    /// доказывает устарелость, если биржевая отметка сообщения новее принятого капитала.
+    /// </summary>
+    private static RealtimeObservationApplyResult? CompareWalletObservationOrder(
+        DateTimeOffset observedAt,
+        DateTimeOffset? messageCreatedAt,
+        DateTimeOffset acceptedCapitalAt,
+        PortfolioCapitalState acceptedCapital,
+        PortfolioCapitalState observedCapital)
+    {
+        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+        var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
+        if (normalizedObservedAt < normalizedCapitalAt)
+        {
+            if (messageCreatedAt is { } exchangeTime &&
+                TimestampCanonicalizer.ToUtcMicroseconds(exchangeTime) > normalizedCapitalAt)
+            {
+                return RealtimeObservationApplyResult.RecoveryRequired(
+                    RealtimeObservationApplyResult.AmbiguousObservationOrder);
+            }
+
+            return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
+        }
+
+        if (normalizedObservedAt == normalizedCapitalAt)
+        {
+            // Равное время не доказывает повтор: разные значения одного момента делают порядок
+            // неоднозначным, и принятый капитал не перезаписывается.
+            return HasSameValues(acceptedCapital, observedCapital)
+                ? RealtimeObservationApplyResult.Duplicate()
+                : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
+        }
+
+        return null;
     }
 
     private static bool HasSameValues(PortfolioCapitalState accepted, PortfolioCapitalState observed) =>

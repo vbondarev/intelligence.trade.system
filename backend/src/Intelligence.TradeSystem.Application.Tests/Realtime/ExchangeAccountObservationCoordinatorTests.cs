@@ -1517,6 +1517,195 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             world.Clock.UtcNow = completedAt;
         };
 
+    /// <summary>
+    /// Помещает наблюдение кошелька в буфер именно во время <c>GetWalletBalanceAsync</c>, до ответа.
+    /// </summary>
+    private static void EnqueueDuringBalanceRequest(
+        RealtimeTestWorld world,
+        ExchangeAccountObservationCoordinator coordinator,
+        PrivateWalletObservation wallet,
+        DateTimeOffset balanceCompletedAt) =>
+        world.Provider.OnBalanceRequest = () =>
+        {
+            world.Provider.OnBalanceRequest = null;
+            world.Clock.UtcNow = wallet.ReceivedAt;
+            coordinator.TryEnqueue(world.UserId, 1, wallet).Should().BeTrue();
+            world.Clock.UtcNow = balanceCompletedAt;
+        };
+
+    /// <summary>S-20: wallet во время REST-чтения баланса не откатывает принятый капитал.</summary>
+    [Fact]
+    public async Task Wallet_During_Successful_Balance_Read_Requires_Recovery_Without_Capital_Regression()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 200m, 190m, 150m, 10m, []);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = world.Clock.UtcNow;
+        var duringBalanceAt = restStartedAt.AddSeconds(1);
+        var balanceCompletedAt = restStartedAt.AddSeconds(2);
+        EnqueueDuringBalanceRequest(
+            world,
+            coordinator,
+            world.WalletObservation(duringBalanceAt, totalEquity: 100m),
+            balanceCompletedAt);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var portfoliosAfterSync = world.Portfolios.Count;
+        var eventsAfterSync = world.Events.Count;
+        world.Clock.UtcNow = balanceCompletedAt.AddSeconds(1);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.Portfolios[portfoliosAfterSync - 1].Capital.TotalEquity.Should().Be(200m);
+        world.Portfolios[portfoliosAfterSync - 1].Capital.ObservedAt.Should().Be(balanceCompletedAt);
+        var result = results.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        world.Portfolios.Should().OnlyContain(portfolio => portfolio.Capital.TotalEquity == 200m);
+        world.Portfolios.Should().NotContain(portfolio => portfolio.Capital.TotalEquity == 100m);
+        world.Account.LastAppliedBalanceObservationAt.Should().BeOnOrAfter(balanceCompletedAt);
+        world.Events.Count.Should().BeGreaterThanOrEqualTo(eventsAfterSync);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    /// <summary>S-20 / Failed REST: неуспешное чтение баланса не запрещает допустимый wallet.</summary>
+    [Fact]
+    public async Task Wallet_During_Failed_Balance_Read_Is_Still_Applied()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var failedAt = T0.AddMinutes(2);
+        world.Clock.UtcNow = failedAt;
+        world.Provider.BalanceFails = true;
+        var duringBalanceAt = failedAt.AddSeconds(1);
+        EnqueueDuringBalanceRequest(
+            world,
+            coordinator,
+            world.WalletObservation(duringBalanceAt, totalEquity: 1_100m),
+            balanceCompletedAt: failedAt.AddSeconds(2));
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Clock.UtcNow = failedAt.AddSeconds(3);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_100m);
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(duringBalanceAt);
+    }
+
+    /// <summary>S-24: неуспешная сверка после успешной не уничтожает доказательство порядка для буфера.</summary>
+    [Fact]
+    public async Task Failed_Sync_After_Successful_Does_Not_Allow_Buffered_Position_Regression()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstSyncAt = world.Clock.UtcNow;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(firstSyncAt.AddSeconds(1), 1, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+            world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        };
+
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.ActivePositions.Single().Size.Should().Be(3m);
+
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(5);
+        world.CredentialsUnavailable = true;
+        var failed = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        failed.Outcome.Should().Be(ExchangeAccountSyncOutcome.CredentialsUnavailable);
+        world.CredentialsUnavailable = false;
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(6);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.ActivePositions.Single().Changes.Should().ContainSingle();
+    }
+
+    /// <summary>S-25: последовательные scoped REST-окна объединяются и не теряют доказательство порядка.</summary>
+    [Fact]
+    public async Task Sequential_Scoped_Rest_Windows_Keep_Order_Evidence_For_Delayed_Observation()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.SetPositionsWatermark(T0.AddSeconds(10));
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Clock.UtcNow = T0.AddSeconds(11);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(8), 1)).Should().BeTrue();
+        var first = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        first.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        var firstScopedAt = T0.AddSeconds(11);
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(9), 2, OpenPosition(size: 2m)))
+            .Should()
+            .BeTrue();
+        var second = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        second.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(2m);
+
+        // ObservedAt только в первом scoped-окне: без merge окно заменилось бы вторым подтверждением,
+        // и более новая ревизия напрямую записала бы size=1 поверх size=2.
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(21);
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(firstScopedAt, 3, OpenPosition(size: 1m)))
+            .Should()
+            .BeTrue();
+        var delayed = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        delayed.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+    }
+
+    /// <summary>S-28: откат часов между началом и завершением REST сохраняет покрытие окна.</summary>
+    [Fact]
+    public async Task Rest_Window_With_Clock_Rollback_Still_Forces_Confirmation_For_Overlapping_Position()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var startedAt = world.Clock.UtcNow;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = startedAt.AddSeconds(-5);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(startedAt.AddSeconds(-2), 1, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+        };
+
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.ActivePositions.Single().Size.Should().Be(3m);
+        world.Clock.UtcNow = startedAt.AddSeconds(1);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+    }
+
     [Fact]
     public void Non_Positive_Generation_Is_Rejected()
     {

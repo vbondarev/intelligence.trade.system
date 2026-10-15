@@ -367,7 +367,9 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
     {
         using var activity = BybitExchangeTelemetry.StartActivity(BybitExchangeTelemetry.BalanceOperation);
         var stopwatch = Stopwatch.StartNew();
-        var observedAt = DateTimeOffset.UtcNow;
+        // Нижняя граница чтения: ObservedAt успешного ответа выставляется после HTTP, иначе wallet
+        // событие во время запроса может выглядеть новее принятого REST-капитала.
+        var requestStartedAt = DateTimeOffset.UtcNow;
         var retryCount = 0;
         ExchangeFailure? retryFailure = null;
         var outcome = BybitExchangeTelemetry.FailureOutcome;
@@ -382,24 +384,25 @@ internal sealed class BybitPrivateAccountProvider : IPrivateAccountProvider
                 cancellationToken);
             retryCount = result.RetryCount;
             retryFailure = result.RetryFailure;
+            var observedAt = DateTimeOffset.UtcNow;
 
             if (!result.Response.Success)
             {
                 failure = result.Failure
                     ?? new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false);
                 LogFailedBalance(accountType, failure, stopwatch.Elapsed);
-                return AccountBalanceObservation.Failed(failure, observedAt);
+                return AccountBalanceObservation.Failed(failure, observedAt, requestStartedAt);
             }
 
             if (result.Response.Data?.List?.FirstOrDefault() is not { } balance)
             {
                 failure = new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false);
                 LogFailedBalance(accountType, failure, stopwatch.Elapsed);
-                return AccountBalanceObservation.Failed(failure, observedAt);
+                return AccountBalanceObservation.Failed(failure, observedAt, requestStartedAt);
             }
 
             outcome = BybitExchangeTelemetry.SuccessOutcome;
-            return AccountBalanceObservation.Complete(balance.MapAccountBalance(), observedAt);
+            return AccountBalanceObservation.Complete(balance.MapAccountBalance(), observedAt, requestStartedAt);
         }
         catch (OperationCanceledException)
         {

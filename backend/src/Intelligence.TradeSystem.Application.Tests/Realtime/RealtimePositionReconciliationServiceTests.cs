@@ -903,4 +903,70 @@ public sealed class RealtimePositionReconciliationServiceTests
         world.Portfolios.Should().BeEmpty();
         world.Events.Should().BeEmpty();
     }
+
+    /// <summary>S-10: более новая ревизия при откате ReceivedAt не теряется как обычный Stale.</summary>
+    [Fact]
+    public async Task Newer_Revision_With_Rolled_Back_ReceivedAt_Requires_Recovery_Without_Mutating_State()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(10), 1));
+        var positionBefore = world.ActivePositions.Single();
+        var eventsBefore = world.Events.Count;
+        var portfoliosBefore = world.Portfolios.Count;
+        var cursorBefore = world.Cursor("BTCUSDT")!;
+
+        var rolledBack = world.OpenObservation(T0.AddSeconds(11), 2, OpenPosition(size: 2m)) with
+        {
+            ReceivedAt = T0.AddSeconds(5),
+        };
+        var result = await service.ApplyAsync(world.UserId, 1, rolledBack);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        var position = world.ActivePositions.Should().ContainSingle().Subject;
+        position.Id.Should().Be(positionBefore.Id);
+        position.Size.Should().Be(1m);
+        position.LastObservedAt.Should().Be(T0.AddSeconds(10));
+        position.Changes.Should().ContainSingle();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(cursorBefore.LastProviderSequence);
+        world.Portfolios.Should().HaveCount(portfoliosBefore);
+        world.Events.Should().HaveCount(eventsBefore);
+    }
+
+    /// <summary>S-11: повторное открытие после закрытия при откате ReceivedAt требует recovery.</summary>
+    [Fact]
+    public async Task Reopen_After_Close_With_Rolled_Back_ReceivedAt_Requires_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        var closedId = world.ActivePositions.Single().Id;
+        // ClosedAt берётся из ObservedAt REST-снимка (T10); часы backend при подтверждении — T10.
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(9), 2));
+        world.ActivePositions.Should().BeEmpty();
+        var closed = world.Positions.Single(position => position.Id == closedId);
+        closed.ClosedAt.Should().Be(T0.AddSeconds(10));
+        var eventsBefore = world.Events.Count;
+        var portfoliosBefore = world.Portfolios.Count;
+
+        // Биржевое время открытия новее ClosedAt, но ReceivedAt откатился раньше закрытия.
+        var reopen = world.OpenObservation(T0.AddSeconds(11), 3) with { ReceivedAt = T0.AddSeconds(5) };
+        var result = await service.ApplyAsync(world.UserId, 1, reopen);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        world.ActivePositions.Should().BeEmpty();
+        var unchanged = world.Positions.Single(position => position.Id == closedId);
+        unchanged.TrackingState.Should().Be(PositionTrackingState.Closed);
+        unchanged.ClosedAt.Should().Be(closed.ClosedAt);
+        unchanged.Changes.Should().HaveCount(closed.Changes.Count);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
+        world.Portfolios.Should().HaveCount(portfoliosBefore);
+        world.Events.Should().HaveCount(eventsBefore);
+    }
 }

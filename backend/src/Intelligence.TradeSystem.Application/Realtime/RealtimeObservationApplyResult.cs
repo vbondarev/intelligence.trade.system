@@ -22,6 +22,16 @@ public sealed record RealtimeObservationApplyResult
     public const string OlderThanClosure = "older_than_closure";
     public const string OlderThanBalance = "older_than_balance";
     public const string BalanceConflict = "balance_conflict";
+    /// <summary>
+    /// Биржевой порядок новее принятого состояния, но ограниченное время наблюдения не подтверждает
+    /// запись без нарушения временных инвариантов.
+    /// </summary>
+    public const string AmbiguousObservationOrder = "ambiguous_observation_order";
+    /// <summary>
+    /// Наблюдение кошелька пересекается с успешным REST-чтением баланса, и относительный порядок
+    /// недоказан.
+    /// </summary>
+    public const string AmbiguousWithRestBalance = "ambiguous_with_rest_balance";
     public const string SettlementMismatch = "settlement_mismatch";
     public const string RestConfirmationIncomplete = "rest_confirmation_incomplete";
     public const string RestConfirmationStale = "rest_confirmation_stale";

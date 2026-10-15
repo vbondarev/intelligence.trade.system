@@ -431,6 +431,9 @@ internal sealed class RealtimeTestWorld
         /// <summary>Асинхронно выполняется во время REST-запроса позиций, до формирования ответа.</summary>
         public Func<CancellationToken, Task>? OnPositionsRequestAsync { get; set; }
 
+        /// <summary>Выполняется во время REST-запроса баланса, после фиксации начала чтения.</summary>
+        public Action? OnBalanceRequest { get; set; }
+
         /// <summary>Исключение, которым завершается следующий REST-запрос позиций.</summary>
         public Exception? PositionsException { get; set; }
 
@@ -478,12 +481,18 @@ internal sealed class RealtimeTestWorld
 
         public Task<AccountBalanceObservation> GetWalletBalanceAsync(
             AccountType accountType,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(BalanceFails
+            CancellationToken cancellationToken = default)
+        {
+            var requestStartedAt = world.Clock.GetUtcNow();
+            OnBalanceRequest?.Invoke();
+            var observedAt = world.Clock.GetUtcNow();
+            return Task.FromResult(BalanceFails
                 ? AccountBalanceObservation.Failed(
                     new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false),
-                    world.Clock.GetUtcNow())
-                : AccountBalanceObservation.Complete(Balance, world.Clock.GetUtcNow()));
+                    observedAt,
+                    requestStartedAt)
+                : AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt));
+        }
     }
 
     private sealed class ProviderFactory(IPrivateAccountProvider provider) : IPrivateAccountProviderFactory

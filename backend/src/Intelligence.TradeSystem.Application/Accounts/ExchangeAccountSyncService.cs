@@ -435,16 +435,22 @@ public sealed class ExchangeAccountSyncService(
                 var synchronizedPortfolioState = persistedPortfolioState
                     ?? throw new InvalidOperationException(
                         "A successful synchronization did not persist a portfolio state.");
+                var balanceRead = ResolveAcceptedBalanceReadWindow(
+                    hasFreshBalance,
+                    balanceDisposition,
+                    balanceObservation);
                 if (persistedFullSync)
                 {
                     var synchronizedAt = persistedAccount?.LastSyncedAt
                         ?? throw new InvalidOperationException(
                             "A successful synchronization did not persist account metadata.");
                     account.RecordSuccessfulSync(synchronizedAt);
-                    return ExchangeAccountSyncResult.FullyReconciled(account, synchronizedPortfolioState);
+                    return ExchangeAccountSyncResult.FullyReconciled(account, synchronizedPortfolioState)
+                        .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt);
                 }
 
-                return ExchangeAccountSyncResult.Synchronized(account, synchronizedPortfolioState);
+                return ExchangeAccountSyncResult.Synchronized(account, synchronizedPortfolioState)
+                    .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -549,6 +555,25 @@ public sealed class ExchangeAccountSyncService(
         observation.Status == AccountBalanceObservationStatus.Complete &&
         observation.Balance is { AccountType: AccountType.Unified } &&
         observation.ObservedAt != default;
+
+    /// <summary>
+    /// Интервал успешного чтения баланса, принятого в капитал. Неуспешное или устаревшее чтение
+    /// окно не образует и не запрещает последующие wallet-наблюдения.
+    /// </summary>
+    private static (DateTimeOffset StartedAt, DateTimeOffset CompletedAt)? ResolveAcceptedBalanceReadWindow(
+        bool hasFreshBalance,
+        ExchangeAccountObservationDisposition balanceDisposition,
+        AccountBalanceObservation balanceObservation)
+    {
+        if (!hasFreshBalance || !IsApplied(balanceDisposition))
+        {
+            return null;
+        }
+
+        var completedAt = balanceObservation.ObservedAt;
+        var startedAt = balanceObservation.RequestStartedAt ?? completedAt;
+        return (startedAt, completedAt);
+    }
 
     private OpenPositionsObservation NormalizePositionsObservation(
         OpenPositionsObservation observation)

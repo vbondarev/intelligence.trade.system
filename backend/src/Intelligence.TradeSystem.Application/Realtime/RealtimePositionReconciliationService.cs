@@ -294,7 +294,8 @@ public sealed class RealtimePositionReconciliationService(
         CancellationToken cancellationToken)
     {
         // Закрытие lifecycle выполняется только по полному снимку, поэтому сообщение не новее закрытия
-        // уже опровергнуто им.
+        // уже опровергнуто им. Курсор при этом уже доказал, что ревизия новее закрытия: если биржевое
+        // время факта тоже новее, а ограниченный ObservedAt — нет, порядок неоднозначен.
         var latestClosure = locked.Positions
             .Select(versioned => versioned.Value)
             .Where(position => position.TrackingState == PositionTrackingState.Closed && IsInSlot(position, prepared))
@@ -302,6 +303,12 @@ public sealed class RealtimePositionReconciliationService(
             .Max();
         if (latestClosure is { } closedAt && prepared.ObservedAt <= closedAt)
         {
+            if (IsExchangeFactAfter(prepared, closedAt))
+            {
+                return RealtimeObservationApplyResult.RecoveryRequired(
+                    RealtimeObservationApplyResult.AmbiguousObservationOrder);
+            }
+
             return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanClosure);
         }
 
@@ -359,9 +366,13 @@ public sealed class RealtimePositionReconciliationService(
         Position existing,
         CancellationToken cancellationToken)
     {
+        // Сюда попадают только наблюдения с ревизией новее курсора. Если ограниченный ObservedAt
+        // оказывается не новее принятого состояния, биржевой порядок и время записи противоречат друг
+        // другу — прямое применение запрещено, нужна полная сверка.
         if (prepared.ObservedAt < existing.LastObservedAt)
         {
-            return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanPosition);
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder);
         }
 
         // Пометки Unknown и Stale фиксируются временем REST-попытки или оценки свежести, которое может быть
@@ -803,6 +814,16 @@ public sealed class RealtimePositionReconciliationService(
             position.ExchangePositionKey.InstrumentId.Value,
             prepared.CursorKey.Symbol.Value,
             StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Биржевое время факта (не ограниченное <see cref="PrivatePositionObservation.ReceivedAt"/>)
+    /// строго позже указанной отметки.
+    /// </summary>
+    private static bool IsExchangeFactAfter(PreparedObservation prepared, DateTimeOffset threshold)
+    {
+        var exchangeTime = prepared.Observation.MessageCreatedAt ?? prepared.ProviderUpdatedAt;
+        return exchangeTime is { } value && value > threshold;
+    }
 
     /// <summary>
     /// Повтор с перечитыванием допустим после проигранного CAS или гонки вставки активной позиции

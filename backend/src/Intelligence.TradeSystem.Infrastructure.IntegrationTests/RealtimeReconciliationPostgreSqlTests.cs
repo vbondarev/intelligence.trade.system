@@ -1006,10 +1006,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         public DateTimeOffset ObservedAt { get; set; } = T1;
 
+        /// <summary>Часы для интервала чтения баланса; без них <see cref="ObservedAt"/> задаёт обе границы.</summary>
+        public MutableTimeProvider? Clock { get; set; }
+
+        public AccountBalance Balance { get; set; } =
+            new(AccountType.Unified, 1_000m, 900m, 800m, 10m, []);
+
         public OpenPositionsObservationStatus Status { get; set; } = OpenPositionsObservationStatus.Complete;
 
         /// <summary>Выполняется во время REST-запроса позиций: после снимка баланса, до ответа.</summary>
         public Func<Task>? BeforePositionsResponse { get; set; }
+
+        /// <summary>Выполняется во время REST-запроса баланса, после фиксации начала чтения.</summary>
+        public Func<Task>? BeforeBalanceResponse { get; set; }
 
         public void SetPosition(OpenPosition position) => positions.Add(position);
 
@@ -1017,12 +1026,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<AccountBalanceObservation> GetWalletBalanceAsync(
+        public async Task<AccountBalanceObservation> GetWalletBalanceAsync(
             AccountType accountType,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(AccountBalanceObservation.Complete(
-                new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []),
-                ObservedAt));
+            CancellationToken cancellationToken = default)
+        {
+            var requestStartedAt = Clock?.GetUtcNow() ?? ObservedAt;
+            if (BeforeBalanceResponse is not null)
+            {
+                await BeforeBalanceResponse();
+            }
+
+            var observedAt = Clock?.GetUtcNow() ?? ObservedAt;
+            return AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt);
+        }
 
         public async Task<OpenPositionsObservation> GetOpenPositionsAsync(
             MarketCategory category,
@@ -1035,13 +1051,21 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 await BeforePositionsResponse();
             }
 
+            var observedAt = Clock?.GetUtcNow() ?? ObservedAt;
             return Status == OpenPositionsObservationStatus.Complete
                 ? OpenPositionsObservation.Complete(
                     category,
                     symbol,
-                    ObservedAt,
+                    observedAt,
                     positions.Where(position => symbol is null || position.Symbol == symbol).ToArray())
-                : OpenPositionsObservation.Failed(category, symbol, ObservedAt, "failed");
+                : OpenPositionsObservation.Failed(category, symbol, observedAt, "failed");
         }
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }

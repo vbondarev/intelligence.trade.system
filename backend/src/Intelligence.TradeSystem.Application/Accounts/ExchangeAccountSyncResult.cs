@@ -18,6 +18,17 @@ public sealed record ExchangeAccountSyncResult(
     /// </remarks>
     public bool FullReconciliationCommitted { get; private init; }
 
+    /// <summary>
+    /// Начало успешного REST-чтения баланса, принятого этой попыткой. Вместе с
+    /// <see cref="BalanceReadCompletedAt"/> задаёт интервал неопределённого порядка для wallet.
+    /// </summary>
+    public DateTimeOffset? BalanceReadStartedAt { get; private init; }
+
+    /// <summary>
+    /// Завершение успешного REST-чтения баланса, принятого этой попыткой.
+    /// </summary>
+    public DateTimeOffset? BalanceReadCompletedAt { get; private init; }
+
     public static ExchangeAccountSyncResult Synchronized(
         ExchangeAccount account,
         PortfolioState portfolioState) =>
@@ -27,6 +38,15 @@ public sealed record ExchangeAccountSyncResult(
         ExchangeAccount account,
         PortfolioState portfolioState) =>
         Synchronized(account, portfolioState) with { FullReconciliationCommitted = true };
+
+    internal ExchangeAccountSyncResult WithAcceptedBalanceRead(
+        DateTimeOffset? startedAt,
+        DateTimeOffset? completedAt) =>
+        this with
+        {
+            BalanceReadStartedAt = startedAt,
+            BalanceReadCompletedAt = completedAt,
+        };
 
     public static ExchangeAccountSyncResult NotFound() =>
         new(ExchangeAccountSyncOutcome.NotFound, null, null);

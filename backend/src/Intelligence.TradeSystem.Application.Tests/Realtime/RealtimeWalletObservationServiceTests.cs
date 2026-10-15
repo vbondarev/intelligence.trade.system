@@ -260,4 +260,29 @@ public sealed class RealtimeWalletObservationServiceTests
         result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
         result.ReasonCode.Should().Be(RealtimeObservationApplyResult.MissingObservationTime);
     }
+
+    /// <summary>S-19: более новая биржевая отметка wallet при откате ReceivedAt требует recovery.</summary>
+    [Fact]
+    public async Task Newer_Wallet_With_Rolled_Back_ReceivedAt_Requires_Recovery_Without_Mutating_Capital()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreateWalletService();
+        await service.ApplyAsync(world.UserId, 1, world.WalletObservation(T0.AddSeconds(10), totalEquity: 1_000m));
+        var eventsBefore = world.Events.Count;
+        var watermarkBefore = world.Account.LastAppliedBalanceObservationAt;
+
+        var rolledBack = world.WalletObservation(T0.AddSeconds(11), totalEquity: 1_100m) with
+        {
+            ReceivedAt = T0.AddSeconds(5),
+        };
+        var result = await service.ApplyAsync(world.UserId, 1, rolledBack);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        world.Portfolios.Should().ContainSingle();
+        world.Portfolios[0].Capital.TotalEquity.Should().Be(1_000m);
+        world.Portfolios[0].Capital.ObservedAt.Should().Be(T0.AddSeconds(10));
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(watermarkBefore);
+        world.Events.Should().HaveCount(eventsBefore);
+    }
 }
