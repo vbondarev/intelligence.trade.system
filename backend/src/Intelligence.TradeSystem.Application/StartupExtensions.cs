@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Market.Positions;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Application.Recommendations;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,8 +31,18 @@ public static class StartupExtensions
         services.AddSingleton<RecommendationStabilityPolicy>();
         services.AddScoped<IExchangeAccountService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountService>(serviceProvider));
-        services.AddScoped<IExchangeAccountSyncService>(
+        services.AddScoped<ExchangeAccountSyncService>(
             serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountSyncService>(serviceProvider));
+        services.AddScoped<RealtimePositionReconciliationService>(
+            serviceProvider => ActivatorUtilities.CreateInstance<RealtimePositionReconciliationService>(serviceProvider));
+        services.AddScoped<RealtimeWalletObservationService>(
+            serviceProvider => ActivatorUtilities.CreateInstance<RealtimeWalletObservationService>(serviceProvider));
+        // Все REST-синхронизации аккаунта (ручная, плановая, стартовая и recovery) проходят через
+        // единый координатор, который упорядочивает их с потоковыми наблюдениями.
+        services.AddSingleton<ExchangeAccountObservationCoordinator>(
+            serviceProvider => ActivatorUtilities.CreateInstance<ExchangeAccountObservationCoordinator>(serviceProvider));
+        services.AddSingleton<IExchangeAccountSyncService>(
+            serviceProvider => serviceProvider.GetRequiredService<ExchangeAccountObservationCoordinator>());
 
         return services;
     }
