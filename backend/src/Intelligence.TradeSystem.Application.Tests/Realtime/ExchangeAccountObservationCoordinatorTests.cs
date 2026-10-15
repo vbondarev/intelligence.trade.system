@@ -84,6 +84,7 @@ public sealed class ExchangeAccountObservationCoordinatorTests
         };
 
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         enqueued.Should().BeTrue();

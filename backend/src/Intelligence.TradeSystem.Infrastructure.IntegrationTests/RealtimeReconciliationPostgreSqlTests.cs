@@ -247,6 +247,80 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Equal(2, await CountOutboxAsync(context, account, ApplicationEventTypes.PositionOpened));
     }
 
+    [Fact]
+    public async Task Stale_rest_confirmation_keeps_position_cursor_portfolio_and_outbox_unchanged()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 10))).Outcome);
+        int portfoliosBefore;
+        int outboxBefore;
+        await using (var context = fixture.CreateContext())
+        {
+            portfoliosBefore = await CountPortfoliosAsync(context, account);
+            outboxBefore = await CountOutboxAsync(context, account);
+        }
+
+        var result = await ApplyAsync(
+            account,
+            generation,
+            CloseObservation(account, T1.AddSeconds(10), 20),
+            new TestPrivateProvider { ObservedAt = T1.AddSeconds(8) });
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, result.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.RestConfirmationStale, result.ReasonCode);
+        await using var verification = fixture.CreateContext();
+        await AssertOpenPositionUnchangedAsync(verification, account, portfoliosBefore, outboxBefore);
+    }
+
+    [Fact]
+    public async Task Rest_confirmed_close_failure_before_commit_rolls_back_position_cursor_portfolio_and_outbox()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 10))).Outcome);
+        int portfoliosBefore;
+        int outboxBefore;
+        await using (var context = fixture.CreateContext())
+        {
+            portfoliosBefore = await CountPortfoliosAsync(context, account);
+            outboxBefore = await CountOutboxAsync(context, account);
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            var service = CreateRealtimeService(
+                context,
+                new TestPrivateProvider { ObservedAt = T1.AddSeconds(12) },
+                new FailingBeforeCommitTransaction(new ExchangeAccountSyncTransaction(context), failingExecution: 2));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ApplyAsync(account.UserId, generation, CloseObservation(account, T1.AddSeconds(10), 20)));
+        }
+
+        await using var verification = fixture.CreateContext();
+        await AssertOpenPositionUnchangedAsync(verification, account, portfoliosBefore, outboxBefore);
+    }
+
+    private static async Task AssertOpenPositionUnchangedAsync(
+        TradeSystemDbContext context,
+        ExchangeAccount account,
+        int portfoliosBefore,
+        int outboxBefore)
+    {
+        var position = Assert.Single(await new PositionRepository(context)
+            .GetByExchangeAccountAsync(account.UserId, account.Id));
+        Assert.Equal(PositionTrackingState.Active, position.Value.TrackingState);
+        Assert.Equal(T1, position.Value.LastObservedAt);
+        Assert.Equal(1, await CountChangesAsync(context, position.Value.Id));
+        var cursor = await new PositionObservationCursorStore(context).GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(10, cursor!.Value.LastProviderSequence);
+        Assert.Equal(portfoliosBefore, await CountPortfoliosAsync(context, account));
+        Assert.Equal(outboxBefore, await CountOutboxAsync(context, account));
+        Assert.Equal(0, await CountOutboxAsync(context, account, ApplicationEventTypes.PositionClosed));
+    }
+
     private async Task<(ExchangeAccount Account, long Generation)> CreateObservedAccountAsync()
     {
         var account = ExchangeAccount.Create(
@@ -422,9 +496,15 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
                 after is null ? [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)] : []);
     }
 
-    private sealed class FailingBeforeCommitTransaction(IExchangeAccountSyncTransaction inner)
+    /// <summary>
+    /// Завершает исключением транзакцию с порядковым номером <paramref name="failingExecution"/> после
+    /// всех её записей, но до commit; предыдущие транзакции фиксируются.
+    /// </summary>
+    private sealed class FailingBeforeCommitTransaction(IExchangeAccountSyncTransaction inner, int failingExecution = 1)
         : IExchangeAccountSyncTransaction
     {
+        private int executions;
+
         public Task LockPositionsAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
@@ -440,13 +520,15 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         public Task ExecuteAsync(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default) =>
-            inner.ExecuteAsync(
-                async token =>
-                {
-                    await operation(token);
-                    throw new InvalidOperationException("Injected failure after outbox write.");
-                },
-                cancellationToken);
+            ++executions != failingExecution
+                ? inner.ExecuteAsync(operation, cancellationToken)
+                : inner.ExecuteAsync(
+                    async token =>
+                    {
+                        await operation(token);
+                        throw new InvalidOperationException("Injected failure after outbox write.");
+                    },
+                    cancellationToken);
     }
 
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore
@@ -520,7 +602,6 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         private readonly List<OpenPosition> positions = [];
 
         public DateTimeOffset ObservedAt { get; init; } = T1;
-
         public void SetPosition(OpenPosition position) => positions.Add(position);
 
         public Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(

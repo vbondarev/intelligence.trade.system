@@ -7,6 +7,7 @@ using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.History;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -29,6 +30,8 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// Нулевой размер и смена направления в слоте позиции не применяются напрямую: состояние слота
 /// подтверждается scoped REST-наблюдением, а закрытие выполняется существующим
 /// <see cref="PositionReconciler"/> только по полному снимку. Автоматическая evaluation не запускается.
+/// Снимок подтверждает событие, только если запрошен не раньше получения сообщения и новее последнего
+/// применённого полного REST-снимка; иначе состояние не меняется и требуется recovery.
 /// </para>
 /// </remarks>
 public sealed class RealtimePositionReconciliationService(
@@ -436,6 +439,15 @@ public sealed class RealtimePositionReconciliationService(
             return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.RestConfirmationIncomplete);
         }
 
+        // ObservedAt REST-снимка — момент отправки запроса по часам backend, то есть нижняя граница
+        // чтения состояния биржей; ReceivedAt — момент получения сообщения теми же часами. Только снимок,
+        // запрошенный не раньше получения сообщения, гарантированно отражает подтверждаемое событие.
+        // Время завершения REST-запроса этого не доказывает и заменой не служит.
+        if (snapshot.ObservedAt < prepared.Observation.ReceivedAt)
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.RestConfirmationStale);
+        }
+
         for (var attempt = 1; ; attempt++)
         {
             RealtimeObservationApplyResult? result = null;
@@ -450,6 +462,16 @@ public sealed class RealtimePositionReconciliationService(
                             if (locked is null)
                             {
                                 result = rejection;
+                                return;
+                            }
+
+                            // Полный REST-снимок, применённый после запроса подтверждения, уже отражает более
+                            // новое состояние аккаунта; более старый снимок не должен его откатить.
+                            if (locked.Account.LastAppliedPositionsObservationAt is { } fullSyncAt &&
+                                TimestampCanonicalizer.ToUtcMicroseconds(snapshot.ObservedAt) <= fullSyncAt)
+                            {
+                                result = RealtimeObservationApplyResult.RecoveryRequired(
+                                    RealtimeObservationApplyResult.RestConfirmationStale);
                                 return;
                             }
 

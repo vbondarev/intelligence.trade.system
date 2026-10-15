@@ -225,6 +225,190 @@ public sealed class RealtimePositionReconciliationServiceTests
         world.ActivePositions.Should().ContainSingle().Which.TrackingState.Should().Be(PositionTrackingState.Active);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
         world.Events.Should().HaveCount(eventsBefore);
+        world.Portfolios.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Rest_Snapshot_Older_Than_The_Confirmed_Close_Event_Does_Not_Close_Or_Advance_Cursor()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(8);
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(10), 20));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationStale);
+        AssertUnchangedOpenLong(world, eventsBefore);
+    }
+
+    [Fact]
+    public async Task Rest_Snapshot_Older_Than_The_Side_Change_Event_Does_Not_Flip_The_Position()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        var shortPosition = OpenPosition(side: PositionSide.Short);
+        world.Provider.SetExchangePosition(shortPosition);
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(8);
+
+        var result = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(10), 20, shortPosition));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationStale);
+        AssertUnchangedOpenLong(world, eventsBefore);
+    }
+
+    /// <summary>
+    /// Снимок, запрошенный в момент формирования события по биржевым часам, но до его получения
+    /// backend, не доказывает порядок; запрос, отправленный не раньше получения, — доказывает.
+    /// </summary>
+    [Theory]
+    [InlineData(50, false)]
+    [InlineData(0, true)]
+    public async Task Rest_Snapshot_At_The_Boundary_Confirms_Only_When_Requested_After_Receipt(
+        int snapshotLagMilliseconds,
+        bool applied)
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        var close = world.CloseObservation(T0.AddSeconds(10), 20);
+        world.Clock.UtcNow = close.ReceivedAt;
+        world.Provider.SnapshotLag = TimeSpan.FromMilliseconds(snapshotLagMilliseconds);
+
+        var result = await service.ApplyAsync(world.UserId, 1, close);
+
+        if (applied)
+        {
+            result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+            result.ConfirmedByRest.Should().BeTrue();
+            world.ActivePositions.Should().BeEmpty();
+            world.Positions.Single().ClosedAt.Should().Be(close.ReceivedAt);
+            world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(20);
+        }
+        else
+        {
+            result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+            result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationStale);
+            AssertUnchangedOpenLong(world, eventsBefore);
+        }
+    }
+
+    [Fact]
+    public async Task Rest_Snapshot_Newer_Than_The_Event_Applies_The_Confirmed_State()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(12);
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(10), 20));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        result.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().BeEmpty();
+        world.Positions.Single().ClosedAt.Should().Be(T0.AddSeconds(12));
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(20);
+        world.Events.OfType<PositionClosedEventV1>().Should().ContainSingle();
+        world.Portfolios.Should().HaveCount(2);
+        world.Portfolios[^1].Positions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Rest_Snapshot_Without_Observation_Time_Is_Not_Accepted()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        world.Provider.SnapshotObservedAt = default(DateTimeOffset);
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(10), 20));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        AssertUnchangedOpenLong(world, eventsBefore);
+    }
+
+    [Fact]
+    public async Task Generation_Change_During_Rest_Confirmation_Rejects_It_Without_Writes()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        world.Provider.OnPositionsRequest = world.AdvanceGeneration;
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(10), 20));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.GenerationSuperseded);
+        AssertUnchangedOpenLong(world, eventsBefore);
+    }
+
+    [Fact]
+    public async Task Event_Rejected_By_Stale_Rest_Snapshot_Is_Rechecked_With_A_Newer_Snapshot()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var close = world.CloseObservation(T0.AddSeconds(10), 20);
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(8);
+        var rejected = await service.ApplyAsync(world.UserId, 1, close);
+        world.Provider.SnapshotObservedAt = null;
+        world.Clock.UtcNow = T0.AddSeconds(15);
+
+        var retried = await service.ApplyAsync(world.UserId, 1, close);
+
+        rejected.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        retried.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        retried.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().BeEmpty();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(20);
+        world.Events.OfType<PositionClosedEventV1>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Rest_Snapshot_Not_Newer_Than_The_Applied_Full_Sync_Does_Not_Confirm()
+    {
+        var world = await WorldWithOpenPositionAsync();
+        var service = world.CreatePositionService();
+        var eventsBefore = world.Events.Count;
+        world.SetPositionsWatermark(T0.AddSeconds(13));
+        world.Clock.UtcNow = T0.AddSeconds(12);
+
+        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(10), 20));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationStale);
+        AssertUnchangedOpenLong(world, eventsBefore);
+    }
+
+    /// <summary>Активная Long-позиция, принятая по наблюдению T0 с <c>seq = 10</c>.</summary>
+    private static async Task<RealtimeTestWorld> WorldWithOpenPositionAsync()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        var opened = await world.CreatePositionService().ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 10));
+        opened.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        return world;
+    }
+
+    private static void AssertUnchangedOpenLong(RealtimeTestWorld world, int eventsBefore)
+    {
+        var position = world.Positions.Should().ContainSingle().Subject;
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Long);
+        position.LastObservedAt.Should().Be(T0);
+        position.Changes.Should().ContainSingle();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(10);
+        world.Events.Should().HaveCount(eventsBefore);
+        world.Portfolios.Should().ContainSingle();
     }
 
     [Fact]
@@ -234,14 +418,17 @@ public sealed class RealtimePositionReconciliationServiceTests
         var service = world.CreatePositionService();
         world.Clock.UtcNow = T0.AddSeconds(11);
         await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(10), 1));
-        world.Clock.UtcNow = T0.AddSeconds(12);
-        world.Provider.SnapshotLag = TimeSpan.FromSeconds(7);
+        // Позиция записана экземпляром с опережающими часами: снимок запрошен после получения
+        // сообщения, но раньше последнего наблюдения позиции.
+        world.Clock.UtcNow = T0.AddSeconds(6);
+        var close = world.CloseObservation(T0.AddSeconds(11), 2) with { ReceivedAt = T0.AddSeconds(5) };
 
-        var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(11), 2));
+        var result = await service.ApplyAsync(world.UserId, 1, close);
 
         result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
         result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
         world.ActivePositions.Should().ContainSingle();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
     }
 
     [Fact]
@@ -256,6 +443,7 @@ public sealed class RealtimePositionReconciliationServiceTests
         var result = await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(11), 2));
 
         result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationStale);
         world.ActivePositions.Should().ContainSingle();
     }
 

@@ -326,6 +326,8 @@ internal sealed class RealtimeTestWorld
         /// <summary>Отставание момента REST-снимка позиций от часов backend.</summary>
         public TimeSpan SnapshotLag { get; set; }
 
+        /// <summary>Момент REST-снимка позиций вместо часов backend, включая неинициализированный.</summary>
+        public DateTimeOffset? SnapshotObservedAt { get; set; }
         public List<string?> PositionRequests { get; } = [];
 
         /// <summary>Выполняется во время REST-запроса позиций, до формирования ответа.</summary>
@@ -347,7 +349,7 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             PositionRequests.Add(symbol);
-            var observedAt = world.Clock.GetUtcNow() - SnapshotLag;
+            var observedAt = SnapshotObservedAt ?? world.Clock.GetUtcNow() - SnapshotLag;
             OnPositionsRequest?.Invoke();
             var observed = exchangePositions.Values
                 .Where(position => symbol is null || position.Symbol == symbol)

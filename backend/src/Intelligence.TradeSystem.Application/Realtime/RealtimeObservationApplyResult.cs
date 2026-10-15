@@ -24,6 +24,7 @@ public sealed record RealtimeObservationApplyResult
     public const string OverlapsRestObservation = "overlaps_rest_observation";
     public const string SettlementMismatch = "settlement_mismatch";
     public const string RestConfirmationIncomplete = "rest_confirmation_incomplete";
+    public const string RestConfirmationStale = "rest_confirmation_stale";
     public const string WalletUnconfirmed = "wallet_unconfirmed";
     public const string WalletIncomplete = "wallet_incomplete";
     public const string BufferOverflow = "buffer_overflow";
