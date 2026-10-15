@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -18,9 +19,11 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// значение не заменяется нулём и не смешивается с прежним наблюдением другого времени.
 /// </para>
 /// <para>
-/// Порядок определяется независимым balance watermark аккаунта, поэтому более старый REST-снимок
-/// баланса не перезаписывает потоковое значение. Watermark позиций и рыночные показатели позиций
-/// не изменяются.
+/// Новизна определяется временем фактически принятого капитала в последней сводке. Balance watermark
+/// продвигается и неуспешным REST-запросом баланса, который капитал не меняет, поэтому сам по себе не
+/// доказывает, что более новое значение уже принято. Watermark только продвигается вперёд, так что
+/// более старый REST-снимок баланса не перезаписывает потоковое значение. Watermark позиций и
+/// рыночные показатели позиций не изменяются.
 /// </para>
 /// </remarks>
 public sealed class RealtimeWalletObservationService(
@@ -177,13 +180,26 @@ public sealed class RealtimeWalletObservationService(
             return RealtimeObservationApplyResult.GenerationSuperseded();
         }
 
+        var previous = await portfolioStateRepository
+            .GetLatestAsync(userId, exchangeAccountId, cancellationToken)
+            .ConfigureAwait(false);
         var account = latest.Value;
-        switch (account.AdvanceObservationWatermark(ExchangeAccountObservationResource.Balance, observedAt))
+        var watermarkDisposition = account.AdvanceObservationWatermark(
+            ExchangeAccountObservationResource.Balance,
+            observedAt);
+        if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
         {
-            case ExchangeAccountObservationDisposition.AlreadyApplied:
-                return RealtimeObservationApplyResult.Duplicate();
-            case ExchangeAccountObservationDisposition.Superseded:
+            var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+            var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
+            if (normalizedObservedAt < normalizedCapitalAt)
+            {
                 return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
+            }
+
+            if (normalizedObservedAt == normalizedCapitalAt)
+            {
+                return RealtimeObservationApplyResult.Duplicate();
+            }
         }
 
         var tracked = await positionRepository
@@ -196,9 +212,6 @@ public sealed class RealtimeWalletObservationService(
         }
 
         var positions = tracked.Select(versioned => versioned.Value).ToArray();
-        var previous = await portfolioStateRepository
-            .GetLatestAsync(userId, exchangeAccountId, cancellationToken)
-            .ConfigureAwait(false);
         var calculatedAt = clock.GetUtcNow();
         if (observedAt > calculatedAt)
         {
@@ -221,9 +234,13 @@ public sealed class RealtimeWalletObservationService(
             PortfolioStaleAfter,
             previous?.PositionsFullyReconciled ?? false);
 
-        await accountRepository
-            .SaveAsync(userId, account, latest.Version, cancellationToken)
-            .ConfigureAwait(false);
+        if (watermarkDisposition == ExchangeAccountObservationDisposition.Applied)
+        {
+            await accountRepository
+                .SaveAsync(userId, account, latest.Version, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await portfolioStateRepository
             .SaveAsync(userId, portfolioState, cancellationToken)
             .ConfigureAwait(false);

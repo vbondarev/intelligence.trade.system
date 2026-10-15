@@ -21,7 +21,8 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// <para>
 /// Наблюдение позиции, время которого попадает в окно REST-запроса, могло быть уже отражено этим
 /// снимком; его новизна не доказана, поэтому состояние слота подтверждается scoped REST-наблюдением.
-/// Наблюдение кошелька из такого окна отбрасывается: более новое значение придёт следующим сообщением.
+/// Наблюдение кошелька окном не фильтруется: его новизну относительно фактически принятого баланса
+/// определяет <see cref="RealtimeWalletObservationService"/> в транзакции под блокировкой аккаунта.
 /// </para>
 /// <para>
 /// Переполнение буфера, необработанное исключение применения и неоднозначный порядок означают
@@ -244,19 +245,9 @@ public sealed class ExchangeAccountObservationCoordinator(
             return result;
         }
 
-        var wallet = pending.Wallet!;
-        var walletObservedAt = RealtimeWalletObservationService.ResolveObservedAt(wallet);
-        lock (channel.Sync)
-        {
-            if (walletObservedAt is { } at && channel.FullSyncWindow is { } fullSync && at <= fullSync.CompletedAt)
-            {
-                return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OverlapsRestObservation);
-            }
-        }
-
         return await scope.ServiceProvider
             .GetRequiredService<RealtimeWalletObservationService>()
-            .ApplyAsync(userId, pending.Generation, wallet, cancellationToken)
+            .ApplyAsync(userId, pending.Generation, pending.Wallet!, cancellationToken)
             .ConfigureAwait(false);
     }
 

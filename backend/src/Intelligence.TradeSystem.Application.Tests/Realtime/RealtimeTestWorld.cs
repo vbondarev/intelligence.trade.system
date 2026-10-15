@@ -107,11 +107,18 @@ internal sealed class RealtimeTestWorld
     public void SeedPosition(Position position) =>
         positions[position.Id] = new Versioned<Position>(Clone(position), ConcurrencyVersion.Initial);
 
-    public void SetPositionsWatermark(DateTimeOffset observedAt)
+    public void SetPositionsWatermark(DateTimeOffset observedAt) =>
+        AdvanceWatermark(ExchangeAccountObservationResource.Positions, observedAt);
+
+    /// <summary>Продвигает balance watermark без изменения капитала, как неуспешный REST-запрос баланса.</summary>
+    public void SetBalanceWatermark(DateTimeOffset observedAt) =>
+        AdvanceWatermark(ExchangeAccountObservationResource.Balance, observedAt);
+
+    private void AdvanceWatermark(ExchangeAccountObservationResource resource, DateTimeOffset observedAt)
     {
         var current = account!;
         var updated = Clone(current.Value);
-        updated.AdvanceObservationWatermark(ExchangeAccountObservationResource.Positions, observedAt);
+        updated.AdvanceObservationWatermark(resource, observedAt);
         account = new Versioned<ExchangeAccount>(updated, current.Version.Next());
     }
 
@@ -328,6 +335,10 @@ internal sealed class RealtimeTestWorld
 
         /// <summary>Момент REST-снимка позиций вместо часов backend, включая неинициализированный.</summary>
         public DateTimeOffset? SnapshotObservedAt { get; set; }
+
+        /// <summary>REST-запрос баланса завершается ошибкой биржи.</summary>
+        public bool BalanceFails { get; set; }
+
         public List<string?> PositionRequests { get; } = [];
 
         /// <summary>Выполняется во время REST-запроса позиций, до формирования ответа.</summary>
@@ -367,7 +378,11 @@ internal sealed class RealtimeTestWorld
         public Task<AccountBalanceObservation> GetWalletBalanceAsync(
             AccountType accountType,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(AccountBalanceObservation.Complete(Balance, world.Clock.GetUtcNow()));
+            Task.FromResult(BalanceFails
+                ? AccountBalanceObservation.Failed(
+                    new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false),
+                    world.Clock.GetUtcNow())
+                : AccountBalanceObservation.Complete(Balance, world.Clock.GetUtcNow()));
     }
 
     private sealed class ProviderFactory(IPrivateAccountProvider provider) : IPrivateAccountProviderFactory

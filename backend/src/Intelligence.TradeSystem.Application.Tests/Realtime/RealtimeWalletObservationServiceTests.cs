@@ -109,6 +109,38 @@ public sealed class RealtimeWalletObservationServiceTests
     }
 
     [Fact]
+    public async Task Balance_Watermark_Advanced_By_Failed_Rest_Does_Not_Reject_Newer_Than_Applied_Capital()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreateWalletService();
+        await service.ApplyAsync(world.UserId, 1, world.WalletObservation(T0));
+        world.SetBalanceWatermark(T0.AddSeconds(10));
+
+        var newer = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(5), totalEquity: 1_100m));
+        var older = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(3), totalEquity: 1_050m));
+        var same = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(5), totalEquity: 1_100m));
+
+        newer.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        older.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
+        older.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanBalance);
+        same.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        world.Portfolios.Should().HaveCount(2);
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_100m);
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(T0.AddSeconds(5));
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(T0.AddSeconds(10));
+        world.Events.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task Superseded_Generation_Rejects_Wallet_Observation()
     {
         var world = new RealtimeTestWorld();

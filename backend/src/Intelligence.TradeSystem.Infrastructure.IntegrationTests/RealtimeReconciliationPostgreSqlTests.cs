@@ -303,6 +303,128 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         await AssertOpenPositionUnchangedAsync(verification, account, portfoliosBefore, outboxBefore);
     }
 
+    [Fact]
+    public async Task Wallet_observation_newer_than_rest_balance_survives_overlapping_full_sync()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var walletAt = T1.AddSeconds(2);
+        ExchangeAccountObservationCoordinator? coordinator = null;
+        var restProvider = new TestPrivateProvider
+        {
+            BeforePositionsResponse = () =>
+            {
+                Assert.True(coordinator!.TryEnqueue(account.UserId, generation, WalletObservation(account, walletAt)));
+                return Task.CompletedTask;
+            },
+        };
+        await using var services = CreateApplicationServices(account, restProvider);
+        coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+
+        var sync = await coordinator.SynchronizeAsync(account.UserId, account.Id);
+        var applied = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+        Assert.True(coordinator.TryEnqueue(account.UserId, generation, WalletObservation(account, walletAt)));
+        var repeated = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, sync.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, Assert.Single(applied).Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, Assert.Single(repeated).Outcome);
+        await using var context = fixture.CreateContext();
+        await AssertWalletCapitalAsync(context, account, walletAt, positionsWatermark: T1);
+        Assert.Equal(2, await CountPortfoliosAsync(context, account));
+        Assert.Equal(2, await CountOutboxAsync(context, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
+    [Fact]
+    public async Task Wallet_observation_racing_with_rest_sync_is_not_overwritten_by_the_older_rest_balance()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var walletAt = T1.AddSeconds(2);
+        using var barrier = new Barrier(2);
+        await using var services = CreateApplicationServices(account, new TestPrivateProvider(barrier));
+
+        var sync = Task.Run(async () =>
+        {
+            await using var scope = services.CreateAsyncScope();
+            return await scope.ServiceProvider
+                .GetRequiredService<IExchangeAccountSyncService>()
+                .SynchronizeAsync(account.UserId, account.Id);
+        });
+        var wallet = Task.Run(async () =>
+        {
+            barrier.SignalAndWait(CompletionTimeout);
+            await using var context = fixture.CreateContext();
+            return await CreateWalletService(context).ApplyAsync(account.UserId, generation, WalletObservation(account, walletAt));
+        });
+        var syncResult = await sync.WaitAsync(CompletionTimeout);
+        var walletResult = await wallet.WaitAsync(CompletionTimeout);
+        RealtimeObservationApplyResult repeated;
+        await using (var context = fixture.CreateContext())
+        {
+            repeated = await CreateWalletService(context)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, walletAt));
+        }
+
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, syncResult.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, walletResult.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, repeated.Outcome);
+        await using var verification = fixture.CreateContext();
+        await AssertWalletCapitalAsync(verification, account, walletAt, positionsWatermark: T1);
+        Assert.Equal(2, await CountPortfoliosAsync(verification, account));
+        Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
+    [Fact]
+    public async Task Wallet_failure_before_commit_rolls_back_watermark_portfolio_and_outbox()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+
+        await using (var context = fixture.CreateContext())
+        {
+            var service = CreateWalletService(
+                context,
+                new FailingBeforeCommitTransaction(new ExchangeAccountSyncTransaction(context)));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ApplyAsync(account.UserId, generation, WalletObservation(account, T1)));
+        }
+
+        await using var verification = fixture.CreateContext();
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.Null(stored!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(0, await CountPortfoliosAsync(verification, account));
+        Assert.Equal(0, await CountOutboxAsync(verification, account));
+    }
+
+    [Fact]
+    public async Task Generation_change_committed_while_the_wallet_observation_waits_rejects_it_without_writes()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+
+        await using var lifecycleContext = fixture.CreateContext();
+        await using var observerContext = fixture.CreateContext();
+        Task<RealtimeObservationApplyResult> apply;
+        await using (var transaction = await lifecycleContext.Database.BeginTransactionAsync())
+        {
+            await new RealtimeObservationStateStore(lifecycleContext).AdvanceGenerationAsync(
+                account.UserId,
+                account.Id,
+                RealtimeObservationTransportStatus.Reconnecting);
+
+            apply = CreateWalletService(observerContext)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, T1));
+            Assert.NotSame(apply, await Task.WhenAny(apply, Task.Delay(BlockedCommandProbe)));
+
+            await transaction.CommitAsync();
+        }
+
+        var result = await apply.WaitAsync(CompletionTimeout);
+        Assert.Equal(RealtimeObservationApplyOutcome.GenerationSuperseded, result.Outcome);
+        await using var verification = fixture.CreateContext();
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.Null(stored!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(0, await CountPortfoliosAsync(verification, account));
+        Assert.Equal(0, await CountOutboxAsync(verification, account));
+    }
+
     private static async Task AssertOpenPositionUnchangedAsync(
         TradeSystemDbContext context,
         ExchangeAccount account,
@@ -319,6 +441,20 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Equal(portfoliosBefore, await CountPortfoliosAsync(context, account));
         Assert.Equal(outboxBefore, await CountOutboxAsync(context, account));
         Assert.Equal(0, await CountOutboxAsync(context, account, ApplicationEventTypes.PositionClosed));
+    }
+
+    private static async Task AssertWalletCapitalAsync(
+        TradeSystemDbContext context,
+        ExchangeAccount account,
+        DateTimeOffset walletAt,
+        DateTimeOffset positionsWatermark)
+    {
+        var stored = await new ExchangeAccountRepository(context).GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(walletAt, stored!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(positionsWatermark, stored.Value.LastAppliedPositionsObservationAt);
+        var portfolio = await new PortfolioStateRepository(context).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1_100m, portfolio!.Capital.TotalEquity);
+        Assert.Equal(walletAt, portfolio.Capital.ObservedAt);
     }
 
     private async Task<(ExchangeAccount Account, long Generation)> CreateObservedAccountAsync()
@@ -390,6 +526,29 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
             transaction ?? new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
             new FixedTimeProvider(T1.AddMinutes(1)));
+
+    private static RealtimeWalletObservationService CreateWalletService(
+        TradeSystemDbContext context,
+        IExchangeAccountSyncTransaction? transaction = null) =>
+        new(
+            new ExchangeAccountRepository(context),
+            new PositionRepository(context),
+            new PortfolioStateRepository(context),
+            new RealtimeObservationStateStore(context),
+            transaction ?? new ExchangeAccountSyncTransaction(context),
+            new ApplicationEventOutbox(context),
+            new FixedTimeProvider(T1.AddMinutes(1)));
+
+    private static PrivateWalletObservation WalletObservation(ExchangeAccount account, DateTimeOffset at) =>
+        new()
+        {
+            Exchange = ExchangeId.Bybit,
+            ExchangeAccountId = account.Id,
+            Kind = PrivateWalletObservationKind.PartialUpdate,
+            Balances = [new AccountBalance(AccountType.Unified, 1_100m, 1_000m, 900m, 20m, [])],
+            MessageCreatedAt = at,
+            ReceivedAt = at.AddMilliseconds(50),
+        };
 
     private static PositionObservationCursorKey CursorKey(ExchangeAccount account, string symbol = "BTCUSDT") =>
         PositionObservationCursorKey.Create(account.Id, MarketCategory.Linear, InstrumentId.From(symbol), 0);
@@ -602,6 +761,10 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
         private readonly List<OpenPosition> positions = [];
 
         public DateTimeOffset ObservedAt { get; init; } = T1;
+
+        /// <summary>Выполняется во время REST-запроса позиций: после снимка баланса, до ответа.</summary>
+        public Func<Task>? BeforePositionsResponse { get; init; }
+
         public void SetPosition(OpenPosition position) => positions.Add(position);
 
         public Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
@@ -615,17 +778,22 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
                 new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []),
                 ObservedAt));
 
-        public Task<OpenPositionsObservation> GetOpenPositionsAsync(
+        public async Task<OpenPositionsObservation> GetOpenPositionsAsync(
             MarketCategory category,
             string? symbol = null,
             CancellationToken cancellationToken = default)
         {
             positionsBarrier?.SignalAndWait(CompletionTimeout, cancellationToken);
-            return Task.FromResult(OpenPositionsObservation.Complete(
+            if (BeforePositionsResponse is not null)
+            {
+                await BeforePositionsResponse();
+            }
+
+            return OpenPositionsObservation.Complete(
                 category,
                 symbol,
                 ObservedAt,
-                positions.Where(position => symbol is null || position.Symbol == symbol).ToArray()));
+                positions.Where(position => symbol is null || position.Symbol == symbol).ToArray());
         }
     }
 }
