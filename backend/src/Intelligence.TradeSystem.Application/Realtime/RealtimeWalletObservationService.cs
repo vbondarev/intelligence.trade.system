@@ -22,8 +22,9 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// Новизна определяется временем фактически принятого капитала в последней сводке. Balance watermark
 /// продвигается и неуспешным REST-запросом баланса, который капитал не меняет, поэтому сам по себе не
 /// доказывает, что более новое значение уже принято. Watermark только продвигается вперёд, так что
-/// более старый REST-снимок баланса не перезаписывает потоковое значение. Watermark позиций и
-/// рыночные показатели позиций не изменяются.
+/// более старый REST-снимок баланса не перезаписывает потоковое значение. Наблюдение со временем
+/// принятого капитала является повтором только при совпадении всех четырёх значений; иначе порядок
+/// неоднозначен и требуется recovery. Watermark позиций и рыночные показатели позиций не изменяются.
 /// </para>
 /// </remarks>
 public sealed class RealtimeWalletObservationService(
@@ -36,6 +37,7 @@ public sealed class RealtimeWalletObservationService(
     TimeProvider? timeProvider = null)
 {
     private const int MaxPersistenceAttempts = 3;
+    private const int StoredCapitalScale = 18;
     private static readonly TimeSpan PortfolioStaleAfter = TimeSpan.FromMinutes(5);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
@@ -198,7 +200,11 @@ public sealed class RealtimeWalletObservationService(
 
             if (normalizedObservedAt == normalizedCapitalAt)
             {
-                return RealtimeObservationApplyResult.Duplicate();
+                // Равное время не доказывает повтор: разные значения одного момента делают порядок
+                // неоднозначным, и принятый капитал не перезаписывается.
+                return HasSameValues(previous.Capital, capital)
+                    ? RealtimeObservationApplyResult.Duplicate()
+                    : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
             }
         }
 
@@ -256,6 +262,22 @@ public sealed class RealtimeWalletObservationService(
             .ConfigureAwait(false);
         return RealtimeObservationApplyResult.Applied();
     }
+
+    private static bool HasSameValues(PortfolioCapitalState accepted, PortfolioCapitalState observed) =>
+        SameStoredValue(accepted.TotalEquity, observed.TotalEquity) &&
+        SameStoredValue(accepted.AvailableCapital, observed.AvailableCapital) &&
+        SameStoredValue(accepted.TotalWalletBalance, observed.TotalWalletBalance) &&
+        SameStoredValue(accepted.AccountUnrealizedPnl, observed.AccountUnrealizedPnl);
+
+    /// <summary>
+    /// Сравнивает значения с точностью хранения капитала (18 знаков после запятой): принятое значение
+    /// могло быть округлено при сохранении.
+    /// </summary>
+    private static bool SameStoredValue(decimal? accepted, decimal? observed) =>
+        accepted is { } left && observed is { } right
+            ? decimal.Round(left, StoredCapitalScale, MidpointRounding.AwayFromZero) ==
+              decimal.Round(right, StoredCapitalScale, MidpointRounding.AwayFromZero)
+            : accepted is null && observed is null;
 
     private static bool HasSamePositionWatermark(
         IReadOnlyCollection<PositionVersionWatermark> expected,

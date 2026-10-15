@@ -422,19 +422,19 @@ public sealed class ExchangeAccountSyncService(
                     balanceObservationAt,
                     positionsDisposition,
                     positionsObservationAt);
+                var synchronizedPortfolioState = persistedPortfolioState
+                    ?? throw new InvalidOperationException(
+                        "A successful synchronization did not persist a portfolio state.");
                 if (persistedFullSync)
                 {
                     var synchronizedAt = persistedAccount?.LastSyncedAt
                         ?? throw new InvalidOperationException(
                             "A successful synchronization did not persist account metadata.");
                     account.RecordSuccessfulSync(synchronizedAt);
+                    return ExchangeAccountSyncResult.FullyReconciled(account, synchronizedPortfolioState);
                 }
 
-                return ExchangeAccountSyncResult.Synchronized(
-                    account,
-                    persistedPortfolioState
-                        ?? throw new InvalidOperationException(
-                            "A successful synchronization did not persist a portfolio state."));
+                return ExchangeAccountSyncResult.Synchronized(account, synchronizedPortfolioState);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)

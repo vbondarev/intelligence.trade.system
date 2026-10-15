@@ -3,6 +3,8 @@ using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.Extensions.DependencyInjection;
 using static Intelligence.TradeSystem.Application.Tests.Realtime.RealtimeTestWorld;
 
@@ -25,20 +27,25 @@ public sealed class ExchangeAccountObservationCoordinatorTests
     }
 
     [Fact]
-    public async Task Successful_Full_Sync_Clears_Recovery_Flag_And_Older_Buffered_Open_Is_Stale()
+    public async Task Successful_Full_Sync_Clears_Recovery_Flag_And_Older_Buffered_Open_Is_Confirmed_With_Rest()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeTrue();
+        var fullSyncAt = world.Clock.UtcNow;
 
         var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Clock.UtcNow = fullSyncAt.AddSeconds(1);
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         world.State!.RecoveryRequired.Should().BeFalse();
-        world.State.LastFullyReconciledAt.Should().Be(world.Clock.UtcNow);
-        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanFullSync);
+        world.State.LastFullyReconciledAt.Should().Be(fullSyncAt);
+        var result = results.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        result.ConfirmedByRest.Should().BeTrue();
+        world.Provider.PositionRequests.Should().Equal(null, "BTCUSDT");
         world.Positions.Should().BeEmpty();
     }
 
@@ -249,7 +256,7 @@ public sealed class ExchangeAccountObservationCoordinatorTests
     }
 
     [Fact]
-    public async Task Wallet_With_The_Same_Watermark_Is_Duplicate_Without_Writes()
+    public async Task Wallet_With_The_Same_Watermark_And_Values_Is_Duplicate_Without_Writes()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
@@ -259,7 +266,7 @@ public sealed class ExchangeAccountObservationCoordinatorTests
         var portfoliosAfterSync = world.Portfolios.Count;
         var eventsAfterSync = world.Events.Count;
 
-        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(restAt)).Should().BeTrue();
+        coordinator.TryEnqueue(world.UserId, 1, RestBalanceWalletObservation(world, restAt)).Should().BeTrue();
         var atRestBalance = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.Clock.UtcNow = restAt.AddSeconds(30);
         var wallet = world.WalletObservation(world.Clock.UtcNow.AddSeconds(-1));
@@ -275,6 +282,46 @@ public sealed class ExchangeAccountObservationCoordinatorTests
         world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_000m);
         world.Events.Should().HaveCount(eventsAfterSync + 1);
     }
+
+    [Fact]
+    public async Task Wallet_With_The_Same_Watermark_But_Different_Values_Triggers_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0)).Should().BeTrue();
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        var restAt = world.Clock.UtcNow;
+        var portfoliosAfterSync = world.Portfolios.Count;
+        var eventsAfterSync = world.Events.Count;
+
+        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(restAt)).Should().BeTrue();
+        var recoveryFlags = new List<bool>();
+        world.Provider.OnPositionsRequest = () => recoveryFlags.Add(world.State!.RecoveryRequired);
+        world.Clock.UtcNow = restAt.AddSeconds(1);
+        var conflicting = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var result = conflicting.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.BalanceConflict);
+        recoveryFlags.Should().Equal(true);
+        world.Provider.PositionRequests.Should().Equal([null, null]);
+        world.Portfolios.Should().HaveCount(portfoliosAfterSync + 1, "only the recovery sync writes a snapshot");
+        world.Events.Should().HaveCount(eventsAfterSync * 2, "only the recovery sync adds the events of a full sync");
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(2_000m);
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(restAt.AddSeconds(1));
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    private static PrivateWalletObservation RestBalanceWalletObservation(RealtimeTestWorld world, DateTimeOffset at) =>
+        world.WalletObservation(
+            at,
+            world.Provider.Balance.TotalEquity,
+            world.Provider.Balance.TotalAvailableBalance,
+            world.Provider.Balance.TotalWalletBalance,
+            world.Provider.Balance.TotalPerpUnrealizedPnl);
 
     [Fact]
     public async Task Wallet_Observations_Arriving_In_Reverse_Order_Do_Not_Regress_Capital()
@@ -456,16 +503,18 @@ public sealed class ExchangeAccountObservationCoordinatorTests
             bufferCapacity: 1);
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeTrue();
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         world.State!.RecoveryRequired.Should().BeFalse();
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(1), 2)).Should().BeTrue();
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(2), 3)).Should().BeFalse();
         world.StateSaveFailuresToInject = 1;
+        var requestsBefore = world.Provider.PositionRequests.Count;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
 
-        world.Provider.PositionRequests.Should().HaveCount(1, "REST cannot start before recovery is persisted");
+        world.Provider.PositionRequests.Should().HaveCount(requestsBefore, "REST cannot start before recovery is persisted");
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
@@ -650,6 +699,503 @@ public sealed class ExchangeAccountObservationCoordinatorTests
             .Outcome
             .Should()
             .Be(RealtimeObservationApplyOutcome.Stale);
+    }
+
+    [Theory]
+    [InlineData(OpenPositionsObservationStatus.Failed)]
+    [InlineData(OpenPositionsObservationStatus.Complete)]
+    public async Task Recovery_Is_Not_Acknowledged_By_Fresh_Balance_With_Superseded_Positions(
+        OpenPositionsObservationStatus positionsStatus)
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var fullSyncAt = world.Clock.UtcNow;
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.Provider.Status = positionsStatus;
+        world.Provider.SnapshotObservedAt = fullSyncAt.AddSeconds(-1);
+        world.Clock.UtcNow = fullSyncAt.AddSeconds(1);
+
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        // Полнота позиций унаследована от прежней сводки, но этим запросом не подтверждена.
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(fullSyncAt.AddSeconds(1));
+        world.Portfolios[^1].PositionsFullyReconciled.Should().BeTrue();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(fullSyncAt);
+
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Provider.SnapshotObservedAt = null;
+        world.Clock.UtcNow = fullSyncAt.AddSeconds(2);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(fullSyncAt.AddSeconds(2));
+    }
+
+    [Fact]
+    public async Task Recovery_Is_Not_Acknowledged_By_Complete_Positions_Without_Full_Coverage()
+    {
+        var world = new RealtimeTestWorld();
+        world.SeedPosition(Position.Create(
+            ExchangePositionKey.Create(world.AccountId, InstrumentId.From("BTCUSD"), PositionSide.Long, 0),
+            MarketCategory.Inverse,
+            Usdt,
+            1m,
+            T0,
+            T0,
+            averageEntryPrice: 100m,
+            positionValue: 100m,
+            leverage: 2m,
+            unrealizedPnl: 0m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        RequestRecoveryByOverflow(world, coordinator);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Recovery_Is_Not_Acknowledged_When_The_Full_Sync_Transaction_Fails_To_Commit()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.CommitFailuresToInject = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+
+        world.Portfolios.Should().BeEmpty();
+        world.Account.LastAppliedPositionsObservationAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Overflow_During_A_Regular_Sync_Persists_Recovery_Of_A_Reconciled_Account()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var firstSyncAt = world.Clock.UtcNow;
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+        };
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt);
+
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt.AddSeconds(2));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Overflow_During_The_Reconciled_Write_Persists_Recovery_Again(bool recoveryRequestedAtStart)
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var firstSyncAt = world.Clock.UtcNow;
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        if (recoveryRequestedAtStart)
+        {
+            RequestRecoveryByOverflow(world, coordinator);
+        }
+
+        world.BeforeStateSave = state =>
+        {
+            if (!state.RecoveryRequired)
+            {
+                world.BeforeStateSave = null;
+                coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(40), 40)).Should().BeFalse();
+            }
+        };
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().Be(firstSyncAt.AddSeconds(1));
+        var requestsBefore = world.Provider.PositionRequests.Count;
+
+        world.Clock.UtcNow = firstSyncAt.AddSeconds(2);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal([null]);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Lost_Cas_On_The_Reconciled_Write_Does_Not_Acknowledge_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.StateConflictsToInject = 3;
+
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.Provider.PositionRequests.Should().Equal([null, null]);
+    }
+
+    [Fact]
+    public async Task Failed_Reconciled_Write_Does_Not_Acknowledge_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.StateSaveFailuresToInject = 1;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+
+        world.Portfolios.Should().NotBeEmpty("the REST transaction committed before the state write failed");
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.Provider.PositionRequests.Should().Equal([null, null]);
+    }
+
+    [Fact]
+    public async Task Cancellation_During_The_Reconciled_Write_Does_Not_Acknowledge_Recovery()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        RequestRecoveryByOverflow(world, coordinator);
+        using var cancellation = new CancellationTokenSource();
+        world.BeforeStateSave = state =>
+        {
+            world.BeforeStateSave = null;
+            cancellation.Cancel();
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId, cancellation.Token));
+
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Repeated_Recoveries_Are_Each_Persisted_And_Acknowledged()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var recoveryFlags = new List<bool>();
+        world.Provider.OnPositionsRequest = () => recoveryFlags.Add(world.State!.RecoveryRequired);
+
+        for (var round = 0; round < 3; round++)
+        {
+            RequestRecoveryByOverflow(world, coordinator);
+            world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+            (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+                .Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+            world.State!.RecoveryRequired.Should().BeFalse();
+        }
+
+        recoveryFlags.Should().Equal(true, true, true);
+        world.Provider.PositionRequests.Should().Equal([null, null, null]);
+    }
+
+    [Fact]
+    public async Task Delayed_Open_After_Failed_Sync_Without_Rest_Confirmation_Is_Recovered_By_Full_Sync()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 4);
+        var failedSyncAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = failedSyncAt;
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        (await coordinator.SynchronizeAsync(world.UserId, world.AccountId))
+            .FullReconciliationCommitted.Should().BeFalse();
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(9), 1)).Should().BeTrue();
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = failedSyncAt.AddSeconds(1);
+
+        var unavailable = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        unavailable.Should().ContainSingle().Which.ReasonCode
+            .Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.Positions.Should().BeEmpty();
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeTrue();
+
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Clock.UtcNow = failedSyncAt.AddSeconds(2);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        world.ActivePositions.Should().ContainSingle();
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Unknown_And_Foreign_Accounts_Do_Not_Accumulate_Channels()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+
+        for (var i = 0; i < 100; i++)
+        {
+            (await coordinator.SynchronizeAsync(world.UserId, ExchangeAccountId.New()))
+                .Outcome.Should().Be(ExchangeAccountSyncOutcome.NotFound);
+            (await coordinator.SynchronizeAsync(UserId.New(), world.AccountId))
+                .Outcome.Should().Be(ExchangeAccountSyncOutcome.NotFound);
+            (await coordinator.ProcessPendingAsync(world.UserId, ExchangeAccountId.New())).Should().BeEmpty();
+        }
+
+        coordinator.ChannelCount.Should().Be(0);
+        world.Provider.PositionRequests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Synchronizations_Without_Realtime_Observation_Do_Not_Retain_The_Channel()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+
+        for (var i = 0; i < 3; i++)
+        {
+            world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+            (await coordinator.SynchronizeAsync(world.UserId, world.AccountId))
+                .Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+            coordinator.ChannelCount.Should().Be(0);
+        }
+    }
+
+    [Fact]
+    public async Task Observed_Account_Keeps_Its_Channel_And_Rest_Windows()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var enqueuedDuringSync = false;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            enqueuedDuringSync = coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(world.Clock.UtcNow, 1));
+        };
+
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        coordinator.ChannelCount.Should().Be(1);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        enqueuedDuringSync.Should().BeTrue();
+        results.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        coordinator.ChannelCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Disabled_Account_Channel_Is_Released_After_Pending_Observations_Are_Drained()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        world.DisableAccount();
+
+        (await coordinator.SynchronizeAsync(world.UserId, world.AccountId))
+            .Outcome.Should().Be(ExchangeAccountSyncOutcome.AccountDisabled);
+        coordinator.ChannelCount.Should().Be(0);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeTrue();
+        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0)).Should().BeTrue();
+        coordinator.ChannelCount.Should().Be(1, "pending observations must not be lost");
+
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.AccountUnavailable);
+        coordinator.ChannelCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Unhandled_Recovery_Of_An_Unavailable_Observed_Account_Is_Not_Dropped()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.DisableAccount();
+
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        results.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
+        world.State!.RecoveryRequired.Should().BeTrue();
+        coordinator.ChannelCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Waiting_Operation_Keeps_The_Channel_So_One_Account_Never_Has_Two_Gates()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var active = 0;
+        var maxActive = 0;
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Provider.OnPositionsRequestAsync = async cancellationToken =>
+        {
+            var current = Interlocked.Increment(ref active);
+            InterlockedMax(ref maxActive, current);
+            if (firstStarted.TrySetResult())
+            {
+                await releaseFirst.Task.WaitAsync(cancellationToken);
+            }
+            else
+            {
+                await Task.Yield();
+            }
+
+            Interlocked.Decrement(ref active);
+        };
+
+        var first = coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        await firstStarted.Task;
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = coordinator.SynchronizeAsync(world.UserId, world.AccountId, cancellation.Token);
+        var waiting = Enumerable.Range(0, 20)
+            .Select(_ => Task.Run(() => coordinator.SynchronizeAsync(world.UserId, world.AccountId)))
+            .ToArray();
+        coordinator.ChannelCount.Should().Be(1);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        coordinator.ChannelCount.Should().Be(1, "the running and waiting operations still hold the channel");
+        releaseFirst.SetResult();
+
+        await first;
+        await Task.WhenAll(waiting);
+
+        maxActive.Should().Be(1);
+        world.Provider.PositionRequests.Should().HaveCount(21);
+        coordinator.ChannelCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Cancelled_Operations_Release_Their_Channel()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.SynchronizeAsync(world.UserId, ExchangeAccountId.New(), cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.ProcessPendingAsync(world.UserId, ExchangeAccountId.New(), cancellation.Token));
+
+        coordinator.ChannelCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Concurrent_Recreation_Of_Released_Channels_Leaks_Nothing()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1_000);
+        var unknownAccounts = Enumerable.Range(0, 8).Select(_ => ExchangeAccountId.New()).ToArray();
+
+        await Task.WhenAll(Enumerable.Range(0, 200).Select(i => Task.Run(async () =>
+        {
+            var accountId = unknownAccounts[i % unknownAccounts.Length];
+            if (i % 2 == 0)
+            {
+                await coordinator.SynchronizeAsync(world.UserId, accountId);
+            }
+            else
+            {
+                coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0) with { ExchangeAccountId = accountId });
+                await coordinator.ProcessPendingAsync(world.UserId, accountId);
+            }
+        })));
+
+        coordinator.ChannelCount.Should().Be(0);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int current;
+        do
+        {
+            current = Volatile.Read(ref target);
+            if (value <= current)
+            {
+                return;
+            }
+        }
+        while (Interlocked.CompareExchange(ref target, value, current) != current);
+    }
+
+    private static ExchangeAccountObservationCoordinator CreateCoordinator(
+        RealtimeTestWorld world,
+        ServiceProvider provider,
+        int bufferCapacity) =>
+        new(provider.GetRequiredService<IServiceScopeFactory>(), world.Clock, bufferCapacity);
+
+    /// <summary>
+    /// Делает поколение 1 известным координатору и снимает persisted-признак recovery успешной полной
+    /// сверкой. Оставшееся в буфере наблюдение не обрабатывается.
+    /// </summary>
+    private static async Task EstablishReconciledGenerationAsync(
+        RealtimeTestWorld world,
+        ExchangeAccountObservationCoordinator coordinator)
+    {
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeTrue();
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.State!.RecoveryRequired.Should().BeFalse();
+    }
+
+    /// <summary>Переполняет буфер ёмкостью 1, создавая локальный запрос recovery поколения 1.</summary>
+    private static void RequestRecoveryByOverflow(
+        RealtimeTestWorld world,
+        ExchangeAccountObservationCoordinator coordinator)
+    {
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(30), 30));
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(31), 31)).Should().BeFalse();
     }
 
     /// <summary>

@@ -18,9 +18,9 @@ public sealed record RealtimeObservationApplyResult
     public const string RevisionConflict = "revision_conflict";
     public const string OlderRevision = "older_revision";
     public const string OlderThanPosition = "older_than_position";
-    public const string OlderThanFullSync = "older_than_full_sync";
     public const string OlderThanClosure = "older_than_closure";
     public const string OlderThanBalance = "older_than_balance";
+    public const string BalanceConflict = "balance_conflict";
     public const string SettlementMismatch = "settlement_mismatch";
     public const string RestConfirmationIncomplete = "rest_confirmation_incomplete";
     public const string RestConfirmationStale = "rest_confirmation_stale";

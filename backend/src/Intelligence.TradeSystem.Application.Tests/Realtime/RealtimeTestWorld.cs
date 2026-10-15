@@ -70,8 +70,17 @@ internal sealed class RealtimeTestWorld
     /// <summary>Количество искусственных ошибок сохранения состояния наблюдения.</summary>
     public int StateSaveFailuresToInject { get; set; }
 
+    /// <summary>Количество записей состояния наблюдения, завершающихся проигранным CAS.</summary>
+    public int StateConflictsToInject { get; set; }
+
     /// <summary>Вызывается перед очередной транзакцией применения наблюдения.</summary>
     public Func<CancellationToken, Task>? BeforeTransactionExecuteAsync { get; set; }
+
+    /// <summary>Вызывается перед записью состояния наблюдения с сохраняемым значением.</summary>
+    public Action<RealtimeObservationState>? BeforeStateSave { get; set; }
+
+    /// <summary>Количество транзакций, фиксация которых завершится ошибкой после выполнения операции.</summary>
+    public int CommitFailuresToInject { get; set; }
 
     /// <summary>Credentials недоступны при scoped REST-подтверждении позиции.</summary>
     public bool CredentialsUnavailable { get; set; }
@@ -463,6 +472,11 @@ internal sealed class RealtimeTestWorld
                 }
 
                 await operation(cancellationToken);
+                if (world.CommitFailuresToInject > 0)
+                {
+                    world.CommitFailuresToInject--;
+                    throw new InvalidOperationException("Injected commit failure.");
+                }
             }
             catch
             {
@@ -511,8 +525,8 @@ internal sealed class RealtimeTestWorld
             ExchangeAccountId id,
             CancellationToken cancellationToken = default)
         {
-            world.EnsureScope(userId, id);
-            return Task.FromResult(world.account is { } current
+            // Как и PostgreSQL-репозиторий, чужой или неизвестный аккаунт не находится.
+            return Task.FromResult(userId == world.UserId && id == world.AccountId && world.account is { } current
                 ? new Versioned<ExchangeAccount>(Clone(current.Value), current.Version)
                 : null);
         }
@@ -707,10 +721,18 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, state.ExchangeAccountId);
+            world.BeforeStateSave?.Invoke(state);
+            cancellationToken.ThrowIfCancellationRequested();
             if (world.StateSaveFailuresToInject > 0)
             {
                 world.StateSaveFailuresToInject--;
                 throw new InvalidOperationException("Injected observation state persistence failure.");
+            }
+
+            if (world.StateConflictsToInject > 0)
+            {
+                world.StateConflictsToInject--;
+                throw new ConcurrencyConflictException("Injected observation state conflict.");
             }
 
             if (world.state is not { } current ||

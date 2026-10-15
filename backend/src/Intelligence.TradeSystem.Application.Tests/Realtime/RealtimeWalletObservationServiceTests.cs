@@ -91,6 +91,7 @@ public sealed class RealtimeWalletObservationServiceTests
         var world = new RealtimeTestWorld();
         var service = world.CreateWalletService();
         await service.ApplyAsync(world.UserId, 1, world.WalletObservation(T0.AddSeconds(10)));
+        var balanceWatermark = world.Account.LastAppliedBalanceObservationAt;
 
         var older = await service.ApplyAsync(
             world.UserId,
@@ -99,12 +100,103 @@ public sealed class RealtimeWalletObservationServiceTests
         var same = await service.ApplyAsync(
             world.UserId,
             1,
+            world.WalletObservation(T0.AddSeconds(10), totalEquity: 1_000.00m));
+        var conflicting = await service.ApplyAsync(
+            world.UserId,
+            1,
             world.WalletObservation(T0.AddSeconds(10), totalEquity: 1_200m));
 
         older.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
         older.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanBalance);
         same.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        conflicting.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        conflicting.ReasonCode.Should().Be(RealtimeObservationApplyResult.BalanceConflict);
         world.Portfolios.Should().ContainSingle().Which.Capital.TotalEquity.Should().Be(1_000m);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(balanceWatermark);
+        world.Events.Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(1_001, 800, 950, 50)]
+    [InlineData(1_000, 801, 950, 50)]
+    [InlineData(1_000, 800, 951, 50)]
+    [InlineData(1_000, 800, 950, 49)]
+    public async Task Equal_Time_With_Any_Different_Capital_Value_Requires_Recovery_Without_Writes(
+        int totalEquity,
+        int available,
+        int walletBalance,
+        int unrealizedPnl)
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreateWalletService();
+        await service.ApplyAsync(world.UserId, 1, world.WalletObservation(T0.AddSeconds(10)));
+        var transactions = world.TransactionAttempts;
+
+        var result = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(10), totalEquity, available, walletBalance, unrealizedPnl));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.BalanceConflict);
+        world.TransactionAttempts.Should().Be(transactions + 1);
+        var capital = world.Portfolios.Should().ContainSingle().Subject.Capital;
+        capital.TotalEquity.Should().Be(1_000m);
+        capital.AvailableCapital.Should().Be(800m);
+        capital.TotalWalletBalance.Should().Be(950m);
+        capital.AccountUnrealizedPnl.Should().Be(50m);
+        world.Events.Should().ContainSingle();
+
+        var newer = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(11), totalEquity, available, walletBalance, unrealizedPnl));
+
+        newer.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(totalEquity);
+        world.Events.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Observations_Within_One_Stored_Microsecond_Are_Equal_Time()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreateWalletService();
+        await service.ApplyAsync(world.UserId, 1, world.WalletObservation(T0.AddSeconds(10).AddTicks(1)));
+
+        var repeated = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(10).AddTicks(5)));
+        var conflicting = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(10).AddTicks(9), totalEquity: 1_001m));
+
+        repeated.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        conflicting.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        conflicting.ReasonCode.Should().Be(RealtimeObservationApplyResult.BalanceConflict);
+        world.Portfolios.Should().ContainSingle();
+        world.Events.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Equal_Time_Values_Are_Compared_At_Stored_Capital_Precision()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreateWalletService();
+        await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(10), totalEquity: 1_000.0000000000000000001m));
+
+        var repeated = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.WalletObservation(T0.AddSeconds(10), totalEquity: 1_000m));
+
+        repeated.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        world.Portfolios.Should().ContainSingle();
         world.Events.Should().ContainSingle();
     }
 

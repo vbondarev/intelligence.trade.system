@@ -30,8 +30,10 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// Нулевой размер и смена направления в слоте позиции не применяются напрямую: состояние слота
 /// подтверждается scoped REST-наблюдением, а закрытие выполняется существующим
 /// <see cref="PositionReconciler"/> только по полному снимку. Автоматическая evaluation не запускается.
-/// Снимок подтверждает событие, только если запрошен не раньше получения сообщения и новее последнего
-/// применённого полного REST-снимка; иначе состояние не меняется и требуется recovery.
+/// Открытие, не более новое, чем watermark REST-наблюдения позиций аккаунта, тоже подтверждается
+/// scoped REST-наблюдением: watermark не отличает полный снимок от неуспешной попытки.
+/// Снимок подтверждает событие, только если запрошен не раньше получения сообщения и новее этого
+/// watermark; иначе состояние не меняется и требуется recovery.
 /// </para>
 /// </remarks>
 public sealed class RealtimePositionReconciliationService(
@@ -250,11 +252,16 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            result = slot.Length == 0
-                                ? await OpenLifecycleAsync(userId, generation, prepared, locked, token)
-                                    .ConfigureAwait(false)
-                                : await UpdateLifecycleAsync(userId, generation, prepared, locked, slot[0], token)
+                            if (slot.Length == 0)
+                            {
+                                result = await OpenLifecycleAsync(userId, generation, prepared, locked, token)
                                     .ConfigureAwait(false);
+                                requiresRestConfirmation = result is null;
+                                return;
+                            }
+
+                            result = await UpdateLifecycleAsync(userId, generation, prepared, locked, slot[0], token)
+                                .ConfigureAwait(false);
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -278,20 +285,16 @@ public sealed class RealtimePositionReconciliationService(
         }
     }
 
-    private async Task<RealtimeObservationApplyResult> OpenLifecycleAsync(
+    /// <returns><see langword="null"/>, если открытие нужно подтвердить REST-наблюдением.</returns>
+    private async Task<RealtimeObservationApplyResult?> OpenLifecycleAsync(
         UserId userId,
         long generation,
         PreparedObservation prepared,
         LockedState locked,
         CancellationToken cancellationToken)
     {
-        // Сообщение не новее полного REST-снимка аккаунта или закрытия прежнего lifecycle слота
-        // могло быть уже опровергнуто этим снимком; новый lifecycle по нему не открывается.
-        if (locked.Account.LastAppliedPositionsObservationAt is { } fullSyncAt && prepared.ObservedAt <= fullSyncAt)
-        {
-            return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanFullSync);
-        }
-
+        // Закрытие lifecycle выполняется только по полному снимку, поэтому сообщение не новее закрытия
+        // уже опровергнуто им.
         var latestClosure = locked.Positions
             .Select(versioned => versioned.Value)
             .Where(position => position.TrackingState == PositionTrackingState.Closed && IsInSlot(position, prepared))
@@ -300,6 +303,14 @@ public sealed class RealtimePositionReconciliationService(
         if (latestClosure is { } closedAt && prepared.ObservedAt <= closedAt)
         {
             return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanClosure);
+        }
+
+        // Watermark продвигается и неуспешными или частичными REST-попытками, поэтому не доказывает
+        // отсутствие позиции: открытие не новее него подтверждается свежим scoped-снимком.
+        if (locked.Account.LastAppliedPositionsObservationAt is { } positionsWatermark &&
+            prepared.ObservedAt <= positionsWatermark)
+        {
+            return null;
         }
 
         var observed = prepared.Observation.Position!;
@@ -465,8 +476,9 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            // Полный REST-снимок, применённый после запроса подтверждения, уже отражает более
-                            // новое состояние аккаунта; более старый снимок не должен его откатить.
+                            // REST-наблюдение позиций аккаунта, применённое после запроса подтверждения, могло
+                            // отразить более новое состояние; более старый снимок не должен его откатить.
+                            // Неуспешная попытка тоже продвигает watermark, поэтому итог консервативен — recovery.
                             if (locked.Account.LastAppliedPositionsObservationAt is { } fullSyncAt &&
                                 TimestampCanonicalizer.ToUtcMicroseconds(snapshot.ObservedAt) <= fullSyncAt)
                             {

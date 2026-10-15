@@ -350,6 +350,116 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task Delayed_open_older_than_a_failed_rest_attempt_is_confirmed_and_becomes_the_latest_snapshot()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var failedAttemptAt = T1.AddSeconds(10);
+        await using (var services = CreateApplicationServices(
+                         account,
+                         new TestPrivateProvider
+                         {
+                             ObservedAt = failedAttemptAt,
+                             Status = OpenPositionsObservationStatus.Failed,
+                         }))
+        {
+            var sync = await services.GetRequiredService<ExchangeAccountObservationCoordinator>()
+                .SynchronizeAsync(account.UserId, account.Id);
+            Assert.False(sync.FullReconciliationCommitted);
+        }
+
+        var confirmation = new TestPrivateProvider { ObservedAt = T1.AddSeconds(11) };
+        confirmation.SetPosition(OpenPosition());
+
+        var result = await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddSeconds(9), 1),
+            confirmation);
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, result.Outcome);
+        Assert.True(result.ConfirmedByRest);
+        await using var verification = fixture.CreateContext();
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(failedAttemptAt, stored!.Value.LastAppliedPositionsObservationAt);
+        var position = Assert.Single(await new PositionRepository(verification)
+            .GetByExchangeAccountAsync(account.UserId, account.Id));
+        Assert.Equal(PositionTrackingState.Active, position.Value.TrackingState);
+        var cursor = await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(1, cursor!.Value.LastProviderSequence);
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1m, Assert.Single(latest!.Positions).Size);
+        Assert.Equal(
+            latest.CalculatedAt,
+            await verification.PortfolioStates
+                .Where(state => state.ExchangeAccountId == account.Id.Value)
+                .MaxAsync(state => state.CalculatedAt));
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+    }
+
+    [Fact]
+    public async Task Sub_microsecond_observations_keep_snapshot_order_and_equal_time_wallet_semantics()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var openedAt = T1.AddMinutes(5).AddTicks(1);
+        var walletAt = T1.AddMinutes(5).AddTicks(3);
+
+        var opened = await ApplyAsync(account, generation, OpenObservation(account, openedAt, 1));
+        RealtimeObservationApplyResult wallet;
+        RealtimeObservationApplyResult repeated;
+        RealtimeObservationApplyResult conflicting;
+        await using (var context = fixture.CreateContext())
+        {
+            wallet = await CreateWalletService(context)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, walletAt));
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            repeated = await CreateWalletService(context)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, walletAt.AddTicks(4)));
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            conflicting = await CreateWalletService(context).ApplyAsync(
+                account.UserId,
+                generation,
+                WalletObservation(account, walletAt.AddTicks(6), totalEquity: 1_200m));
+        }
+
+        var updated = await ApplyAsync(
+            account,
+            generation,
+            OpenObservation(account, T1.AddMinutes(6).AddTicks(1), 2, OpenPosition(size: 2m)));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, opened.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, wallet.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, repeated.Outcome);
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, conflicting.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.BalanceConflict, conflicting.ReasonCode);
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, updated.Outcome);
+        await using var verification = fixture.CreateContext();
+        var snapshots = await verification.PortfolioStates
+            .Where(state => state.ExchangeAccountId == account.Id.Value)
+            .OrderBy(state => state.CalculatedAt)
+            .Select(state => state.CalculatedAt)
+            .ToArrayAsync();
+        Assert.Equal(
+            new[]
+            {
+                T1.AddMinutes(5).AddTicks(TimeSpan.TicksPerMicrosecond),
+                T1.AddMinutes(5).AddTicks(2 * TimeSpan.TicksPerMicrosecond),
+                T1.AddMinutes(6).AddTicks(TimeSpan.TicksPerMicrosecond),
+            },
+            snapshots);
+        var latest = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(T1.AddMinutes(6).AddTicks(TimeSpan.TicksPerMicrosecond), latest!.CalculatedAt);
+        Assert.Equal(1_100m, latest.Capital.TotalEquity);
+        Assert.Equal(2m, Assert.Single(latest.Positions).Size);
+        Assert.Equal(3, await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
+    [Fact]
     public async Task Stale_rest_confirmation_keeps_position_cursor_portfolio_and_outbox_unchanged()
     {
         var (account, generation) = await CreateObservedAccountAsync();
@@ -660,13 +770,16 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
             new ApplicationEventOutbox(context),
             new FixedTimeProvider(T1.AddMinutes(1)));
 
-    private static PrivateWalletObservation WalletObservation(ExchangeAccount account, DateTimeOffset at) =>
+    private static PrivateWalletObservation WalletObservation(
+        ExchangeAccount account,
+        DateTimeOffset at,
+        decimal totalEquity = 1_100m) =>
         new()
         {
             Exchange = ExchangeId.Bybit,
             ExchangeAccountId = account.Id,
             Kind = PrivateWalletObservationKind.PartialUpdate,
-            Balances = [new AccountBalance(AccountType.Unified, 1_100m, 1_000m, 900m, 20m, [])],
+            Balances = [new AccountBalance(AccountType.Unified, totalEquity, 1_000m, 900m, 20m, [])],
             MessageCreatedAt = at,
             ReceivedAt = at.AddMilliseconds(50),
         };
@@ -883,6 +996,8 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
 
         public DateTimeOffset ObservedAt { get; init; } = T1;
 
+        public OpenPositionsObservationStatus Status { get; init; } = OpenPositionsObservationStatus.Complete;
+
         /// <summary>Выполняется во время REST-запроса позиций: после снимка баланса, до ответа.</summary>
         public Func<Task>? BeforePositionsResponse { get; init; }
 
@@ -910,11 +1025,13 @@ public sealed class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixture fixt
                 await BeforePositionsResponse();
             }
 
-            return OpenPositionsObservation.Complete(
-                category,
-                symbol,
-                ObservedAt,
-                positions.Where(position => symbol is null || position.Symbol == symbol).ToArray());
+            return Status == OpenPositionsObservationStatus.Complete
+                ? OpenPositionsObservation.Complete(
+                    category,
+                    symbol,
+                    ObservedAt,
+                    positions.Where(position => symbol is null || position.Symbol == symbol).ToArray())
+                : OpenPositionsObservation.Failed(category, symbol, ObservedAt, "failed");
         }
     }
 }

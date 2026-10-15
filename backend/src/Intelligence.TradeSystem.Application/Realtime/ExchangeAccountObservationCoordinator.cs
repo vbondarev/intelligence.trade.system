@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
@@ -27,7 +26,14 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// <para>
 /// Переполнение буфера, необработанное исключение применения и неоднозначный порядок означают
 /// возможный пропуск событий: состояние наблюдения помечается как требующее recovery и выполняется
-/// полная REST-сверка. Признак recovery снимается только сверкой, во время которой события не терялись.
+/// полная REST-сверка. Признак recovery снимается только полной сверкой текущего запроса, во время
+/// которой события не терялись. Потеря во время любой сверки или записи её итога снова устанавливает
+/// persisted-признак текущего поколения.
+/// </para>
+/// <para>
+/// Канал аккаунта существует, пока его удерживает операция, и после неё — только если хранит
+/// ожидающие наблюдения, необработанный recovery или окна REST-запросов аккаунта, наблюдаемого
+/// потоком. Каналы ненайденных, чужих и отключённых аккаунтов не накапливаются.
 /// </para>
 /// </remarks>
 public sealed class ExchangeAccountObservationCoordinator(
@@ -39,27 +45,48 @@ public sealed class ExchangeAccountObservationCoordinator(
     public const int DefaultBufferCapacity = 256;
     private const int MaxStateAttempts = 3;
 
-    private readonly ConcurrentDictionary<(UserId UserId, ExchangeAccountId AccountId), AccountChannel> channels = new();
+    private readonly Dictionary<(UserId UserId, ExchangeAccountId AccountId), AccountChannel> channels = new();
+    private readonly object channelsSync = new();
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly int capacity = bufferCapacity > 0
         ? bufferCapacity
         : throw new ArgumentOutOfRangeException(nameof(bufferCapacity), bufferCapacity, "Buffer capacity must be positive.");
+
+    /// <summary>Количество каналов аккаунтов, удерживаемых координатором.</summary>
+    internal int ChannelCount
+    {
+        get
+        {
+            lock (channelsSync)
+            {
+                return channels.Count;
+            }
+        }
+    }
 
     public async Task<ExchangeAccountSyncResult> SynchronizeAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default)
     {
-        var channel = GetChannel(userId, exchangeAccountId);
-        await channel.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var key = CreateKey(userId, exchangeAccountId);
+        var channel = AcquireChannel(key);
         try
         {
-            return await SynchronizeUnderGateAsync(userId, exchangeAccountId, channel, cancellationToken)
-                .ConfigureAwait(false);
+            await channel.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await SynchronizeUnderGateAsync(userId, exchangeAccountId, channel, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                channel.Gate.Release();
+            }
         }
         finally
         {
-            channel.Gate.Release();
+            ReleaseChannel(key, channel);
         }
     }
 
@@ -97,111 +124,141 @@ public sealed class ExchangeAccountObservationCoordinator(
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default)
     {
-        var channel = GetChannel(userId, exchangeAccountId);
-        var results = new List<RealtimeObservationApplyResult>();
-        await channel.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var key = CreateKey(userId, exchangeAccountId);
+        var channel = AcquireChannel(key);
         try
         {
-            var recoveryReported = false;
-            var recoveryAttempted = false;
-            var processedObservations = 0;
-            while (processedObservations < capacity)
+            await channel.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                PendingObservation? next;
-                var recoveryRequested = false;
+                return await ProcessPendingUnderGateAsync(userId, exchangeAccountId, channel, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                channel.Gate.Release();
+            }
+        }
+        finally
+        {
+            ReleaseChannel(key, channel);
+        }
+    }
+
+    private async Task<IReadOnlyList<RealtimeObservationApplyResult>> ProcessPendingUnderGateAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<RealtimeObservationApplyResult>();
+        var recoveryReported = false;
+        var recoveryAttempted = false;
+        var processedObservations = 0;
+        while (processedObservations < capacity)
+        {
+            PendingObservation? next;
+            var recoveryRequested = false;
+            lock (channel.Sync)
+            {
+                if (channel.HasUnhandledRecoveryRequest)
+                {
+                    // Сверка охватывает все события, сформированные до её начала, поэтому
+                    // ожидающие наблюдения не применяются поверх её результата.
+                    channel.Pending.Clear();
+                    recoveryRequested = true;
+                    next = null;
+                }
+                else if (!channel.Pending.TryDequeue(out next))
+                {
+                    break;
+                }
+            }
+
+            if (next is null)
+            {
+                if (!recoveryReported)
+                {
+                    results.Add(RealtimeObservationApplyResult.RecoveryRequired(
+                        RealtimeObservationApplyResult.BufferOverflow));
+                }
+
+                recoveryReported = true;
+                if (recoveryAttempted)
+                {
+                    break;
+                }
+
+                recoveryAttempted = true;
+                await SynchronizeUnderGateAsync(userId, exchangeAccountId, channel, cancellationToken)
+                    .ConfigureAwait(false);
+
                 lock (channel.Sync)
                 {
-                    if (channel.HasUnhandledRecoveryRequest)
-                    {
-                        // Сверка охватывает все события, сформированные до её начала, поэтому
-                        // ожидающие наблюдения не применяются поверх её результата.
-                        channel.Pending.Clear();
-                        recoveryRequested = true;
-                        next = null;
-                    }
-                    else if (!channel.Pending.TryDequeue(out next))
-                    {
-                        break;
-                    }
+                    recoveryRequested = channel.HasUnhandledRecoveryRequest;
                 }
 
-                if (next is null)
+                // До успешного подтверждения recovery частичные observations не могут
+                // безопасно дополнять состояние, потерявшее полноту.
+                if (recoveryRequested)
                 {
-                    if (!recoveryReported)
-                    {
-                        results.Add(RealtimeObservationApplyResult.RecoveryRequired(
-                            RealtimeObservationApplyResult.BufferOverflow));
-                    }
+                    break;
+                }
 
-                    recoveryReported = true;
-                    if (recoveryAttempted)
-                    {
-                        break;
-                    }
+                continue;
+            }
 
-                    recoveryAttempted = true;
-                    await SynchronizeUnderGateAsync(userId, exchangeAccountId, channel, cancellationToken)
-                        .ConfigureAwait(false);
+            RealtimeObservationApplyResult result;
+            try
+            {
+                result = await ApplyAsync(userId, channel, next, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (channel.Sync)
+                {
+                    channel.RecoveryRequests++;
+                }
 
+                throw;
+            }
+
+            processedObservations++;
+            results.Add(result);
+            switch (result.Outcome)
+            {
+                case RealtimeObservationApplyOutcome.Applied:
                     lock (channel.Sync)
                     {
-                        recoveryRequested = channel.HasUnhandledRecoveryRequest;
+                        channel.AccountUnavailable = false;
                     }
 
-                    // До успешного подтверждения recovery частичные observations не могут
-                    // безопасно дополнять состояние, потерявшее полноту.
-                    if (recoveryRequested)
-                    {
-                        break;
-                    }
-
-                    continue;
-                }
-
-                RealtimeObservationApplyResult result;
-                try
-                {
-                    result = await ApplyAsync(userId, channel, next, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
+                    break;
+                case RealtimeObservationApplyOutcome.RecoveryRequired:
                     lock (channel.Sync)
                     {
                         channel.RecoveryRequests++;
                     }
 
-                    throw;
-                }
-
-                processedObservations++;
-                results.Add(result);
-                switch (result.Outcome)
-                {
-                    case RealtimeObservationApplyOutcome.RecoveryRequired:
-                        lock (channel.Sync)
+                    recoveryReported = true;
+                    break;
+                case RealtimeObservationApplyOutcome.GenerationSuperseded:
+                case RealtimeObservationApplyOutcome.AccountUnavailable:
+                    lock (channel.Sync)
+                    {
+                        if (channel.Generation == next.Generation)
                         {
-                            channel.RecoveryRequests++;
+                            channel.Pending.Clear();
                         }
 
-                        recoveryReported = true;
-                        break;
-                    case RealtimeObservationApplyOutcome.GenerationSuperseded:
-                    case RealtimeObservationApplyOutcome.AccountUnavailable:
-                        lock (channel.Sync)
+                        if (result.Outcome == RealtimeObservationApplyOutcome.AccountUnavailable)
                         {
-                            if (channel.Generation == next.Generation)
-                            {
-                                channel.Pending.Clear();
-                            }
+                            channel.AccountUnavailable = true;
                         }
+                    }
 
-                        break;
-                }
+                    break;
             }
-        }
-        finally
-        {
-            channel.Gate.Release();
         }
 
         return results;
@@ -210,7 +267,20 @@ public sealed class ExchangeAccountObservationCoordinator(
     private bool TryEnqueue(UserId userId, ExchangeAccountId exchangeAccountId, PendingObservation pending)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(pending.Generation, 0, "generation");
-        var channel = GetChannel(userId, exchangeAccountId);
+        var key = CreateKey(userId, exchangeAccountId);
+        var channel = AcquireChannel(key);
+        try
+        {
+            return TryEnqueue(channel, pending);
+        }
+        finally
+        {
+            ReleaseChannel(key, channel);
+        }
+    }
+
+    private bool TryEnqueue(AccountChannel channel, PendingObservation pending)
+    {
         lock (channel.Sync)
         {
             if (pending.Generation < channel.Generation)
@@ -322,39 +392,43 @@ public sealed class ExchangeAccountObservationCoordinator(
         lock (channel.Sync)
         {
             channel.FullSyncWindow = new RestWindow(startedAt, completedAt);
+            channel.AccountUnavailable = result.Outcome is
+                ExchangeAccountSyncOutcome.NotFound or ExchangeAccountSyncOutcome.AccountDisabled;
             eventsMayBeMissing = channel.RecoveryRequests != recoveryRequestsAtStart || channel.Generation != generation;
         }
 
         var reconciled = false;
-        if (generation > 0 &&
-            !eventsMayBeMissing &&
-            result is { Outcome: ExchangeAccountSyncOutcome.Synchronized, PortfolioState.PositionsFullyReconciled: true })
+        if (generation > 0 && !eventsMayBeMissing && result.FullReconciliationCommitted)
         {
             reconciled = await SetReconciledAsync(userId, exchangeAccountId, generation, completedAt, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var recoveryArrivedAfterReconciliation = false;
-        if (recoveryRequested && reconciled)
+        // Счётчик перепроверяется после записи Reconciled независимо от запроса на входе: потеря во время
+        // REST или самой записи могла не попасть в persisted-признак. Для нового поколения признак
+        // устанавливается его собственным стартом.
+        var newRecoveryRequested = false;
+        lock (channel.Sync)
         {
-            lock (channel.Sync)
+            if (channel.Generation == generation)
             {
-                if (channel.Generation == generation &&
-                    channel.RecoveryRequests == recoveryRequestsAtStart)
+                if (channel.RecoveryRequests == recoveryRequestsAtStart)
                 {
-                    channel.HandledRecoveryRequests = recoveryRequestsAtStart;
+                    if (reconciled)
+                    {
+                        channel.HandledRecoveryRequests = recoveryRequestsAtStart;
+                    }
                 }
                 else
                 {
-                    recoveryArrivedAfterReconciliation = true;
+                    newRecoveryRequested = channel.HasUnhandledRecoveryRequest;
                 }
             }
         }
 
-        if (recoveryArrivedAfterReconciliation)
+        if (newRecoveryRequested && generation > 0)
         {
-            // Новая потеря могла произойти после проверки окна и до фиксации Reconciled.
-            // Persisted-признак снова устанавливается, а локальный запрос остаётся необработанным.
+            // Локальный запрос остаётся необработанным; при ошибке записи его сохранит следующий проход.
             await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -433,7 +507,9 @@ public sealed class ExchangeAccountObservationCoordinator(
         return false;
     }
 
-    private AccountChannel GetChannel(UserId userId, ExchangeAccountId exchangeAccountId)
+    private static (UserId UserId, ExchangeAccountId AccountId) CreateKey(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId)
     {
         if (userId == default)
         {
@@ -445,7 +521,51 @@ public sealed class ExchangeAccountObservationCoordinator(
             throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
         }
 
-        return channels.GetOrAdd((userId, exchangeAccountId), static _ => new AccountChannel());
+        return (userId, exchangeAccountId);
+    }
+
+    /// <summary>
+    /// Возвращает канал аккаунта, удерживая его от удаления до <see cref="ReleaseChannel"/>.
+    /// </summary>
+    /// <remarks>
+    /// Канал удаляется только без удерживающих операций под той же блокировкой, под которой выдаётся,
+    /// поэтому для одного аккаунта не существует двух каналов с разными gate.
+    /// </remarks>
+    private AccountChannel AcquireChannel((UserId UserId, ExchangeAccountId AccountId) key)
+    {
+        lock (channelsSync)
+        {
+            if (!channels.TryGetValue(key, out var channel))
+            {
+                channel = new AccountChannel();
+                channels.Add(key, channel);
+            }
+
+            channel.Leases++;
+            return channel;
+        }
+    }
+
+    private void ReleaseChannel((UserId UserId, ExchangeAccountId AccountId) key, AccountChannel channel)
+    {
+        lock (channelsSync)
+        {
+            channel.Leases--;
+            if (channel.Leases > 0)
+            {
+                return;
+            }
+
+            lock (channel.Sync)
+            {
+                if (!channel.IsReleasable)
+                {
+                    return;
+                }
+            }
+
+            channels.Remove(key);
+        }
     }
 
     private sealed record PendingObservation(
@@ -476,6 +596,21 @@ public sealed class ExchangeAccountObservationCoordinator(
 
         public RestWindow? FullSyncWindow { get; set; }
 
+        /// <summary>Число операций, удерживающих канал; изменяется только под блокировкой словаря каналов.</summary>
+        public int Leases { get; set; }
+
+        /// <summary>Последняя операция установила, что аккаунт пользователя не найден или отключён.</summary>
+        public bool AccountUnavailable { get; set; }
+
         public bool HasUnhandledRecoveryRequest => RecoveryRequests != HandledRecoveryRequests;
+
+        /// <summary>
+        /// Канал не хранит состояния, которое нельзя потерять: ожидающих наблюдений и необработанного
+        /// recovery нет, а окна REST-запросов не нужны, пока аккаунт не наблюдается потоком или недоступен.
+        /// </summary>
+        public bool IsReleasable =>
+            Pending.Count == 0 &&
+            !HasUnhandledRecoveryRequest &&
+            (Generation == 0 || AccountUnavailable);
     }
 }
