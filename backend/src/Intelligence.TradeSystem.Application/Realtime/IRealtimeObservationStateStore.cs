@@ -49,4 +49,24 @@ public interface IRealtimeObservationStateStore
         RealtimeObservationState state,
         ConcurrencyVersion expectedVersion,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Проверяет, что <paramref name="generation"/> является текущим поколением наблюдателя, и
+    /// удерживает разделяемую блокировку состояния до завершения текущей транзакции.
+    /// </summary>
+    /// <remarks>
+    /// Пока блокировка удерживается, <see cref="AdvanceGenerationAsync"/> ждёт фиксации транзакции,
+    /// поэтому бизнес-изменения, проверенные этим вызовом, не фиксируются после смены поколения.
+    /// Строка аккаунта блокируется раньше строки состояния — в порядке каскадного удаления аккаунта.
+    /// </remarks>
+    /// <returns>
+    /// <see langword="false"/>, если поколение не текущее, состояние не сохранялось или аккаунт
+    /// недоступен в области пользователя.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">Нет активной транзакции базы данных.</exception>
+    Task<bool> TryLockGenerationAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        long generation,
+        CancellationToken cancellationToken = default);
 }

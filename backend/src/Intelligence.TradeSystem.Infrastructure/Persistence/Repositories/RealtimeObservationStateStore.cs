@@ -156,6 +156,50 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
         return nextVersion;
     }
 
+    public async Task<bool> TryLockGenerationAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        long generation,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentity(userId, exchangeAccountId);
+        if (dbContext.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException(
+                "Realtime observation generation lock requires an active database transaction.");
+        }
+
+        var locked = await TradeSystemDbCommand.ExecuteAsync(
+            dbContext,
+            """
+            WITH account_lock AS (
+                SELECT account.exchange_account_id
+                FROM exchange_accounts AS account
+                WHERE account.exchange_account_id = @exchange_account_id
+                  AND account.user_id = @user_id
+                FOR KEY SHARE OF account
+            )
+            SELECT observation.generation
+            FROM exchange_realtime_observations AS observation
+            INNER JOIN account_lock ON account_lock.exchange_account_id = observation.exchange_account_id
+            WHERE observation.generation = @generation
+            FOR SHARE OF observation
+            """,
+            [
+                Parameter("exchange_account_id", NpgsqlDbType.Uuid, exchangeAccountId.Value),
+                Parameter("user_id", NpgsqlDbType.Uuid, userId.Value),
+                Parameter("generation", NpgsqlDbType.Bigint, generation),
+            ],
+            static async (command, token) =>
+            {
+                await using var reader = await command.ExecuteReaderAsync(token);
+                return await reader.ReadAsync(token);
+            },
+            cancellationToken);
+
+        return locked;
+    }
+
     private static async Task<ExchangeRealtimeObservationEntity?> ReadSingleOrDefaultAsync(
         DbCommand command,
         CancellationToken cancellationToken)

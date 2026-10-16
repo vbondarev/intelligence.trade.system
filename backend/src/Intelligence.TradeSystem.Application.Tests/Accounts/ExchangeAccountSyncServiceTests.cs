@@ -80,6 +80,7 @@ public sealed class ExchangeAccountSyncServiceTests
         result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
         result.PortfolioState.IsFresh.Should().BeTrue();
         result.PortfolioState.IsComplete.Should().BeTrue();
+        result.FullReconciliationCommitted.Should().BeTrue();
         fixture.EventOutbox.Events
             .Select(applicationEvent => applicationEvent.EventType)
             .Should()
@@ -209,7 +210,9 @@ public sealed class ExchangeAccountSyncServiceTests
         var second = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         first.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        first.FullReconciliationCommitted.Should().BeTrue();
         second.Outcome.Should().Be(ExchangeAccountSyncOutcome.AlreadyApplied);
+        second.FullReconciliationCommitted.Should().BeFalse();
         second.Account.Should().BeSameAs(fixture.Account);
         savedStates.Should().ContainSingle();
         fixture.PositionRepository.Verify(
@@ -302,6 +305,9 @@ public sealed class ExchangeAccountSyncServiceTests
         result.PortfolioState!.Capital.TotalEquity.Should().Be(1_000m);
         result.PortfolioState.Positions.Should().ContainSingle();
         result.PortfolioState.Positions[0].TrackingState.Should().Be(PositionTrackingState.Active);
+        // Полнота позиций унаследована от прежней сводки, а ответ позиций этого запроса — Failed.
+        result.PortfolioState.PositionsFullyReconciled.Should().BeTrue();
+        result.FullReconciliationCommitted.Should().BeFalse();
         fixture.Account.ConnectionStatus.Should().Be(ExchangeAccountConnectionStatus.Connected);
         fixture.Account.LastSyncedAt.Should().Be(previousSyncAt);
         fixture.Account.LastError.Should().BeNull();
@@ -376,6 +382,7 @@ public sealed class ExchangeAccountSyncServiceTests
         result.PortfolioState.Capital.AccountUnrealizedPnl.Should().Be(-15m);
         result.PortfolioState.Positions.Should().ContainSingle()
             .Which.Size.Should().Be(2m);
+        result.FullReconciliationCommitted.Should().BeFalse("the balance observation was superseded");
         fixture.Account.LastSyncedAt.Should().Be(previousSyncAt);
         fixture.Account.LastError.Should().BeNull();
     }
@@ -1146,6 +1153,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
         savedStates.Should().ContainSingle();
         savedStates[0].Positions.Should().BeEmpty();
         savedStates[0].PositionsFullyReconciled.Should().BeFalse();
@@ -1186,6 +1194,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
         trackedPosition.TrackingState.Should().Be(PositionTrackingState.Active);
         savedStates.Should().ContainSingle();
         savedStates[0].PositionsFullyReconciled.Should().BeFalse();
@@ -1225,6 +1234,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
         savedStates.Should().ContainSingle();
         savedStates[0].PositionsFullyReconciled.Should().BeFalse();
         savedStates[0].IsFresh.Should().BeFalse();
@@ -1722,6 +1732,12 @@ public sealed class ExchangeAccountSyncServiceTests
         var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
         lease.SetupGet(value => value.Provider).Returns(provider.Object);
         lease.Setup(value => value.Dispose());
+        portfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                userId,
+                ownedAccount.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PortfolioState?)null);
         positionRepository
             .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
                 userId,

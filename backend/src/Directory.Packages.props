@@ -3,6 +3,11 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      Транзитивная зависимость Aspire.Hosting 13.6.1 тянет MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h).
+      Централизованное закрепление 2.5.303 устраняет advisory без upgrade Aspire.
+    -->
+    <PackageVersion Include="MessagePack" Version="2.5.303" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
     <PackageVersion Include="FluentValidation" Version="12.2.0" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.2.0" />
