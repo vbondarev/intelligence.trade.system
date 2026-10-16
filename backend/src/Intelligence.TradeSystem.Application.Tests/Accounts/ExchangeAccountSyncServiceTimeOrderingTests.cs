@@ -263,6 +263,87 @@ public sealed class ExchangeAccountSyncServiceTimeOrderingTests
         world.Events.OfType<PositionChangedEventV1>().Should().BeEmpty();
     }
 
+    /// <summary>R-208-05 / G4: full REST Short старше закрытия Long не создаёт lifecycle.</summary>
+    [Fact]
+    public async Task Full_Rest_Opposite_Side_Older_Than_Closure_Does_Not_Create_Position()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(1), clockAt: T0.AddSeconds(1));
+        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        var closed = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        closed.FullReconciliationCommitted.Should().BeTrue();
+        world.ActivePositions.Should().BeEmpty();
+        var closedId = world.Positions.Should().ContainSingle().Subject.Id;
+
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(6);
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().BeEmpty();
+        world.Positions.Should().ContainSingle().Which.Id.Should().Be(closedId);
+        world.Events.OfType<PositionOpenedEventV1>().Should().ContainSingle();
+    }
+
+    /// <summary>R-208-06: equal-timestamp Short не сохраняется поверх Active Long.</summary>
+    [Fact]
+    public async Task Equal_Timestamp_Opposite_Side_Complete_Does_Not_Persist_Conflicting_Lifecycle()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Long);
+        world.ActivePositions.Should().NotContain(position =>
+            position.ExchangePositionKey.PositionSide == PositionSide.Short);
+        world.Events.OfType<PositionOpenedEventV1>().Should().ContainSingle();
+    }
+
+    /// <summary>R-208-07 / G7: Complete Long+Short idx=0 не подтверждает полноту и не сохраняет обе стороны.</summary>
+    [Fact]
+    public async Task Complete_Conflicting_One_Way_Sides_Do_Not_Commit_Or_Persist_Both()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.ClearExchangePositions();
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Long, size: 1m, positionIdx: 0));
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 0));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().BeEmpty();
+        world.Events.OfType<PositionOpenedEventV1>().Should().BeEmpty();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>R-208-07 / G8: hedge Long idx=1 и Short idx=2 принимаются полной сверкой.</summary>
+    [Fact]
+    public async Task Complete_Hedge_Sides_On_Different_Idx_Are_Fully_Reconciled()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.ClearExchangePositions();
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Long, size: 1m, positionIdx: 1));
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 2));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeTrue();
+        world.ActivePositions.Should().HaveCount(2);
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Full_Rest_Older_Than_The_Latest_History_Change_Does_Not_Rewrite_History()
     {

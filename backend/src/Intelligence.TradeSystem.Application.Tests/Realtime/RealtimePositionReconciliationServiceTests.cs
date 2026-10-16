@@ -986,6 +986,67 @@ public sealed class RealtimePositionReconciliationServiceTests
         world.Events.Should().HaveCount(eventsBefore);
     }
 
+    /// <summary>
+    /// R-208-05 / G3: scoped REST Short старше закрытия Long того же слота не создаёт lifecycle.
+    /// </summary>
+    [Fact]
+    public async Task Scoped_Rest_Opposite_Side_Older_Than_Closure_Requires_Recovery_Without_Open()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(9), 2));
+        world.ActivePositions.Should().BeEmpty();
+        var closedId = world.Positions.Should().ContainSingle().Subject.Id;
+        // Watermark < REST.ObservedAt, но >= ObservedAt сообщения → ConfirmWithRest без stale watermark.
+        world.SetPositionsWatermark(T0.AddSeconds(5));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(6);
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(6);
+        var eventsBefore = world.Events.Count;
+
+        var result = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(5), 3, OpenPosition(side: PositionSide.Short, size: 2m)));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        world.ActivePositions.Should().BeEmpty();
+        world.Positions.Should().ContainSingle().Which.Id.Should().Be(closedId);
+        world.Events.OfType<PositionOpenedEventV1>().Should().HaveCount(1);
+        world.Events.Count.Should().Be(eventsBefore);
+    }
+
+    /// <summary>R-208-05 / G5: Short строго новее закрытия Long на том же слоте создаёт новый lifecycle.</summary>
+    [Fact]
+    public async Task Opposite_Side_Newer_Than_Closure_Opens_Lifecycle()
+    {
+        var world = new RealtimeTestWorld();
+        var service = world.CreatePositionService();
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        await service.ApplyAsync(world.UserId, 1, world.OpenObservation(T0, 1));
+        var closedId = world.ActivePositions.Single().Id;
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        await service.ApplyAsync(world.UserId, 1, world.CloseObservation(T0.AddSeconds(9), 2));
+        world.Provider.SnapshotObservedAt = null;
+        world.Clock.UtcNow = T0.AddSeconds(12);
+
+        var result = await service.ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0.AddSeconds(11), 3, OpenPosition(side: PositionSide.Short, size: 2m)));
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        var opened = world.ActivePositions.Should().ContainSingle().Subject;
+        opened.Id.Should().NotBe(closedId);
+        opened.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Short);
+        opened.LastObservedAt.Should().Be(T0.AddSeconds(11));
+    }
+
     /// <summary>S-11: повторное открытие после закрытия при откате ReceivedAt требует recovery.</summary>
     [Fact]
     public async Task Reopen_After_Close_With_Rolled_Back_ReceivedAt_Requires_Recovery()

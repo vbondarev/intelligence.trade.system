@@ -812,11 +812,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         return payloads.Count(payload => payload.Contains(accountId, StringComparison.Ordinal));
     }
 
-    private static OpenPosition OpenPosition(string symbol = "BTCUSDT", decimal size = 1m) =>
+    private static OpenPosition OpenPosition(
+        string symbol = "BTCUSDT",
+        decimal size = 1m,
+        PositionSide side = PositionSide.Long,
+        int positionIdx = 0) =>
         new(
             symbol,
             MarketCategory.Linear,
-            PositionSide.Long,
+            side,
             PositionStatus.Normal,
             size,
             100m,
@@ -833,7 +837,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             null,
             null,
             null,
-            0,
+            positionIdx,
             Usdt);
 
     private static PrivatePositionObservation OpenObservation(

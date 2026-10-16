@@ -2170,6 +2170,125 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
     }
 
+    /// <summary>
+    /// R-208-04 / G1: задержанное открытие неизвестного hedge-slot после пустого Complete scoped REST
+    /// не создаёт ложную позицию.
+    /// </summary>
+    [Fact]
+    public async Task Delayed_Open_Of_Unknown_Hedge_Slot_Before_Scoped_Rest_Window_Does_Not_Create_Position()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.SetPositionsWatermark(T0);
+        world.Clock.UtcNow = T0.AddSeconds(5);
+        var longHedge = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        await world.CreatePositionService()
+            .ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(5), 1, longHedge));
+        world.ActivePositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionIdx.Should().Be(1);
+
+        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        coordinator.TryEnqueue(world.UserId, 1, world.CloseObservation(T0.AddSeconds(9), 2, positionIdx: 1))
+            .Should()
+            .BeTrue();
+        var closeResults = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        closeResults.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().BeEmpty();
+        var scopedWindowEnd = world.Clock.UtcNow;
+
+        var shortHedge = OpenPosition(side: PositionSide.Short, positionIdx: 2);
+        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Clock.UtcNow = scopedWindowEnd.AddSeconds(1);
+        var delayedOpen = world.OpenObservation(T0.AddSeconds(9), 3, shortHedge) with
+        {
+            ReceivedAt = world.Clock.UtcNow,
+        };
+        coordinator.TryEnqueue(world.UserId, 1, delayedOpen).Should().BeTrue();
+        var delayed = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        delayed.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().BeEmpty();
+        world.Events.OfType<PositionOpenedEventV1>().Should().HaveCount(1);
+        world.Positions.Should().ContainSingle()
+            .Which.TrackingState.Should().Be(PositionTrackingState.Closed);
+    }
+
+    /// <summary>R-208-04: наблюдение до scoped-окна не откатывает уже подтверждённый размер.</summary>
+    [Fact]
+    public async Task Delayed_Open_Before_Scoped_Rest_Window_Does_Not_Regress_Confirmed_Size()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.SetPositionsWatermark(T0.AddSeconds(10));
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Clock.UtcNow = T0.AddSeconds(11);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(8), 1)).Should().BeTrue();
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        var firstScopedAt = T0.AddSeconds(11);
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(firstScopedAt.AddSeconds(-2), 2, OpenPosition(size: 2m)))
+            .Should()
+            .BeTrue();
+        var delayed = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        delayed.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(1m);
+    }
+
+    /// <summary>R-208-04: Failed scoped REST не создаёт SymbolWindow (ConfirmedByRest=false).</summary>
+    [Fact]
+    public async Task Failed_Scoped_Confirmation_Does_Not_Create_Refuting_Symbol_Window()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.SetPositionsWatermark(T0.AddSeconds(10));
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        world.Clock.UtcNow = T0.AddSeconds(11);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(8), 1)).Should().BeTrue();
+        var failed = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var result = failed.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ConfirmedByRest.Should().BeFalse();
+        world.Positions.Should().BeEmpty();
+        world.Cursor("BTCUSDT").Should().BeNull();
+    }
+
+    /// <summary>R-208-04: отдельный символ не наследует чужое scoped-подтверждение.</summary>
+    [Fact]
+    public async Task Scoped_Rest_Window_Does_Not_Apply_To_Other_Symbol()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.SetPositionsWatermark(T0.AddSeconds(10));
+        world.Provider.SetExchangePosition(OpenPosition("BTCUSDT", size: 1m));
+        world.Clock.UtcNow = T0.AddSeconds(11);
+        coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(8), 1)).Should().BeTrue();
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+
+        world.Provider.SetExchangePosition(OpenPosition("ETHUSDT", size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(12);
+        var ethOpen = world.OpenObservation(T0.AddSeconds(11).AddMilliseconds(500), 1, OpenPosition("ETHUSDT", size: 2m));
+        coordinator.TryEnqueue(world.UserId, 1, ethOpen).Should().BeTrue();
+        var eth = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        eth.Should().ContainSingle().Which.ConfirmedByRest.Should().BeFalse();
+        world.ActivePositions.Should().HaveCount(2);
+    }
+
     [Fact]
     public void Non_Positive_Generation_Is_Rejected()
     {

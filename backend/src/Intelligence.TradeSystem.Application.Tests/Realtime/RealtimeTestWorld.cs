@@ -438,10 +438,28 @@ internal sealed class RealtimeTestWorld
         public Exception? PositionsException { get; set; }
 
         public void SetExchangePosition(OpenPosition position) =>
-            exchangePositions[$"{position.Symbol}/{position.PositionIdx}"] = position;
+            exchangePositions[ExchangePositionStorageKey(position)] = position;
 
-        public void RemoveExchangePosition(string symbol, int positionIdx = 0) =>
-            exchangePositions.Remove($"{symbol}/{positionIdx}");
+        public void RemoveExchangePosition(string symbol, int positionIdx = 0, PositionSide? side = null)
+        {
+            if (side is { } concreteSide)
+            {
+                exchangePositions.Remove($"{symbol}/{positionIdx}/{concreteSide}");
+                return;
+            }
+
+            foreach (var key in exchangePositions.Keys
+                         .Where(candidate => candidate.StartsWith($"{symbol}/{positionIdx}/", StringComparison.Ordinal))
+                         .ToArray())
+            {
+                exchangePositions.Remove(key);
+            }
+        }
+
+        public void ClearExchangePositions() => exchangePositions.Clear();
+
+        private static string ExchangePositionStorageKey(OpenPosition position) =>
+            $"{position.Symbol}/{position.PositionIdx}/{position.Side}";
 
         public Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
             CancellationToken cancellationToken = default) =>

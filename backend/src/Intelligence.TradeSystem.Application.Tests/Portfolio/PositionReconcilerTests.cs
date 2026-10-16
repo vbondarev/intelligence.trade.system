@@ -725,4 +725,245 @@ public sealed class PositionReconcilerTests
         positionA.TrackingState.Should().Be(PositionTrackingState.Stale);
         positionB.TrackingState.Should().Be(PositionTrackingState.Active);
     }
+
+    /// <summary>R-208-05: закрытие Long защищает физический слот от более старого Short.</summary>
+    [Fact]
+    public void Opposite_Side_Older_Than_Physical_Slot_Closure_Does_Not_Create_Position()
+    {
+        var closedLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0);
+        closedLong.Close(T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(6),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+        result.Warnings.Should().NotBeEmpty();
+        closedLong.TrackingState.Should().Be(PositionTrackingState.Closed);
+    }
+
+    /// <summary>R-208-05: Short в момент закрытия Long не создаёт lifecycle.</summary>
+    [Fact]
+    public void Opposite_Side_At_Physical_Slot_Closure_Does_Not_Create_Position()
+    {
+        var closedLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0);
+        closedLong.Close(T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(10),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>R-208-05 / G5: действительно новое Short после закрытия Long допускается.</summary>
+    [Fact]
+    public void Opposite_Side_Newer_Than_Physical_Slot_Closure_Creates_Position()
+    {
+        var closedLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0);
+        closedLong.Close(T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(11),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [closedLong], observation, T0.AddMinutes(11), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Short);
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    /// <summary>R-208-05: закрытие idx=0 не блокирует противоположную сторону другого idx.</summary>
+    [Fact]
+    public void Opposite_Side_On_Different_PositionIdx_Is_Not_Blocked_By_Closure()
+    {
+        var closedLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, positionIdx: 1, at: T0);
+        closedLong.Close(T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(6),
+            [CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionIdx.Should().Be(2);
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    /// <summary>R-208-06 / G6: равное время Long Active + REST Short не сохраняет вторую сторону.</summary>
+    [Fact]
+    public void Equal_Timestamp_Opposite_Side_On_Same_Slot_Does_Not_Create_Conflicting_Lifecycle()
+    {
+        var activeLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(10),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.Changes.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Active);
+        activeLong.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Long);
+        activeLong.Size.Should().Be(1m);
+    }
+
+    /// <summary>R-208-06: более старый Short не создаётся поверх активного Long.</summary>
+    [Fact]
+    public void Older_Opposite_Side_Does_Not_Create_Lifecycle_Over_Active_Slot()
+    {
+        var activeLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(6),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    /// <summary>R-208-06: конфликт слота не блокирует достоверное открытие другого символа.</summary>
+    [Fact]
+    public void Slot_Conflict_Does_Not_Block_Independent_Symbol()
+    {
+        var activeLong = CreateTrackedPosition(AccountA, symbol: "BTCUSDT", side: PositionSide.Long, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(10),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
+        result.IsFullyReconciled.Should().BeFalse();
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Active);
+    }
+
+    /// <summary>R-208-07 / G7: Complete с Long и Short одного one-way idx=0 не подтверждает полноту.</summary>
+    [Fact]
+    public void Complete_With_Conflicting_One_Way_Sides_Does_Not_Create_Either_Lifecycle()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 1m, positionIdx: 0),
+                CreateOpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 0),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+        result.Warnings.Should().NotBeEmpty();
+    }
+
+    /// <summary>R-208-07: Partial с противоречащими сторонами one-way слота не создаёт lifecycle.</summary>
+    [Fact]
+    public void Partial_With_Conflicting_One_Way_Sides_Does_Not_Create_Either_Lifecycle()
+    {
+        var observation = OpenPositionsObservation.Partial(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 1m),
+                CreateOpenPosition(side: PositionSide.Short, size: 2m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>R-208-07 / G8: hedge Long idx=1 и Short idx=2 принимаются.</summary>
+    [Fact]
+    public void Complete_Hedge_Long_And_Short_On_Different_Idx_Are_Accepted()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, positionIdx: 1, size: 1m),
+                CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 2m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().HaveCount(2);
+        result.IsFullyReconciled.Should().BeTrue();
+    }
+
+    /// <summary>R-208-07: повтор идентичной строки одного слота не создаёт второй lifecycle.</summary>
+    [Fact]
+    public void Duplicate_Identical_Row_Is_Skipped_Without_Second_Lifecycle()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 1m),
+                CreateOpenPosition(side: PositionSide.Long, size: 1m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>G5: Complete side-change новее активного Long закрывает Long и открывает Short.</summary>
+    [Fact]
+    public void Newer_Complete_Opposite_Side_Replaces_Active_Lifecycle()
+    {
+        var activeLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(11),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(11), StaleAfter);
+
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Closed);
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Short);
+        result.IsFullyReconciled.Should().BeTrue();
+    }
 }

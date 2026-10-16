@@ -877,6 +877,98 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
     }
 
+    /// <summary>R-208-06 / G6: equal-timestamp Short не сохраняется поверх Active Long.</summary>
+    [Fact]
+    public async Task Equal_timestamp_opposite_side_does_not_persist_conflicting_lifecycle()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var provider = new TestPrivateProvider { ObservedAt = T1 };
+        provider.SetPosition(OpenPosition(side: PositionSide.Short, size: 2m));
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(10)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        var active = Assert.Single(positions, versioned => versioned.Value.TrackingState != PositionTrackingState.Closed);
+        Assert.Equal(PositionSide.Long, active.Value.ExchangePositionKey.PositionSide);
+        Assert.Equal(1m, active.Value.Size);
+        Assert.Equal(T1, active.Value.LastObservedAt);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>R-208-05 / G4: full REST Short старше закрытия Long не создаёт lifecycle.</summary>
+    [Fact]
+    public async Task Full_rest_opposite_side_older_than_closure_does_not_create_position()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var closeProvider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(10) };
+        var closeSync = await SynchronizeAsync(account, closeProvider, new FixedTimeProvider(T1.AddSeconds(10)));
+        Assert.True(closeSync.FullReconciliationCommitted);
+        await using (var afterClose = fixture.CreateContext())
+        {
+            var closedPosition = await SinglePositionAsync(afterClose, account);
+            Assert.Equal(PositionTrackingState.Closed, closedPosition.TrackingState);
+            Assert.Equal(T1.AddSeconds(10), closedPosition.ClosedAt);
+        }
+
+        var staleShort = new TestPrivateProvider { ObservedAt = T1.AddSeconds(6) };
+        staleShort.SetPosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        var result = await SynchronizeAsync(account, staleShort, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        var onlyClosed = Assert.Single(positions);
+        Assert.Equal(PositionTrackingState.Closed, onlyClosed.Value.TrackingState);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+    }
+
+    /// <summary>R-208-07 / G7: Complete Long+Short idx=0 не подтверждает полноту и не сохраняет обе стороны.</summary>
+    [Fact]
+    public async Task Complete_conflicting_one_way_sides_do_not_persist_both_lifecycles()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        provider.SetPosition(OpenPosition(side: PositionSide.Long, size: 1m, positionIdx: 0));
+        provider.SetPosition(OpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 0));
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Empty(positions);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>R-208-07 / G8: hedge Long idx=1 и Short idx=2 принимаются.</summary>
+    [Fact]
+    public async Task Complete_hedge_sides_on_different_idx_are_persisted()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        provider.SetPosition(OpenPosition(side: PositionSide.Long, size: 1m, positionIdx: 1));
+        provider.SetPosition(OpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 2));
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.True(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Equal(2, positions.Count);
+        Assert.All(positions, versioned => Assert.Equal(PositionTrackingState.Active, versioned.Value.TrackingState));
+        Assert.True((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
     private async Task<ExchangeAccountSyncResult> SynchronizeAsync(
         ExchangeAccount account,
         TestPrivateProvider provider,
