@@ -129,7 +129,7 @@ public static class PositionReconciler
         }
 
         // С новым наблюдением можно сопоставлять и обновлять только активные (не закрытые)
-        // lifecycles. Ранее закрытая позиция с совпадающим ключом не должна открываться повторно.
+        // lifecycles. Закрытие любой стороны физического слота опровергает более старое открытие.
         var activeByKey = trackedPositions
             .Where(position =>
                 position.TrackingState != PositionTrackingState.Closed &&
@@ -141,7 +141,11 @@ public static class PositionReconciler
         // Равное время без совпадающего материального состояния не доказывает полноту:
         // снимок не новее persisted факта и не подтверждает противоречие или отсутствие.
         var hasEqualTimestampConflict = false;
+        // Слоты, где REST одновременно показал взаимоисключающие стороны: не мутируем их.
+        var ambiguousPhysicalSlots = new HashSet<(string Symbol, int PositionIdx)>(
+            StringSymbolIdxComparer.Instance);
 
+        var mappedObservations = new List<(OpenPosition Observed, ExchangePositionKey Key, SettlementAsset Settlement)>();
         foreach (var observed in observation.Positions)
         {
             if (observed.Category != observation.Category)
@@ -185,6 +189,38 @@ public static class PositionReconciler
                 hasMappingIssues = true;
                 warnings.Add(
                     $"Позиция {key} пропущена: наблюдаемый актив расчёта {observedSettlementAsset} не совпадает с активом расчёта существующей позиции {trackedWithKey.SettlementAsset}.");
+                continue;
+            }
+
+            mappedObservations.Add((observed, key, observedSettlementAsset));
+        }
+
+        var slotOwners = new Dictionary<(string Symbol, int PositionIdx), ExchangePositionKey>(
+            StringSymbolIdxComparer.Instance);
+        foreach (var (_, key, _) in mappedObservations)
+        {
+            var slot = (key.InstrumentId.Value, key.PositionIdx);
+            if (slotOwners.TryGetValue(slot, out var owner))
+            {
+                if (owner != key)
+                {
+                    ambiguousPhysicalSlots.Add(slot);
+                    hasMappingIssues = true;
+                    warnings.Add(
+                        $"Skipped conflicting sides for physical slot {key.InstrumentId.Value} idx={key.PositionIdx}.");
+                }
+            }
+            else
+            {
+                slotOwners[slot] = key;
+            }
+        }
+
+        foreach (var (observed, key, observedSettlementAsset) in mappedObservations)
+        {
+            var slot = (key.InstrumentId.Value, key.PositionIdx);
+            if (ambiguousPhysicalSlots.Contains(slot))
+            {
                 continue;
             }
 
@@ -233,20 +269,55 @@ public static class PositionReconciler
             }
             else
             {
-                var latestClosedLifecycle = trackedPositions
+                var latestClosedAt = trackedPositions
                     .Where(position =>
                         position.TrackingState == PositionTrackingState.Closed &&
-                        position.ExchangePositionKey == key &&
-                        position.MarketCategory == observation.Category)
-                    .OrderByDescending(position => position.ClosedAt)
-                    .FirstOrDefault();
+                        PhysicalPositionSlot.Matches(position, key, observation.Category))
+                    .Select(position => position.ClosedAt)
+                    .DefaultIfEmpty()
+                    .Max();
 
-                if (latestClosedLifecycle?.ClosedAt is { } closedAt && observation.ObservedAt <= closedAt)
+                if (latestClosedAt is { } closedAt && observation.ObservedAt <= closedAt)
                 {
                     hasMappingIssues = true;
                     warnings.Add(
                         $"Skipped {key}: observation at {observation.ObservedAt:O} is not newer than the previous lifecycle closure at {closedAt:O}.");
                     continue;
+                }
+
+                var activeOnSlot = trackedPositions
+                    .Where(position =>
+                        position.TrackingState != PositionTrackingState.Closed &&
+                        PhysicalPositionSlot.Matches(position, key, observation.Category) &&
+                        position.ExchangePositionKey != key)
+                    .ToArray();
+                if (activeOnSlot.Length > 0)
+                {
+                    var latestActiveObservedAt = activeOnSlot.Max(position => position.LastObservedAt);
+                    if (observation.ObservedAt < latestActiveObservedAt)
+                    {
+                        hasMappingIssues = true;
+                        warnings.Add(
+                            $"Skipped {key}: observation at {observation.ObservedAt:O} is older than the active lifecycle on the same physical slot at {latestActiveObservedAt:O}.");
+                        continue;
+                    }
+
+                    if (observation.ObservedAt == latestActiveObservedAt)
+                    {
+                        hasEqualTimestampConflict = true;
+                        warnings.Add(
+                            $"Skipped {key}: equal-timestamp conflict with an active lifecycle on the same physical slot.");
+                        continue;
+                    }
+
+                    // Partial не закрывает противоположную сторону: нельзя открыть вторую одновременно.
+                    if (observation.Status != OpenPositionsObservationStatus.Complete)
+                    {
+                        hasMappingIssues = true;
+                        warnings.Add(
+                            $"Skipped {key}: partial observation cannot replace an active lifecycle on the same physical slot.");
+                        continue;
+                    }
                 }
 
                 var created = Position.Create(
@@ -287,12 +358,21 @@ public static class PositionReconciler
             if (observedKeys.Contains(position.ExchangePositionKey))
                 continue;
 
+            var positionSlot = (
+                position.ExchangePositionKey.InstrumentId.Value,
+                position.ExchangePositionKey.PositionIdx);
+            if (ambiguousPhysicalSlots.Contains(positionSlot))
+            {
+                continue;
+            }
+
             if (observation.ObservedAt < position.LastObservedAt)
                 continue;
 
             if (observation.ObservedAt == position.LastObservedAt)
             {
                 // Пустой Complete при равном времени не доказывает отсутствие активной позиции.
+                // Противоположная сторона того же слота при равном времени тоже не применяется.
                 hasEqualTimestampConflict = true;
                 continue;
             }
@@ -348,4 +428,18 @@ public static class PositionReconciler
             observed.TakeProfit,
             observed.StopLoss,
             observed.TrailingStop);
+
+    private sealed class StringSymbolIdxComparer : IEqualityComparer<(string Symbol, int PositionIdx)>
+    {
+        public static StringSymbolIdxComparer Instance { get; } = new();
+
+        public bool Equals((string Symbol, int PositionIdx) x, (string Symbol, int PositionIdx) y) =>
+            x.PositionIdx == y.PositionIdx &&
+            string.Equals(x.Symbol, y.Symbol, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Symbol, int PositionIdx) obj) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Symbol),
+                obj.PositionIdx);
+    }
 }

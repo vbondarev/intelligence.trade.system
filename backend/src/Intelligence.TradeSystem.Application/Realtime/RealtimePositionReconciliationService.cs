@@ -808,12 +808,12 @@ public sealed class RealtimePositionReconciliationService(
     }
 
     private static bool IsInSlot(Position position, PreparedObservation prepared) =>
-        position.MarketCategory == MarketCategory.Linear &&
-        position.ExchangePositionKey.PositionIdx == prepared.CursorKey.PositionIdx &&
-        string.Equals(
-            position.ExchangePositionKey.InstrumentId.Value,
+        PhysicalPositionSlot.Matches(
+            position,
+            prepared.CursorKey.ExchangeAccountId,
+            MarketCategory.Linear,
             prepared.CursorKey.Symbol.Value,
-            StringComparison.OrdinalIgnoreCase);
+            prepared.CursorKey.PositionIdx);
 
     /// <summary>
     /// Биржевое время факта (не ограниченное <see cref="PrivatePositionObservation.ReceivedAt"/>)

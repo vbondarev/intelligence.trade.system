@@ -384,9 +384,14 @@ public sealed class ExchangeAccountObservationCoordinator(
             bool overlapsRest;
             lock (channel.Sync)
             {
+                // FullSyncWindow пересекается только по интервалу: отсутствие позиции после полной
+                // сверки уже защищено watermark в OpenLifecycleAsync. SymbolWindows (scoped Complete)
+                // watermark не двигают, поэтому более раннее наблюдение того же символа тоже должно
+                // уходить в confirmation — иначе неизвестный hedge-slot откроется вопреки снимку.
                 overlapsRest = observedAt is { } at &&
                     (channel.FullSyncWindow?.Contains(at) == true ||
-                     channel.SymbolWindows.TryGetValue(position.Symbol, out var window) && window.Contains(at));
+                     (channel.SymbolWindows.TryGetValue(position.Symbol, out var window) &&
+                      (window.Contains(at) || at < window.StartedAt)));
             }
 
             var startedAt = clock.GetUtcNow();
