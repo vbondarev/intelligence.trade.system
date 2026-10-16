@@ -523,12 +523,12 @@ public sealed class ExchangeAccountObservationCoordinator(
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
-            // Окно позиций сохраняется по факту принятого REST-наблюдения позиций, а не по общему
-            // Outcome: Complete/Partial positions при Failed balance дают ExchangeUnavailable, но
-            // зафиксированные позиции всё равно требуют доказательства порядка для буфера.
-            // Неуспешная сверка без принятых позиций не уничтожает прежнее окно.
-            if (result.Outcome == ExchangeAccountSyncOutcome.Synchronized ||
-                result.AcceptedPositionsObservation)
+            // Окно позиций сохраняется только по факту принятого REST-наблюдения позиций
+            // (Complete/Partial + Applied). Outcome=Synchronized сам по себе недостаточен: свежий
+            // баланс при Superseded/Failed positions тоже даёт Synchronized, но не подтверждает
+            // временной порядок позиций. Неуспешная сверка без принятых позиций не уничтожает
+            // прежнее окно.
+            if (result.AcceptedPositionsObservation)
             {
                 channel.FullSyncWindow = RestWindow.Merge(
                     channel.FullSyncWindow,

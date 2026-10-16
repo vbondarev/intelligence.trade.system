@@ -1794,6 +1794,151 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     }
 
     /// <summary>
+    /// R-208-03: Outcome=Synchronized при AcceptedPositionsObservation=false не создаёт FullSyncWindow;
+    /// допустимое потоковое обновление внутри интервала запроса применяется без scoped confirmation.
+    /// </summary>
+    [Fact]
+    public async Task Synchronized_Balance_With_Superseded_Failed_Positions_Does_Not_Create_Rest_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        var bootstrap = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        bootstrap.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        bootstrap.AcceptedPositionsObservation.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        world.ActivePositions.Single().LastObservedAt.Should().Be(T0.AddSeconds(10));
+        world.SetPositionsWatermark(T0.AddSeconds(15));
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeTrue();
+
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 2_100m, 2_000m, 1_600m, 100m, []);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(14);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var restStartedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = restStartedAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = T0.AddSeconds(21);
+            coordinator.TryEnqueue(
+                    world.UserId,
+                    1,
+                    world.OpenObservation(T0.AddSeconds(21), 2, OpenPosition(size: 2m)))
+                .Should()
+                .BeTrue();
+            world.Clock.UtcNow = T0.AddSeconds(22);
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        sync.AcceptedPositionsObservation.Should().BeFalse();
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Provider.SnapshotObservedAt = null;
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        var requestsBeforePending = world.Provider.PositionRequests.Count;
+        world.Clock.UtcNow = T0.AddSeconds(23);
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var applied = results.Should().ContainSingle().Subject;
+        applied.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        applied.ConfirmedByRest.Should().BeFalse();
+        world.Provider.PositionRequests.Count.Should().Be(requestsBeforePending);
+        world.Provider.PositionRequests.Should().OnlyContain(symbol => symbol == null);
+        var position = world.ActivePositions.Should().ContainSingle().Subject;
+        position.Size.Should().Be(2m);
+        position.TrackingState.Should().Be(PositionTrackingState.Active);
+        position.LastObservedAt.Should().Be(T0.AddSeconds(21));
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
+        world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.LastFullyReconciledAt.Should().BeNull();
+    }
+
+    /// <summary>
+    /// R-208-03: непринятые позиции при Synchronized не расширяют прежнее успешное REST-окно
+    /// и не уничтожают его доказательство порядка.
+    /// </summary>
+    [Fact]
+    public async Task Synchronized_Without_Accepted_Positions_Does_Not_Extend_Previous_Rest_Window()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstSyncAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = firstSyncAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = firstSyncAt.AddSeconds(1);
+        };
+
+        var first = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        first.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        first.AcceptedPositionsObservation.Should().BeTrue();
+        first.FullReconciliationCommitted.Should().BeTrue();
+        world.ActivePositions.Single().Size.Should().Be(1m);
+        world.State!.RecoveryRequired.Should().BeFalse();
+
+        world.SetPositionsWatermark(T0.AddSeconds(15));
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 2_100m, 2_000m, 1_600m, 100m, []);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(14);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = T0.AddSeconds(22);
+        };
+
+        var second = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        second.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        second.AcceptedPositionsObservation.Should().BeFalse();
+        second.FullReconciliationCommitted.Should().BeFalse();
+
+        // Интервал второй сверки не должен входить в сохранённое окно позиций.
+        world.Provider.Status = OpenPositionsObservationStatus.Complete;
+        world.Provider.SnapshotObservedAt = null;
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        var requestsBeforeOutside = world.Provider.PositionRequests.Count;
+        world.Clock.UtcNow = T0.AddSeconds(23);
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(T0.AddSeconds(21), 2, OpenPosition(size: 2m)))
+            .Should()
+            .BeTrue();
+        var outside = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var appliedOutside = outside.Should().ContainSingle().Subject;
+        appliedOutside.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        appliedOutside.ConfirmedByRest.Should().BeFalse();
+        world.Provider.PositionRequests.Count.Should().Be(requestsBeforeOutside);
+        world.ActivePositions.Single().Size.Should().Be(2m);
+
+        // Первое окно сохранено: пересекающее его наблюдение всё ещё идёт в scoped confirmation.
+        world.CredentialsUnavailable = true;
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(firstSyncAt.AddMilliseconds(500), 3, OpenPosition(size: 1m)))
+            .Should()
+            .BeTrue();
+        var overlapping = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var blocked = overlapping.Should().ContainSingle().Subject;
+        blocked.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        blocked.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
+    }
+
+    /// <summary>
     /// R-208-01: Failed positions при Applied watermark не создаёт окно REST; более новая
     /// допустимая revision применяется напрямую без scoped confirmation.
     /// </summary>

@@ -640,6 +640,101 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
+    /// R-208-03: Synchronized при Superseded Failed positions не создаёт FullSyncWindow; buffered
+    /// stream-revision применяется напрямую и сохраняется в PostgreSQL.
+    /// </summary>
+    [Fact]
+    public async Task Synchronized_balance_with_superseded_failed_positions_applies_stream_without_scoped_rest()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var bootstrapProvider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(10) };
+        bootstrapProvider.SetPosition(OpenPosition(size: 1m));
+        var bootstrap = await SynchronizeAsync(
+            account,
+            bootstrapProvider,
+            new FixedTimeProvider(T1.AddSeconds(10)));
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, bootstrap.Outcome);
+        Assert.True(bootstrap.AcceptedPositionsObservation);
+        Assert.True(bootstrap.FullReconciliationCommitted);
+
+        await using (var watermarkContext = fixture.CreateContext())
+        {
+            var stored = await new ExchangeAccountRepository(watermarkContext)
+                .GetByIdAsync(account.UserId, account.Id);
+            Assert.NotNull(stored);
+            stored.Value.AdvanceObservationWatermark(
+                ExchangeAccountObservationResource.Positions,
+                T1.AddSeconds(15));
+            await new ExchangeAccountRepository(watermarkContext)
+                .SaveAsync(account.UserId, stored.Value, stored.Version);
+        }
+
+        var clock = new MutableTimeProvider(T1.AddSeconds(20));
+        ExchangeAccountObservationCoordinator? coordinator = null;
+        var provider = new TestPrivateProvider
+        {
+            Clock = clock,
+            Status = OpenPositionsObservationStatus.Failed,
+            PositionsObservedAt = T1.AddSeconds(14),
+            Balance = new AccountBalance(AccountType.Unified, 2_100m, 2_000m, 1_600m, 100m, []),
+        };
+        provider.SetPosition(OpenPosition(size: 1m));
+        provider.BeforePositionsResponse = () =>
+        {
+            provider.BeforePositionsResponse = null;
+            clock.UtcNow = T1.AddSeconds(21);
+            Assert.True(coordinator!.TryEnqueue(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(21), 2, OpenPosition(size: 2m))));
+            clock.UtcNow = T1.AddSeconds(22);
+            return Task.CompletedTask;
+        };
+        await using var services = CreateApplicationServices(account, provider, clock);
+        coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+
+        var sync = await coordinator.SynchronizeAsync(account.UserId, account.Id);
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, sync.Outcome);
+        Assert.False(sync.AcceptedPositionsObservation);
+        Assert.False(sync.FullReconciliationCommitted);
+
+        provider.Status = OpenPositionsObservationStatus.Complete;
+        provider.PositionsObservedAt = null;
+        var requestsBeforePending = provider.PositionRequests.Count;
+        clock.UtcNow = T1.AddSeconds(23);
+        var pending = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+
+        var applied = Assert.Single(pending);
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, applied.Outcome);
+        Assert.False(applied.ConfirmedByRest);
+        Assert.Equal(requestsBeforePending, provider.PositionRequests.Count);
+        Assert.All(provider.PositionRequests, symbol => Assert.Null(symbol));
+
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(2m, position.Size);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(T1.AddSeconds(21), position.LastObservedAt);
+        AssertHistory(
+            position,
+            (PositionChangeKind.New, T1.AddSeconds(10)),
+            (PositionChangeKind.Increased, T1.AddSeconds(21)));
+        Assert.Equal(
+            2,
+            (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!
+                .Value.LastProviderSequence);
+        var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(2m, Assert.Single(portfolio!.Positions).Size);
+        Assert.True(portfolio.PositionsFullyReconciled);
+        Assert.Equal(2_100m, portfolio.Capital.TotalEquity);
+        Assert.True(await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged) >= 1);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+        var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
+        Assert.True(state!.Value.RecoveryRequired);
+        Assert.Null(state.Value.LastFullyReconciledAt);
+    }
+
+    /// <summary>
     /// R-208-01: Failed REST не создаёт ложное окно; более новая stream-revision восстанавливает позицию.
     /// </summary>
     [Fact]

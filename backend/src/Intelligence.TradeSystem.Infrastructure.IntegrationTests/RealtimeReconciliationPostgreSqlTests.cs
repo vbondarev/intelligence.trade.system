@@ -1006,6 +1006,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         public DateTimeOffset ObservedAt { get; set; } = T1;
 
+        /// <summary>
+        /// Момент REST-снимка позиций независимо от часов backend и <see cref="ObservedAt"/> баланса.
+        /// </summary>
+        public DateTimeOffset? PositionsObservedAt { get; set; }
+
         /// <summary>Часы для интервала чтения баланса; без них <see cref="ObservedAt"/> задаёт обе границы.</summary>
         public MutableTimeProvider? Clock { get; set; }
 
@@ -1022,6 +1027,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         /// <summary>Выполняется во время REST-запроса баланса, после фиксации начала чтения.</summary>
         public Func<Task>? BeforeBalanceResponse { get; set; }
+
+        /// <summary>Символы scoped/full REST-запросов позиций в порядке вызовов.</summary>
+        public List<string?> PositionRequests { get; } = [];
 
         public void SetPosition(OpenPosition position) => positions.Add(position);
 
@@ -1053,13 +1061,14 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             string? symbol = null,
             CancellationToken cancellationToken = default)
         {
+            PositionRequests.Add(symbol);
             positionsBarrier?.SignalAndWait(CompletionTimeout, cancellationToken);
             if (BeforePositionsResponse is not null)
             {
                 await BeforePositionsResponse();
             }
 
-            var observedAt = Clock?.GetUtcNow() ?? ObservedAt;
+            var observedAt = PositionsObservedAt ?? Clock?.GetUtcNow() ?? ObservedAt;
             var observed = positions.Where(position => symbol is null || position.Symbol == symbol).ToArray();
             return Status switch
             {
