@@ -898,7 +898,15 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
-        world.StateConflictsToInject = 3;
+        // Конфликты только на confirm: регистрация epoch-запроса должна пройти, иначе потеря не сохранится.
+        world.BeforeStateSave = state =>
+        {
+            if (!state.RecoveryRequired)
+            {
+                world.StateConflictsToInject = 3;
+                world.BeforeStateSave = null;
+            }
+        };
 
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
@@ -918,7 +926,15 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
-        world.StateSaveFailuresToInject = 1;
+        // Ошибка только на confirm: регистрация epoch-запроса до REST должна пройти.
+        world.BeforeStateSave = state =>
+        {
+            if (!state.RecoveryRequired)
+            {
+                world.StateSaveFailuresToInject = 1;
+                world.BeforeStateSave = null;
+            }
+        };
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
@@ -941,8 +957,11 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         using var cancellation = new CancellationTokenSource();
         world.BeforeStateSave = state =>
         {
-            world.BeforeStateSave = null;
-            cancellation.Cancel();
+            if (!state.RecoveryRequired)
+            {
+                world.BeforeStateSave = null;
+                cancellation.Cancel();
+            }
         };
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(

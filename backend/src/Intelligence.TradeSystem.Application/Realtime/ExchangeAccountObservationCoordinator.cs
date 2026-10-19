@@ -28,12 +28,14 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// <para>
 /// Переполнение буфера, необработанное исключение применения и неоднозначный порядок означают
 /// возможный пропуск событий: состояние наблюдения помечается как требующее recovery и выполняется
-/// полная REST-сверка. Признак recovery снимается только полной сверкой текущего запроса, во время
-/// которой события не терялись. Потеря во время любой сверки или записи её итога снова устанавливает
-/// persisted-признак текущего поколения, в том числе когда сверка или применение завершаются
-/// исключением или отменой. Запрос, который ограниченный проход оставляет следующему вызову, сохраняется
-/// до возврата из прохода. Поколение сверки берётся из сохранённого состояния наблюдения, поэтому
-/// стартовая сверка снимает признак и без потоковых наблюдений.
+/// полная REST-сверка. Каждый новый реальный запрос увеличивает монотонный
+/// <see cref="RealtimeObservationState.RecoveryRequestEpoch"/>, даже когда признак уже установлен.
+/// Признак снимается только полной сверкой, которая зафиксировала тот же epoch до REST IO и во
+/// время которой события не терялись. Потеря во время любой сверки или записи её итога снова
+/// устанавливает persisted-признак текущего поколения, в том числе когда сверка или применение
+/// завершаются исключением или отменой. Запрос, который ограниченный проход оставляет следующему
+/// вызову, сохраняется до возврата из прохода. Поколение сверки берётся из сохранённого состояния
+/// наблюдения, поэтому стартовая сверка снимает признак и без потоковых наблюдений.
 /// </para>
 /// <para>
 /// Канал аккаунта существует, пока его удерживает операция, и после неё — только если хранит
@@ -289,6 +291,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         CancellationToken cancellationToken)
     {
         long generation;
+        long recoveryRequests;
         lock (channel.Sync)
         {
             if (!channel.HasUnhandledRecoveryRequest || channel.Generation == 0)
@@ -297,11 +300,18 @@ public sealed class ExchangeAccountObservationCoordinator(
             }
 
             generation = channel.Generation;
+            recoveryRequests = channel.RecoveryRequests;
         }
 
         try
         {
-            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+            await RegisterRecoveryRequestAsync(
+                    userId,
+                    exchangeAccountId,
+                    channel,
+                    generation,
+                    recoveryRequests,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         catch
@@ -364,6 +374,9 @@ public sealed class ExchangeAccountObservationCoordinator(
         channel.BalanceReadWindow = null;
         channel.SymbolWindows.Clear();
         channel.HandledRecoveryRequests = channel.RecoveryRequests;
+        // Persisted watermark совпадает с обработанными: необработанный запрос нового поколения
+        // ещё не отражён в RecoveryRequestEpoch этого процесса.
+        channel.PersistedRecoveryRequestCount = channel.HandledRecoveryRequests;
         if (recoveryWasRequired)
         {
             // Успешная сверка старого поколения не доказывает полноту нового.
@@ -456,9 +469,29 @@ public sealed class ExchangeAccountObservationCoordinator(
                 recoveryRequested = channel.HasUnhandledRecoveryRequest;
             }
 
-            if (recoveryRequested && generation > 0)
+            // Epoch фиксируется до REST IO: локальный новый запрос сначала регистрируется, затем
+            // его номер становится подтверждаемым этой сверкой. Чужой более новый запрос во время
+            // REST не подтверждается.
+            long? epochAtStart = null;
+            if (generation > 0)
             {
-                await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+                if (recoveryRequested)
+                {
+                    epochAtStart = await RegisterRecoveryRequestAsync(
+                            userId,
+                            exchangeAccountId,
+                            channel,
+                            generation,
+                            recoveryRequestsAtStart,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                epochAtStart ??= await ReadRecoveryRequestEpochAsync(
+                        userId,
+                        exchangeAccountId,
+                        generation,
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -468,6 +501,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                     channel,
                     generation,
                     recoveryRequestsAtStart,
+                    epochAtStart,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -501,7 +535,17 @@ public sealed class ExchangeAccountObservationCoordinator(
         {
             lock (channel.Sync)
             {
+                var previousGeneration = channel.Generation;
                 AdvanceGeneration(channel, persisted.Value.Generation);
+                // Только при смене поколения: persisted уже требует recovery нового generation
+                // (AdvanceGenerationAsync), а локальный перенос необработанного запроса не создаёт
+                // дополнительный epoch. Новый loss того же поколения по-прежнему увеличивает epoch.
+                if (persisted.Value.Generation != previousGeneration &&
+                    persisted.Value.RecoveryRequired &&
+                    channel.HasUnhandledRecoveryRequest)
+                {
+                    channel.PersistedRecoveryRequestCount = channel.RecoveryRequests;
+                }
             }
         }
     }
@@ -512,6 +556,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         AccountChannel channel,
         long generation,
         long recoveryRequestsAtStart,
+        long? epochAtStart,
         CancellationToken cancellationToken)
     {
         var startedAt = clock.GetUtcNow();
@@ -554,16 +599,25 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
 
         var reconciled = false;
-        if (generation > 0 && !eventsMayBeMissing && result.FullReconciliationCommitted)
+        if (generation > 0 &&
+            epochAtStart is { } confirmedEpoch &&
+            !eventsMayBeMissing &&
+            result.FullReconciliationCommitted)
         {
-            reconciled = await SetReconciledAsync(userId, exchangeAccountId, generation, completedAt, cancellationToken)
+            reconciled = await SetReconciledAsync(
+                    userId,
+                    exchangeAccountId,
+                    generation,
+                    confirmedEpoch,
+                    completedAt,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
         // Счётчик перепроверяется после записи Reconciled независимо от запроса на входе: потеря во время
         // REST или самой записи могла не попасть в persisted-признак. Для нового поколения признак
         // устанавливается его собственным стартом.
-        var newRecoveryRequested = false;
+        long? newRecoveryRequests = null;
         lock (channel.Sync)
         {
             if (channel.Generation == generation)
@@ -575,17 +629,23 @@ public sealed class ExchangeAccountObservationCoordinator(
                         channel.HandledRecoveryRequests = recoveryRequestsAtStart;
                     }
                 }
-                else
+                else if (channel.HasUnhandledRecoveryRequest)
                 {
-                    newRecoveryRequested = channel.HasUnhandledRecoveryRequest;
+                    newRecoveryRequests = channel.RecoveryRequests;
                 }
             }
         }
 
-        if (newRecoveryRequested && generation > 0)
+        if (newRecoveryRequests is { } pendingRequests && generation > 0)
         {
             // Локальный запрос остаётся необработанным; при ошибке записи его сохранит следующий проход.
-            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, cancellationToken)
+            await RegisterRecoveryRequestAsync(
+                    userId,
+                    exchangeAccountId,
+                    channel,
+                    generation,
+                    pendingRequests,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -607,6 +667,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         AccountChannel channel)
     {
         long generation;
+        long recoveryRequests;
         lock (channel.Sync)
         {
             if (!channel.HasUnhandledRecoveryRequest || channel.Generation == 0)
@@ -615,12 +676,19 @@ public sealed class ExchangeAccountObservationCoordinator(
             }
 
             generation = channel.Generation;
+            recoveryRequests = channel.RecoveryRequests;
         }
 
         using var timeout = new CancellationTokenSource(RecoveryStateWriteTimeout);
         try
         {
-            await SetRecoveryRequiredAsync(userId, exchangeAccountId, generation, timeout.Token)
+            await RegisterRecoveryRequestAsync(
+                    userId,
+                    exchangeAccountId,
+                    channel,
+                    generation,
+                    recoveryRequests,
+                    timeout.Token)
                 .ConfigureAwait(false);
         }
         catch (Exception)
@@ -629,38 +697,113 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
     }
 
-    /// <summary>
-    /// Устанавливает persisted-признак recovery поколения <paramref name="generation"/>, не изменяя версию
-    /// состояния, если признак уже установлен.
-    /// </summary>
-    /// <returns>
-    /// <see langword="true"/>, если признак этого поколения сохранён; <see langword="false"/>, если состояние
-    /// отсутствует или уже относится к другому поколению.
-    /// </returns>
-    private async Task<bool> SetRecoveryRequiredAsync(
+    private async Task<long?> ReadRecoveryRequestEpochAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         long generation,
         CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
+        var current = await scope.ServiceProvider
+            .GetRequiredService<IRealtimeObservationStateStore>()
+            .GetAsync(userId, exchangeAccountId, cancellationToken)
+            .ConfigureAwait(false);
+        return current is { Value.Generation: var currentGeneration } && currentGeneration == generation
+            ? current.Value.RecoveryRequestEpoch
+            : null;
+    }
+
+    /// <summary>
+    /// Атомарно регистрирует новые локальные запросы recovery поколения
+    /// <paramref name="generation"/>: увеличивает <see cref="RealtimeObservationState.RecoveryRequestEpoch"/>
+    /// на число ещё не сохранённых запросов и устанавливает <c>RecoveryRequired</c>.
+    /// Повторная попытка того же локального счётчика epoch не увеличивает.
+    /// </summary>
+    /// <returns>
+    /// Актуальный epoch поколения после регистрации; <see langword="null"/>, если состояние отсутствует
+    /// или уже относится к другому поколению.
+    /// </returns>
+    private async Task<long?> RegisterRecoveryRequestAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        AccountChannel channel,
+        long generation,
+        long recoveryRequestCount,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IRealtimeObservationStateStore>();
         for (var attempt = 1; ; attempt++)
         {
-            var current = await store.GetAsync(userId, exchangeAccountId, cancellationToken).ConfigureAwait(false);
-            if (current is null || current.Value.Generation != generation || current.Value.RecoveryRequired)
+            long alreadyPersisted;
+            lock (channel.Sync)
             {
-                return current is { Value.Generation: var currentGeneration } &&
-                    currentGeneration == generation &&
-                    current.Value.RecoveryRequired;
+                if (channel.Generation != generation)
+                {
+                    return null;
+                }
+
+                alreadyPersisted = channel.PersistedRecoveryRequestCount;
             }
 
+            var pendingCount = recoveryRequestCount - alreadyPersisted;
+            var current = await store.GetAsync(userId, exchangeAccountId, cancellationToken).ConfigureAwait(false);
+            if (current is null || current.Value.Generation != generation)
+            {
+                return null;
+            }
+
+            if (pendingCount <= 0)
+            {
+                // Идемпотентный повтор того же локального запроса: epoch не растёт.
+                if (current.Value.RecoveryRequired)
+                {
+                    return current.Value.RecoveryRequestEpoch;
+                }
+
+                try
+                {
+                    await store
+                        .SaveAsync(
+                            userId,
+                            current.Value with { RecoveryRequired = true },
+                            current.Version,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    return current.Value.RecoveryRequestEpoch;
+                }
+                catch (ConcurrencyConflictException) when (attempt < MaxStateAttempts)
+                {
+                    continue;
+                }
+            }
+
+            if (current.Value.RecoveryRequestEpoch > long.MaxValue - pendingCount)
+            {
+                throw new InvalidOperationException(
+                    $"RecoveryRequestEpoch of exchange account {exchangeAccountId} would overflow.");
+            }
+
+            var nextEpoch = current.Value.RecoveryRequestEpoch + pendingCount;
             try
             {
                 await store
-                    .SaveAsync(userId, current.Value with { RecoveryRequired = true }, current.Version, cancellationToken)
+                    .SaveAsync(
+                        userId,
+                        current.Value with { RecoveryRequired = true, RecoveryRequestEpoch = nextEpoch },
+                        current.Version,
+                        cancellationToken)
                     .ConfigureAwait(false);
-                return true;
+                lock (channel.Sync)
+                {
+                    if (channel.Generation == generation &&
+                        channel.PersistedRecoveryRequestCount < recoveryRequestCount)
+                    {
+                        channel.PersistedRecoveryRequestCount = recoveryRequestCount;
+                    }
+                }
+
+                return nextEpoch;
             }
             catch (ConcurrencyConflictException) when (attempt < MaxStateAttempts)
             {
@@ -669,13 +812,15 @@ public sealed class ExchangeAccountObservationCoordinator(
     }
 
     /// <summary>
-    /// Снимает признак recovery после полной сверки. Проигранная гонка за состояние оставляет признак
-    /// установленным: это консервативно, его снимет следующая успешная сверка.
+    /// Снимает признак recovery после полной сверки только если persisted epoch совпадает с
+    /// <paramref name="epochAtStart"/>, зафиксированным до REST. При CAS conflict состояние
+    /// перечитывается, но подтверждаемый epoch не подменяется более новым.
     /// </summary>
     private async Task<bool> SetReconciledAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         long generation,
+        long epochAtStart,
         DateTimeOffset reconciledAt,
         CancellationToken cancellationToken)
     {
@@ -685,6 +830,13 @@ public sealed class ExchangeAccountObservationCoordinator(
         {
             var current = await store.GetAsync(userId, exchangeAccountId, cancellationToken).ConfigureAwait(false);
             if (current is null || current.Value.Generation != generation)
+            {
+                return false;
+            }
+
+            // Более новый persisted-запрос этой сверкой не покрыт: LastFullyReconciledAt не
+            // обновляется, чтобы не выглядеть подтверждением чужой потери.
+            if (current.Value.RecoveryRequestEpoch != epochAtStart)
             {
                 return false;
             }
@@ -825,6 +977,12 @@ public sealed class ExchangeAccountObservationCoordinator(
         public long RecoveryRequests { get; set; }
 
         public long HandledRecoveryRequests { get; set; }
+
+        /// <summary>
+        /// Локальный счётчик <see cref="RecoveryRequests"/>, уже отражённый в persisted
+        /// <c>RecoveryRequestEpoch</c>. Повторная запись того же запроса epoch не увеличивает.
+        /// </summary>
+        public long PersistedRecoveryRequestCount { get; set; }
 
         public RestWindow? FullSyncWindow { get; set; }
 

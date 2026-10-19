@@ -202,6 +202,15 @@ public sealed class RealtimeObservationStateModelTests
             .Should().Throw<ArgumentException>();
     }
 
+    [Fact]
+    public void Recovery_request_epoch_rejects_negative_values()
+    {
+        ((Action)(() => _ = CreateState() with { RecoveryRequestEpoch = -1 }))
+            .Should().Throw<ArgumentOutOfRangeException>();
+        (CreateState() with { RecoveryRequestEpoch = 0 }).RecoveryRequestEpoch.Should().Be(0);
+        (CreateState() with { RecoveryRequestEpoch = long.MaxValue }).RecoveryRequestEpoch.Should().Be(long.MaxValue);
+    }
+
     private static RealtimeObservationState CreateState() =>
         new()
         {

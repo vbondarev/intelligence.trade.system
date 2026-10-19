@@ -129,14 +129,45 @@ internal sealed class RealtimeTestWorld
                 Generation = 1,
                 TransportStatus = RealtimeObservationTransportStatus.Connected,
                 RecoveryRequired = true,
+                RecoveryRequestEpoch = 1,
             },
             ConcurrencyVersion.Initial);
 
     public void AdvanceGeneration()
     {
         var current = state!;
+        if (current.Value.RecoveryRequestEpoch == long.MaxValue)
+        {
+            throw new InvalidOperationException("RecoveryRequestEpoch overflow.");
+        }
+
         state = new Versioned<RealtimeObservationState>(
-            current.Value with { Generation = current.Value.Generation + 1, RecoveryRequired = true },
+            current.Value with
+            {
+                Generation = current.Value.Generation + 1,
+                RecoveryRequired = true,
+                RecoveryRequestEpoch = current.Value.RecoveryRequestEpoch + 1,
+            },
+            current.Version.Next());
+    }
+
+    /// <summary>
+    /// Имитирует concurrent recovery-запрос другого экземпляра: увеличивает epoch и версию.
+    /// </summary>
+    public void InjectConcurrentRecoveryRequest()
+    {
+        var current = state ?? throw new InvalidOperationException("Observation state is missing.");
+        if (current.Value.RecoveryRequestEpoch == long.MaxValue)
+        {
+            throw new InvalidOperationException("RecoveryRequestEpoch overflow.");
+        }
+
+        state = new Versioned<RealtimeObservationState>(
+            current.Value with
+            {
+                RecoveryRequired = true,
+                RecoveryRequestEpoch = current.Value.RecoveryRequestEpoch + 1,
+            },
             current.Version.Next());
     }
 
