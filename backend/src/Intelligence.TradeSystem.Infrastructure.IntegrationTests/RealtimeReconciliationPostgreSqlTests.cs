@@ -725,10 +725,14 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     /// Production-регистрация Application поверх PostgreSQL-репозиториев: REST-синхронизации проходят
     /// через тот же coordinator, что и в API и фоновой синхронизации.
     /// </summary>
+    /// <param name="decorateStateStore">
+    /// Тестовый декоратор поверх <see cref="RealtimeObservationStateStore"/> без production hooks.
+    /// </param>
     private ServiceProvider CreateApplicationServices(
         ExchangeAccount account,
         TestPrivateProvider provider,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        Func<IRealtimeObservationStateStore, IRealtimeObservationStateStore>? decorateStateStore = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
@@ -737,7 +741,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
         services.AddScoped<IPositionObservationCursorStore, PositionObservationCursorStore>();
-        services.AddScoped<IRealtimeObservationStateStore, RealtimeObservationStateStore>();
+        services.AddScoped<IRealtimeObservationStateStore>(serviceProvider =>
+        {
+            IRealtimeObservationStateStore store = new RealtimeObservationStateStore(
+                serviceProvider.GetRequiredService<TradeSystemDbContext>());
+            return decorateStateStore?.Invoke(store) ?? store;
+        });
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IApplicationEventOutbox>(serviceProvider =>
             new ApplicationEventOutbox(serviceProvider.GetRequiredService<TradeSystemDbContext>()));

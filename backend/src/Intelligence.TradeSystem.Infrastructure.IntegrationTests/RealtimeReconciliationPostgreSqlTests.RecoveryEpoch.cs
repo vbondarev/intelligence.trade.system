@@ -1,7 +1,9 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -86,7 +88,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
-    /// H-05: после CAS conflict подтверждение перечитывает state и не принимает более новый epoch.
+    /// H-05: CAS conflict на подтверждении — B регистрирует новый recovery между чтением state для
+    /// <c>SetReconciledAsync</c> и CAS-записью; A не снимает более новый epoch.
     /// </summary>
     [Fact]
     public async Task H05_Cas_conflict_on_confirm_does_not_ack_newer_recovery_epoch()
@@ -95,7 +98,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
-        await using var servicesA = CreateApplicationServices(account, providerA, clock);
+        using var race = new ConfirmWriteRaceGate();
+        await using var servicesA = CreateApplicationServices(
+            account,
+            providerA,
+            clock,
+            store => new ConfirmWriteRaceStateStore(store, race));
         await using var servicesB = CreateApplicationServices(account, providerB, clock);
         var coordinatorA = servicesA.GetRequiredService<ExchangeAccountObservationCoordinator>();
         var coordinatorB = new ExchangeAccountObservationCoordinator(
@@ -104,34 +112,49 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             bufferCapacity: 1);
 
         Assert.Equal(1, (await ReadStateAsync(account)).RecoveryRequestEpoch);
-
-        using var aEnteredRest = new ManualResetEventSlim(false);
-        using var allowAContinue = new ManualResetEventSlim(false);
-        providerA.BeforePositionsResponse = () =>
-        {
-            providerA.BeforePositionsResponse = null;
-            aEnteredRest.Set();
-            Assert.True(allowAContinue.Wait(CompletionTimeout));
-            return Task.CompletedTask;
-        };
         providerB.BeforePositionsResponse = () =>
             throw new HttpRequestException("instance B aborts after recovery registration");
 
+        // A завершает REST полностью; гонка — между Get для confirm и CAS Save.
         var syncA = Task.Run(() => coordinatorA.SynchronizeAsync(account.UserId, account.Id));
-        Assert.True(aEnteredRest.Wait(CompletionTimeout));
+        Assert.True(race.AEnteredConfirmSave.Wait(CompletionTimeout));
+        Assert.NotNull(race.StateAtConfirmSave);
+        Assert.False(race.StateAtConfirmSave.RecoveryRequired);
+        Assert.Equal(1, race.StateAtConfirmSave.RecoveryRequestEpoch);
+        Assert.Equal(generation, race.StateAtConfirmSave.Generation);
+        var versionAtConfirmRead = race.ExpectedVersionAtConfirmSave;
+        Assert.True(versionAtConfirmRead.Value > 0);
 
         Assert.True(coordinatorB.TryEnqueue(account.UserId, generation, OpenObservation(account, T1.AddSeconds(1), 1)));
         Assert.False(coordinatorB.TryEnqueue(account.UserId, generation, OpenObservation(account, T1.AddSeconds(2), 2)));
         await Assert.ThrowsAsync<HttpRequestException>(
             () => coordinatorB.ProcessPendingAsync(account.UserId, account.Id));
-        Assert.Equal(2, (await ReadStateAsync(account)).RecoveryRequestEpoch);
-        allowAContinue.Set();
 
+        await using (var midContext = fixture.CreateContext())
+        {
+            var mid = await new RealtimeObservationStateStore(midContext).GetAsync(account.UserId, account.Id);
+            Assert.NotNull(mid);
+            Assert.True(mid.Value.RecoveryRequired);
+            Assert.Equal(2, mid.Value.RecoveryRequestEpoch);
+            Assert.Equal(generation, mid.Value.Generation);
+            Assert.Null(mid.Value.LastFullyReconciledAt);
+            Assert.True(mid.Version.Value > versionAtConfirmRead.Value);
+        }
+
+        race.AllowConfirmSave.Set();
         Assert.True((await syncA.WaitAsync(CompletionTimeout)).FullReconciliationCommitted);
-        var after = await ReadStateAsync(account);
-        Assert.True(after.RecoveryRequired);
-        Assert.Equal(2, after.RecoveryRequestEpoch);
-        Assert.Null(after.LastFullyReconciledAt);
+        // Конфликт на CAS, а не только pre-check epoch до первой попытки Save.
+        Assert.True(race.ConfirmCasConflicts >= 1);
+
+        await using (var afterContext = fixture.CreateContext())
+        {
+            var after = await new RealtimeObservationStateStore(afterContext).GetAsync(account.UserId, account.Id);
+            Assert.NotNull(after);
+            Assert.True(after.Value.RecoveryRequired);
+            Assert.Equal(2, after.Value.RecoveryRequestEpoch);
+            Assert.Equal(generation, after.Value.Generation);
+            Assert.Null(after.Value.LastFullyReconciledAt);
+        }
     }
 
     /// <summary>
@@ -194,51 +217,63 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
-    /// H-10: смена generation во время подтверждения увеличивает epoch; старый sync не снимает recovery.
+    /// H-10: смена generation между чтением state для confirm и CAS — старый sync не снимает recovery
+    /// нового поколения и не обновляет <c>LastFullyReconciledAt</c>.
     /// </summary>
     [Fact]
     public async Task H10_Generation_change_during_confirm_preserves_new_generation_recovery()
     {
         var (account, generation) = await CreateObservedAccountAsync();
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
-        var provider = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
-        await using var services = CreateApplicationServices(account, provider, clock);
-        var coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
+        var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
+        using var race = new ConfirmWriteRaceGate();
+        await using var servicesA = CreateApplicationServices(
+            account,
+            providerA,
+            clock,
+            store => new ConfirmWriteRaceStateStore(store, race));
+        await using var servicesB = CreateApplicationServices(account, providerB, clock);
+        var coordinatorA = servicesA.GetRequiredService<ExchangeAccountObservationCoordinator>();
 
         Assert.Equal(1, (await ReadStateAsync(account)).RecoveryRequestEpoch);
 
-        using var enteredRest = new ManualResetEventSlim(false);
-        using var generationAdvanced = new ManualResetEventSlim(false);
-        provider.BeforePositionsResponse = () =>
-        {
-            provider.BeforePositionsResponse = null;
-            enteredRest.Set();
-            Assert.True(generationAdvanced.Wait(CompletionTimeout));
-            return Task.CompletedTask;
-        };
+        var sync = Task.Run(() => coordinatorA.SynchronizeAsync(account.UserId, account.Id));
+        Assert.True(race.AEnteredConfirmSave.Wait(CompletionTimeout));
+        Assert.NotNull(race.StateAtConfirmSave);
+        Assert.False(race.StateAtConfirmSave.RecoveryRequired);
+        Assert.Equal(generation, race.StateAtConfirmSave.Generation);
+        Assert.Equal(1, race.StateAtConfirmSave.RecoveryRequestEpoch);
+        var versionAtConfirmRead = race.ExpectedVersionAtConfirmSave;
 
-        var sync = Task.Run(() => coordinator.SynchronizeAsync(account.UserId, account.Id));
-        Assert.True(enteredRest.Wait(CompletionTimeout));
-
-        await using (var lifecycle = fixture.CreateContext())
+        await using (var scopeB = servicesB.CreateAsyncScope())
         {
-            var advanced = await new RealtimeObservationStateStore(lifecycle).AdvanceGenerationAsync(
-                account.UserId,
-                account.Id,
-                RealtimeObservationTransportStatus.Reconnecting);
+            var advanced = await scopeB.ServiceProvider
+                .GetRequiredService<IRealtimeObservationStateStore>()
+                .AdvanceGenerationAsync(
+                    account.UserId,
+                    account.Id,
+                    RealtimeObservationTransportStatus.Reconnecting);
             Assert.Equal(generation + 1, advanced.Value.Generation);
             Assert.True(advanced.Value.RecoveryRequired);
             Assert.Equal(2, advanced.Value.RecoveryRequestEpoch);
+            Assert.Null(advanced.Value.LastFullyReconciledAt);
+            Assert.True(advanced.Version.Value > versionAtConfirmRead.Value);
         }
 
-        generationAdvanced.Set();
+        race.AllowConfirmSave.Set();
         Assert.True((await sync.WaitAsync(CompletionTimeout)).FullReconciliationCommitted);
+        Assert.True(race.ConfirmCasConflicts >= 1);
 
-        var after = await ReadStateAsync(account);
-        Assert.Equal(generation + 1, after.Generation);
-        Assert.True(after.RecoveryRequired);
-        Assert.Equal(2, after.RecoveryRequestEpoch);
-        Assert.Null(after.LastFullyReconciledAt);
+        await using (var afterContext = fixture.CreateContext())
+        {
+            var after = await new RealtimeObservationStateStore(afterContext).GetAsync(account.UserId, account.Id);
+            Assert.NotNull(after);
+            Assert.Equal(generation + 1, after.Value.Generation);
+            Assert.True(after.Value.RecoveryRequired);
+            Assert.Equal(2, after.Value.RecoveryRequestEpoch);
+            Assert.Null(after.Value.LastFullyReconciledAt);
+        }
     }
 
     /// <summary>
@@ -332,5 +367,98 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.False(stateB.RecoveryRequired);
         Assert.Equal(2, stateA.RecoveryRequestEpoch);
         Assert.Equal(1, stateB.RecoveryRequestEpoch);
+    }
+
+    /// <summary>
+    /// Барьер между чтением persisted state для confirm и CAS-записью снятия recovery.
+    /// </summary>
+    private sealed class ConfirmWriteRaceGate : IDisposable
+    {
+        private int confirmHookArmed = 1;
+
+        public ManualResetEventSlim AEnteredConfirmSave { get; } = new(false);
+
+        public ManualResetEventSlim AllowConfirmSave { get; } = new(false);
+
+        public int ConfirmCasConflicts;
+
+        public RealtimeObservationState? StateAtConfirmSave { get; set; }
+
+        public ConcurrencyVersion ExpectedVersionAtConfirmSave { get; set; }
+
+        public bool TryEnterConfirmHook() => Interlocked.Exchange(ref confirmHookArmed, 0) == 1;
+
+        public void Dispose()
+        {
+            AEnteredConfirmSave.Dispose();
+            AllowConfirmSave.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Декоратор store: на первой попытке снять recovery ждёт конкурентную запись, затем считает CAS conflict.
+    /// </summary>
+    private sealed class ConfirmWriteRaceStateStore(
+        IRealtimeObservationStateStore inner,
+        ConfirmWriteRaceGate gate) : IRealtimeObservationStateStore
+    {
+        public Task<Versioned<RealtimeObservationState>?> GetAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetAsync(userId, exchangeAccountId, cancellationToken);
+
+        public Task<Versioned<RealtimeObservationState>> AdvanceGenerationAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            RealtimeObservationTransportStatus status,
+            CancellationToken cancellationToken = default) =>
+            inner.AdvanceGenerationAsync(userId, exchangeAccountId, status, cancellationToken);
+
+        public async Task<ConcurrencyVersion> SaveAsync(
+            UserId userId,
+            RealtimeObservationState state,
+            ConcurrencyVersion expectedVersion,
+            CancellationToken cancellationToken = default)
+        {
+            if (!state.RecoveryRequired && gate.TryEnterConfirmHook())
+            {
+                gate.StateAtConfirmSave = state;
+                gate.ExpectedVersionAtConfirmSave = expectedVersion;
+                gate.AEnteredConfirmSave.Set();
+                Assert.True(gate.AllowConfirmSave.Wait(CompletionTimeout, cancellationToken));
+                try
+                {
+                    return await inner.SaveAsync(userId, state, expectedVersion, cancellationToken);
+                }
+                catch (ConcurrencyConflictException)
+                {
+                    Interlocked.Increment(ref gate.ConfirmCasConflicts);
+                    throw;
+                }
+            }
+
+            try
+            {
+                return await inner.SaveAsync(userId, state, expectedVersion, cancellationToken);
+            }
+            catch (ConcurrencyConflictException)
+            {
+                // Повторные confirm-попытки после первой гонки тоже учитываем как доказательство CAS.
+                if (!state.RecoveryRequired)
+                {
+                    Interlocked.Increment(ref gate.ConfirmCasConflicts);
+                }
+
+                throw;
+            }
+        }
+
+        public Task<bool> TryLockGenerationAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            long generation,
+            CancellationToken cancellationToken = default) =>
+            inner.TryLockGenerationAsync(userId, exchangeAccountId, generation, cancellationToken);
     }
 }
