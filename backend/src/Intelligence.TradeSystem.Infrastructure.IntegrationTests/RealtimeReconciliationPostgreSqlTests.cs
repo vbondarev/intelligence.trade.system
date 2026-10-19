@@ -732,16 +732,26 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     /// <param name="decorateStateStore">
     /// Тестовый декоратор поверх <see cref="RealtimeObservationStateStore"/> без production hooks.
     /// </param>
+    /// <param name="decorateAccountRepository">
+    /// Тестовый декоратор поверх <see cref="ExchangeAccountRepository"/> для детерминированных
+    /// гонок persistence без изменения production-кода.
+    /// </param>
     private ServiceProvider CreateApplicationServices(
         ExchangeAccount account,
         TestPrivateProvider provider,
         TimeProvider? clock = null,
-        Func<IRealtimeObservationStateStore, IRealtimeObservationStateStore>? decorateStateStore = null)
+        Func<IRealtimeObservationStateStore, IRealtimeObservationStateStore>? decorateStateStore = null,
+        Func<IExchangeAccountRepository, IExchangeAccountRepository>? decorateAccountRepository = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
         services.AddScoped(_ => fixture.CreateContext());
-        services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
+        services.AddScoped<IExchangeAccountRepository>(serviceProvider =>
+        {
+            IExchangeAccountRepository repository = new ExchangeAccountRepository(
+                serviceProvider.GetRequiredService<TradeSystemDbContext>());
+            return decorateAccountRepository?.Invoke(repository) ?? repository;
+        });
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPortfolioStateRepository, PortfolioStateRepository>();
         services.AddScoped<IPositionObservationCursorStore, PositionObservationCursorStore>();

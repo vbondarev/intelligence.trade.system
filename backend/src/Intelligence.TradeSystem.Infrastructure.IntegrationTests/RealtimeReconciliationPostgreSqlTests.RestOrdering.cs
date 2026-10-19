@@ -1,10 +1,12 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +17,190 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed partial class RealtimeReconciliationPostgreSqlTests
 {
+    /// <summary>
+    /// H-09: две конкурентные REST-сверки одной учётной записи принимают разные ресурсы
+    /// (A — Complete balance / Failed positions, B — Failed balance / Complete positions).
+    /// Независимые watermarks и evidence сохраняются; ложного FullReconciliationCommitted нет.
+    /// </summary>
+    /// <remarks>
+    /// Параметр задаёт порядок PostgreSQL commit после пересечения REST-чтений, а не порядок
+    /// получения HTTP-ответов: оба снимка фиксируются до освобождения persistence gate.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task H09_Concurrent_rest_accepting_balance_vs_positions_keeps_independent_watermarks_and_evidence(
+        bool aPersistsFirst)
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var balanceAcceptedAt = T1.AddSeconds(20);
+        var balanceFailedAt = T1.AddSeconds(10);
+        var positionsFailedAt = T1.AddSeconds(10);
+        var positionsAcceptedAt = T1.AddSeconds(20);
+        var backendClock = new FixedTimeProvider(T1.AddSeconds(30));
+
+        using var restOverlap = new Barrier(2);
+        var providerA = new TestPrivateProvider(restOverlap)
+        {
+            Clock = new MutableTimeProvider(balanceAcceptedAt),
+            PositionsObservedAt = positionsFailedAt,
+            Status = OpenPositionsObservationStatus.Failed,
+            Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_500m, 100m, []),
+        };
+        var providerB = new TestPrivateProvider(restOverlap)
+        {
+            Clock = new MutableTimeProvider(balanceFailedAt),
+            PositionsObservedAt = positionsAcceptedAt,
+            BalanceFails = true,
+        };
+        providerB.SetPosition(OpenPosition(size: 3m));
+
+        var secondEnteredPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var servicesA = CreateApplicationServices(
+            account,
+            providerA,
+            backendClock,
+            decorateAccountRepository: aPersistsFirst
+                ? null
+                : inner => new GateSecondAccountReadRepository(
+                    inner,
+                    secondEnteredPersistence,
+                    releaseSecondPersistence));
+        await using var servicesB = CreateApplicationServices(
+            account,
+            providerB,
+            backendClock,
+            decorateAccountRepository: aPersistsFirst
+                ? inner => new GateSecondAccountReadRepository(
+                    inner,
+                    secondEnteredPersistence,
+                    releaseSecondPersistence)
+                : null);
+
+        await using var scopeA = servicesA.CreateAsyncScope();
+        await using var scopeB = servicesB.CreateAsyncScope();
+        Assert.NotSame(
+            scopeA.ServiceProvider.GetRequiredService<TradeSystemDbContext>(),
+            scopeB.ServiceProvider.GetRequiredService<TradeSystemDbContext>());
+
+        var syncA = scopeA.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
+        var syncB = scopeB.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
+
+        var taskA = Task.Run(() => syncA.SynchronizeAsync(account.UserId, account.Id));
+        var taskB = Task.Run(() => syncB.SynchronizeAsync(account.UserId, account.Id));
+
+        await secondEnteredPersistence.Task.WaitAsync(CompletionTimeout);
+
+        ExchangeAccountSyncResult firstResult;
+        ExchangeAccountSyncResult secondResult;
+        if (aPersistsFirst)
+        {
+            firstResult = await taskA.WaitAsync(CompletionTimeout);
+            releaseSecondPersistence.TrySetResult(true);
+            secondResult = await taskB.WaitAsync(CompletionTimeout);
+        }
+        else
+        {
+            firstResult = await taskB.WaitAsync(CompletionTimeout);
+            releaseSecondPersistence.TrySetResult(true);
+            secondResult = await taskA.WaitAsync(CompletionTimeout);
+        }
+
+        var resultA = aPersistsFirst ? firstResult : secondResult;
+        var resultB = aPersistsFirst ? secondResult : firstResult;
+
+        // Failed-наблюдение, чьи watermark Applied, даёт ExchangeUnavailable; если Failed
+        // оказался Superseded после принятия Complete другого экземпляра — Outcome=Synchronized
+        // при частичном принятии ресурса. FullReconciliationCommitted в обоих случаях false.
+        Assert.False(resultA.FullReconciliationCommitted);
+        Assert.False(resultB.FullReconciliationCommitted);
+        if (aPersistsFirst)
+        {
+            Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, resultA.Outcome);
+            Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, resultB.Outcome);
+        }
+        else
+        {
+            Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, resultA.Outcome);
+            Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, resultB.Outcome);
+        }
+
+        Assert.Equal(balanceAcceptedAt, resultA.BalanceReadStartedAt);
+        Assert.Equal(balanceAcceptedAt, resultA.BalanceReadCompletedAt);
+        Assert.False(resultA.AcceptedPositionsObservation);
+        Assert.False(resultA.FullPositionsCompleteAccepted);
+        Assert.Null(resultB.BalanceReadStartedAt);
+        Assert.Null(resultB.BalanceReadCompletedAt);
+        Assert.True(resultB.AcceptedPositionsObservation);
+        // ExchangeUnavailable не несёт PortfolioState → FullPositionsCompleteAccepted в результате
+        // false, хотя AppendRestOrderingEvidenceAsync уже записал FullPositionsComplete в БД.
+        Assert.Equal(
+            resultB.Outcome == ExchangeAccountSyncOutcome.Synchronized,
+            resultB.FullPositionsCompleteAccepted);
+
+        await using var verification = fixture.CreateContext();
+        var portfolio = await new PortfolioStateRepository(verification)
+            .GetLatestAsync(account.UserId, account.Id);
+        Assert.NotNull(portfolio);
+        Assert.Equal(3_000m, portfolio!.Capital.TotalEquity);
+        Assert.Equal(balanceAcceptedAt, portfolio.Capital.ObservedAt);
+
+        var positions = await new PositionRepository(verification)
+            .GetByExchangeAccountAsync(account.UserId, account.Id);
+        var position = Assert.Single(positions).Value;
+        Assert.Equal("BTCUSDT", position.ExchangePositionKey.InstrumentId.Value);
+        Assert.Equal(PositionSide.Long, position.ExchangePositionKey.PositionSide);
+        Assert.Equal(3m, position.Size);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(
+            1,
+            positions.Count(entry => entry.Value.TrackingState == PositionTrackingState.Active));
+
+        var stored = await new ExchangeAccountRepository(verification)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.NotNull(stored);
+        Assert.Equal(balanceAcceptedAt, stored!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(positionsAcceptedAt, stored.Value.LastAppliedPositionsObservationAt);
+        Assert.Null(stored.Value.LastSyncedAt);
+
+        var intervals = await verification.ExchangeRestOrderingIntervals.AsNoTracking()
+            .Where(interval => interval.ExchangeAccountId == account.Id.Value)
+            .ToListAsync();
+        Assert.Equal(2, intervals.Count);
+        var balanceEvidence = Assert.Single(
+            intervals,
+            interval => interval.Kind == ExchangeRestOrderingKind.Balance);
+        Assert.Equal(balanceAcceptedAt, balanceEvidence.StartedAt);
+        Assert.Equal(balanceAcceptedAt, balanceEvidence.CompletedAt);
+        var positionsEvidence = Assert.Single(
+            intervals,
+            interval => interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
+        Assert.Equal(positionsAcceptedAt, positionsEvidence.StartedAt);
+        Assert.Equal(T1.AddSeconds(30), positionsEvidence.CompletedAt);
+        Assert.DoesNotContain(
+            intervals,
+            interval => interval.Kind is ExchangeRestOrderingKind.ScopedSymbol);
+
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+        // Экземпляр с Applied Failed → sync-degraded; второй (Failed Superseded) →
+        // Synchronized без FullReconciliationCommitted и публикует exchange-account.updated.
+        Assert.Equal(
+            1,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.ExchangeAccountSyncDegraded));
+        Assert.Equal(
+            1,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.ExchangeAccountUpdated));
+        Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        Assert.Equal(
+            1,
+            await verification.PositionChanges.CountAsync(change => change.PositionId == position.Id.Value));
+    }
+
     [Fact]
     public async Task Rest_positions_on_instance_b_blocks_delayed_ws_size_rollback_on_instance_a()
     {
@@ -616,5 +802,64 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             .ToListAsync();
         context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
         await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Удерживает второе чтение аккаунта внутри persistence-транзакции, пока другой экземпляр
+    /// не завершит commit — детерминированный порядок PostgreSQL persistence без Task.Delay.
+    /// </summary>
+    private sealed class GateSecondAccountReadRepository(
+        IExchangeAccountRepository inner,
+        TaskCompletionSource<bool> secondRead,
+        TaskCompletionSource<bool> release)
+        : IExchangeAccountRepository
+    {
+        private int readCount;
+
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListActiveAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            inner.ListActiveAsync(userId, cancellationToken);
+
+        public Task<IReadOnlyList<Versioned<ExchangeAccount>>> ListAsync(
+            UserId userId,
+            CancellationToken cancellationToken = default) =>
+            inner.ListAsync(userId, cancellationToken);
+
+        public async Task<Versioned<ExchangeAccount>?> GetByIdAsync(
+            UserId userId,
+            ExchangeAccountId id,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await inner.GetByIdAsync(userId, id, cancellationToken);
+            if (Interlocked.Increment(ref readCount) == 2)
+            {
+                secondRead.TrySetResult(true);
+                await release.Task.WaitAsync(CompletionTimeout, cancellationToken);
+            }
+
+            return result;
+        }
+
+        public Task<Versioned<ExchangeAccount>?> GetByProviderIdentityAsync(
+            UserId userId,
+            ExchangeId exchangeId,
+            ExchangeAccountProviderIdentity providerIdentity,
+            CancellationToken cancellationToken = default) =>
+            inner.GetByProviderIdentityAsync(userId, exchangeId, providerIdentity, cancellationToken);
+
+        public Task<ConcurrencyVersion> SaveAsync(
+            UserId userId,
+            ExchangeAccount account,
+            ConcurrencyVersion? expectedVersion,
+            CancellationToken cancellationToken = default) =>
+            inner.SaveAsync(userId, account, expectedVersion, cancellationToken);
+
+        public Task DeleteAsync(
+            UserId userId,
+            ExchangeAccountId id,
+            ConcurrencyVersion expectedVersion,
+            CancellationToken cancellationToken = default) =>
+            inner.DeleteAsync(userId, id, expectedVersion, cancellationToken);
     }
 }
