@@ -1071,6 +1071,131 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.True((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
     }
 
+    /// <summary>
+    /// R-208-10: обе перестановки REST-строк не сохраняют BTC Short при ClosedAt ETH=T30.
+    /// ETH закрыт через Seed без продвижения account positions watermark до T30.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Side_change_blocked_by_closed_eth_is_order_independent(bool btcShortFirst)
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var eth = Position.Create(
+            ExchangePositionKey.Create(account.Id, InstrumentId.From("ETHUSDT"), PositionSide.Long, 0),
+            MarketCategory.Linear,
+            Usdt,
+            1m,
+            T1,
+            T1,
+            averageEntryPrice: 100m,
+            leverage: 2m);
+        eth.Close(T1.AddSeconds(30), PositionChangeCause.MissingFromCompleteObservation);
+        await SeedPositionsAsync(account, eth);
+
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        if (btcShortFirst)
+        {
+            provider.SetPosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+            provider.SetPosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+        }
+        else
+        {
+            provider.SetPosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+            provider.SetPosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+        }
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        var btcOpen = positions
+            .Select(versioned => versioned.Value)
+            .Where(position =>
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.TrackingState != PositionTrackingState.Closed)
+            .ToArray();
+        Assert.Single(btcOpen);
+        Assert.Equal(PositionSide.Long, btcOpen[0].ExchangePositionKey.PositionSide);
+        Assert.Null(btcOpen[0].ClosedAt);
+        Assert.DoesNotContain(
+            positions,
+            versioned =>
+                versioned.Value.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                versioned.Value.ExchangePositionKey.PositionSide == PositionSide.Short);
+        var ethPersisted = Assert.Single(
+            positions,
+            versioned => versioned.Value.ExchangePositionKey.InstrumentId.Value == "ETHUSDT");
+        Assert.Equal(PositionTrackingState.Closed, ethPersisted.Value.TrackingState);
+        Assert.Equal(T1.AddSeconds(30), ethPersisted.Value.ClosedAt);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>
+    /// R-208-11: дубликаты с разным SettlementAsset не создают lifecycle; порядок не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Conflicting_settlement_asset_duplicates_do_not_create_lifecycle(bool usdtFirst)
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        if (usdtFirst)
+        {
+            provider.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdt));
+            provider.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdc));
+        }
+        else
+        {
+            provider.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdc));
+            provider.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdt));
+        }
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Empty(positions);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-H: после конфликта по SettlementAsset чистый Complete завершает recovery.
+    /// </summary>
+    [Fact]
+    public async Task Clean_complete_after_settlement_conflict_commits_full_reconciliation()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var conflict = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        conflict.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdt));
+        conflict.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdc));
+        Assert.False(
+            (await SynchronizeAsync(account, conflict, new FixedTimeProvider(T1.AddSeconds(20))))
+                .FullReconciliationCommitted);
+
+        var recovery = new TestPrivateProvider { ObservedAt = T1.AddSeconds(40) };
+        recovery.SetPosition(OpenPosition(size: 2m, settlementAsset: Usdt));
+        var result = await SynchronizeAsync(account, recovery, new FixedTimeProvider(T1.AddSeconds(40)));
+
+        Assert.True(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(Usdt, position.SettlementAsset);
+        Assert.Equal(2m, position.Size);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.True((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
     private async Task<ExchangeAccountSyncResult> SynchronizeAsync(
         ExchangeAccount account,
         TestPrivateProvider provider,

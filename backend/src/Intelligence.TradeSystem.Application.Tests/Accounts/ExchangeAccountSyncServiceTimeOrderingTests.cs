@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Tests.Realtime;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
 using static Intelligence.TradeSystem.Application.Tests.Realtime.RealtimeTestWorld;
 
@@ -454,6 +455,89 @@ public sealed class ExchangeAccountSyncServiceTimeOrderingTests
         world.Events.OfType<PositionOpenedEventV1>().Should().HaveCount(2);
         world.Events.OfType<PositionClosedEventV1>().Should().ContainSingle();
         world.LatestPortfolio!.PositionsFullyReconciled.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// R-208-10: порядок REST-строк не влияет — BTC Short не создаётся при ClosedAt ETH=T30.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Side_Change_Blocked_By_Closed_Lifecycle_Conflict_Is_Order_Independent(bool btcShortFirst)
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        var eth = Position.Create(
+            ExchangePositionKey.Create(world.AccountId, InstrumentId.From("ETHUSDT"), PositionSide.Long, 0),
+            MarketCategory.Linear,
+            Usdt,
+            1m,
+            T0.AddSeconds(10),
+            T0.AddSeconds(10),
+            averageEntryPrice: 100m,
+            leverage: 2m);
+        eth.Close(T0.AddSeconds(30));
+        world.SeedPosition(eth);
+        world.Provider.ClearExchangePositions();
+        if (btcShortFirst)
+        {
+            world.Provider.SetExchangePosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+            world.Provider.SetExchangePosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+        }
+        else
+        {
+            world.Provider.SetExchangePosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+            world.Provider.SetExchangePosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+        }
+
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().NotContain(position =>
+            position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+            position.ExchangePositionKey.PositionSide == PositionSide.Short);
+        world.Positions.Where(position =>
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.TrackingState != PositionTrackingState.Closed)
+            .Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Long);
+        world.Events.OfType<PositionOpenedEventV1>()
+            .Where(opened => opened.InstrumentId == "BTCUSDT" && opened.PositionSide == PositionSide.Short)
+            .Should().BeEmpty();
+        world.Events.OfType<PositionOpenedEventV1>()
+            .Where(opened => opened.InstrumentId == "ETHUSDT")
+            .Should().BeEmpty();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-11: дубликаты с разным SettlementAsset не создают lifecycle; порядок не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Conflicting_SettlementAsset_Duplicates_Do_Not_Create_Lifecycle(bool usdtFirst)
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.ClearExchangePositions();
+        var usdt = OpenPosition(size: 2m, settlementAsset: Usdt);
+        var usdc = OpenPosition(size: 2m, settlementAsset: SettlementAsset.From("USDC"));
+        if (usdtFirst)
+            world.Provider.ReplaceExchangePositions(usdt, usdc);
+        else
+            world.Provider.ReplaceExchangePositions(usdc, usdt);
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().BeEmpty();
+        world.Events.OfType<PositionOpenedEventV1>().Should().BeEmpty();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
     }
 
     [Fact]

@@ -1211,4 +1211,242 @@ public sealed class PositionReconcilerTests
         activeLong.Changes.Should().HaveCount(historyAfterFirst);
         activeLong.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Increased);
     }
+
+    /// <summary>
+    /// R-208-10 / R10-A: BTC Short раньше ETH с ClosedAt=T30 не создаёт противоположный lifecycle.
+    /// </summary>
+    [Fact]
+    public void Side_Change_Blocked_When_Later_Row_Conflicts_With_Closed_Lifecycle_Btc_Then_Eth()
+    {
+        var (btcLong, ethClosed, result) = ReconcileSideChangeWithClosedEthConflict(
+            btcShortFirst: true);
+
+        AssertSideChangeBlockedByClosedEthConflict(btcLong, ethClosed, result);
+    }
+
+    /// <summary>
+    /// R-208-10 / R10-B: обратный порядок строк даёт тот же persisted business state.
+    /// </summary>
+    [Fact]
+    public void Side_Change_Blocked_When_Later_Row_Conflicts_With_Closed_Lifecycle_Eth_Then_Btc()
+    {
+        var (btcLong, ethClosed, result) = ReconcileSideChangeWithClosedEthConflict(
+            btcShortFirst: false);
+
+        AssertSideChangeBlockedByClosedEthConflict(btcLong, ethClosed, result);
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-A: дубликаты одного ключа с USDT→USDC не создают lifecycle.
+    /// </summary>
+    [Fact]
+    public void Duplicate_Rows_With_Conflicting_SettlementAsset_Do_Not_Create_Lifecycle_Usdt_Then_Usdc()
+    {
+        var result = ReconcileConflictingSettlementDuplicates(usdtFirst: true);
+
+        AssertConflictingSettlementDuplicatesRejected(result);
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-B: обратный порядок USDC→USDT даёт тот же результат.
+    /// </summary>
+    [Fact]
+    public void Duplicate_Rows_With_Conflicting_SettlementAsset_Do_Not_Create_Lifecycle_Usdc_Then_Usdt()
+    {
+        var result = ReconcileConflictingSettlementDuplicates(usdtFirst: false);
+
+        AssertConflictingSettlementDuplicatesRejected(result);
+    }
+
+    private static (
+        Position BtcLong,
+        Position EthClosed,
+        PositionReconciliationResult Result) ReconcileSideChangeWithClosedEthConflict(bool btcShortFirst)
+    {
+        var btcLong = CreateTrackedPosition(
+            AccountA, symbol: "BTCUSDT", side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var ethClosed = CreateTrackedPosition(
+            AccountA, symbol: "ETHUSDT", side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        ethClosed.Close(T0.AddMinutes(30));
+
+        OpenPosition[] rows = btcShortFirst
+            ?
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+            ]
+            :
+            [
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+            ];
+
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            rows);
+        var result = PositionReconciler.Reconcile(
+            AccountA, [btcLong, ethClosed], observation, T0.AddMinutes(20), StaleAfter);
+        return (btcLong, ethClosed, result);
+    }
+
+    private static void AssertSideChangeBlockedByClosedEthConflict(
+        Position btcLong,
+        Position ethClosed,
+        PositionReconciliationResult result)
+    {
+        result.NewPositions.Should().BeEmpty(
+            "противоположная сторона BTC не создаётся, пока закрытие Long не доказано");
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.New);
+        result.Changes.Should().NotContain(change =>
+            change.Kind == PositionChangeKind.Closed &&
+            change.PositionId == btcLong.Id);
+        btcLong.ClosedAt.Should().BeNull();
+        btcLong.TrackingState.Should().NotBe(PositionTrackingState.Closed);
+        ethClosed.TrackingState.Should().Be(PositionTrackingState.Closed);
+        ethClosed.ClosedAt.Should().Be(T0.AddMinutes(30));
+        result.IsFullyReconciled.Should().BeFalse();
+        result.NewPositions
+            .Concat([btcLong])
+            .Count(position =>
+                position.TrackingState != PositionTrackingState.Closed &&
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.ExchangePositionKey.PositionIdx == 0)
+            .Should().Be(1);
+    }
+
+    private static PositionReconciliationResult ReconcileConflictingSettlementDuplicates(bool usdtFirst)
+    {
+        OpenPosition[] rows = usdtFirst
+            ?
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDC"),
+            ]
+            :
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDC"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+            ];
+
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            rows);
+        return PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+    }
+
+    private static void AssertConflictingSettlementDuplicatesRejected(PositionReconciliationResult result)
+    {
+        result.NewPositions.Should().BeEmpty(
+            "дубликаты с разным SettlementAsset не выбирают произвольный актив расчёта");
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.New);
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-C: идентичный SettlementAsset сохраняет консервативную семантику дубликата.
+    /// </summary>
+    [Fact]
+    public void Identical_SettlementAsset_Duplicates_Keep_Conservative_Incompleteness()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-F: строка без SettlementAsset рядом с полной делает слот неоднозначным.
+    /// </summary>
+    [Fact]
+    public void Duplicate_With_Missing_SettlementAsset_Does_Not_Create_Lifecycle()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: null),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-11 / R11-G+H: повтор конфликта не копит историю; последующий чистый Complete восстанавливает.
+    /// </summary>
+    [Fact]
+    public void Conflicting_Settlement_Then_Clean_Complete_Allows_Recovery()
+    {
+        var conflict = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDC"),
+            ]);
+        PositionReconciler.Reconcile(AccountA, [], conflict, T0.AddMinutes(20), StaleAfter)
+            .NewPositions.Should().BeEmpty();
+
+        var recovered = PositionReconciler.Reconcile(
+            AccountA,
+            [],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                T0.AddMinutes(30),
+                [CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT")]),
+            T0.AddMinutes(30),
+            StaleAfter);
+
+        recovered.NewPositions.Should().ContainSingle()
+            .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+        recovered.IsFullyReconciled.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// R-208-10 / R10-H: конфликт одного hedge-слота не повреждает независимый слот.
+    /// </summary>
+    [Fact]
+    public void Closed_Lifecycle_Conflict_On_One_Hedge_Slot_Does_Not_Block_Other_Idx()
+    {
+        var closedIdx1 = CreateTrackedPosition(
+            AccountA, side: PositionSide.Long, positionIdx: 1, at: T0.AddMinutes(10));
+        closedIdx1.Close(T0.AddMinutes(30));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Short, positionIdx: 1, size: 2m),
+                CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 3m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [closedIdx1], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionIdx.Should().Be(2);
+        result.NewPositions.Should().NotContain(position =>
+            position.ExchangePositionKey.PositionIdx == 1);
+        result.IsFullyReconciled.Should().BeFalse();
+    }
 }

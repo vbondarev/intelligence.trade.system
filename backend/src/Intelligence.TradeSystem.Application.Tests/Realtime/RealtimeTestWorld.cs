@@ -247,7 +247,8 @@ internal sealed class RealtimeTestWorld
         PositionSide side = PositionSide.Long,
         int positionIdx = 0,
         decimal? stopLoss = null,
-        decimal? markPrice = 100m) =>
+        decimal? markPrice = 100m,
+        SettlementAsset? settlementAsset = null) =>
         new(
             symbol,
             MarketCategory.Linear,
@@ -269,7 +270,7 @@ internal sealed class RealtimeTestWorld
             null,
             null,
             positionIdx,
-            Usdt);
+            settlementAsset ?? Usdt);
 
     public PrivatePositionObservation OpenObservation(
         DateTimeOffset at,

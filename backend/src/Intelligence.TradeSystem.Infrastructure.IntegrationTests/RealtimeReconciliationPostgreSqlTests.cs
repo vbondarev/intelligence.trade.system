@@ -30,6 +30,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private static readonly TimeSpan BlockedCommandProbe = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(30);
     private static readonly SettlementAsset Usdt = SettlementAsset.From("USDT");
+    private static readonly SettlementAsset Usdc = SettlementAsset.From("USDC");
 
     [Fact]
     public async Task Stream_open_persists_position_cursor_portfolio_and_outbox_together()
@@ -816,7 +817,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         string symbol = "BTCUSDT",
         decimal size = 1m,
         PositionSide side = PositionSide.Long,
-        int positionIdx = 0) =>
+        int positionIdx = 0,
+        SettlementAsset? settlementAsset = null) =>
         new(
             symbol,
             MarketCategory.Linear,
@@ -838,7 +840,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             null,
             null,
             positionIdx,
-            Usdt);
+            settlementAsset ?? Usdt);
 
     private static PrivatePositionObservation OpenObservation(
         ExchangeAccount account,
