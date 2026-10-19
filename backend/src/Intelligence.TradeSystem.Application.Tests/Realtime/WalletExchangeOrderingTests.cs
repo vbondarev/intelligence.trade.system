@@ -150,6 +150,205 @@ public sealed class WalletExchangeOrderingTests
         world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(30));
     }
 
+    /// <summary>
+    /// P1 / Test A: wallet commit во время REST при отстающих часах биржи не откатывается.
+    /// </summary>
+    [Fact]
+    public async Task Rest_Does_Not_Overwrite_Wallet_Committed_During_Read_When_Exchange_Clock_Lags()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequestAsync = async cancellationToken =>
+        {
+            world.Provider.OnBalanceRequestAsync = null;
+            var wallet = world.WalletObservation(T0.AddSeconds(15), totalEquity: 3_000m) with
+            {
+                ReceivedAt = T0.AddSeconds(25),
+            };
+            (await world.CreateWalletService()
+                    .ApplyAsync(world.UserId, 1, wallet, cancellationToken))
+                .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+            world.Clock.UtcNow = T0.AddSeconds(30);
+        };
+
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.BalanceReadStartedAt.Should().BeNull();
+        world.Account.LastError.Should().Be("balance_ambiguous");
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.LatestPortfolio.Capital.ObservedAt.Should().Be(T0.AddSeconds(15));
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(15));
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(T0.AddSeconds(15));
+        world.RestOrderingIntervals.Should().NotContain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+    }
+
+    /// <summary>
+    /// P1 / Test B: wallet до REST не блокирует принятие действительно более нового REST-баланса.
+    /// </summary>
+    [Fact]
+    public async Task Rest_Accepts_Genuinely_Newer_Balance_After_Prior_Wallet()
+    {
+        var world = new RealtimeTestWorld();
+        (await world.CreateWalletService().ApplyAsync(
+                world.UserId,
+                1,
+                world.WalletObservation(T0.AddSeconds(10), totalEquity: 2_000m)))
+            .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 2_500m, 2_400m, 2_000m, 50m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(30);
+
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        sync.BalanceReadStartedAt.Should().Be(T0.AddSeconds(20));
+        world.Account.LastError.Should().BeNull();
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(2_500m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(10));
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+    }
+
+    /// <summary>
+    /// P1 / Test C: без wallet commit во время REST обычная сверка не деградирует в balance_ambiguous.
+    /// </summary>
+    [Fact]
+    public async Task Rest_Without_Wallet_Changes_During_Read_Remains_Ordinary_Sync()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_500m, 1_400m, 1_200m, 20m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        world.Account.LastError.Should().BeNull();
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(1_500m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+    }
+
+    /// <summary>
+    /// P1 / Test D: продвижение wallet cursor во время REST при MessageCreatedAt &lt; RequestStartedAt
+    /// всё равно отклоняет REST (факт commit, а не только сравнение timestamps).
+    /// </summary>
+    [Fact]
+    public async Task Rest_Rejects_When_Existing_Wallet_Cursor_Advances_During_Read_Despite_Clock_Skew()
+    {
+        var world = new RealtimeTestWorld();
+        (await world.CreateWalletService().ApplyAsync(
+                world.UserId,
+                1,
+                world.WalletObservation(T0.AddSeconds(10), totalEquity: 2_000m)))
+            .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequestAsync = async cancellationToken =>
+        {
+            world.Provider.OnBalanceRequestAsync = null;
+            var advanced = world.WalletObservation(T0.AddSeconds(15), totalEquity: 3_000m) with
+            {
+                ReceivedAt = T0.AddSeconds(25),
+            };
+            (await world.CreateWalletService()
+                    .ApplyAsync(world.UserId, 1, advanced, cancellationToken))
+                .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+            world.Clock.UtcNow = T0.AddSeconds(30);
+        };
+
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        world.Account.LastError.Should().Be("balance_ambiguous");
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(15));
+        world.RestOrderingIntervals.Should().NotContain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+    }
+
+    /// <summary>
+    /// P1 / Test E: неоднозначный REST-баланс не блокирует согласованные позиции и не пишет Balance evidence.
+    /// </summary>
+    [Fact]
+    public async Task Ambiguous_Rest_Balance_Still_Applies_Positions_Without_Balance_Evidence()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequestAsync = async cancellationToken =>
+        {
+            world.Provider.OnBalanceRequestAsync = null;
+            var wallet = world.WalletObservation(T0.AddSeconds(15), totalEquity: 3_000m) with
+            {
+                ReceivedAt = T0.AddSeconds(25),
+            };
+            (await world.CreateWalletService()
+                    .ApplyAsync(world.UserId, 1, wallet, cancellationToken))
+                .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+            world.Clock.UtcNow = T0.AddSeconds(30);
+        };
+
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        world.Account.LastError.Should().Be("balance_ambiguous");
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(T0.AddSeconds(15));
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(T0.AddSeconds(30));
+        world.RestOrderingIntervals.Should().NotContain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
+    }
+
+    /// <summary>
+    /// P1 / Test F: защита опирается на persisted wallet cursor, а не на in-memory состояние sync-сервиса.
+    /// </summary>
+    [Fact]
+    public async Task Rest_Rejects_Wallet_Committed_Via_Independent_Sync_Service_Instance()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequestAsync = async cancellationToken =>
+        {
+            world.Provider.OnBalanceRequestAsync = null;
+            // Отдельный sync/wallet service — тот же persisted world, без process-local памяти REST.
+            var independentWallet = world.CreateWalletService();
+            var wallet = world.WalletObservation(T0.AddSeconds(15), totalEquity: 3_000m) with
+            {
+                ReceivedAt = T0.AddSeconds(25),
+            };
+            (await independentWallet.ApplyAsync(world.UserId, 1, wallet, cancellationToken))
+                .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+            world.Clock.UtcNow = T0.AddSeconds(30);
+        };
+
+        var restInstance = world.CreateSyncService();
+        var sync = await restInstance.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(15));
+        world.Account.LastError.Should().Be("balance_ambiguous");
+    }
+
     [Fact]
     public async Task Missing_MessageCreatedAt_Does_Not_Create_Fictitious_Cursor()
     {

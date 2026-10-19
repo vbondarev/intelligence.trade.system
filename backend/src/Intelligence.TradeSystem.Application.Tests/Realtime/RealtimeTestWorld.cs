@@ -495,6 +495,9 @@ internal sealed class RealtimeTestWorld
         /// <summary>Выполняется во время REST-запроса баланса, после фиксации начала чтения.</summary>
         public Action? OnBalanceRequest { get; set; }
 
+        /// <summary>Асинхронно выполняется во время REST-запроса баланса, после фиксации начала чтения.</summary>
+        public Func<CancellationToken, Task>? OnBalanceRequestAsync { get; set; }
+
         /// <summary>Исключение, которым завершается следующий REST-запрос позиций.</summary>
         public Exception? PositionsException { get; set; }
 
@@ -581,19 +584,24 @@ internal sealed class RealtimeTestWorld
             };
         }
 
-        public Task<AccountBalanceObservation> GetWalletBalanceAsync(
+        public async Task<AccountBalanceObservation> GetWalletBalanceAsync(
             AccountType accountType,
             CancellationToken cancellationToken = default)
         {
             var requestStartedAt = world.Clock.GetUtcNow();
             OnBalanceRequest?.Invoke();
+            if (OnBalanceRequestAsync is { } callback)
+            {
+                await callback(cancellationToken);
+            }
+
             var observedAt = world.Clock.GetUtcNow();
-            return Task.FromResult(BalanceFails
+            return BalanceFails
                 ? AccountBalanceObservation.Failed(
                     new ExchangeFailure(ExchangeFailureKind.Unknown, Retryable: false),
                     observedAt,
                     requestStartedAt)
-                : AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt));
+                : AccountBalanceObservation.Complete(Balance, observedAt, requestStartedAt);
         }
     }
 

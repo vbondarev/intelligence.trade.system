@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -79,6 +80,11 @@ public sealed class ExchangeAccountSyncService(
         }
 
         using var providerLease = providerFactory.Create(account.ExchangeId, credentials);
+        // Базовый wallet cursor до REST-чтения: под locks сравнивается с актуальным, чтобы
+        // обнаружить commit другого экземпляра при clock skew, когда MessageCreatedAt < RequestStartedAt.
+        var walletCursorBeforeBalanceRead = await walletCursorStore
+            .GetLastAcceptedMessageCreatedAtAsync(userId, exchangeAccountId, cancellationToken)
+            .ConfigureAwait(false);
         var balanceObservation = await providerLease.Provider
             .GetWalletBalanceAsync(AccountType.Unified, cancellationToken)
             .ConfigureAwait(false);
@@ -212,7 +218,8 @@ public sealed class ExchangeAccountSyncService(
                                 if (IsRestBalanceOrderAmbiguous(
                                         balanceObservation,
                                         previousPortfolioState?.Capital,
-                                        acceptedWalletExchangeAt))
+                                        acceptedWalletExchangeAt,
+                                        walletCursorBeforeBalanceRead))
                                 {
                                     restBalanceOrderAmbiguous = true;
                                     // Непринятое REST-наблюдение не продвигает watermark баланса.
@@ -661,20 +668,26 @@ public sealed class ExchangeAccountSyncService(
     /// Порядок REST-баланса относительно persisted капитала и wallet exchange ordering недоказан,
     /// если последнее достоверное наблюдение капитала или принятый wallet <c>MessageCreatedAt</c>
     /// попадает в интервал чтения <c>[RequestStartedAt, ObservedAt]</c> (границы включительно),
-    /// интервал сам по себе некорректен, либо wallet-событие новее завершения REST-чтения.
+    /// интервал сам по себе некорректен, wallet-событие новее начала REST-чтения, либо
+    /// persisted wallet cursor изменился после фиксации состояния до REST-запроса.
     /// </summary>
     /// <remarks>
     /// Отсутствие ранее подтверждённого капитала и wallet cursor не считается неоднозначностью:
     /// первичная REST-синхронизация остаётся допустимой. Окончание REST-чтения не считается
     /// эквивалентом биржевого <c>MessageCreatedAt</c>: при невозможности достоверно расположить
     /// снимок относительно persisted wallet ordering применяется консервативный отказ.
+    /// Сравнение только timestamps недостаточно при clock skew: новый wallet commit может иметь
+    /// <c>MessageCreatedAt</c> раньше <c>RequestStartedAt</c>, поэтому факт смены cursor
+    /// относительно снимка до REST учитывается отдельно. Повторное чтение cursor выполняется
+    /// под account lock вместе с решением о REST-балансе.
     /// При <see cref="AccountBalanceObservation.RequestStartedAt"/> = <see langword="null"/>
     /// интервал вырождается в точку <see cref="AccountBalanceObservation.ObservedAt"/>.
     /// </remarks>
     private static bool IsRestBalanceOrderAmbiguous(
         AccountBalanceObservation balanceObservation,
         PortfolioCapitalState? previousCapital,
-        DateTimeOffset? lastAcceptedWalletMessageCreatedAt)
+        DateTimeOffset? lastAcceptedWalletMessageCreatedAt,
+        DateTimeOffset? walletCursorBeforeBalanceRead)
     {
         if (!IsCompleteBalance(balanceObservation))
             return false;
@@ -692,6 +705,15 @@ public sealed class ExchangeAccountSyncService(
                 return true;
         }
 
+        // Commit wallet во время REST-чтения (в т.ч. при отстающих часах биржи) недоказуем
+        // сравнением MessageCreatedAt с RequestStartedAt — достаточно факта смены cursor.
+        if (WalletCursorChangedDuringRest(
+                walletCursorBeforeBalanceRead,
+                lastAcceptedWalletMessageCreatedAt))
+        {
+            return true;
+        }
+
         if (previousCapital?.ObservedAt is not { } previousObservedAt)
             return false;
 
@@ -700,6 +722,16 @@ public sealed class ExchangeAccountSyncService(
 
         return previousObservedAt == completedAt;
     }
+
+    /// <summary>
+    /// Persisted wallet cursor изменился относительно снимка до REST balance request.
+    /// Сравнение в микросекундах UTC совпадает с точностью хранения timestamp.
+    /// </summary>
+    private static bool WalletCursorChangedDuringRest(
+        DateTimeOffset? walletCursorBeforeBalanceRead,
+        DateTimeOffset? walletCursorAfterBalanceRead) =>
+        TimestampCanonicalizer.ToUtcMicroseconds(walletCursorBeforeBalanceRead) !=
+        TimestampCanonicalizer.ToUtcMicroseconds(walletCursorAfterBalanceRead);
 
     /// <summary>
     /// Интервал успешного чтения баланса, принятого в капитал. Неуспешное или устаревшее чтение
