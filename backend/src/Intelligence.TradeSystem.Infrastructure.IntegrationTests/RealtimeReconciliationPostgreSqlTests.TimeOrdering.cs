@@ -1169,6 +1169,129 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
+    /// R-208-12: Long без SettlementAsset + Short USDT одного idx=0 не создаёт lifecycle; порядок не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Rejected_missing_settlement_side_conflict_does_not_create_lifecycle(bool missingSettlementFirst)
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        var missing = OpenPosition(side: PositionSide.Long, size: 1m) with { SettlementAsset = null };
+        var shortRow = OpenPosition(side: PositionSide.Short, size: 2m, settlementAsset: Usdt);
+        if (missingSettlementFirst)
+        {
+            provider.SetPosition(missing);
+            provider.SetPosition(shortRow);
+        }
+        else
+        {
+            provider.SetPosition(shortRow);
+            provider.SetPosition(missing);
+        }
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Empty(positions);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+    }
+
+    /// <summary>
+    /// R-208-13: отклонённый USDC-дубликат не меняет persisted Size; порядок строк не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Rejected_settlement_duplicate_does_not_update_tracked_position(bool usdtFirst)
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var tracked = Position.Create(
+            ExchangePositionKey.Create(account.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
+            MarketCategory.Linear,
+            Usdt,
+            1m,
+            T1.AddSeconds(10),
+            T1.AddSeconds(10),
+            averageEntryPrice: 100m,
+            leverage: 2m);
+        await SeedPositionsAsync(account, tracked);
+
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        var usdtRow = OpenPosition(size: 2m, settlementAsset: Usdt);
+        var usdcRow = OpenPosition(size: 3m, settlementAsset: Usdc);
+        if (usdtFirst)
+        {
+            provider.SetPosition(usdtRow);
+            provider.SetPosition(usdcRow);
+        }
+        else
+        {
+            provider.SetPosition(usdcRow);
+            provider.SetPosition(usdtRow);
+        }
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(1m, position.Size);
+        Assert.Equal(Usdt, position.SettlementAsset);
+        Assert.Equal(T1.AddSeconds(10), position.LastObservedAt);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+    }
+
+    /// <summary>
+    /// R-208-14 / B1: wallet другого экземпляра во время REST-чтения не допускает откат капитала
+    /// устаревшим REST-балансом; watermark баланса не продвигается ложно.
+    /// </summary>
+    [Fact]
+    public async Task Cross_instance_wallet_during_rest_balance_read_preserves_newer_capital()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1);
+        var provider = new TestPrivateProvider
+        {
+            Clock = clock,
+            Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []),
+        };
+        provider.BeforeBalanceResponse = async () =>
+        {
+            provider.BeforeBalanceResponse = null;
+            clock.UtcNow = T1.AddSeconds(2);
+            await using var walletContext = fixture.CreateContext();
+            var walletResult = await CreateWalletService(walletContext)
+                .ApplyAsync(
+                    account.UserId,
+                    generation,
+                    WalletObservation(account, T1.AddSeconds(2), totalEquity: 1_100m));
+            Assert.Equal(RealtimeObservationApplyOutcome.Applied, walletResult.Outcome);
+            clock.UtcNow = T1.AddSeconds(4);
+        };
+
+        var result = await SynchronizeAsync(account, provider, clock);
+
+        Assert.False(result.FullReconciliationCommitted);
+        Assert.Null(result.BalanceReadStartedAt);
+        Assert.Null(result.BalanceReadCompletedAt);
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, result.Outcome);
+        await using var verification = fixture.CreateContext();
+        var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1_100m, portfolio!.Capital.TotalEquity);
+        Assert.Equal(T1.AddSeconds(2), portfolio.Capital.ObservedAt);
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(T1.AddSeconds(2), stored!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal("balance_ambiguous", stored.Value.LastError);
+        Assert.Null(stored.Value.LastSyncedAt);
+    }
+
+    /// <summary>
     /// R-208-11 / R11-H: после конфликта по SettlementAsset чистый Complete завершает recovery.
     /// </summary>
     [Fact]
