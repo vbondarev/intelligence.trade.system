@@ -1,4 +1,5 @@
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
@@ -200,8 +201,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
-    /// P1: REST, начатый до wallet commit, не откатывает капитал, когда биржевой
-    /// <c>MessageCreatedAt</c> отстаёт от backend <c>RequestStartedAt</c>.
+    /// P1/P2: REST, начатый до wallet commit в независимом DI scope, не откатывает капитал,
+    /// когда биржевой <c>MessageCreatedAt</c> отстаёт от backend <c>RequestStartedAt</c>.
     /// </summary>
     [Fact]
     public async Task Rest_Does_Not_Overwrite_Wallet_Committed_During_Read_When_Exchange_Clock_Lags()
@@ -241,43 +242,71 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             return Task.CompletedTask;
         };
 
-        // Экземпляр B: REST balance request начинается до wallet и удерживается до commit A.
-        await using var servicesB = CreateApplicationServices(account, restProvider, restClock);
-        await using var scopeB = servicesB.CreateAsyncScope();
-        var restSync = scopeB.ServiceProvider
-            .GetRequiredService<ExchangeAccountSyncService>()
-            .SynchronizeAsync(account.UserId, account.Id);
+        // Один root provider: Scope A (wallet) и Scope B (REST) с независимыми scoped DbContext.
+        await using var services = CreateApplicationServices(account, restProvider, restClock);
+        await using var scopeA = services.CreateAsyncScope();
+        await using var scopeB = services.CreateAsyncScope();
+
+        var dbContextA = scopeA.ServiceProvider.GetRequiredService<TradeSystemDbContext>();
+        var dbContextB = scopeB.ServiceProvider.GetRequiredService<TradeSystemDbContext>();
+        Assert.NotSame(dbContextA, dbContextB);
+
+        int portfolioUpdatedBefore;
+        int syncDegradedBefore;
+        int accountUpdatedBefore;
+        int positionOpenedBefore;
+        await using (var baseline = fixture.CreateContext())
+        {
+            portfolioUpdatedBefore = await CountOutboxAsync(
+                baseline, account, ApplicationEventTypes.PortfolioUpdated);
+            syncDegradedBefore = await CountOutboxAsync(
+                baseline, account, ApplicationEventTypes.ExchangeAccountSyncDegraded);
+            accountUpdatedBefore = await CountOutboxAsync(
+                baseline, account, ApplicationEventTypes.ExchangeAccountUpdated);
+            positionOpenedBefore = await CountOutboxAsync(
+                baseline, account, ApplicationEventTypes.PositionOpened);
+        }
+
+        var walletService = scopeA.ServiceProvider
+            .GetRequiredService<RealtimeWalletObservationService>();
+        var restService = scopeB.ServiceProvider
+            .GetRequiredService<ExchangeAccountSyncService>();
+
+        // Scope B: REST balance request начинается до wallet и удерживается до commit Scope A.
+        var restSync = restService.SynchronizeAsync(account.UserId, account.Id);
 
         Assert.True(
             await restCapturedStaleBalance.Task.WaitAsync(CompletionTimeout),
             "REST must capture the stale balance before wallet runs.");
 
-        // Экземпляр A: wallet WS коммитит капитал 3000 при отстающих часах биржи (MessageCreatedAt=T15).
-        await using (var walletContext = fixture.CreateContext())
+        try
         {
+            // Scope A: wallet WS коммитит капитал 3000 при отстающих часах биржи (MessageCreatedAt=T15).
             var wallet = WalletObservation(account, t15, totalEquity: 3_000m) with
             {
                 ReceivedAt = t25,
             };
             Assert.Equal(
                 RealtimeObservationApplyOutcome.Applied,
-                (await CreateWalletService(walletContext)
-                    .ApplyAsync(account.UserId, generation, wallet)).Outcome);
-        }
+                (await walletService.ApplyAsync(account.UserId, generation, wallet)).Outcome);
 
-        await using (var midVerification = fixture.CreateContext())
+            await using (var midVerification = fixture.CreateContext())
+            {
+                var midCapital = await new PortfolioStateRepository(midVerification)
+                    .GetLatestAsync(account.UserId, account.Id);
+                Assert.Equal(3_000m, midCapital!.Capital.TotalEquity);
+                Assert.Equal(t15, midCapital.Capital.ObservedAt);
+                Assert.Equal(
+                    t15,
+                    await new WalletObservationCursorStore(midVerification)
+                        .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+            }
+        }
+        finally
         {
-            var midCapital = await new PortfolioStateRepository(midVerification)
-                .GetLatestAsync(account.UserId, account.Id);
-            Assert.Equal(3_000m, midCapital!.Capital.TotalEquity);
-            Assert.Equal(t15, midCapital.Capital.ObservedAt);
-            Assert.Equal(
-                t15,
-                await new WalletObservationCursorStore(midVerification)
-                    .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+            // Разблокируем REST даже при сбое wallet-ветки, чтобы исходный Assert не маскировался таймаутом.
+            walletCommitted.TrySetResult(true);
         }
-
-        Assert.True(walletCommitted.TrySetResult(true));
 
         var syncResult = await restSync.WaitAsync(CompletionTimeout);
         Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, syncResult.Outcome);
@@ -285,6 +314,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Null(syncResult.BalanceReadStartedAt);
         Assert.Null(syncResult.BalanceReadCompletedAt);
 
+        // Scope C / независимый DbContext: окончательное состояние общей PostgreSQL.
         await using var verification = fixture.CreateContext();
         var capital = await new PortfolioStateRepository(verification)
             .GetLatestAsync(account.UserId, account.Id);
@@ -301,6 +331,24 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(t15, accountState.Value.LastAppliedBalanceObservationAt);
         Assert.Null(accountState.Value.LastSyncedAt);
 
+        // Отвергнутый REST balance не создаёт Balance evidence и не делает капитал 1000 подтверждённым.
         Assert.False(await HasRestOrderingKindAsync(account, ExchangeRestOrderingKind.Balance));
+        Assert.NotEqual(1_000m, capital.Capital.TotalEquity);
+
+        Assert.Equal(
+            portfolioUpdatedBefore + 2,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        Assert.Equal(
+            syncDegradedBefore + 1,
+            await CountOutboxAsync(
+                verification, account, ApplicationEventTypes.ExchangeAccountSyncDegraded));
+        Assert.Equal(
+            accountUpdatedBefore,
+            await CountOutboxAsync(
+                verification, account, ApplicationEventTypes.ExchangeAccountUpdated));
+        // Принятые позиции REST допустимы; ложного полного успешного sync-события быть не должно.
+        Assert.Equal(
+            positionOpenedBefore + 1,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
     }
 }
