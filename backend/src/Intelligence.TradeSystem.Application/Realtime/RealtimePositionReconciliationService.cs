@@ -273,7 +273,14 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            if (overlapsPersistedRest)
+                            if (overlapsPersistedRest ||
+                                await RequiresConfirmationForMissingRestEvidenceAsync(
+                                        userId,
+                                        prepared,
+                                        locked.Account,
+                                        slot[0],
+                                        token)
+                                    .ConfigureAwait(false))
                             {
                                 requiresRestConfirmation = true;
                                 return;
@@ -334,6 +341,47 @@ public sealed class RealtimePositionReconciliationService(
             prepared.ObservedAt,
             prepared.Observation.Symbol,
             evidence);
+    }
+
+    /// <summary>
+    /// Пустой результат <see cref="IExchangeRestOrderingEvidenceStore.GetPositionEvidenceAsync"/>
+    /// означает лишь отсутствие найденного пересечения. Если watermark REST уже поднят, а
+    /// завершение чтения до WS не доказано evidence, Active-состояние нельзя безопасно менять
+    /// DirectApply: REST мог принять более новый размер. Unknown после неуспешного REST по-прежнему
+    /// восстанавливается прямым применением.
+    /// </summary>
+    private async Task<bool> RequiresConfirmationForMissingRestEvidenceAsync(
+        UserId userId,
+        PreparedObservation prepared,
+        ExchangeAccount account,
+        Position existing,
+        CancellationToken cancellationToken)
+    {
+        if (existing.TrackingState == PositionTrackingState.Unknown)
+        {
+            return false;
+        }
+
+        if (account.LastAppliedPositionsObservationAt is not { } positionsWatermark)
+        {
+            return false;
+        }
+
+        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(prepared.ObservedAt);
+        var normalizedWatermark = TimestampCanonicalizer.ToUtcMicroseconds(positionsWatermark);
+        if (normalizedObservedAt < normalizedWatermark)
+        {
+            return false;
+        }
+
+        return !await restOrderingEvidenceStore
+            .HasPositionEvidenceCompletedBeforeAsync(
+                userId,
+                prepared.Observation.ExchangeAccountId,
+                prepared.Observation.Symbol,
+                prepared.ObservedAt,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <returns><see langword="null"/>, если открытие нужно подтвердить REST-наблюдением.</returns>

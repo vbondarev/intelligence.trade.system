@@ -192,7 +192,8 @@ public sealed class RealtimeWalletObservationService(
         var account = latest.Value;
 
         // Persisted Balance intervals читаются после блокировок: silent Stale запрещён, если биржевая
-        // метка или ObservedAt попадает в интервал REST-чтения другого экземпляра.
+        // метка или ObservedAt попадает в интервал REST-чтения другого экземпляра, либо если порядок
+        // относительно REST-капитала недоказан из-за отсутствия evidence.
         var balanceEvidence = await restOrderingEvidenceStore
             .GetBalanceEvidenceAsync(
                 userId,
@@ -209,12 +210,17 @@ public sealed class RealtimeWalletObservationService(
 
         if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
         {
-            var capitalOrder = CompareWalletObservationOrder(
-                observedAt,
-                messageCreatedAt,
-                acceptedCapitalAt,
-                previous.Capital,
-                capital);
+            var capitalOrder = await CompareWalletObservationOrderAsync(
+                    userId,
+                    exchangeAccountId,
+                    account,
+                    observedAt,
+                    messageCreatedAt,
+                    acceptedCapitalAt,
+                    previous.Capital,
+                    capital,
+                    cancellationToken)
+                .ConfigureAwait(false);
             if (capitalOrder is not null)
             {
                 return capitalOrder;
@@ -282,14 +288,19 @@ public sealed class RealtimeWalletObservationService(
 
     /// <summary>
     /// Сравнивает wallet-наблюдение с принятым капиталом. Ограниченный ObservedAt сам по себе не
-    /// доказывает устарелость, если биржевая отметка сообщения новее принятого капитала.
+    /// доказывает устарелость, если биржевая отметка сообщения новее принятого капитала, и не
+    /// доказывает silent Stale, если капитал мог быть принят REST без доступной interval history.
     /// </summary>
-    private static RealtimeObservationApplyResult? CompareWalletObservationOrder(
+    private async Task<RealtimeObservationApplyResult?> CompareWalletObservationOrderAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        ExchangeAccount account,
         DateTimeOffset observedAt,
         DateTimeOffset? messageCreatedAt,
         DateTimeOffset acceptedCapitalAt,
         PortfolioCapitalState acceptedCapital,
-        PortfolioCapitalState observedCapital)
+        PortfolioCapitalState observedCapital,
+        CancellationToken cancellationToken)
     {
         var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
         var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
@@ -300,6 +311,18 @@ public sealed class RealtimeWalletObservationService(
             {
                 return RealtimeObservationApplyResult.RecoveryRequired(
                     RealtimeObservationApplyResult.AmbiguousObservationOrder);
+            }
+
+            if (await IsAmbiguousOlderWalletWithoutRestEvidenceAsync(
+                        userId,
+                        exchangeAccountId,
+                        account,
+                        acceptedCapitalAt,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return RealtimeObservationApplyResult.RecoveryRequired(
+                    RealtimeObservationApplyResult.AmbiguousWithRestBalance);
             }
 
             return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
@@ -315,6 +338,47 @@ public sealed class RealtimeWalletObservationService(
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// REST-синхронизация обычно поднимает оба watermark; капитал с тем же Balance watermark при
+    /// полном отсутствии Balance evidence выглядит как принятый REST-снимок с утерянной историей
+    /// интервалов. Silent Stale в этом случае запрещён. Чистый wallet-поток (positions watermark
+    /// отсутствует) по-прежнему может получить Stale.
+    /// </summary>
+    private async Task<bool> IsAmbiguousOlderWalletWithoutRestEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        ExchangeAccount account,
+        DateTimeOffset acceptedCapitalAt,
+        CancellationToken cancellationToken)
+    {
+        if (account.LastAppliedPositionsObservationAt is null ||
+            account.LastAppliedBalanceObservationAt is not { } balanceWatermark)
+        {
+            return false;
+        }
+
+        if (TimestampCanonicalizer.ToUtcMicroseconds(balanceWatermark) !=
+            TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt))
+        {
+            return false;
+        }
+
+        if (await restOrderingEvidenceStore
+                .HasBalanceEvidenceCompletingAtAsync(
+                    userId,
+                    exchangeAccountId,
+                    acceptedCapitalAt,
+                    cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        return !await restOrderingEvidenceStore
+            .HasAnyBalanceEvidenceAsync(userId, exchangeAccountId, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static bool HasSameValues(PortfolioCapitalState accepted, PortfolioCapitalState observed) =>

@@ -163,6 +163,122 @@ public sealed class RestOrderingEvidenceTests
     }
 
     [Fact]
+    public async Task Missing_rest_evidence_does_not_allow_delayed_ws_position_rollback()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        sync.FullPositionsCompleteAccepted.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.ReplaceRestOrderingIntervals();
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddMinutes(2);
+        world.Clock.UtcNow = T0.AddMinutes(2);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        var delayed = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(15), sequence: 1, OpenPosition(size: 2m)));
+
+        delayed.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        delayed.ConfirmedByRest.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.Events.OfType<PositionChangedEventV1>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Missing_rest_evidence_requires_recovery_when_confirmation_unavailable()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.ReplaceRestOrderingIntervals();
+        world.CredentialsUnavailable = true;
+
+        var delayed = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(15), sequence: 1, OpenPosition(size: 2m)));
+
+        delayed.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        delayed.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.Events.OfType<PositionChangedEventV1>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Fresh_ws_after_proven_rest_completion_applies_directly_without_evidence_overlap()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
+            interval.CompletedAt == T0.AddSeconds(20));
+
+        var fresh = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(25), sequence: 1, OpenPosition(size: 2m)));
+
+        fresh.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        fresh.ConfirmedByRest.Should().BeFalse();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+    }
+
+    [Fact]
+    public async Task Missing_balance_evidence_does_not_silently_discard_ambiguous_wallet()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        sync.BalanceReadStartedAt.Should().Be(T0.AddSeconds(10));
+        sync.BalanceReadCompletedAt.Should().Be(T0.AddSeconds(20));
+        var acceptedEquity = world.LatestPortfolio!.Capital.TotalEquity;
+        world.Account.LastAppliedPositionsObservationAt.Should().NotBeNull();
+        world.ReplaceRestOrderingIntervals();
+
+        var wallet = await world.CreateWalletService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.WalletObservation(T0.AddSeconds(15), totalEquity: 9_999m));
+
+        wallet.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        wallet.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(acceptedEquity);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(T0.AddSeconds(20));
+    }
+
+    [Fact]
+    public async Task Fresh_wallet_after_rest_applies_when_newer_than_accepted_capital()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.ReplaceRestOrderingIntervals();
+
+        var wallet = await world.CreateWalletService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.WalletObservation(T0.AddSeconds(30), totalEquity: 3_500m));
+
+        wallet.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_500m);
+        world.LatestPortfolio.Capital.ObservedAt.Should().Be(T0.AddSeconds(30));
+    }
+
+    [Fact]
     public void Invalid_time_bounds_do_not_create_interval()
     {
         RestOrderingDecision.TryCreateBounds(T0.AddSeconds(10), T0.AddSeconds(5))

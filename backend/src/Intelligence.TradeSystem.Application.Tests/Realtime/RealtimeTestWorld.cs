@@ -717,6 +717,58 @@ internal sealed class RealtimeTestWorld
                 .ToArray();
             return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(matches);
         }
+
+        public Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            string symbol,
+            DateTimeOffset observedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult(false);
+            }
+
+            var normalizedObservedAt = observedAt;
+            var trimmedSymbol = symbol.Trim();
+            var completedBefore = world.restOrderingIntervals.Any(interval =>
+                interval.CompletedAt < normalizedObservedAt &&
+                (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
+                 (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
+                  string.Equals(interval.Symbol, trimmedSymbol, StringComparison.OrdinalIgnoreCase))));
+            return Task.FromResult(completedBefore);
+        }
+
+        public Task<bool> HasAnyBalanceEvidenceAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult(false);
+            }
+
+            return Task.FromResult(world.restOrderingIntervals.Any(interval =>
+                interval.Kind == ExchangeRestOrderingKind.Balance));
+        }
+
+        public Task<bool> HasBalanceEvidenceCompletingAtAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            DateTimeOffset completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult(false);
+            }
+
+            return Task.FromResult(world.restOrderingIntervals.Any(interval =>
+                interval.Kind == ExchangeRestOrderingKind.Balance &&
+                interval.CompletedAt == completedAt));
+        }
     }
 
     private sealed class Outbox(RealtimeTestWorld world) : IApplicationEventOutbox

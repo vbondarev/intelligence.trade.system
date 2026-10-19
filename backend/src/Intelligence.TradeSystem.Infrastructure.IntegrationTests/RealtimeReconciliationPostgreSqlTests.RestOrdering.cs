@@ -184,6 +184,96 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
+    public async Task Missing_evidence_after_rest_on_b_does_not_allow_delayed_ws_rollback_on_a()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var restClock = new MutableTimeProvider(T1.AddSeconds(10));
+        var restProvider = new TestPrivateProvider
+        {
+            Clock = restClock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            BeforePositionsResponse = () =>
+            {
+                restClock.UtcNow = T1.AddSeconds(20);
+                return Task.CompletedTask;
+            },
+        };
+        restProvider.SetPosition(OpenPosition(size: 3m));
+        var sync = await SynchronizeViaScopeAsync(account, restProvider, restClock);
+        Assert.True(sync.FullPositionsCompleteAccepted);
+        await ClearRestOrderingEvidenceAsync(account);
+
+        restProvider.PositionsObservedAt = T1.AddMinutes(2);
+        restProvider.Clock = new MutableTimeProvider(T1.AddMinutes(2));
+        await using var instanceA = CreateApplicationServices(
+            account,
+            restProvider,
+            new FixedTimeProvider(T1.AddMinutes(2)));
+        await using var scopeA = instanceA.CreateAsyncScope();
+        var delayed = await scopeA.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(account.UserId, generation, OpenObservation(account, T1.AddSeconds(15), 1, OpenPosition(size: 2m)));
+
+        Assert.True(
+            delayed.Outcome is RealtimeObservationApplyOutcome.Applied
+                or RealtimeObservationApplyOutcome.RecoveryRequired);
+        if (delayed.Outcome == RealtimeObservationApplyOutcome.Applied)
+        {
+            Assert.True(delayed.ConfirmedByRest);
+        }
+
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(3m, position.Size);
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+    }
+
+    [Fact]
+    public async Task Missing_balance_evidence_after_rest_on_b_requires_recovery_for_ambiguous_wallet_on_a()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var restClock = new MutableTimeProvider(T1.AddSeconds(10));
+        var restProvider = new TestPrivateProvider
+        {
+            Clock = restClock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            BeforeBalanceResponse = () =>
+            {
+                restClock.UtcNow = T1.AddSeconds(20);
+                return Task.CompletedTask;
+            },
+        };
+        restProvider.SetPosition(OpenPosition());
+        var sync = await SynchronizeViaScopeAsync(account, restProvider, restClock);
+        Assert.Equal(T1.AddSeconds(10), sync.BalanceReadStartedAt);
+        Assert.Equal(T1.AddSeconds(20), sync.BalanceReadCompletedAt);
+        var equityBefore = (await LatestPortfolioAsync(account)).Capital.TotalEquity;
+        await ClearRestOrderingEvidenceAsync(account);
+        int outboxBefore;
+        await using (var beforeContext = fixture.CreateContext())
+        {
+            outboxBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PortfolioUpdated);
+        }
+
+        await using var instanceA = CreateApplicationServices(account, restProvider);
+        await using var scopeA = instanceA.CreateAsyncScope();
+        var wallet = await scopeA.ServiceProvider
+            .GetRequiredService<RealtimeWalletObservationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                WalletObservation(account, T1.AddSeconds(15), totalEquity: 9_999m));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, wallet.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.AmbiguousWithRestBalance, wallet.ReasonCode);
+        Assert.Equal(equityBefore, (await LatestPortfolioAsync(account)).Capital.TotalEquity);
+        await using var verification = fixture.CreateContext();
+        Assert.Equal(
+            outboxBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
+    [Fact]
     public async Task Parallel_scopes_preserve_locks_cas_and_generation_fencing_with_rest_evidence()
     {
         var (account, generation) = await CreateObservedAccountAsync();
@@ -290,5 +380,18 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         }
 
         return await query.AnyAsync();
+    }
+
+    /// <summary>
+    /// Моделирует потерю/отсутствие interval history после принятого REST без production delete path.
+    /// </summary>
+    private async Task ClearRestOrderingEvidenceAsync(ExchangeAccount account)
+    {
+        await using var context = fixture.CreateContext();
+        var intervals = await context.ExchangeRestOrderingIntervals
+            .Where(interval => interval.ExchangeAccountId == account.Id.Value)
+            .ToListAsync();
+        context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
+        await context.SaveChangesAsync();
     }
 }

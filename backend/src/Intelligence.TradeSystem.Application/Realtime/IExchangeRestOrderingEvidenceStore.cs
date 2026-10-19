@@ -44,4 +44,35 @@ public interface IExchangeRestOrderingEvidenceStore
         DateTimeOffset? observedAt,
         DateTimeOffset? messageCreatedAt,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// True, если для символа есть Full/Scoped evidence с <c>CompletedAt</c> строго раньше
+    /// <paramref name="observedAt"/>. Это доказывает, что известное REST-чтение завершилось до
+    /// потокового события; пустой результат <see cref="GetPositionEvidenceAsync"/> сам по себе
+    /// таким доказательством не является.
+    /// </summary>
+    Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        string symbol,
+        DateTimeOffset observedAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// True, если для аккаунта есть хотя бы один Balance-интервал.
+    /// </summary>
+    Task<bool> HasAnyBalanceEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// True, если есть Balance evidence с <c>CompletedAt</c>, равным
+    /// <paramref name="completedAt"/> (после каноникализации до микросекунд).
+    /// </summary>
+    Task<bool> HasBalanceEvidenceCompletingAtAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken = default);
 }

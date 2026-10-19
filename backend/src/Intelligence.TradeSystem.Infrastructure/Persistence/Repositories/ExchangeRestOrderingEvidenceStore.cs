@@ -116,6 +116,64 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
             .ToArray();
     }
 
+    public async Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        string symbol,
+        DateTimeOffset observedAt,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsureAccountId(exchangeAccountId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
+
+        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+        var trimmedSymbol = symbol.Trim();
+
+        var entities = await OwnedIntervals(userId, exchangeAccountId)
+            .Where(interval =>
+                interval.CompletedAt < normalizedObservedAt &&
+                (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
+                 interval.Kind == ExchangeRestOrderingKind.ScopedSymbol))
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return entities.Any(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
+            string.Equals(interval.Symbol, trimmedSymbol, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public Task<bool> HasAnyBalanceEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsureAccountId(exchangeAccountId);
+
+        return OwnedIntervals(userId, exchangeAccountId)
+            .AnyAsync(interval => interval.Kind == ExchangeRestOrderingKind.Balance, cancellationToken);
+    }
+
+    public async Task<bool> HasBalanceEvidenceCompletingAtAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        EnsureAccountId(exchangeAccountId);
+
+        var normalizedCompletedAt = TimestampCanonicalizer.ToUtcMicroseconds(completedAt);
+        return await OwnedIntervals(userId, exchangeAccountId)
+            .AnyAsync(
+                interval =>
+                    interval.Kind == ExchangeRestOrderingKind.Balance &&
+                    interval.CompletedAt == normalizedCompletedAt,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private IQueryable<ExchangeRestOrderingIntervalEntity> OwnedIntervals(
         UserId userId,
         ExchangeAccountId exchangeAccountId) =>
