@@ -154,21 +154,6 @@ public sealed class ExchangeAccountSyncService(
                                 .ConfigureAwait(false);
 
                             var accountForPersistence = CopyAccount(currentAccount);
-                            balanceDisposition = accountForPersistence.AdvanceObservationWatermark(
-                                ExchangeAccountObservationResource.Balance,
-                                balanceObservationAt);
-                            positionsDisposition = accountForPersistence.AdvanceObservationWatermark(
-                                ExchangeAccountObservationResource.Positions,
-                                positionsObservationAt);
-
-                            if (!IsApplied(balanceDisposition) && !IsApplied(positionsDisposition))
-                            {
-                                attemptResult = CreateNoOpResult(
-                                    currentAccount,
-                                    balanceDisposition,
-                                    positionsDisposition);
-                                return;
-                            }
 
                             var tracked = await positionRepository
                                 .GetByExchangeAccountAsync(
@@ -188,7 +173,7 @@ public sealed class ExchangeAccountSyncService(
 
                             // Читается под блокировкой аккаунта при каждой попытке: новая сводка должна
                             // стать последней и после сводки потока, записанной экземпляром с опережающими
-                            // часами.
+                            // часами. Повтор после CAS перечитывает капитал до решения о REST-балансе.
                             var previousPortfolioState = await portfolioStateRepository
                                 .GetLatestAsync(
                                     userId,
@@ -197,6 +182,42 @@ public sealed class ExchangeAccountSyncService(
                                 .ConfigureAwait(false);
 
                             persistenceCancellationToken.ThrowIfCancellationRequested();
+
+                            positionsDisposition = accountForPersistence.AdvanceObservationWatermark(
+                                ExchangeAccountObservationResource.Positions,
+                                positionsObservationAt);
+
+                            // ObservedAt ответа не доказывает новизну относительно капитала, сохранённого
+                            // во время REST-чтения другим экземпляром. Проверка — только когда watermark
+                            // иначе принял бы наблюдение; устаревший REST остаётся обычным Superseded.
+                            var restBalanceOrderAmbiguous = false;
+                            var tentativeBalanceDisposition = PeekObservationWatermarkDisposition(
+                                accountForPersistence.LastAppliedBalanceObservationAt,
+                                balanceObservationAt);
+                            if (IsApplied(tentativeBalanceDisposition) &&
+                                IsRestBalanceOrderAmbiguous(
+                                    balanceObservation,
+                                    previousPortfolioState?.Capital))
+                            {
+                                restBalanceOrderAmbiguous = true;
+                                // Непринятое REST-наблюдение не продвигает watermark баланса.
+                                balanceDisposition = ExchangeAccountObservationDisposition.Superseded;
+                            }
+                            else
+                            {
+                                balanceDisposition = accountForPersistence.AdvanceObservationWatermark(
+                                    ExchangeAccountObservationResource.Balance,
+                                    balanceObservationAt);
+                            }
+
+                            if (!IsApplied(balanceDisposition) && !IsApplied(positionsDisposition))
+                            {
+                                attemptResult = CreateNoOpResult(
+                                    currentAccount,
+                                    balanceDisposition,
+                                    positionsDisposition);
+                                return;
+                            }
 
                             // Свежесть оценивается не раньше последнего подтверждённого наблюдения позиций:
                             // факт потока мог быть записан при опережающих часах. Время REST-наблюдения при
@@ -208,6 +229,7 @@ public sealed class ExchangeAccountSyncService(
                                 .Max();
                             var positionsAreCurrent =
                                 IsApplied(positionsDisposition);
+                            var acceptRestBalance = IsApplied(balanceDisposition) && hasFreshBalance;
                             var reconciliation = PositionReconciler.Reconcile(
                                 exchangeAccountId,
                                 trackedPositions,
@@ -254,7 +276,7 @@ public sealed class ExchangeAccountSyncService(
                                 .Concat(reconciliation.NewPositions)
                                 .ToArray();
 
-                            var capital = IsApplied(balanceDisposition) && hasFreshBalance
+                            var capital = acceptRestBalance
                                 ? PortfolioStateAssembler.CreateCapital(
                                     balanceObservation.Balance!,
                                     balanceObservation.ObservedAt)
@@ -279,16 +301,17 @@ public sealed class ExchangeAccountSyncService(
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
 
-                            persistedFailureReason = GetFailureReason(
-                                IsApplied(balanceDisposition),
-                                hasFreshBalance,
-                                positionsAreCurrent,
-                                normalizedPositionsObservation,
-                                reconciliation,
-                                positionsFullyReconciled);
+                            persistedFailureReason = restBalanceOrderAmbiguous
+                                ? "balance_ambiguous"
+                                : GetFailureReason(
+                                    IsApplied(balanceDisposition),
+                                    hasFreshBalance,
+                                    positionsAreCurrent,
+                                    normalizedPositionsObservation,
+                                    reconciliation,
+                                    positionsFullyReconciled);
                             persistedFullSync =
-                                IsApplied(balanceDisposition) &&
-                                hasFreshBalance &&
+                                acceptRestBalance &&
                                 positionsAreCurrent &&
                                 positionsFullyReconciled;
 
@@ -523,6 +546,25 @@ public sealed class ExchangeAccountSyncService(
     private static bool IsApplied(ExchangeAccountObservationDisposition disposition) =>
         disposition == ExchangeAccountObservationDisposition.Applied;
 
+    /// <summary>
+    /// Предсказывает результат <see cref="ExchangeAccount.AdvanceObservationWatermark"/> без мутации.
+    /// </summary>
+    private static ExchangeAccountObservationDisposition PeekObservationWatermarkDisposition(
+        DateTimeOffset? currentWatermark,
+        DateTimeOffset observationAt)
+    {
+        if (currentWatermark is { } currentValue)
+        {
+            if (observationAt < currentValue)
+                return ExchangeAccountObservationDisposition.Superseded;
+
+            if (observationAt == currentValue)
+                return ExchangeAccountObservationDisposition.AlreadyApplied;
+        }
+
+        return ExchangeAccountObservationDisposition.Applied;
+    }
+
     private static bool HasSamePositionWatermark(
         IReadOnlyCollection<PositionVersionWatermark> expected,
         IReadOnlyCollection<Versioned<Position>> actual)
@@ -570,6 +612,38 @@ public sealed class ExchangeAccountSyncService(
         observation.Status == AccountBalanceObservationStatus.Complete &&
         observation.Balance is { AccountType: AccountType.Unified } &&
         observation.ObservedAt != default;
+
+    /// <summary>
+    /// Порядок REST-баланса относительно persisted капитала недоказан, если последнее достоверное
+    /// наблюдение капитала попадает в интервал чтения <c>[RequestStartedAt, ObservedAt]</c>
+    /// (границы включительно) или интервал сам по себе некорректен.
+    /// </summary>
+    /// <remarks>
+    /// Отсутствие ранее подтверждённого капитала не считается неоднозначностью: первичная
+    /// REST-синхронизация остаётся допустимой. При <see cref="AccountBalanceObservation.RequestStartedAt"/>
+    /// = <see langword="null"/> интервал вырождается в точку <see cref="AccountBalanceObservation.ObservedAt"/>.
+    /// </remarks>
+    private static bool IsRestBalanceOrderAmbiguous(
+        AccountBalanceObservation balanceObservation,
+        PortfolioCapitalState? previousCapital)
+    {
+        if (!IsCompleteBalance(balanceObservation))
+            return false;
+
+        if (previousCapital?.ObservedAt is not { } previousObservedAt)
+            return false;
+
+        var completedAt = balanceObservation.ObservedAt;
+        if (balanceObservation.RequestStartedAt is { } startedAt)
+        {
+            if (startedAt > completedAt)
+                return true;
+
+            return previousObservedAt >= startedAt && previousObservedAt <= completedAt;
+        }
+
+        return previousObservedAt == completedAt;
+    }
 
     /// <summary>
     /// Интервал успешного чтения баланса, принятого в капитал. Неуспешное или устаревшее чтение

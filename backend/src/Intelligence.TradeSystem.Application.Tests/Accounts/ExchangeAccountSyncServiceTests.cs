@@ -1473,6 +1473,208 @@ public sealed class ExchangeAccountSyncServiceTests
         savedStates[0].IsFresh.Should().BeFalse();
     }
 
+    /// <summary>
+    /// R-208-14 / B1: капитал, сохранённый во время REST-чтения, не перезаписывается ответом
+    /// с более поздним ObservedAt; watermark баланса не продвигается ложно.
+    /// </summary>
+    [Fact]
+    public async Task SynchronizeAsync_Rejects_Rest_Balance_When_Persisted_Capital_Falls_In_Read_Interval()
+    {
+        var requestStartedAt = ObservedAt.AddMinutes(-3);
+        var walletAt = ObservedAt.AddMinutes(-2);
+        var fixture = CreateFixture(
+            ExchangeAccount.Create(
+                ExchangeAccountId.New(),
+                UserId.New(),
+                ExchangeId.Bybit,
+                ProviderIdentity,
+                "Основной",
+                ExchangeAccountConnectionStatus.Connected,
+                RequiredCapabilities,
+                lastAppliedBalanceObservationAt: walletAt,
+                lastAppliedPositionsObservationAt: walletAt));
+        var previousState = PortfolioState.Create(
+            fixture.Account.Id,
+            [],
+            new PortfolioCapitalState(1_100m, 1_000m, walletAt, 1_000m, accountUnrealizedPnl: 20m),
+            walletAt,
+            TimeSpan.FromMinutes(5));
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt,
+                requestStartedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                []));
+        SetupPositionLoad(fixture);
+        fixture.PortfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previousState);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    saved.LastError == "balance_ambiguous" &&
+                    saved.LastAppliedBalanceObservationAt == walletAt &&
+                    saved.LastAppliedPositionsObservationAt == ObservedAt),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
+        result.BalanceReadStartedAt.Should().BeNull();
+        result.BalanceReadCompletedAt.Should().BeNull();
+        savedStates.Should().ContainSingle();
+        savedStates[0].Capital.TotalEquity.Should().Be(1_100m);
+        savedStates[0].Capital.ObservedAt.Should().Be(walletAt);
+        fixture.Account.LastAppliedBalanceObservationAt.Should().Be(walletAt);
+        fixture.Account.LastError.Should().Be("balance_ambiguous");
+    }
+
+    /// <summary>
+    /// R-208-14 / B4: неоднозначный баланс не блокирует достоверные позиции и не смешивает watermarks.
+    /// </summary>
+    [Fact]
+    public async Task SynchronizeAsync_Applies_Positions_When_Rest_Balance_Order_Is_Ambiguous()
+    {
+        var requestStartedAt = ObservedAt.AddMinutes(-3);
+        var walletAt = ObservedAt.AddMinutes(-2);
+        var fixture = CreateFixture(
+            ExchangeAccount.Create(
+                ExchangeAccountId.New(),
+                UserId.New(),
+                ExchangeId.Bybit,
+                ProviderIdentity,
+                "Основной",
+                ExchangeAccountConnectionStatus.Connected,
+                RequiredCapabilities,
+                lastAppliedBalanceObservationAt: walletAt,
+                lastAppliedPositionsObservationAt: walletAt.AddMinutes(-1)));
+        var previousState = PortfolioState.Create(
+            fixture.Account.Id,
+            [],
+            new PortfolioCapitalState(1_100m, 1_000m, walletAt, 1_000m, accountUnrealizedPnl: 20m),
+            walletAt,
+            TimeSpan.FromMinutes(5));
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt,
+                requestStartedAt));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                [CreateOpenPosition()]));
+        SetupPositionLoad(fixture);
+        SetupPositionSave(fixture);
+        fixture.PortfolioRepository
+            .Setup(repository => repository.GetLatestAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previousState);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    saved.LastError == "balance_ambiguous" &&
+                    saved.LastAppliedBalanceObservationAt == walletAt &&
+                    saved.LastAppliedPositionsObservationAt == ObservedAt),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
+        result.AcceptedPositionsObservation.Should().BeTrue();
+        result.BalanceReadStartedAt.Should().BeNull();
+        savedStates.Should().ContainSingle();
+        savedStates[0].Capital.TotalEquity.Should().Be(1_100m);
+        savedStates[0].Capital.ObservedAt.Should().Be(walletAt);
+        savedStates[0].Positions.Should().ContainSingle().Which.Size.Should().Be(1m);
+        fixture.EventOutbox.Events.Should().Contain(applicationEvent =>
+            applicationEvent.EventType == ApplicationEventTypes.PositionOpened);
+    }
+
+    /// <summary>
+    /// R-208-14 / B8: первичная REST-синхронизация без persisted капитала остаётся допустимой.
+    /// </summary>
+    [Fact]
+    public async Task SynchronizeAsync_Accepts_Initial_Rest_Balance_Without_Previous_Capital()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider
+            .Setup(provider => provider.GetWalletBalanceAsync(
+                AccountType.Unified,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AccountBalanceObservation.Complete(
+                new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []),
+                ObservedAt,
+                ObservedAt.AddMinutes(-1)));
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                ObservedAt,
+                []));
+        SetupPositionLoad(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.Is<ExchangeAccount>(saved =>
+                    saved.ConnectionStatus == ExchangeAccountConnectionStatus.Connected &&
+                    saved.LastError == null &&
+                    saved.LastAppliedBalanceObservationAt == ObservedAt),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        result.FullReconciliationCommitted.Should().BeTrue();
+        result.BalanceReadStartedAt.Should().Be(ObservedAt.AddMinutes(-1));
+        savedStates.Should().ContainSingle().Which.Capital.TotalEquity.Should().Be(1_000m);
+    }
+
     [Fact]
     public async Task SynchronizeAsync_Recovers_Account_And_Position_After_A_Temporary_Failure()
     {

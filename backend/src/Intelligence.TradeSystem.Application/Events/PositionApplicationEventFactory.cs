@@ -145,7 +145,8 @@ public static class PositionApplicationEventFactory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(failureCategory);
         if (failureCategory is not
-            ("balance_failed" or "positions_failed" or "positions_partial" or "positions_ambiguous"))
+            ("balance_failed" or "balance_ambiguous" or "positions_failed" or "positions_partial" or
+             "positions_ambiguous"))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(failureCategory),
