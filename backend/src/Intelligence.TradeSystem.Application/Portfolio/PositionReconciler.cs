@@ -216,20 +216,46 @@ public static class PositionReconciler
             }
         }
 
+        // Дубликаты одного ключа классифицируем до мутаций: противоречащие делают слот
+        // неоднозначным, идентичные сохраняют консервативную неполноту без повторного lifecycle.
+        var firstMaterialByKey = new Dictionary<ExchangePositionKey, PositionStateSnapshot>();
+        var applicableObservations = new List<(OpenPosition Observed, ExchangePositionKey Key, SettlementAsset Settlement)>();
         foreach (var (observed, key, observedSettlementAsset) in mappedObservations)
         {
             var slot = (key.InstrumentId.Value, key.PositionIdx);
             if (ambiguousPhysicalSlots.Contains(slot))
+                continue;
+
+            var material = ToMaterialSnapshot(observed);
+            if (firstMaterialByKey.TryGetValue(key, out var firstMaterial))
             {
+                hasMappingIssues = true;
+                if (!firstMaterial.HasSameMaterialStateAs(material))
+                {
+                    ambiguousPhysicalSlots.Add(slot);
+                    warnings.Add(
+                        $"Skipped conflicting duplicate exchange position key for physical slot {key.InstrumentId.Value} idx={key.PositionIdx}.");
+                }
+                else
+                {
+                    warnings.Add($"Duplicate exchange position key observed and skipped: {key}.");
+                }
+
                 continue;
             }
 
+            firstMaterialByKey[key] = material;
+            applicableObservations.Add((observed, key, observedSettlementAsset));
+        }
+
+        // Противоречащий дубликат мог попасть в applicable до обнаружения второй строки.
+        applicableObservations.RemoveAll(item =>
+            ambiguousPhysicalSlots.Contains((item.Key.InstrumentId.Value, item.Key.PositionIdx)));
+
+        foreach (var (observed, key, observedSettlementAsset) in applicableObservations)
+        {
             if (!observedKeys.Add(key))
-            {
-                hasMappingIssues = true;
-                warnings.Add($"Duplicate exchange position key observed and skipped: {key}.");
                 continue;
-            }
 
             if (activeByKey.TryGetValue(key, out var existing))
             {
@@ -310,12 +336,13 @@ public static class PositionReconciler
                         continue;
                     }
 
-                    // Partial не закрывает противоположную сторону: нельзя открыть вторую одновременно.
-                    if (observation.Status != OpenPositionsObservationStatus.Complete)
+                    // Смена стороны требует согласованного закрытия прежнего lifecycle:
+                    // Complete без неоднозначности mapping по всему снимку.
+                    if (observation.Status != OpenPositionsObservationStatus.Complete || hasMappingIssues)
                     {
                         hasMappingIssues = true;
                         warnings.Add(
-                            $"Skipped {key}: partial observation cannot replace an active lifecycle on the same physical slot.");
+                            $"Skipped {key}: cannot replace an active lifecycle on the same physical slot without a consistent complete observation.");
                         continue;
                     }
                 }
