@@ -141,14 +141,14 @@ public static class PositionReconciler
         // Равное время без совпадающего материального состояния не доказывает полноту:
         // снимок не новее persisted факта и не подтверждает противоречие или отсутствие.
         var hasEqualTimestampConflict = false;
-        // Слоты, где REST одновременно показал взаимоисключающие стороны: не мутируем их.
+        // Слоты, где REST одновременно показал взаимоисключающие наблюдения: не мутируем их.
         var ambiguousPhysicalSlots = new HashSet<(string Symbol, int PositionIdx)>(
             StringSymbolIdxComparer.Instance);
 
-        var mappedObservations = new List<(OpenPosition Observed, ExchangePositionKey Key, SettlementAsset Settlement)>();
-        // Ключи, для которых REST дал строку без SettlementAsset: при наличии другой строки
-        // того же ключа слот неоднозначен и не создаёт недостоверный lifecycle.
-        var keysMissingSettlementAsset = new HashSet<ExchangePositionKey>();
+        // Фаза A1: идентичность физического слота сохраняется даже для отклонённых строк.
+        // Строки без достоверно определённого ключа дают только глобальную деградацию полноты.
+        var identifiedObservations =
+            new List<(OpenPosition Observed, ExchangePositionKey Key, SettlementAsset? Settlement, bool Applicable)>();
         foreach (var observed in observation.Positions)
         {
             if (observed.Category != observation.Category)
@@ -176,14 +176,13 @@ public static class PositionReconciler
                 continue;
             }
 
-            // Актив расчёта неизменяем в пределах lifecycle. Наблюдение без достоверного актива
-            // или с другим активом не может обновлять существующую позицию или создавать новую;
-            // оно ухудшает scope, поэтому отсутствие позиций в нём не приводит к закрытию.
+            // Актив расчёта неизменяем в пределах lifecycle. Отклонённая строка не применяется, но
+            // её слот участвует в классификации конфликтов до любых бизнес-мутаций.
             if (observed.SettlementAsset is not { } observedSettlementAsset)
             {
                 hasMappingIssues = true;
-                keysMissingSettlementAsset.Add(key);
                 warnings.Add($"Позиция {key} пропущена: актив расчёта не определён для области наблюдения.");
+                identifiedObservations.Add((observed, key, null, Applicable: false));
                 continue;
             }
 
@@ -193,25 +192,17 @@ public static class PositionReconciler
                 hasMappingIssues = true;
                 warnings.Add(
                     $"Позиция {key} пропущена: наблюдаемый актив расчёта {observedSettlementAsset} не совпадает с активом расчёта существующей позиции {trackedWithKey.SettlementAsset}.");
+                identifiedObservations.Add((observed, key, observedSettlementAsset, Applicable: false));
                 continue;
             }
 
-            mappedObservations.Add((observed, key, observedSettlementAsset));
+            identifiedObservations.Add((observed, key, observedSettlementAsset, Applicable: true));
         }
 
-        foreach (var key in keysMissingSettlementAsset)
-        {
-            if (mappedObservations.Exists(item => item.Key == key))
-            {
-                ambiguousPhysicalSlots.Add((key.InstrumentId.Value, key.PositionIdx));
-                warnings.Add(
-                    $"Skipped conflicting settlement asset presence for physical slot {key.InstrumentId.Value} idx={key.PositionIdx}.");
-            }
-        }
-
+        // Фаза A2: противоречия сторон, дубликатов и отклонённых строк — по физическому слоту.
         var slotOwners = new Dictionary<(string Symbol, int PositionIdx), ExchangePositionKey>(
             StringSymbolIdxComparer.Instance);
-        foreach (var (_, key, _) in mappedObservations)
+        foreach (var (_, key, _, _) in identifiedObservations)
         {
             var slot = (key.InstrumentId.Value, key.PositionIdx);
             if (slotOwners.TryGetValue(slot, out var owner))
@@ -230,13 +221,38 @@ public static class PositionReconciler
             }
         }
 
-        // Дубликаты одного ключа классифицируем до мутаций: противоречащие материальное
-        // состояние или неизменяемый SettlementAsset делают слот неоднозначным; идентичные
-        // сохраняют консервативную неполноту без повторного lifecycle.
+        var slotsWithApplicable = new HashSet<(string Symbol, int PositionIdx)>(StringSymbolIdxComparer.Instance);
+        var slotsWithRejected = new HashSet<(string Symbol, int PositionIdx)>(StringSymbolIdxComparer.Instance);
+        foreach (var (_, key, _, applicable) in identifiedObservations)
+        {
+            var slot = (key.InstrumentId.Value, key.PositionIdx);
+            if (applicable)
+                slotsWithApplicable.Add(slot);
+            else
+                slotsWithRejected.Add(slot);
+        }
+
+        foreach (var slot in slotsWithRejected)
+        {
+            if (!slotsWithApplicable.Contains(slot) && !ambiguousPhysicalSlots.Contains(slot))
+                continue;
+
+            if (ambiguousPhysicalSlots.Add(slot))
+            {
+                hasMappingIssues = true;
+                warnings.Add(
+                    $"Skipped conflicting settlement asset presence for physical slot {slot.Symbol} idx={slot.PositionIdx}.");
+            }
+        }
+
+        // Дубликаты одного ключа классифицируем до мутаций, включая отклонённые строки:
+        // противоречащие материальное состояние или SettlementAsset делают слот неоднозначным;
+        // идентичные применимые сохраняют консервативную неполноту без повторного lifecycle.
         var firstMaterialByKey = new Dictionary<ExchangePositionKey, PositionStateSnapshot>();
-        var firstSettlementByKey = new Dictionary<ExchangePositionKey, SettlementAsset>();
+        var firstSettlementByKey = new Dictionary<ExchangePositionKey, SettlementAsset?>();
+        var firstApplicableByKey = new Dictionary<ExchangePositionKey, bool>();
         var applicableObservations = new List<(OpenPosition Observed, ExchangePositionKey Key, SettlementAsset Settlement)>();
-        foreach (var (observed, key, observedSettlementAsset) in mappedObservations)
+        foreach (var (observed, key, observedSettlementAsset, applicable) in identifiedObservations)
         {
             var slot = (key.InstrumentId.Value, key.PositionIdx);
             if (ambiguousPhysicalSlots.Contains(slot))
@@ -247,11 +263,14 @@ public static class PositionReconciler
             {
                 hasMappingIssues = true;
                 var settlementConflicts = firstSettlementByKey[key] != observedSettlementAsset;
-                if (!firstMaterial.HasSameMaterialStateAs(material) || settlementConflicts)
+                var applicabilityConflicts = firstApplicableByKey[key] != applicable;
+                if (!firstMaterial.HasSameMaterialStateAs(material) ||
+                    settlementConflicts ||
+                    applicabilityConflicts)
                 {
                     ambiguousPhysicalSlots.Add(slot);
                     warnings.Add(
-                        settlementConflicts
+                        settlementConflicts || applicabilityConflicts
                             ? $"Skipped conflicting settlement asset duplicate for physical slot {key.InstrumentId.Value} idx={key.PositionIdx}."
                             : $"Skipped conflicting duplicate exchange position key for physical slot {key.InstrumentId.Value} idx={key.PositionIdx}.");
                 }
@@ -265,7 +284,9 @@ public static class PositionReconciler
 
             firstMaterialByKey[key] = material;
             firstSettlementByKey[key] = observedSettlementAsset;
-            applicableObservations.Add((observed, key, observedSettlementAsset));
+            firstApplicableByKey[key] = applicable;
+            if (applicable && observedSettlementAsset is { } settlement)
+                applicableObservations.Add((observed, key, settlement));
         }
 
         // Противоречащий дубликат мог попасть в applicable до обнаружения второй строки.

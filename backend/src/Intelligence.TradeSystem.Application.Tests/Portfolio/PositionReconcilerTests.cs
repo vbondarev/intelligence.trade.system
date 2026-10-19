@@ -1237,6 +1237,50 @@ public sealed class PositionReconcilerTests
     }
 
     /// <summary>
+    /// R-208-12 / A1: Long без SettlementAsset + Short USDT одного idx=0 не создаёт lifecycle.
+    /// </summary>
+    [Fact]
+    public void Rejected_Missing_Settlement_Hides_Side_Conflict_Long_Then_Short()
+    {
+        var result = ReconcileMissingSettlementSideConflict(missingSettlementFirst: true);
+
+        AssertAmbiguousPhysicalSlotRejected(result);
+    }
+
+    /// <summary>
+    /// R-208-12 / A2: обратный порядок строк даёт тот же результат.
+    /// </summary>
+    [Fact]
+    public void Rejected_Missing_Settlement_Hides_Side_Conflict_Short_Then_Long()
+    {
+        var result = ReconcileMissingSettlementSideConflict(missingSettlementFirst: false);
+
+        AssertAmbiguousPhysicalSlotRejected(result);
+    }
+
+    /// <summary>
+    /// R-208-13 / A3: отклонённый USDC-дубликат не позволяет применить USDT Size=2.
+    /// </summary>
+    [Fact]
+    public void Rejected_Settlement_Duplicate_Does_Not_Update_Tracked_Usdt_Then_Usdc()
+    {
+        var (tracked, result) = ReconcileRejectedSettlementDuplicateAgainstTracked(usdtFirst: true);
+
+        AssertTrackedUnchangedByAmbiguousSettlementDuplicate(tracked, result);
+    }
+
+    /// <summary>
+    /// R-208-13 / A4: обратный порядок REST-строк сохраняет Size=1.
+    /// </summary>
+    [Fact]
+    public void Rejected_Settlement_Duplicate_Does_Not_Update_Tracked_Usdc_Then_Usdt()
+    {
+        var (tracked, result) = ReconcileRejectedSettlementDuplicateAgainstTracked(usdtFirst: false);
+
+        AssertTrackedUnchangedByAmbiguousSettlementDuplicate(tracked, result);
+    }
+
+    /// <summary>
     /// R-208-11 / R11-A: дубликаты одного ключа с USDT→USDC не создают lifecycle.
     /// </summary>
     [Fact]
@@ -1316,6 +1360,88 @@ public sealed class PositionReconcilerTests
             .Should().Be(1);
     }
 
+    private static PositionReconciliationResult ReconcileMissingSettlementSideConflict(
+        bool missingSettlementFirst)
+    {
+        OpenPosition[] rows = missingSettlementFirst
+            ?
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 1m, settlementAsset: null),
+                CreateOpenPosition(side: PositionSide.Short, size: 2m, settlementAsset: "USDT"),
+            ]
+            :
+            [
+                CreateOpenPosition(side: PositionSide.Short, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 1m, settlementAsset: null),
+            ];
+
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            rows);
+        return PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+    }
+
+    private static void AssertAmbiguousPhysicalSlotRejected(PositionReconciliationResult result)
+    {
+        result.NewPositions.Should().BeEmpty(
+            "неоднозначный физический слот не создаёт lifecycle ни по одной стороне");
+        result.PositionsToPersist.Should().BeEmpty();
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.New);
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Closed);
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    private static (Position Tracked, PositionReconciliationResult Result)
+        ReconcileRejectedSettlementDuplicateAgainstTracked(bool usdtFirst)
+    {
+        var tracked = CreateTrackedPosition(
+            AccountA,
+            side: PositionSide.Long,
+            size: 1m,
+            at: T0.AddMinutes(10),
+            settlementAsset: "USDT");
+        OpenPosition[] rows = usdtFirst
+            ?
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Long, size: 3m, settlementAsset: "USDC"),
+            ]
+            :
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 3m, settlementAsset: "USDC"),
+                CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
+            ];
+
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            rows);
+        var result = PositionReconciler.Reconcile(
+            AccountA, [tracked], observation, T0.AddMinutes(20), StaleAfter);
+        return (tracked, result);
+    }
+
+    private static void AssertTrackedUnchangedByAmbiguousSettlementDuplicate(
+        Position tracked,
+        PositionReconciliationResult result)
+    {
+        tracked.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+        tracked.Size.Should().Be(1m);
+        tracked.LastObservedAt.Should().Be(T0.AddMinutes(10));
+        tracked.TrackingState.Should().Be(PositionTrackingState.Active);
+        result.NewPositions.Should().BeEmpty();
+        result.PositionsToPersist.Should().BeEmpty();
+        result.Changes.Should().NotContain(change =>
+            change.Kind == PositionChangeKind.Increased ||
+            change.Kind == PositionChangeKind.Reduced ||
+            change.Kind == PositionChangeKind.New ||
+            change.Kind == PositionChangeKind.Closed);
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
     private static PositionReconciliationResult ReconcileConflictingSettlementDuplicates(bool usdtFirst)
     {
         OpenPosition[] rows = usdtFirst
@@ -1387,6 +1513,51 @@ public sealed class PositionReconcilerTests
 
         result.NewPositions.Should().BeEmpty();
         result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-12 / A7: конфликт BTC не блокирует достоверное открытие независимого ETH.
+    /// </summary>
+    [Fact]
+    public void Ambiguous_Btc_Slot_Does_Not_Block_Independent_Eth()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Long, size: 1m, settlementAsset: null),
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m, settlementAsset: "USDT"),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m, settlementAsset: "USDT"),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
+        result.NewPositions.Should().NotContain(position =>
+            position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT");
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-12 / A11: противоречащие стороны с разными settlement assets не применяются.
+    /// </summary>
+    [Fact]
+    public void Conflicting_Sides_With_Different_Settlement_Assets_Are_Not_Applied()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 1m, settlementAsset: "USDT"),
+                CreateOpenPosition(side: PositionSide.Short, size: 2m, settlementAsset: "USDC"),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        AssertAmbiguousPhysicalSlotRejected(result);
     }
 
     /// <summary>
