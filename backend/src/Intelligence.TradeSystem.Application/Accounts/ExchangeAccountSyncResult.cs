@@ -41,6 +41,24 @@ public sealed record ExchangeAccountSyncResult(
     /// </remarks>
     public bool AcceptedPositionsObservation { get; private init; }
 
+    /// <summary>
+    /// Начало принятого REST-чтения позиций. Вместе с <see cref="PositionsReadCompletedAt"/> задаёт
+    /// интервал неопределённого порядка для потоковых наблюдений позиций.
+    /// </summary>
+    public DateTimeOffset? PositionsReadStartedAt { get; private init; }
+
+    /// <summary>
+    /// Завершение принятого REST-чтения позиций (момент получения ответа), а не подмена временем
+    /// начала запроса.
+    /// </summary>
+    public DateTimeOffset? PositionsReadCompletedAt { get; private init; }
+
+    /// <summary>
+    /// Принятый снимок позиций был полным и полностью согласован со всеми активными lifecycle:
+    /// создаёт persisted <c>FullPositionsComplete</c>, а не лишь scoped evidence.
+    /// </summary>
+    public bool FullPositionsCompleteAccepted { get; private init; }
+
     public static ExchangeAccountSyncResult Synchronized(
         ExchangeAccount account,
         PortfolioState portfolioState) =>
@@ -62,6 +80,17 @@ public sealed record ExchangeAccountSyncResult(
 
     internal ExchangeAccountSyncResult WithAcceptedPositionsObservation(bool accepted) =>
         this with { AcceptedPositionsObservation = accepted };
+
+    internal ExchangeAccountSyncResult WithAcceptedPositionsRead(
+        DateTimeOffset? startedAt,
+        DateTimeOffset? completedAt,
+        bool fullPositionsComplete) =>
+        this with
+        {
+            PositionsReadStartedAt = startedAt,
+            PositionsReadCompletedAt = completedAt,
+            FullPositionsCompleteAccepted = fullPositionsComplete,
+        };
 
     public static ExchangeAccountSyncResult NotFound() =>
         new(ExchangeAccountSyncOutcome.NotFound, null, null);

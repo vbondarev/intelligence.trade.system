@@ -25,6 +25,8 @@ public sealed class TradeSystemDbContext(DbContextOptions<TradeSystemDbContext> 
     public DbSet<PositionObservationCursorEntity> PositionObservationCursors =>
         Set<PositionObservationCursorEntity>();
     public DbSet<MarketMarkPriceEntity> MarketMarkPrices => Set<MarketMarkPriceEntity>();
+    public DbSet<ExchangeRestOrderingIntervalEntity> ExchangeRestOrderingIntervals =>
+        Set<ExchangeRestOrderingIntervalEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TradeSystemDbContext).Assembly);

@@ -1,0 +1,47 @@
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
+using Intelligence.TradeSystem.Domain.Identity;
+
+namespace Intelligence.TradeSystem.Application.Realtime;
+
+/// <summary>
+/// Account-owned история REST-интервалов для межэкземплярного согласования порядка REST/WebSocket.
+/// </summary>
+/// <remarks>
+/// История принадлежит аккаунту и не требует строки <c>RealtimeObservationState</c>. Операции
+/// участвуют в текущей транзакции базы данных, если она открыта. Неуспешные и отклонённые
+/// наблюдения не должны вызывать запись.
+/// </remarks>
+public interface IExchangeRestOrderingEvidenceStore
+{
+    /// <summary>
+    /// Добавляет интервал успешного REST-чтения. Границы должны удовлетворять
+    /// <c>StartedAt &lt;= CompletedAt</c>; иначе метод завершается исключением.
+    /// </summary>
+    Task AppendAsync(
+        UserId userId,
+        ExchangeRestOrderingInterval interval,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает интервалы позиций аккаунта, которые могут пересечься с
+    /// <paramref name="observedAt"/> для указанного символа: полные окна и scoped-окна символа.
+    /// Непересекающиеся интервалы не сливаются.
+    /// </summary>
+    Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetPositionEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        string symbol,
+        DateTimeOffset observedAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает интервалы баланса аккаунта, которые могут пересечься с временными метками
+    /// wallet-наблюдения.
+    /// </summary>
+    Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetBalanceEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        DateTimeOffset? observedAt,
+        DateTimeOffset? messageCreatedAt,
+        CancellationToken cancellationToken = default);
+}

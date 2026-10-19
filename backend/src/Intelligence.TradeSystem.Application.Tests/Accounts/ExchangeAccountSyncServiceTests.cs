@@ -3,6 +3,8 @@ using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -2103,7 +2105,44 @@ public sealed class ExchangeAccountSyncServiceTests
                 portfolioRepository.Object,
                 transaction,
                 eventOutbox,
+                new RecordingRestOrderingEvidenceStore(),
                 new FixedTimeProvider(CalculatedAt)));
+    }
+
+    private sealed class RecordingRestOrderingEvidenceStore : IExchangeRestOrderingEvidenceStore
+    {
+        public List<ExchangeRestOrderingInterval> Intervals { get; } = [];
+
+        public Task AppendAsync(
+            UserId userId,
+            ExchangeRestOrderingInterval interval,
+            CancellationToken cancellationToken = default)
+        {
+            Intervals.Add(interval);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetPositionEvidenceAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            string symbol,
+            DateTimeOffset observedAt,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(
+                Intervals.Where(interval =>
+                        RestOrderingDecision.PositionOverlapsRest(observedAt, symbol, [interval]))
+                    .ToArray());
+
+        public Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetBalanceEvidenceAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            DateTimeOffset? observedAt,
+            DateTimeOffset? messageCreatedAt,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(
+                Intervals.Where(interval =>
+                        RestOrderingDecision.WalletOverlapsBalanceRead(observedAt, messageCreatedAt, [interval]))
+                    .ToArray());
     }
 
     private sealed record Fixture(

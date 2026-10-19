@@ -225,6 +225,56 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeRestOrderingIntervalEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<Guid>("ExchangeAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exchange_account_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Symbol")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("symbol");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExchangeAccountId", "Kind", "StartedAt", "CompletedAt")
+                        .HasDatabaseName("ix_exchange_rest_ordering_intervals_account_kind_bounds");
+
+                    b.HasIndex("ExchangeAccountId", "Symbol", "StartedAt", "CompletedAt")
+                        .HasDatabaseName("ix_exchange_rest_ordering_intervals_account_symbol_bounds")
+                        .HasFilter("symbol IS NOT NULL");
+
+                    b.ToTable("exchange_rest_ordering_intervals", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_exchange_rest_ordering_intervals_bounds", "started_at <= completed_at");
+
+                            t.HasCheckConstraint("ck_exchange_rest_ordering_intervals_kind_symbol", "(kind = 'ScopedSymbol' AND symbol IS NOT NULL AND length(btrim(symbol)) > 0)\r\nOR\r\n(kind IN ('FullPositionsComplete', 'Balance') AND symbol IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.MarketMarkPriceEntity", b =>
                 {
                     b.Property<string>("ExchangeId")
@@ -1218,6 +1268,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_exchange_realtime_observations_exchange_accounts");
+                });
+
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeRestOrderingIntervalEntity", b =>
+                {
+                    b.HasOne("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeAccountEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ExchangeAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_exchange_rest_ordering_intervals_exchange_accounts");
                 });
 
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.PortfolioPositionStateEntity", b =>

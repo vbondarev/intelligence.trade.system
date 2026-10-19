@@ -559,7 +559,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         long? epochAtStart,
         CancellationToken cancellationToken)
     {
-        var startedAt = clock.GetUtcNow();
+        var syncWallClockStartedAt = clock.GetUtcNow();
         ExchangeAccountSyncResult result;
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
@@ -569,28 +569,30 @@ public sealed class ExchangeAccountObservationCoordinator(
                 .ConfigureAwait(false);
         }
 
-        var completedAt = clock.GetUtcNow();
+        var syncWallClockCompletedAt = clock.GetUtcNow();
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
-            // Окно позиций сохраняется только по факту принятого REST-наблюдения позиций
-            // (Complete/Partial + Applied). Outcome=Synchronized сам по себе недостаточен: свежий
-            // баланс при Superseded/Failed positions тоже даёт Synchronized, но не подтверждает
-            // временной порядок позиций. Неуспешная сверка без принятых позиций не уничтожает
-            // прежнее окно.
-            if (result.AcceptedPositionsObservation)
+            // Process-local окна дополняют persisted evidence: полное покрытие только при
+            // FullPositionsCompleteAccepted. Partial не расширяет FullSyncWindow. При некорректных
+            // границах чтения — консервативная оболочка (в т.ч. откат часов), без утверждения порядка.
+            if (result.FullPositionsCompleteAccepted)
             {
-                channel.FullSyncWindow = RestWindow.Merge(
-                    channel.FullSyncWindow,
-                    RestWindow.FromBounds(startedAt, completedAt));
+                var positionsWindow =
+                    result.PositionsReadStartedAt is { } positionsStarted &&
+                    result.PositionsReadCompletedAt is { } positionsCompleted
+                        ? RestWindow.FromBounds(positionsStarted, positionsCompleted)
+                        : RestWindow.FromBounds(syncWallClockStartedAt, syncWallClockCompletedAt);
+                channel.FullSyncWindow = RestWindow.Merge(channel.FullSyncWindow, positionsWindow);
             }
 
             if (result.BalanceReadStartedAt is { } balanceStarted &&
-                result.BalanceReadCompletedAt is { } balanceCompleted)
+                result.BalanceReadCompletedAt is { } balanceCompleted &&
+                balanceStarted <= balanceCompleted)
             {
                 channel.BalanceReadWindow = RestWindow.Merge(
                     channel.BalanceReadWindow,
-                    RestWindow.FromBounds(balanceStarted, balanceCompleted));
+                    new RestWindow(balanceStarted, balanceCompleted));
             }
 
             channel.AccountUnavailable = result.Outcome is
@@ -609,7 +611,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                     exchangeAccountId,
                     generation,
                     confirmedEpoch,
-                    completedAt,
+                    syncWallClockCompletedAt,
                     cancellationToken)
                 .ConfigureAwait(false);
         }

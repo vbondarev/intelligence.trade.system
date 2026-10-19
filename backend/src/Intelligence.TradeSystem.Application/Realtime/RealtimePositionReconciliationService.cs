@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
@@ -44,6 +45,7 @@ public sealed class RealtimePositionReconciliationService(
     IPortfolioStateRepository portfolioStateRepository,
     IPositionObservationCursorStore cursorStore,
     IRealtimeObservationStateStore observationStateStore,
+    IExchangeRestOrderingEvidenceStore restOrderingEvidenceStore,
     IExchangeAccountSyncTransaction persistenceTransaction,
     IApplicationEventOutbox applicationEventOutbox,
     TimeProvider? timeProvider = null)
@@ -252,11 +254,28 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
+                            var overlapsPersistedRest = await OverlapsPersistedRestAsync(userId, prepared, token)
+                                .ConfigureAwait(false);
+
                             if (slot.Length == 0)
                             {
+                                // Stale/ambiguous относительно закрытия обрабатываются DirectApply без
+                                // ConfirmWithRest: evidence не должна подменять OlderThanClosure.
+                                if (overlapsPersistedRest && !IsOpenRejectedByClosure(prepared, locked))
+                                {
+                                    requiresRestConfirmation = true;
+                                    return;
+                                }
+
                                 result = await OpenLifecycleAsync(userId, generation, prepared, locked, token)
                                     .ConfigureAwait(false);
                                 requiresRestConfirmation = result is null;
+                                return;
+                            }
+
+                            if (overlapsPersistedRest)
+                            {
+                                requiresRestConfirmation = true;
                                 return;
                             }
 
@@ -283,6 +302,38 @@ public sealed class RealtimePositionReconciliationService(
             return result ?? throw new InvalidOperationException(
                 "The realtime position persistence boundary completed without an outcome.");
         }
+    }
+
+    /// <summary>
+    /// Открытие не новее закрытия слота: DirectApply вернёт Stale или AmbiguousObservationOrder.
+    /// </summary>
+    private static bool IsOpenRejectedByClosure(PreparedObservation prepared, LockedState locked)
+    {
+        var latestClosure = locked.Positions
+            .Select(versioned => versioned.Value)
+            .Where(position => position.TrackingState == PositionTrackingState.Closed && IsInSlot(position, prepared))
+            .Select(position => position.ClosedAt)
+            .Max();
+        return latestClosure is { } closedAt && prepared.ObservedAt <= closedAt;
+    }
+
+    private async Task<bool> OverlapsPersistedRestAsync(
+        UserId userId,
+        PreparedObservation prepared,
+        CancellationToken cancellationToken)
+    {
+        var evidence = await restOrderingEvidenceStore
+            .GetPositionEvidenceAsync(
+                userId,
+                prepared.Observation.ExchangeAccountId,
+                prepared.Observation.Symbol,
+                prepared.ObservedAt,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return RestOrderingDecision.PositionOverlapsRest(
+            prepared.ObservedAt,
+            prepared.Observation.Symbol,
+            evidence);
     }
 
     /// <returns><see langword="null"/>, если открытие нужно подтвердить REST-наблюдением.</returns>
@@ -465,6 +516,7 @@ public sealed class RealtimePositionReconciliationService(
                 .ConfigureAwait(false);
         }
 
+        var scopedReadCompletedAt = clock.GetUtcNow();
         cancellationToken.ThrowIfCancellationRequested();
         if (snapshot.Status != OpenPositionsObservationStatus.Complete ||
             snapshot.Category != MarketCategory.Linear ||
@@ -473,6 +525,8 @@ public sealed class RealtimePositionReconciliationService(
         {
             return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.RestConfirmationIncomplete);
         }
+
+        var scopedReadBounds = RestOrderingDecision.TryCreateBounds(snapshot.ObservedAt, scopedReadCompletedAt);
 
         // ObservedAt REST-снимка — момент отправки запроса по часам backend, то есть нижняя граница
         // чтения состояния биржей; ReceivedAt — момент получения сообщения теми же часами. Только снимок,
@@ -564,6 +618,25 @@ public sealed class RealtimePositionReconciliationService(
                                     reconciliation.Changes.Select(change => (positionsById[change.PositionId], change)),
                                     token)
                                 .ConfigureAwait(false);
+                            if (scopedReadBounds is { } bounds)
+                            {
+                                await restOrderingEvidenceStore
+                                    .AppendAsync(
+                                        userId,
+                                        new ExchangeRestOrderingInterval
+                                        {
+                                            Id = Guid.NewGuid(),
+                                            ExchangeAccountId = accountId,
+                                            Kind = ExchangeRestOrderingKind.ScopedSymbol,
+                                            Symbol = prepared.Observation.Symbol.Trim(),
+                                            StartedAt = bounds.StartedAt,
+                                            CompletedAt = bounds.CompletedAt,
+                                            RecordedAt = clock.GetUtcNow(),
+                                        },
+                                        token)
+                                    .ConfigureAwait(false);
+                            }
+
                             result = RealtimeObservationApplyResult.Applied(confirmedByRest: true);
                         },
                         cancellationToken)

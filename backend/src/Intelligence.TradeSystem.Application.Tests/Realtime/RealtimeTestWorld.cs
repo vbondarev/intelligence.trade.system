@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -31,6 +32,7 @@ internal sealed class RealtimeTestWorld
     private Dictionary<PositionObservationCursorKey, Versioned<PositionObservationCursor>> cursors = [];
     private List<IApplicationEvent> events = [];
     private Versioned<RealtimeObservationState>? state;
+    private List<ExchangeRestOrderingInterval> restOrderingIntervals = [];
 
     /// <param name="observed">
     /// Аккаунт уже наблюдается потоком: сохранено поколение 1 с требуемым recovery. Иначе состояние
@@ -99,6 +101,22 @@ internal sealed class RealtimeTestWorld
     public IReadOnlyList<IApplicationEvent> Events => events;
 
     public IReadOnlyList<PortfolioState> Portfolios => portfolios;
+
+    public IReadOnlyList<ExchangeRestOrderingInterval> RestOrderingIntervals => restOrderingIntervals;
+
+    /// <summary>Добавляет persisted REST evidence без process-local окон coordinator.</summary>
+    public void SeedRestOrderingInterval(ExchangeRestOrderingInterval interval)
+    {
+        ArgumentNullException.ThrowIfNull(interval);
+        restOrderingIntervals.Add(interval with { ExchangeAccountId = AccountId });
+    }
+
+    public void ReplaceRestOrderingIntervals(params ExchangeRestOrderingInterval[] intervals)
+    {
+        restOrderingIntervals = intervals
+            .Select(interval => interval with { ExchangeAccountId = AccountId })
+            .ToList();
+    }
 
     /// <summary>Сводка, которую вернёт <see cref="IPortfolioStateRepository.GetLatestAsync"/>.</summary>
     public PortfolioState? LatestPortfolio =>
@@ -230,6 +248,7 @@ internal sealed class RealtimeTestWorld
             new PortfolioRepository(this),
             new CursorStore(this),
             new StateStore(this),
+            new RestOrderingEvidenceStore(this),
             new Transaction(this),
             new Outbox(this),
             Clock);
@@ -243,6 +262,7 @@ internal sealed class RealtimeTestWorld
             new PortfolioRepository(this),
             new Transaction(this),
             new Outbox(this),
+            new RestOrderingEvidenceStore(this),
             Clock);
 
     public RealtimeWalletObservationService CreateWalletService() =>
@@ -251,6 +271,7 @@ internal sealed class RealtimeTestWorld
             new PositionRepository(this),
             new PortfolioRepository(this),
             new StateStore(this),
+            new RestOrderingEvidenceStore(this),
             new Transaction(this),
             new Outbox(this),
             Clock);
@@ -266,6 +287,7 @@ internal sealed class RealtimeTestWorld
         services.AddSingleton<IPortfolioStateRepository>(new PortfolioRepository(this));
         services.AddSingleton<IPositionObservationCursorStore>(new CursorStore(this));
         services.AddSingleton<IRealtimeObservationStateStore>(new StateStore(this));
+        services.AddSingleton<IExchangeRestOrderingEvidenceStore>(new RestOrderingEvidenceStore(this));
         services.AddSingleton<IExchangeAccountSyncTransaction>(new Transaction(this));
         services.AddSingleton<IApplicationEventOutbox>(new Outbox(this));
         services.AddApplication();
@@ -608,6 +630,7 @@ internal sealed class RealtimeTestWorld
             var cursorsSnapshot = new Dictionary<PositionObservationCursorKey, Versioned<PositionObservationCursor>>(world.cursors);
             var eventsSnapshot = world.events.ToList();
             var stateSnapshot = world.state;
+            var restOrderingSnapshot = world.restOrderingIntervals.ToList();
             try
             {
                 if (world.BeforeTransactionExecuteAsync is { } beforeExecute)
@@ -630,8 +653,69 @@ internal sealed class RealtimeTestWorld
                 world.cursors = cursorsSnapshot;
                 world.events = eventsSnapshot;
                 world.state = stateSnapshot;
+                world.restOrderingIntervals = restOrderingSnapshot;
                 throw;
             }
+        }
+    }
+
+    private sealed class RestOrderingEvidenceStore(RealtimeTestWorld world) : IExchangeRestOrderingEvidenceStore
+    {
+        public Task AppendAsync(
+            UserId userId,
+            ExchangeRestOrderingInterval interval,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(interval);
+            if (userId != world.UserId || interval.ExchangeAccountId != world.AccountId)
+            {
+                throw new InvalidOperationException(
+                    "The exchange account is unavailable in the user scope for REST ordering evidence.");
+            }
+
+            if (interval.StartedAt > interval.CompletedAt)
+            {
+                throw new ArgumentException("REST ordering interval requires StartedAt <= CompletedAt.");
+            }
+
+            world.restOrderingIntervals.Add(interval);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetPositionEvidenceAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            string symbol,
+            DateTimeOffset observedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>([]);
+            }
+
+            var matches = world.restOrderingIntervals
+                .Where(interval => RestOrderingDecision.PositionOverlapsRest(observedAt, symbol, [interval]))
+                .ToArray();
+            return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(matches);
+        }
+
+        public Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetBalanceEvidenceAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            DateTimeOffset? observedAt,
+            DateTimeOffset? messageCreatedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>([]);
+            }
+
+            var matches = world.restOrderingIntervals
+                .Where(interval => RestOrderingDecision.WalletOverlapsBalanceRead(observedAt, messageCreatedAt, [interval]))
+                .ToArray();
+            return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(matches);
         }
     }
 

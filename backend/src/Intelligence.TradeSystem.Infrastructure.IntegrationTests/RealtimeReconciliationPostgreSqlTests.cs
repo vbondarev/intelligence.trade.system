@@ -159,7 +159,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         var streamResult = await stream.WaitAsync(CompletionTimeout);
 
         Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, syncResult.Outcome);
-        Assert.Equal(RealtimeObservationApplyOutcome.Applied, streamResult.Outcome);
+        // При победе REST evidence stream уходит в ConfirmWithRest/Recovery, но lifecycle остаётся один.
+        Assert.True(
+            streamResult.Outcome is RealtimeObservationApplyOutcome.Applied
+                or RealtimeObservationApplyOutcome.RecoveryRequired
+                or RealtimeObservationApplyOutcome.Duplicate);
         await using var context = fixture.CreateContext();
         var position = Assert.Single(await new PositionRepository(context)
             .GetByExchangeAccountAsync(account.UserId, account.Id));
@@ -747,6 +751,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 serviceProvider.GetRequiredService<TradeSystemDbContext>());
             return decorateStateStore?.Invoke(store) ?? store;
         });
+        services.AddScoped<IExchangeRestOrderingEvidenceStore, ExchangeRestOrderingEvidenceStore>();
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IApplicationEventOutbox>(serviceProvider =>
             new ApplicationEventOutbox(serviceProvider.GetRequiredService<TradeSystemDbContext>()));
@@ -770,6 +775,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             new PortfolioStateRepository(context),
             new PositionObservationCursorStore(context),
             new RealtimeObservationStateStore(context),
+            new ExchangeRestOrderingEvidenceStore(context),
             transaction ?? new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
             clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
@@ -782,6 +788,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             new PositionRepository(context),
             new PortfolioStateRepository(context),
             new RealtimeObservationStateStore(context),
+            new ExchangeRestOrderingEvidenceStore(context),
             transaction ?? new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
             new FixedTimeProvider(T1.AddMinutes(1)));
@@ -1077,13 +1084,14 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             CancellationToken cancellationToken = default)
         {
             PositionRequests.Add(symbol);
+            // Как BybitPrivateAccountProvider: ObservedAt — начало чтения, до HTTP и mid-request callbacks.
+            var observedAt = PositionsObservedAt ?? Clock?.GetUtcNow() ?? ObservedAt;
             positionsBarrier?.SignalAndWait(CompletionTimeout, cancellationToken);
             if (BeforePositionsResponse is not null)
             {
                 await BeforePositionsResponse();
             }
 
-            var observedAt = PositionsObservedAt ?? Clock?.GetUtcNow() ?? ObservedAt;
             var observed = positions.Where(position => symbol is null || position.Symbol == symbol).ToArray();
             return Status switch
             {

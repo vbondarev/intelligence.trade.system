@@ -527,7 +527,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var position = await SinglePositionAsync(verification, account);
         Assert.Equal(3m, position.Size);
         Assert.Equal(PositionTrackingState.Active, position.TrackingState);
-        AssertHistory(position, (PositionChangeKind.New, T1.AddSeconds(4)));
+        // ObservedAt REST — начало чтения (T1); завершение T1+4 покрывает буфер size=2.
+        AssertHistory(position, (PositionChangeKind.New, T1));
         var cursor = await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account));
         Assert.Equal(1, cursor!.Value.LastProviderSequence);
         Assert.True(await CountPortfoliosAsync(verification, account) >= portfoliosAfterSync);
@@ -1425,6 +1426,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 new PortfolioStateRepository(context),
                 new ExchangeAccountSyncTransaction(context),
                 new ApplicationEventOutbox(context),
+                new ExchangeRestOrderingEvidenceStore(context),
                 clock)
             .SynchronizeAsync(account.UserId, account.Id);
     }

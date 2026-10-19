@@ -2,6 +2,8 @@ using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -19,6 +21,7 @@ public sealed class ExchangeAccountSyncService(
     IPortfolioStateRepository portfolioStateRepository,
     IExchangeAccountSyncTransaction persistenceTransaction,
     IApplicationEventOutbox applicationEventOutbox,
+    IExchangeRestOrderingEvidenceStore restOrderingEvidenceStore,
     TimeProvider? timeProvider = null)
     : IExchangeAccountSyncService
 {
@@ -85,6 +88,8 @@ public sealed class ExchangeAccountSyncService(
                 symbol: null,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        // Завершение чтения позиций — момент получения ответа; ObservedAt Bybit фиксирует начало.
+        var positionsReadCompletedAt = clock.GetUtcNow();
         cancellationToken.ThrowIfCancellationRequested();
 
         var hasFreshBalance = IsCompleteBalance(balanceObservation);
@@ -405,6 +410,20 @@ public sealed class ExchangeAccountSyncService(
                             await applicationEventOutbox
                                 .AddRangeAsync(applicationEvents, persistenceCancellationToken)
                                 .ConfigureAwait(false);
+
+                            await AppendRestOrderingEvidenceAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    hasFreshBalance,
+                                    balanceDisposition,
+                                    balanceObservation,
+                                    positionsDisposition,
+                                    normalizedPositionsObservation,
+                                    positionsAreCurrent,
+                                    positionsFullyReconciled,
+                                    positionsReadCompletedAt,
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -475,7 +494,8 @@ public sealed class ExchangeAccountSyncService(
                         balanceDisposition,
                         balanceObservation,
                         positionsDisposition,
-                        normalizedPositionsObservation);
+                        normalizedPositionsObservation,
+                        positionsReadCompletedAt);
                 }
 
                 return AttachAcceptedResourceEvidence(
@@ -484,7 +504,8 @@ public sealed class ExchangeAccountSyncService(
                     balanceDisposition,
                     balanceObservation,
                     positionsDisposition,
-                    normalizedPositionsObservation);
+                    normalizedPositionsObservation,
+                    positionsReadCompletedAt);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -507,7 +528,8 @@ public sealed class ExchangeAccountSyncService(
                     balanceDisposition,
                     balanceObservation,
                     positionsDisposition,
-                    normalizedPositionsObservation);
+                    normalizedPositionsObservation,
+                    positionsReadCompletedAt);
             }
 
             return attemptResult;
@@ -652,7 +674,8 @@ public sealed class ExchangeAccountSyncService(
 
     /// <summary>
     /// Интервал успешного чтения баланса, принятого в капитал. Неуспешное или устаревшее чтение
-    /// окно не образует и не запрещает последующие wallet-наблюдения.
+    /// окно не образует и не запрещает последующие wallet-наблюдения. Противоречащие границы
+    /// (started &gt; completed) достоверный интервал не создают.
     /// </summary>
     private static (DateTimeOffset StartedAt, DateTimeOffset CompletedAt)? ResolveAcceptedBalanceReadWindow(
         bool hasFreshBalance,
@@ -666,7 +689,142 @@ public sealed class ExchangeAccountSyncService(
 
         var completedAt = balanceObservation.ObservedAt;
         var startedAt = balanceObservation.RequestStartedAt ?? completedAt;
-        return (startedAt, completedAt);
+        return RestOrderingDecision.TryCreateBounds(startedAt, completedAt);
+    }
+
+    /// <summary>
+    /// Интервал принятого REST-чтения позиций. ObservedAt провайдера Bybit — начало чтения;
+    /// <paramref name="positionsReadCompletedAt"/> — фактическое окончание. Перестановка границ
+    /// запрещена.
+    /// </summary>
+    private static (DateTimeOffset StartedAt, DateTimeOffset CompletedAt)? ResolveAcceptedPositionsReadWindow(
+        ExchangeAccountObservationDisposition positionsDisposition,
+        OpenPositionsObservation positionsObservation,
+        DateTimeOffset positionsReadCompletedAt)
+    {
+        if (!IsApplied(positionsDisposition) || !IsAcceptedPositionsStatus(positionsObservation.Status))
+        {
+            return null;
+        }
+
+        return RestOrderingDecision.TryCreateBounds(
+            positionsObservation.ObservedAt,
+            positionsReadCompletedAt);
+    }
+
+    private async Task AppendRestOrderingEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        bool hasFreshBalance,
+        ExchangeAccountObservationDisposition balanceDisposition,
+        AccountBalanceObservation balanceObservation,
+        ExchangeAccountObservationDisposition positionsDisposition,
+        OpenPositionsObservation positionsObservation,
+        bool positionsAreCurrent,
+        bool positionsFullyReconciled,
+        DateTimeOffset positionsReadCompletedAt,
+        CancellationToken cancellationToken)
+    {
+        var recordedAt = clock.GetUtcNow();
+        var balanceRead = ResolveAcceptedBalanceReadWindow(
+            hasFreshBalance,
+            balanceDisposition,
+            balanceObservation);
+        if (balanceRead is { } balanceWindow)
+        {
+            await restOrderingEvidenceStore
+                .AppendAsync(
+                    userId,
+                    new ExchangeRestOrderingInterval
+                    {
+                        Id = Guid.NewGuid(),
+                        ExchangeAccountId = exchangeAccountId,
+                        Kind = ExchangeRestOrderingKind.Balance,
+                        Symbol = null,
+                        StartedAt = balanceWindow.StartedAt,
+                        CompletedAt = balanceWindow.CompletedAt,
+                        RecordedAt = recordedAt,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!IsApplied(positionsDisposition) || !IsAcceptedPositionsStatus(positionsObservation.Status))
+        {
+            return;
+        }
+
+        // Достоверные границы либо консервативная оболочка при откате часов: отсутствие защиты
+        // после принятого снимка позволило бы DirectApply запоздалого WS.
+        var positionsWindow = ResolveAcceptedPositionsReadWindow(
+                positionsDisposition,
+                positionsObservation,
+                positionsReadCompletedAt)
+            ?? RestOrderingDecision.ConservativeEnvelope(
+                positionsObservation.ObservedAt,
+                positionsReadCompletedAt);
+
+        var fullPositionsComplete =
+            positionsAreCurrent &&
+            positionsObservation.Status == OpenPositionsObservationStatus.Complete &&
+            positionsObservation.Symbol is null &&
+            positionsFullyReconciled;
+        if (fullPositionsComplete)
+        {
+            await restOrderingEvidenceStore
+                .AppendAsync(
+                    userId,
+                    new ExchangeRestOrderingInterval
+                    {
+                        Id = Guid.NewGuid(),
+                        ExchangeAccountId = exchangeAccountId,
+                        Kind = ExchangeRestOrderingKind.FullPositionsComplete,
+                        Symbol = null,
+                        StartedAt = positionsWindow.StartedAt,
+                        CompletedAt = positionsWindow.CompletedAt,
+                        RecordedAt = recordedAt,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // Partial и неполное Complete дают только scoped evidence по подтверждаемым символам.
+        foreach (var symbol in ResolveScopedEvidenceSymbols(positionsObservation))
+        {
+            await restOrderingEvidenceStore
+                .AppendAsync(
+                    userId,
+                    new ExchangeRestOrderingInterval
+                    {
+                        Id = Guid.NewGuid(),
+                        ExchangeAccountId = exchangeAccountId,
+                        Kind = ExchangeRestOrderingKind.ScopedSymbol,
+                        Symbol = symbol,
+                        StartedAt = positionsWindow.StartedAt,
+                        CompletedAt = positionsWindow.CompletedAt,
+                        RecordedAt = recordedAt,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static IEnumerable<string> ResolveScopedEvidenceSymbols(OpenPositionsObservation observation)
+    {
+        if (!string.IsNullOrWhiteSpace(observation.Symbol))
+        {
+            yield return observation.Symbol.Trim();
+            yield break;
+        }
+
+        foreach (var symbol in observation.Positions
+                     .Select(position => position.Symbol.Trim())
+                     .Where(symbol => symbol.Length > 0)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            yield return symbol;
+        }
     }
 
     /// <summary>
@@ -678,17 +836,32 @@ public sealed class ExchangeAccountSyncService(
         ExchangeAccountObservationDisposition balanceDisposition,
         AccountBalanceObservation balanceObservation,
         ExchangeAccountObservationDisposition positionsDisposition,
-        OpenPositionsObservation positionsObservation)
+        OpenPositionsObservation positionsObservation,
+        DateTimeOffset positionsReadCompletedAt)
     {
         var balanceRead = ResolveAcceptedBalanceReadWindow(
             hasFreshBalance,
             balanceDisposition,
             balanceObservation);
+        var positionsAccepted =
+            IsApplied(positionsDisposition) &&
+            IsAcceptedPositionsStatus(positionsObservation.Status);
+        var positionsRead = ResolveAcceptedPositionsReadWindow(
+            positionsDisposition,
+            positionsObservation,
+            positionsReadCompletedAt);
+        var fullPositionsComplete =
+            positionsAccepted &&
+            positionsObservation.Status == OpenPositionsObservationStatus.Complete &&
+            positionsObservation.Symbol is null &&
+            (result.PortfolioState?.PositionsFullyReconciled == true || result.FullReconciliationCommitted);
         return result
             .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt)
-            .WithAcceptedPositionsObservation(
-                IsApplied(positionsDisposition) &&
-                IsAcceptedPositionsStatus(positionsObservation.Status));
+            .WithAcceptedPositionsObservation(positionsAccepted)
+            .WithAcceptedPositionsRead(
+                positionsRead?.StartedAt,
+                positionsRead?.CompletedAt,
+                fullPositionsComplete);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -32,6 +33,7 @@ public sealed class RealtimeWalletObservationService(
     IPositionRepository positionRepository,
     IPortfolioStateRepository portfolioStateRepository,
     IRealtimeObservationStateStore observationStateStore,
+    IExchangeRestOrderingEvidenceStore restOrderingEvidenceStore,
     IExchangeAccountSyncTransaction persistenceTransaction,
     IApplicationEventOutbox applicationEventOutbox,
     TimeProvider? timeProvider = null)
@@ -188,6 +190,23 @@ public sealed class RealtimeWalletObservationService(
             .GetLatestAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
         var account = latest.Value;
+
+        // Persisted Balance intervals читаются после блокировок: silent Stale запрещён, если биржевая
+        // метка или ObservedAt попадает в интервал REST-чтения другого экземпляра.
+        var balanceEvidence = await restOrderingEvidenceStore
+            .GetBalanceEvidenceAsync(
+                userId,
+                exchangeAccountId,
+                observedAt,
+                messageCreatedAt,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (RestOrderingDecision.WalletOverlapsBalanceRead(observedAt, messageCreatedAt, balanceEvidence))
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        }
+
         if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
         {
             var capitalOrder = CompareWalletObservationOrder(
