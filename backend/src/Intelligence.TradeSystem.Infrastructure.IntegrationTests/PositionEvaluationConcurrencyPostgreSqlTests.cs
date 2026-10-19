@@ -783,6 +783,7 @@ public sealed class PositionEvaluationConcurrencyPostgreSqlTests(
             transactionFactory(context),
             new ApplicationEventOutbox(context),
             new ExchangeRestOrderingEvidenceStore(context),
+            new WalletObservationCursorStore(context),
             new FixedTimeProvider(synchronizedAt));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);

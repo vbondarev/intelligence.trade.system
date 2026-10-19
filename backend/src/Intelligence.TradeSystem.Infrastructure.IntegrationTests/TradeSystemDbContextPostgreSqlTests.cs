@@ -41,6 +41,8 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         "20261019135427_AddRealtimeObservationRecoveryRequestEpoch";
     private const string RestOrderingIntervalsMigration =
         "20261019151001_AddExchangeRestOrderingIntervals";
+    private const string WalletObservationCursorsMigration =
+        "20261019194859_AddExchangeWalletObservationCursors";
 
     private async Task<MigrationDatabaseScope> CreateMigrationDatabaseAsync()
     {
@@ -182,6 +184,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(dbContext, "ix_positions_list_order"));
@@ -199,6 +202,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         await AssertPositionListIndexesAsync(dbContext);
@@ -219,6 +223,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(
@@ -234,6 +239,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var definition = await ReadIndexDefinitionAsync(
@@ -271,7 +277,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(DisplayNameMigration);
 
         Assert.Equal(
-            [SettlementAssetMigration, RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration],
+            [SettlementAssetMigration, RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var rows = await dbContext.Database.SqlQueryRaw<DisplayNameRow>(
                 """
@@ -332,7 +338,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(SettlementAssetMigration);
 
         Assert.Equal(
-            [RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration],
+            [RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         var positions = await dbContext.Database.SqlQueryRaw<SettlementAssetRow>(
                 """
@@ -412,7 +418,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         Assert.Contains("Невозможно заполнить positions.settlement_asset", exception.Message, StringComparison.Ordinal);
         Assert.Equal(
-            [SettlementAssetMigration, RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration],
+            [SettlementAssetMigration, RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await ColumnExistsAsync(dbContext, "positions", "settlement_asset"));
         Assert.Equal(
@@ -442,7 +448,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(RealtimeObservationMigration);
 
         Assert.Equal(
-            [RecoveryRequestEpochMigration, RestOrderingIntervalsMigration],
+            [RecoveryRequestEpochMigration, RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         foreach (var table in tables)
         {
@@ -450,6 +456,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         }
         Assert.False(await ColumnExistsAsync(dbContext, "exchange_realtime_observations", "recovery_request_epoch"));
         Assert.False(await TableExistsAsync(dbContext, "exchange_rest_ordering_intervals"));
+        Assert.False(await TableExistsAsync(dbContext, "exchange_wallet_observation_cursors"));
 
         Assert.Equal(
             ["exchange_account_id"],
@@ -491,10 +498,11 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
         await dbContext.Database.MigrateAsync(RecoveryRequestEpochMigration);
 
         Assert.Equal(
-            [RestOrderingIntervalsMigration],
+            [RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(await ColumnExistsAsync(dbContext, "exchange_realtime_observations", "recovery_request_epoch"));
         Assert.False(await TableExistsAsync(dbContext, "exchange_rest_ordering_intervals"));
+        Assert.False(await TableExistsAsync(dbContext, "exchange_wallet_observation_cursors"));
         Assert.Equal(
             0L,
             await dbContext.Database.SqlQueryRaw<long>(
@@ -507,9 +515,11 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
 
         await dbContext.Database.MigrateAsync(RestOrderingIntervalsMigration);
 
-        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
-        Assert.False(dbContext.Database.HasPendingModelChanges());
+        Assert.Equal(
+            [WalletObservationCursorsMigration],
+            (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(await TableExistsAsync(dbContext, "exchange_rest_ordering_intervals"));
+        Assert.False(await TableExistsAsync(dbContext, "exchange_wallet_observation_cursors"));
         Assert.Equal(
             ["id"],
             await ReadPrimaryKeyColumnsAsync(dbContext, "exchange_rest_ordering_intervals"));
@@ -517,16 +527,49 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
             "c",
             await ReadForeignKeyDeleteActionAsync(dbContext, "fk_exchange_rest_ordering_intervals_exchange_accounts"));
 
+        await dbContext.Database.MigrateAsync(WalletObservationCursorsMigration);
+
+        Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        Assert.False(dbContext.Database.HasPendingModelChanges());
+        Assert.True(await TableExistsAsync(dbContext, "exchange_wallet_observation_cursors"));
+        Assert.Equal(
+            ["exchange_account_id"],
+            await ReadPrimaryKeyColumnsAsync(dbContext, "exchange_wallet_observation_cursors"));
+        Assert.Equal(
+            "c",
+            await ReadForeignKeyDeleteActionAsync(
+                dbContext,
+                "fk_exchange_wallet_observation_cursors_exchange_accounts"));
+
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO exchange_wallet_observation_cursors (
+                exchange_account_id, last_message_created_at)
+            VALUES (
+                'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                '2026-10-19 12:00:00.123456+00');
+            """);
+        Assert.Equal(
+            new DateTimeOffset(2026, 10, 19, 12, 0, 0, 123, 456, TimeSpan.Zero),
+            await dbContext.Database.SqlQueryRaw<DateTimeOffset>(
+                    """
+                    SELECT last_message_created_at AS "Value"
+                    FROM exchange_wallet_observation_cursors
+                    WHERE exchange_account_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+                    """)
+                .SingleAsync());
+
         await dbContext.Database.MigrateAsync(SettlementAssetMigration);
 
         Assert.Equal(
-            [RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration],
+            [RealtimeObservationMigration, RecoveryRequestEpochMigration, RestOrderingIntervalsMigration, WalletObservationCursorsMigration],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         foreach (var table in tables)
         {
             Assert.False(await TableExistsAsync(dbContext, table));
         }
         Assert.False(await TableExistsAsync(dbContext, "exchange_rest_ordering_intervals"));
+        Assert.False(await TableExistsAsync(dbContext, "exchange_wallet_observation_cursors"));
 
         Assert.Equal(
             1,
@@ -716,6 +759,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.True(
@@ -749,6 +793,7 @@ public sealed class TradeSystemDbContextPostgreSqlTests(PostgreSqlMigrationFixtu
                 RealtimeObservationMigration,
                 RecoveryRequestEpochMigration,
                 RestOrderingIntervalsMigration,
+                WalletObservationCursorsMigration,
             ],
             (await dbContext.Database.GetPendingMigrationsAsync()).ToArray());
         Assert.False(await IndexExistsAsync(

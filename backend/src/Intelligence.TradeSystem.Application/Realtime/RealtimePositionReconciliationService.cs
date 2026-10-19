@@ -329,18 +329,21 @@ public sealed class RealtimePositionReconciliationService(
         PreparedObservation prepared,
         CancellationToken cancellationToken)
     {
+        var exchangeFactAt = prepared.Observation.MessageCreatedAt ?? prepared.ProviderUpdatedAt;
         var evidence = await restOrderingEvidenceStore
             .GetPositionEvidenceAsync(
                 userId,
                 prepared.Observation.ExchangeAccountId,
                 prepared.Observation.Symbol,
                 prepared.ObservedAt,
+                exchangeFactAt,
                 cancellationToken)
             .ConfigureAwait(false);
         return RestOrderingDecision.PositionOverlapsRest(
             prepared.ObservedAt,
             prepared.Observation.Symbol,
-            evidence);
+            evidence,
+            exchangeFactAt);
     }
 
     /// <summary>

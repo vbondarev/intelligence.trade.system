@@ -564,6 +564,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 : new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
             new ExchangeRestOrderingEvidenceStore(context),
+            new WalletObservationCursorStore(context),
             new FixedTimeProvider(calculatedAt.AddMinutes(1)));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);

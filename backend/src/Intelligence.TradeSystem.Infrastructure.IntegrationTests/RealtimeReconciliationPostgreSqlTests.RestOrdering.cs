@@ -173,6 +173,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                     new FailingBeforeCommitTransaction(inner),
                     new ApplicationEventOutbox(context),
                     new ExchangeRestOrderingEvidenceStore(context),
+                    new WalletObservationCursorStore(context),
                     clock)
                 .SynchronizeAsync(account.UserId, account.Id));
 

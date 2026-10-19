@@ -22,6 +22,7 @@ public sealed class ExchangeAccountSyncService(
     IExchangeAccountSyncTransaction persistenceTransaction,
     IApplicationEventOutbox applicationEventOutbox,
     IExchangeRestOrderingEvidenceStore restOrderingEvidenceStore,
+    IWalletObservationCursorStore walletCursorStore,
     TimeProvider? timeProvider = null)
     : IExchangeAccountSyncService
 {
@@ -193,20 +194,36 @@ public sealed class ExchangeAccountSyncService(
                                 positionsObservationAt);
 
                             // ObservedAt ответа не доказывает новизну относительно капитала, сохранённого
-                            // во время REST-чтения другим экземпляром. Проверка — только когда watermark
-                            // иначе принял бы наблюдение; устаревший REST остаётся обычным Superseded.
+                            // во время REST-чтения другим экземпляром, и не эквивалентно биржевому
+                            // MessageCreatedAt. Проверка — только когда watermark иначе принял бы
+                            // наблюдение; устаревший REST остаётся обычным Superseded.
                             var restBalanceOrderAmbiguous = false;
                             var tentativeBalanceDisposition = PeekObservationWatermarkDisposition(
                                 accountForPersistence.LastAppliedBalanceObservationAt,
                                 balanceObservationAt);
-                            if (IsApplied(tentativeBalanceDisposition) &&
-                                IsRestBalanceOrderAmbiguous(
-                                    balanceObservation,
-                                    previousPortfolioState?.Capital))
+                            if (IsApplied(tentativeBalanceDisposition))
                             {
-                                restBalanceOrderAmbiguous = true;
-                                // Непринятое REST-наблюдение не продвигает watermark баланса.
-                                balanceDisposition = ExchangeAccountObservationDisposition.Superseded;
+                                var acceptedWalletExchangeAt = await walletCursorStore
+                                    .GetLastAcceptedMessageCreatedAtAsync(
+                                        userId,
+                                        exchangeAccountId,
+                                        persistenceCancellationToken)
+                                    .ConfigureAwait(false);
+                                if (IsRestBalanceOrderAmbiguous(
+                                        balanceObservation,
+                                        previousPortfolioState?.Capital,
+                                        acceptedWalletExchangeAt))
+                                {
+                                    restBalanceOrderAmbiguous = true;
+                                    // Непринятое REST-наблюдение не продвигает watermark баланса.
+                                    balanceDisposition = ExchangeAccountObservationDisposition.Superseded;
+                                }
+                                else
+                                {
+                                    balanceDisposition = accountForPersistence.AdvanceObservationWatermark(
+                                        ExchangeAccountObservationResource.Balance,
+                                        balanceObservationAt);
+                                }
                             }
                             else
                             {
@@ -641,33 +658,45 @@ public sealed class ExchangeAccountSyncService(
         observation.ObservedAt != default;
 
     /// <summary>
-    /// Порядок REST-баланса относительно persisted капитала недоказан, если последнее достоверное
-    /// наблюдение капитала попадает в интервал чтения <c>[RequestStartedAt, ObservedAt]</c>
-    /// (границы включительно) или интервал сам по себе некорректен.
+    /// Порядок REST-баланса относительно persisted капитала и wallet exchange ordering недоказан,
+    /// если последнее достоверное наблюдение капитала или принятый wallet <c>MessageCreatedAt</c>
+    /// попадает в интервал чтения <c>[RequestStartedAt, ObservedAt]</c> (границы включительно),
+    /// интервал сам по себе некорректен, либо wallet-событие новее завершения REST-чтения.
     /// </summary>
     /// <remarks>
-    /// Отсутствие ранее подтверждённого капитала не считается неоднозначностью: первичная
-    /// REST-синхронизация остаётся допустимой. При <see cref="AccountBalanceObservation.RequestStartedAt"/>
-    /// = <see langword="null"/> интервал вырождается в точку <see cref="AccountBalanceObservation.ObservedAt"/>.
+    /// Отсутствие ранее подтверждённого капитала и wallet cursor не считается неоднозначностью:
+    /// первичная REST-синхронизация остаётся допустимой. Окончание REST-чтения не считается
+    /// эквивалентом биржевого <c>MessageCreatedAt</c>: при невозможности достоверно расположить
+    /// снимок относительно persisted wallet ordering применяется консервативный отказ.
+    /// При <see cref="AccountBalanceObservation.RequestStartedAt"/> = <see langword="null"/>
+    /// интервал вырождается в точку <see cref="AccountBalanceObservation.ObservedAt"/>.
     /// </remarks>
     private static bool IsRestBalanceOrderAmbiguous(
         AccountBalanceObservation balanceObservation,
-        PortfolioCapitalState? previousCapital)
+        PortfolioCapitalState? previousCapital,
+        DateTimeOffset? lastAcceptedWalletMessageCreatedAt)
     {
         if (!IsCompleteBalance(balanceObservation))
             return false;
 
+        var completedAt = balanceObservation.ObservedAt;
+        var startedAt = balanceObservation.RequestStartedAt ?? completedAt;
+        if (balanceObservation.RequestStartedAt is { } requestedStart && requestedStart > completedAt)
+            return true;
+
+        if (lastAcceptedWalletMessageCreatedAt is { } walletExchangeAt)
+        {
+            // Wallet-факт внутри окна чтения или после его завершения нельзя безопасно перекрыть
+            // REST-снимком: CompletedAt не доказывает биржевую новизну относительно MessageCreatedAt.
+            if (walletExchangeAt >= startedAt)
+                return true;
+        }
+
         if (previousCapital?.ObservedAt is not { } previousObservedAt)
             return false;
 
-        var completedAt = balanceObservation.ObservedAt;
-        if (balanceObservation.RequestStartedAt is { } startedAt)
-        {
-            if (startedAt > completedAt)
-                return true;
-
+        if (balanceObservation.RequestStartedAt is not null)
             return previousObservedAt >= startedAt && previousObservedAt <= completedAt;
-        }
 
         return previousObservedAt == completedAt;
     }

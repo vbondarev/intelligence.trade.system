@@ -36,18 +36,31 @@ public static class RestOrderingDecision
         startedAt <= completedAt ? (startedAt, completedAt) : (completedAt, startedAt);
 
     /// <summary>
-    /// Позиционное наблюдение пересекается с REST-доказательством, если попадает в полное окно
-    /// или в окно своего символа, либо раньше начала scoped-окна того же символа.
+    /// Позиционное наблюдение пересекается с REST-доказательством, если backend ObservedAt или
+    /// биржевой факт попадает в полное окно или в окно своего символа, либо раньше начала
+    /// scoped-окна того же символа. Ограниченный ObservedAt сам по себе не скрывает пересечение
+    /// биржевого времени с REST-интервалом.
     /// </summary>
     public static bool PositionOverlapsRest(
         DateTimeOffset observedAt,
         string symbol,
-        IEnumerable<ExchangeRestOrderingInterval> intervals)
+        IEnumerable<ExchangeRestOrderingInterval> intervals,
+        DateTimeOffset? exchangeFactAt = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
         ArgumentNullException.ThrowIfNull(intervals);
 
-        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+        return PositionTimestampOverlapsRest(observedAt, symbol, intervals) ||
+               (exchangeFactAt is { } exchangeAt &&
+                PositionTimestampOverlapsRest(exchangeAt, symbol, intervals));
+    }
+
+    private static bool PositionTimestampOverlapsRest(
+        DateTimeOffset timestamp,
+        string symbol,
+        IEnumerable<ExchangeRestOrderingInterval> intervals)
+    {
+        var normalizedAt = TimestampCanonicalizer.ToUtcMicroseconds(timestamp);
         foreach (var interval in intervals)
         {
             var startedAt = TimestampCanonicalizer.ToUtcMicroseconds(interval.StartedAt);
@@ -60,7 +73,7 @@ public static class RestOrderingDecision
             switch (interval.Kind)
             {
                 case ExchangeRestOrderingKind.FullPositionsComplete:
-                    if (normalizedObservedAt >= startedAt && normalizedObservedAt <= completedAt)
+                    if (normalizedAt >= startedAt && normalizedAt <= completedAt)
                     {
                         return true;
                     }
@@ -70,7 +83,7 @@ public static class RestOrderingDecision
                 case ExchangeRestOrderingKind.ScopedSymbol when
                     string.Equals(interval.Symbol, symbol, StringComparison.OrdinalIgnoreCase):
                     // Contains([started, completed]) или earlier than scoped start → at <= completed.
-                    if (normalizedObservedAt <= completedAt)
+                    if (normalizedAt <= completedAt)
                     {
                         return true;
                     }

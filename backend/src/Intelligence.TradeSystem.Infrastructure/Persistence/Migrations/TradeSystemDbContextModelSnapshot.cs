@@ -275,6 +275,21 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeWalletObservationCursorEntity", b =>
+                {
+                    b.Property<Guid>("ExchangeAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exchange_account_id");
+
+                    b.Property<DateTimeOffset>("LastMessageCreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_message_created_at");
+
+                    b.HasKey("ExchangeAccountId");
+
+                    b.ToTable("exchange_wallet_observation_cursors", (string)null);
+                });
+
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.MarketMarkPriceEntity", b =>
                 {
                     b.Property<string>("ExchangeId")
@@ -1278,6 +1293,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_exchange_rest_ordering_intervals_exchange_accounts");
+                });
+
+            modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeWalletObservationCursorEntity", b =>
+                {
+                    b.HasOne("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.ExchangeAccountEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ExchangeAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_exchange_wallet_observation_cursors_exchange_accounts");
                 });
 
             modelBuilder.Entity("Intelligence.TradeSystem.Infrastructure.Persistence.Entities.PortfolioPositionStateEntity", b =>

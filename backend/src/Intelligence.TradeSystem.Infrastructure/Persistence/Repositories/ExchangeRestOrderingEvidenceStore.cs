@@ -52,6 +52,7 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
         ExchangeAccountId exchangeAccountId,
         string symbol,
         DateTimeOffset observedAt,
+        DateTimeOffset? exchangeFactAt,
         CancellationToken cancellationToken = default)
     {
         EnsureUserId(userId);
@@ -61,21 +62,44 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
         var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
         var trimmedSymbol = symbol.Trim();
 
-        // Кандидаты: полные окна, пересекающие observedAt, и scoped-окна с completed_at >= observedAt
-        // (включая события раньше started_at того же scoped-окна). Символ сверяется без учёта регистра.
-        var entities = await OwnedIntervals(userId, exchangeAccountId)
-            .Where(interval =>
-                (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
-                 interval.StartedAt <= normalizedObservedAt &&
-                 interval.CompletedAt >= normalizedObservedAt) ||
-                (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
-                 interval.Symbol != null &&
-                 interval.CompletedAt >= normalizedObservedAt))
-            .OrderBy(interval => interval.StartedAt)
-            .ThenBy(interval => interval.CompletedAt)
-            .ThenBy(interval => interval.Id)
-            .ToArrayAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // Кандидаты: полные окна, пересекающие ObservedAt или биржевой факт, и scoped-окна с
+        // completed_at >= метки (включая события раньше started_at того же scoped-окна).
+        ExchangeRestOrderingIntervalEntity[] entities;
+        if (TimestampCanonicalizer.ToUtcMicroseconds(exchangeFactAt) is { } normalizedExchangeAt)
+        {
+            entities = await OwnedIntervals(userId, exchangeAccountId)
+                .Where(interval =>
+                    (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
+                     ((interval.StartedAt <= normalizedObservedAt &&
+                       interval.CompletedAt >= normalizedObservedAt) ||
+                      (interval.StartedAt <= normalizedExchangeAt &&
+                       interval.CompletedAt >= normalizedExchangeAt))) ||
+                    (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
+                     interval.Symbol != null &&
+                     (interval.CompletedAt >= normalizedObservedAt ||
+                      interval.CompletedAt >= normalizedExchangeAt)))
+                .OrderBy(interval => interval.StartedAt)
+                .ThenBy(interval => interval.CompletedAt)
+                .ThenBy(interval => interval.Id)
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            entities = await OwnedIntervals(userId, exchangeAccountId)
+                .Where(interval =>
+                    (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
+                     interval.StartedAt <= normalizedObservedAt &&
+                     interval.CompletedAt >= normalizedObservedAt) ||
+                    (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
+                     interval.Symbol != null &&
+                     interval.CompletedAt >= normalizedObservedAt))
+                .OrderBy(interval => interval.StartedAt)
+                .ThenBy(interval => interval.CompletedAt)
+                .ThenBy(interval => interval.Id)
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return entities
             .Where(interval =>

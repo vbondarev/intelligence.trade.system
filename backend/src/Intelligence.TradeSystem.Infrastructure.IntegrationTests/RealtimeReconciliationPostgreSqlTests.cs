@@ -752,6 +752,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             return decorateStateStore?.Invoke(store) ?? store;
         });
         services.AddScoped<IExchangeRestOrderingEvidenceStore, ExchangeRestOrderingEvidenceStore>();
+        services.AddScoped<IWalletObservationCursorStore, WalletObservationCursorStore>();
         services.AddScoped<IExchangeAccountSyncTransaction, ExchangeAccountSyncTransaction>();
         services.AddScoped<IApplicationEventOutbox>(serviceProvider =>
             new ApplicationEventOutbox(serviceProvider.GetRequiredService<TradeSystemDbContext>()));
@@ -789,6 +790,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             new PortfolioStateRepository(context),
             new RealtimeObservationStateStore(context),
             new ExchangeRestOrderingEvidenceStore(context),
+            new WalletObservationCursorStore(context),
             transaction ?? new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
             new FixedTimeProvider(T1.AddMinutes(1)));

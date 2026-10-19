@@ -20,12 +20,13 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// значение не заменяется нулём и не смешивается с прежним наблюдением другого времени.
 /// </para>
 /// <para>
-/// Новизна определяется временем фактически принятого капитала в последней сводке. Balance watermark
-/// продвигается и неуспешным REST-запросом баланса, который капитал не меняет, поэтому сам по себе не
-/// доказывает, что более новое значение уже принято. Watermark только продвигается вперёд, так что
-/// более старый REST-снимок баланса не перезаписывает потоковое значение. Наблюдение со временем
-/// принятого капитала является повтором только при совпадении всех четырёх значений; иначе порядок
-/// неоднозначен и требуется recovery. Watermark позиций и рыночные показатели позиций не изменяются.
+/// Биржевой порядок wallet определяется persisted <c>MessageCreatedAt</c> курсором независимо от
+/// <c>ReceivedAt</c> и нормализованного backend <c>ObservedAt</c>. Balance watermark продвигается и
+/// неуспешным REST-запросом баланса, который капитал не меняет, поэтому сам по себе не доказывает,
+/// что более новое значение уже принято. Watermark только продвигается вперёд, так что более старый
+/// REST-снимок баланса не перезаписывает потоковое значение. Наблюдение с тем же биржевым временем
+/// является повтором только при совпадении всех четырёх значений; иначе порядок неоднозначен и
+/// требуется recovery. Watermark позиций и рыночные показатели позиций не изменяются.
 /// </para>
 /// </remarks>
 public sealed class RealtimeWalletObservationService(
@@ -34,6 +35,7 @@ public sealed class RealtimeWalletObservationService(
     IPortfolioStateRepository portfolioStateRepository,
     IRealtimeObservationStateStore observationStateStore,
     IExchangeRestOrderingEvidenceStore restOrderingEvidenceStore,
+    IWalletObservationCursorStore walletCursorStore,
     IExchangeAccountSyncTransaction persistenceTransaction,
     IApplicationEventOutbox applicationEventOutbox,
     TimeProvider? timeProvider = null)
@@ -75,6 +77,13 @@ public sealed class RealtimeWalletObservationService(
             return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.MissingObservationTime);
         }
 
+        // Без достоверного MessageCreatedAt нельзя продвигать биржевой cursor и нельзя делать
+        // предположение о новизне относительно persisted exchange ordering.
+        if (observation.MessageCreatedAt is not { } messageCreatedAt)
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.MissingObservationTime);
+        }
+
         var unified = observation.Balances
             .Where(balance => balance.AccountType == AccountType.Unified)
             .ToArray();
@@ -112,7 +121,7 @@ public sealed class RealtimeWalletObservationService(
                                     exchangeAccountId,
                                     generation,
                                     observedAt,
-                                    observation.MessageCreatedAt,
+                                    messageCreatedAt,
                                     capital,
                                     token)
                                 .ConfigureAwait(false);
@@ -149,7 +158,7 @@ public sealed class RealtimeWalletObservationService(
         ExchangeAccountId exchangeAccountId,
         long generation,
         DateTimeOffset observedAt,
-        DateTimeOffset? messageCreatedAt,
+        DateTimeOffset messageCreatedAt,
         PortfolioCapitalState capital,
         CancellationToken cancellationToken)
     {
@@ -208,23 +217,23 @@ public sealed class RealtimeWalletObservationService(
                 RealtimeObservationApplyResult.AmbiguousWithRestBalance);
         }
 
-        if (previous?.Capital.ObservedAt is { } acceptedCapitalAt)
+        var acceptedWalletExchangeAt = await walletCursorStore
+            .GetLastAcceptedMessageCreatedAtAsync(userId, exchangeAccountId, cancellationToken)
+            .ConfigureAwait(false);
+        var capitalOrder = await CompareWalletObservationOrderAsync(
+                userId,
+                exchangeAccountId,
+                account,
+                observedAt,
+                messageCreatedAt,
+                acceptedWalletExchangeAt,
+                previous?.Capital,
+                capital,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (capitalOrder is not null)
         {
-            var capitalOrder = await CompareWalletObservationOrderAsync(
-                    userId,
-                    exchangeAccountId,
-                    account,
-                    observedAt,
-                    messageCreatedAt,
-                    acceptedCapitalAt,
-                    previous.Capital,
-                    capital,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (capitalOrder is not null)
-            {
-                return capitalOrder;
-            }
+            return capitalOrder;
         }
 
         var watermarkDisposition = account.AdvanceObservationWatermark(
@@ -274,6 +283,9 @@ public sealed class RealtimeWalletObservationService(
         await portfolioStateRepository
             .SaveAsync(userId, portfolioState, cancellationToken)
             .ConfigureAwait(false);
+        await walletCursorStore
+            .SaveAcceptedAsync(userId, exchangeAccountId, messageCreatedAt, cancellationToken)
+            .ConfigureAwait(false);
         await applicationEventOutbox
             .AddAsync(
                 new PortfolioUpdatedEventV1(
@@ -287,33 +299,64 @@ public sealed class RealtimeWalletObservationService(
     }
 
     /// <summary>
-    /// Сравнивает wallet-наблюдение с принятым капиталом. Ограниченный ObservedAt сам по себе не
-    /// доказывает устарелость, если биржевая отметка сообщения новее принятого капитала, и не
-    /// доказывает silent Stale, если капитал мог быть принят REST без доступной interval history.
+    /// Сравнивает wallet-наблюдение с принятым биржевым курсором и капиталом. Биржевой
+    /// <paramref name="messageCreatedAt"/> первичен относительно ограниченного ObservedAt; silent
+    /// Stale запрещён, если капитал мог быть принят REST без доступной interval history.
     /// </summary>
     private async Task<RealtimeObservationApplyResult?> CompareWalletObservationOrderAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         ExchangeAccount account,
         DateTimeOffset observedAt,
-        DateTimeOffset? messageCreatedAt,
-        DateTimeOffset acceptedCapitalAt,
-        PortfolioCapitalState acceptedCapital,
+        DateTimeOffset messageCreatedAt,
+        DateTimeOffset? acceptedWalletExchangeAt,
+        PortfolioCapitalState? acceptedCapital,
         PortfolioCapitalState observedCapital,
         CancellationToken cancellationToken)
     {
+        var normalizedMessageCreatedAt = TimestampCanonicalizer.ToUtcMicroseconds(messageCreatedAt);
+
+        if (acceptedWalletExchangeAt is { } acceptedExchangeAt)
+        {
+            var normalizedAcceptedExchangeAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedExchangeAt);
+            if (normalizedMessageCreatedAt < normalizedAcceptedExchangeAt)
+            {
+                return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
+            }
+
+            if (normalizedMessageCreatedAt == normalizedAcceptedExchangeAt)
+            {
+                // Одинаковый MessageCreatedAt сам по себе не доказывает идентичность сообщений Bybit;
+                // повтор подтверждаем совпадением всех финансовых значений.
+                return acceptedCapital is not null && HasSameValues(acceptedCapital, observedCapital)
+                    ? RealtimeObservationApplyResult.Duplicate()
+                    : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
+            }
+
+            // Более новый биржевой факт — кандидат на применение; ниже сохраняются проверки
+            // относительно REST-капитала и неоднозначного ObservedAt.
+        }
+
+        if (acceptedCapital?.ObservedAt is not { } acceptedCapitalAt)
+        {
+            return null;
+        }
+
         var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
         var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
         if (normalizedObservedAt < normalizedCapitalAt)
         {
-            if (messageCreatedAt is { } exchangeTime &&
-                TimestampCanonicalizer.ToUtcMicroseconds(exchangeTime) > normalizedCapitalAt)
+            // Биржевая отметка новее принятого капитала при откате ObservedAt — порядок неоднозначен.
+            if (normalizedMessageCreatedAt > normalizedCapitalAt)
             {
                 return RealtimeObservationApplyResult.RecoveryRequired(
                     RealtimeObservationApplyResult.AmbiguousObservationOrder);
             }
 
-            if (await IsAmbiguousOlderWalletWithoutRestEvidenceAsync(
+            // При известном биржевом курсоре более новое MessageCreatedAt уже пропущено выше; здесь
+            // ObservedAt отстаёт, а биржевое время не доказывает новизну относительно капитала.
+            if (acceptedWalletExchangeAt is null &&
+                await IsAmbiguousOlderWalletWithoutRestEvidenceAsync(
                         userId,
                         exchangeAccountId,
                         account,
@@ -325,16 +368,32 @@ public sealed class RealtimeWalletObservationService(
                     RealtimeObservationApplyResult.AmbiguousWithRestBalance);
             }
 
-            return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
+            // Когда биржевой cursor ещё unknown, ограниченный ObservedAt остаётся доказательством
+            // устарелости относительно принятого капитала (с сохранением P1-B при отсутствии evidence).
+            if (acceptedWalletExchangeAt is null)
+            {
+                return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanBalance);
+            }
+
+            // Cursor новее по MessageCreatedAt, но ObservedAt отстаёт от капитала — нужен recovery,
+            // а не прямое применение с конфликтующей backend timeline.
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder);
         }
 
         if (normalizedObservedAt == normalizedCapitalAt)
         {
-            // Равное время не доказывает повтор: разные значения одного момента делают порядок
-            // неоднозначным, и принятый капитал не перезаписывается.
-            return HasSameValues(acceptedCapital, observedCapital)
-                ? RealtimeObservationApplyResult.Duplicate()
-                : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
+            // Равное backend-время без биржевого cursor: повтор только при совпадении значений.
+            if (acceptedWalletExchangeAt is null)
+            {
+                return HasSameValues(acceptedCapital, observedCapital)
+                    ? RealtimeObservationApplyResult.Duplicate()
+                    : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
+            }
+
+            // Cursor уже доказал более новый MessageCreatedAt; равный ObservedAt из-за clock skew не
+            // отменяет кандидата — применение продолжается.
+            return null;
         }
 
         return null;

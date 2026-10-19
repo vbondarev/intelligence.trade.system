@@ -24,14 +24,15 @@ public interface IExchangeRestOrderingEvidenceStore
 
     /// <summary>
     /// Возвращает интервалы позиций аккаунта, которые могут пересечься с
-    /// <paramref name="observedAt"/> для указанного символа: полные окна и scoped-окна символа.
-    /// Непересекающиеся интервалы не сливаются.
+    /// <paramref name="observedAt"/> или биржевым <paramref name="exchangeFactAt"/> для указанного
+    /// символа: полные окна и scoped-окна символа. Непересекающиеся интервалы не сливаются.
     /// </summary>
     Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetPositionEvidenceAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         string symbol,
         DateTimeOffset observedAt,
+        DateTimeOffset? exchangeFactAt,
         CancellationToken cancellationToken = default);
 
     /// <summary>

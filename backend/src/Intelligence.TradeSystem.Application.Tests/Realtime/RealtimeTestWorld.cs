@@ -8,6 +8,7 @@ using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -33,6 +34,7 @@ internal sealed class RealtimeTestWorld
     private List<IApplicationEvent> events = [];
     private Versioned<RealtimeObservationState>? state;
     private List<ExchangeRestOrderingInterval> restOrderingIntervals = [];
+    private DateTimeOffset? lastAcceptedWalletMessageCreatedAt;
 
     /// <param name="observed">
     /// Аккаунт уже наблюдается потоком: сохранено поколение 1 с требуемым recovery. Иначе состояние
@@ -103,6 +105,8 @@ internal sealed class RealtimeTestWorld
     public IReadOnlyList<PortfolioState> Portfolios => portfolios;
 
     public IReadOnlyList<ExchangeRestOrderingInterval> RestOrderingIntervals => restOrderingIntervals;
+
+    public DateTimeOffset? LastAcceptedWalletMessageCreatedAt => lastAcceptedWalletMessageCreatedAt;
 
     /// <summary>Добавляет persisted REST evidence без process-local окон coordinator.</summary>
     public void SeedRestOrderingInterval(ExchangeRestOrderingInterval interval)
@@ -263,6 +267,7 @@ internal sealed class RealtimeTestWorld
             new Transaction(this),
             new Outbox(this),
             new RestOrderingEvidenceStore(this),
+            new WalletCursorStore(this),
             Clock);
 
     public RealtimeWalletObservationService CreateWalletService() =>
@@ -272,6 +277,7 @@ internal sealed class RealtimeTestWorld
             new PortfolioRepository(this),
             new StateStore(this),
             new RestOrderingEvidenceStore(this),
+            new WalletCursorStore(this),
             new Transaction(this),
             new Outbox(this),
             Clock);
@@ -288,6 +294,7 @@ internal sealed class RealtimeTestWorld
         services.AddSingleton<IPositionObservationCursorStore>(new CursorStore(this));
         services.AddSingleton<IRealtimeObservationStateStore>(new StateStore(this));
         services.AddSingleton<IExchangeRestOrderingEvidenceStore>(new RestOrderingEvidenceStore(this));
+        services.AddSingleton<IWalletObservationCursorStore>(new WalletCursorStore(this));
         services.AddSingleton<IExchangeAccountSyncTransaction>(new Transaction(this));
         services.AddSingleton<IApplicationEventOutbox>(new Outbox(this));
         services.AddApplication();
@@ -631,6 +638,7 @@ internal sealed class RealtimeTestWorld
             var eventsSnapshot = world.events.ToList();
             var stateSnapshot = world.state;
             var restOrderingSnapshot = world.restOrderingIntervals.ToList();
+            var walletCursorSnapshot = world.lastAcceptedWalletMessageCreatedAt;
             try
             {
                 if (world.BeforeTransactionExecuteAsync is { } beforeExecute)
@@ -654,8 +662,48 @@ internal sealed class RealtimeTestWorld
                 world.events = eventsSnapshot;
                 world.state = stateSnapshot;
                 world.restOrderingIntervals = restOrderingSnapshot;
+                world.lastAcceptedWalletMessageCreatedAt = walletCursorSnapshot;
                 throw;
             }
+        }
+    }
+
+    private sealed class WalletCursorStore(RealtimeTestWorld world) : IWalletObservationCursorStore
+    {
+        public Task<DateTimeOffset?> GetLastAcceptedMessageCreatedAtAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult<DateTimeOffset?>(null);
+            }
+
+            return Task.FromResult(world.lastAcceptedWalletMessageCreatedAt);
+        }
+
+        public Task SaveAcceptedAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            DateTimeOffset messageCreatedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId || exchangeAccountId != world.AccountId)
+            {
+                throw new InvalidOperationException(
+                    "The exchange account is unavailable in the user scope for the wallet observation cursor.");
+            }
+
+            var canonical = TimestampCanonicalizer.ToUtcMicroseconds(messageCreatedAt);
+            if (world.lastAcceptedWalletMessageCreatedAt is { } current && current > canonical)
+            {
+                throw new InvalidOperationException(
+                    "The wallet observation cursor cannot regress to an older exchange MessageCreatedAt.");
+            }
+
+            world.lastAcceptedWalletMessageCreatedAt = canonical;
+            return Task.CompletedTask;
         }
     }
 
@@ -687,6 +735,7 @@ internal sealed class RealtimeTestWorld
             ExchangeAccountId exchangeAccountId,
             string symbol,
             DateTimeOffset observedAt,
+            DateTimeOffset? exchangeFactAt,
             CancellationToken cancellationToken = default)
         {
             if (userId != world.UserId || exchangeAccountId != world.AccountId)
@@ -695,7 +744,8 @@ internal sealed class RealtimeTestWorld
             }
 
             var matches = world.restOrderingIntervals
-                .Where(interval => RestOrderingDecision.PositionOverlapsRest(observedAt, symbol, [interval]))
+                .Where(interval =>
+                    RestOrderingDecision.PositionOverlapsRest(observedAt, symbol, [interval], exchangeFactAt))
                 .ToArray();
             return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(matches);
         }

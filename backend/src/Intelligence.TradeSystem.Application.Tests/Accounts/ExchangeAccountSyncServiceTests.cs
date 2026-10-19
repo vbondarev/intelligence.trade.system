@@ -2106,7 +2106,29 @@ public sealed class ExchangeAccountSyncServiceTests
                 transaction,
                 eventOutbox,
                 new RecordingRestOrderingEvidenceStore(),
+                new RecordingWalletCursorStore(),
                 new FixedTimeProvider(CalculatedAt)));
+    }
+
+    private sealed class RecordingWalletCursorStore : IWalletObservationCursorStore
+    {
+        public DateTimeOffset? LastAcceptedMessageCreatedAt { get; set; }
+
+        public Task<DateTimeOffset?> GetLastAcceptedMessageCreatedAtAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(LastAcceptedMessageCreatedAt);
+
+        public Task SaveAcceptedAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            DateTimeOffset messageCreatedAt,
+            CancellationToken cancellationToken = default)
+        {
+            LastAcceptedMessageCreatedAt = messageCreatedAt;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class RecordingRestOrderingEvidenceStore : IExchangeRestOrderingEvidenceStore
@@ -2127,10 +2149,15 @@ public sealed class ExchangeAccountSyncServiceTests
             ExchangeAccountId exchangeAccountId,
             string symbol,
             DateTimeOffset observedAt,
+            DateTimeOffset? exchangeFactAt,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(
                 Intervals.Where(interval =>
-                        RestOrderingDecision.PositionOverlapsRest(observedAt, symbol, [interval]))
+                        RestOrderingDecision.PositionOverlapsRest(
+                            observedAt,
+                            symbol,
+                            [interval],
+                            exchangeFactAt))
                     .ToArray());
 
         public Task<IReadOnlyList<ExchangeRestOrderingInterval>> GetBalanceEvidenceAsync(
