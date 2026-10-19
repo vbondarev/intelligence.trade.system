@@ -969,6 +969,108 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.True((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
     }
 
+    /// <summary>
+    /// R-208-08: конфликт сторон ETH блокирует смену стороны BTC — второй незакрытый lifecycle не сохраняется.
+    /// </summary>
+    [Fact]
+    public async Task Side_change_blocked_by_eth_conflict_keeps_single_btc_lifecycle()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        provider.SetPosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+        provider.SetPosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+        provider.SetPosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m));
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        var btcOpen = positions
+            .Select(versioned => versioned.Value)
+            .Where(position =>
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.TrackingState != PositionTrackingState.Closed)
+            .ToArray();
+        Assert.Single(btcOpen);
+        Assert.Equal(PositionSide.Long, btcOpen[0].ExchangePositionKey.PositionSide);
+        Assert.Null(btcOpen[0].ClosedAt);
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>
+    /// R-208-09: противоречащие REST-дубликаты BTC не меняют persisted размер; порядок строк не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(2.0, 3.0)]
+    [InlineData(3.0, 2.0)]
+    public async Task Conflicting_duplicate_rest_rows_do_not_change_persisted_size(double firstSize, double secondSize)
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        provider.SetPosition(OpenPosition(size: (decimal)firstSize));
+        provider.SetPosition(OpenPosition(size: (decimal)secondSize));
+
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.False(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(PositionTrackingState.Active, position.TrackingState);
+        Assert.Equal(1m, position.Size);
+        Assert.Equal(T1, position.LastObservedAt);
+        AssertHistory(position, (PositionChangeKind.New, T1));
+        Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        Assert.False((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
+    /// <summary>
+    /// R-208-08 / A3: успешная смена стороны без конфликта закрывает Long и создаёт Short атомарно.
+    /// </summary>
+    [Fact]
+    public async Task Clean_complete_side_change_closes_long_and_opens_short()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        Assert.Equal(
+            RealtimeObservationApplyOutcome.Applied,
+            (await ApplyAsync(account, generation, OpenObservation(account, T1, 1))).Outcome);
+        await using (var before = fixture.CreateContext())
+        {
+            var longPosition = await SinglePositionAsync(before, account);
+            Assert.Equal(PositionSide.Long, longPosition.ExchangePositionKey.PositionSide);
+        }
+
+        var provider = new TestPrivateProvider { ObservedAt = T1.AddSeconds(20) };
+        provider.SetPosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        var result = await SynchronizeAsync(account, provider, new FixedTimeProvider(T1.AddSeconds(20)));
+
+        Assert.True(result.FullReconciliationCommitted);
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Equal(2, positions.Count);
+        var closedLong = Assert.Single(
+            positions,
+            versioned => versioned.Value.ExchangePositionKey.PositionSide == PositionSide.Long);
+        Assert.Equal(PositionTrackingState.Closed, closedLong.Value.TrackingState);
+        Assert.Equal(T1.AddSeconds(20), closedLong.Value.ClosedAt);
+        var activeShort = Assert.Single(
+            positions,
+            versioned => versioned.Value.TrackingState != PositionTrackingState.Closed);
+        Assert.Equal(PositionSide.Short, activeShort.Value.ExchangePositionKey.PositionSide);
+        Assert.Equal(2m, activeShort.Value.Size);
+        Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+        Assert.True((await LatestPortfolioAsync(account)).PositionsFullyReconciled);
+    }
+
     private async Task<ExchangeAccountSyncResult> SynchronizeAsync(
         ExchangeAccount account,
         TestPrivateProvider provider,

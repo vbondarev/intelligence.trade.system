@@ -344,6 +344,118 @@ public sealed class ExchangeAccountSyncServiceTimeOrderingTests
         world.LatestPortfolio!.PositionsFullyReconciled.Should().BeTrue();
     }
 
+    /// <summary>
+    /// R-208-08 / A1: конфликт сторон ETH блокирует смену стороны BTC и не создаёт второй незакрытый lifecycle.
+    /// </summary>
+    [Fact]
+    public async Task Side_Change_Blocked_When_Other_Symbol_Has_Conflicting_Sides()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Provider.ClearExchangePositions();
+        world.Provider.SetExchangePosition(OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m));
+        world.Provider.SetExchangePosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+        world.Provider.SetExchangePosition(OpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().NotContain(position =>
+            position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+            position.ExchangePositionKey.PositionSide == PositionSide.Short);
+        world.Positions.Where(position =>
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.TrackingState != PositionTrackingState.Closed)
+            .Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Long);
+        world.Events.OfType<PositionOpenedEventV1>()
+            .Should().ContainSingle("исходный Long остаётся единственным PositionOpened");
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-08 / A2: идентичный дубликат ETH блокирует смену стороны BTC.
+    /// </summary>
+    [Fact]
+    public async Task Side_Change_Blocked_When_Other_Symbol_Has_Identical_Duplicate_Rows()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Provider.ReplaceExchangePositions(
+            OpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+            OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+            OpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.ActivePositions.Should().NotContain(position =>
+            position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+            position.ExchangePositionKey.PositionSide == PositionSide.Short);
+        world.Events.OfType<PositionOpenedEventV1>()
+            .Where(opened => opened.InstrumentId == "BTCUSDT" && opened.PositionSide == PositionSide.Short)
+            .Should().BeEmpty();
+        world.Events.OfType<PositionOpenedEventV1>()
+            .Where(opened => opened.InstrumentId == "BTCUSDT")
+            .Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// R-208-09: противоречащие дубликаты BTC не меняют persisted размер; порядок строк не влияет.
+    /// </summary>
+    [Theory]
+    [InlineData(2.0, 3.0)]
+    [InlineData(3.0, 2.0)]
+    public async Task Conflicting_Duplicate_Rest_Rows_Do_Not_Change_Persisted_Size(double firstSize, double secondSize)
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        world.Provider.ReplaceExchangePositions(
+            OpenPosition(size: (decimal)firstSize),
+            OpenPosition(size: (decimal)secondSize));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeFalse();
+        var position = world.ActivePositions.Should().ContainSingle().Subject;
+        position.Size.Should().Be(1m);
+        position.LastObservedAt.Should().Be(T0.AddSeconds(10));
+        world.Events.OfType<PositionChangedEventV1>().Should().BeEmpty();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-08 / A3: чистый Complete закрывает Long и открывает Short согласованно.
+    /// </summary>
+    [Fact]
+    public async Task Clean_Complete_Side_Change_Closes_Previous_And_Opens_Opposite()
+    {
+        var world = new RealtimeTestWorld();
+        await ApplyStreamOpenAsync(world, observedAt: T0.AddSeconds(10), clockAt: T0.AddSeconds(10));
+        var longId = world.ActivePositions.Should().ContainSingle().Subject.Id;
+        world.Provider.ClearExchangePositions();
+        world.Provider.SetExchangePosition(OpenPosition(side: PositionSide.Short, size: 2m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(20);
+        world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.FullReconciliationCommitted.Should().BeTrue();
+        world.Positions.Single(position => position.Id == longId).TrackingState
+            .Should().Be(PositionTrackingState.Closed);
+        world.ActivePositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Short);
+        world.Events.OfType<PositionOpenedEventV1>().Should().HaveCount(2);
+        world.Events.OfType<PositionClosedEventV1>().Should().ContainSingle();
+        world.LatestPortfolio!.PositionsFullyReconciled.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Full_Rest_Older_Than_The_Latest_History_Change_Does_Not_Rewrite_History()
     {

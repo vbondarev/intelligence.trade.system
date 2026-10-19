@@ -966,4 +966,249 @@ public sealed class PositionReconcilerTests
             .Which.ExchangePositionKey.PositionSide.Should().Be(PositionSide.Short);
         result.IsFullyReconciled.Should().BeTrue();
     }
+
+    /// <summary>
+    /// R-208-08 / A1: конфликт сторон ETH не допускает открытие BTC Short без согласованного закрытия Long.
+    /// </summary>
+    [Fact]
+    public void Side_Change_Blocked_When_Other_Symbol_Has_Conflicting_Sides()
+    {
+        var activeLong = CreateTrackedPosition(
+            AccountA, symbol: "BTCUSDT", side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty(
+            "BTC Short нельзя создать, пока конфликт ETH запрещает закрытие BTC Long");
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.New);
+        activeLong.ClosedAt.Should().BeNull();
+        activeLong.TrackingState.Should().NotBe(PositionTrackingState.Closed);
+        result.IsFullyReconciled.Should().BeFalse();
+        result.NewPositions
+            .Concat([activeLong])
+            .Count(position =>
+                position.TrackingState != PositionTrackingState.Closed &&
+                position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT" &&
+                position.ExchangePositionKey.PositionIdx == 0)
+            .Should().Be(1);
+    }
+
+    /// <summary>
+    /// R-208-08 / A2: идентичный дубликат ETH создаёт hasMappingIssues и блокирует смену стороны BTC.
+    /// </summary>
+    [Fact]
+    public void Side_Change_Blocked_When_Other_Symbol_Has_Identical_Duplicate()
+    {
+        var activeLong = CreateTrackedPosition(
+            AccountA, symbol: "BTCUSDT", side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Short, size: 2m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().NotContain(
+            position => position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT",
+            "BTC Short нельзя открыть, пока дубликат ETH запрещает закрытие Long");
+        activeLong.ClosedAt.Should().BeNull();
+        activeLong.TrackingState.Should().NotBe(PositionTrackingState.Closed);
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-09 / B1: противоречащие дубликаты одного ключа не применяют первую строку.
+    /// </summary>
+    [Fact]
+    public void Conflicting_Duplicates_Do_Not_Apply_First_Row()
+    {
+        var activeLong = CreateTrackedPosition(
+            AccountA, side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m),
+                CreateOpenPosition(side: PositionSide.Long, size: 3m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        activeLong.Size.Should().Be(1m);
+        activeLong.LastObservedAt.Should().Be(T0.AddMinutes(10));
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Active);
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Increased);
+        result.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Reduced);
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-09 / B2: обратный порядок противоречащих дубликатов даёт тот же persisted state.
+    /// </summary>
+    [Fact]
+    public void Conflicting_Duplicates_Are_Order_Independent()
+    {
+        var firstOrder = CreateTrackedPosition(
+            AccountA, side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var secondOrder = CreateTrackedPosition(
+            AccountA, side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observedAt = T0.AddMinutes(20);
+
+        var resultAsc = PositionReconciler.Reconcile(
+            AccountA,
+            [firstOrder],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                [
+                    CreateOpenPosition(side: PositionSide.Long, size: 2m),
+                    CreateOpenPosition(side: PositionSide.Long, size: 3m),
+                ]),
+            observedAt,
+            StaleAfter);
+        var resultDesc = PositionReconciler.Reconcile(
+            AccountA,
+            [secondOrder],
+            OpenPositionsObservation.Complete(
+                MarketCategory.Linear,
+                null,
+                observedAt,
+                [
+                    CreateOpenPosition(side: PositionSide.Long, size: 3m),
+                    CreateOpenPosition(side: PositionSide.Long, size: 2m),
+                ]),
+            observedAt,
+            StaleAfter);
+
+        firstOrder.Size.Should().Be(1m);
+        secondOrder.Size.Should().Be(1m);
+        firstOrder.LastObservedAt.Should().Be(secondOrder.LastObservedAt);
+        firstOrder.TrackingState.Should().Be(secondOrder.TrackingState);
+        resultAsc.NewPositions.Should().BeEmpty();
+        resultDesc.NewPositions.Should().BeEmpty();
+        resultAsc.IsFullyReconciled.Should().BeFalse();
+        resultDesc.IsFullyReconciled.Should().BeFalse();
+        resultAsc.Changes.Select(change => change.Kind)
+            .Should().BeEquivalentTo(resultDesc.Changes.Select(change => change.Kind));
+    }
+
+    /// <summary>
+    /// R-208-08 / A4: Partial не выполняет смену стороны физического слота.
+    /// </summary>
+    [Fact]
+    public void Partial_Observation_Does_Not_Replace_Active_Lifecycle_On_Same_Slot()
+    {
+        var activeLong = CreateTrackedPosition(AccountA, side: PositionSide.Long, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Partial(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        activeLong.TrackingState.Should().NotBe(PositionTrackingState.Closed);
+        activeLong.ClosedAt.Should().BeNull();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-09 / B4: конфликт BTC не блокирует достоверное открытие независимого ETH.
+    /// </summary>
+    [Fact]
+    public void Conflicting_Btc_Duplicates_Do_Not_Block_Independent_Eth()
+    {
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Long, size: 2m),
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Long, size: 3m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 4m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+
+        result.NewPositions.Should().ContainSingle()
+            .Which.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
+        result.NewPositions.Should().NotContain(position =>
+            position.ExchangePositionKey.InstrumentId.Value == "BTCUSDT");
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-09 / B5: конфликт ETH не отменяет допустимое обновление размера BTC без смены стороны.
+    /// </summary>
+    [Fact]
+    public void Eth_Conflict_Does_Not_Block_Independent_Btc_Size_Update()
+    {
+        var activeLong = CreateTrackedPosition(
+            AccountA, symbol: "BTCUSDT", side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(symbol: "BTCUSDT", side: PositionSide.Long, size: 2m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
+                CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m),
+            ]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        activeLong.Size.Should().Be(2m);
+        activeLong.TrackingState.Should().Be(PositionTrackingState.Active);
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R-208-09 / B8: повтор конфликтующего Complete не накапливает историю размера.
+    /// </summary>
+    [Fact]
+    public void Repeated_Conflicting_Complete_Does_Not_Accumulate_Size_History()
+    {
+        var activeLong = CreateTrackedPosition(
+            AccountA, side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            T0.AddMinutes(20),
+            [
+                CreateOpenPosition(side: PositionSide.Long, size: 2m),
+                CreateOpenPosition(side: PositionSide.Long, size: 3m),
+            ]);
+
+        PositionReconciler.Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+        var historyAfterFirst = activeLong.Changes.Count;
+        PositionReconciler.Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+
+        activeLong.Size.Should().Be(1m);
+        activeLong.Changes.Should().HaveCount(historyAfterFirst);
+        activeLong.Changes.Should().NotContain(change => change.Kind == PositionChangeKind.Increased);
+    }
 }

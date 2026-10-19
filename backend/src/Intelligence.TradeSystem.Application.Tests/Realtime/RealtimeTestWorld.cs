@@ -437,11 +437,29 @@ internal sealed class RealtimeTestWorld
         /// <summary>Исключение, которым завершается следующий REST-запрос позиций.</summary>
         public Exception? PositionsException { get; set; }
 
-        public void SetExchangePosition(OpenPosition position) =>
+        /// <summary>
+        /// Точный REST-снимок, включая идентичные и противоречащие дубликаты одного ключа.
+        /// </summary>
+        private List<OpenPosition>? exchangePositionsSnapshot;
+
+        public void SetExchangePosition(OpenPosition position)
+        {
+            exchangePositionsSnapshot = null;
             exchangePositions[ExchangePositionStorageKey(position)] = position;
+        }
+
+        /// <summary>
+        /// Задаёт REST-строки как есть (порядок и дубликаты сохраняются) для регрессий неоднозначности.
+        /// </summary>
+        public void ReplaceExchangePositions(params OpenPosition[] positions)
+        {
+            exchangePositions.Clear();
+            exchangePositionsSnapshot = positions.ToList();
+        }
 
         public void RemoveExchangePosition(string symbol, int positionIdx = 0, PositionSide? side = null)
         {
+            exchangePositionsSnapshot = null;
             if (side is { } concreteSide)
             {
                 exchangePositions.Remove($"{symbol}/{positionIdx}/{concreteSide}");
@@ -456,7 +474,11 @@ internal sealed class RealtimeTestWorld
             }
         }
 
-        public void ClearExchangePositions() => exchangePositions.Clear();
+        public void ClearExchangePositions()
+        {
+            exchangePositions.Clear();
+            exchangePositionsSnapshot = null;
+        }
 
         private static string ExchangePositionStorageKey(OpenPosition position) =>
             $"{position.Symbol}/{position.PositionIdx}/{position.Side}";
@@ -484,7 +506,8 @@ internal sealed class RealtimeTestWorld
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var observed = exchangePositions.Values
+            var source = exchangePositionsSnapshot ?? exchangePositions.Values.ToList();
+            var observed = source
                 .Where(position => symbol is null || position.Symbol == symbol)
                 .ToArray();
             return Status switch
