@@ -1292,6 +1292,98 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     /// <summary>
+    /// H-04: неоднозначный REST-баланс сохраняется как <c>balance_ambiguous</c>, даже когда
+    /// REST-позиции тоже не принимаются (watermark позиций новее наблюдения).
+    /// </summary>
+    [Fact]
+    public async Task Ambiguous_rest_balance_with_superseded_positions_persists_balance_ambiguous()
+    {
+        var t1 = T1;
+        var t2 = T1.AddSeconds(2);
+        var t4 = T1.AddSeconds(4);
+        var t5 = T1.AddSeconds(5);
+        var (account, generation) = await CreateObservedAccountAsync();
+        await using (var walletContext = fixture.CreateContext())
+        {
+            var walletResult = await CreateWalletService(walletContext)
+                .ApplyAsync(account.UserId, generation, WalletObservation(account, t2, totalEquity: 1_100m));
+            Assert.Equal(RealtimeObservationApplyOutcome.Applied, walletResult.Outcome);
+        }
+
+        var setup = new TestPrivateProvider
+        {
+            ObservedAt = t2,
+            PositionsObservedAt = t5,
+            Balance = new AccountBalance(AccountType.Unified, 1_100m, 1_000m, 900m, 20m, []),
+        };
+        var setupResult = await SynchronizeAsync(account, setup, new FixedTimeProvider(t5));
+        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, setupResult.Outcome);
+        Assert.False(setupResult.FullReconciliationCommitted);
+
+        var degradedBefore = 0;
+        var openedBefore = 0;
+        var changedBefore = 0;
+        var closedBefore = 0;
+        await using (var beforeContext = fixture.CreateContext())
+        {
+            var beforeAccount = await new ExchangeAccountRepository(beforeContext)
+                .GetByIdAsync(account.UserId, account.Id);
+            Assert.Equal(t2, beforeAccount!.Value.LastAppliedBalanceObservationAt);
+            Assert.Equal(t5, beforeAccount.Value.LastAppliedPositionsObservationAt);
+            degradedBefore = await CountOutboxAsync(
+                beforeContext,
+                account,
+                ApplicationEventTypes.ExchangeAccountSyncDegraded);
+            openedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionOpened);
+            changedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionChanged);
+            closedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionClosed);
+        }
+
+        var clock = new MutableTimeProvider(t1);
+        var provider = new TestPrivateProvider
+        {
+            Clock = clock,
+            PositionsObservedAt = t4,
+            Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []),
+        };
+        provider.BeforeBalanceResponse = () =>
+        {
+            clock.UtcNow = t4;
+            return Task.CompletedTask;
+        };
+
+        var result = await SynchronizeAsync(account, provider, clock);
+
+        Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, result.Outcome);
+        Assert.False(result.FullReconciliationCommitted);
+        Assert.Null(result.BalanceReadStartedAt);
+        Assert.Null(result.BalanceReadCompletedAt);
+        Assert.False(result.AcceptedPositionsObservation);
+        await using var verification = fixture.CreateContext();
+        var portfolio = await new PortfolioStateRepository(verification).GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1_100m, portfolio!.Capital.TotalEquity);
+        Assert.Equal(t2, portfolio.Capital.ObservedAt);
+        var stored = await new ExchangeAccountRepository(verification).GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal("balance_ambiguous", stored!.Value.LastError);
+        Assert.Equal(t2, stored.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(t5, stored.Value.LastAppliedPositionsObservationAt);
+        Assert.Equal(
+            degradedBefore + 1,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.ExchangeAccountSyncDegraded));
+        Assert.True(
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated) >= 1);
+        Assert.Equal(
+            openedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
+        Assert.Equal(
+            changedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        Assert.Equal(
+            closedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
+    }
+
+    /// <summary>
     /// R-208-11 / R11-H: после конфликта по SettlementAsset чистый Complete завершает recovery.
     /// </summary>
     [Fact]

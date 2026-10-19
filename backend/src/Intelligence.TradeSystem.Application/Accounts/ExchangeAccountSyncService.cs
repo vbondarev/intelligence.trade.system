@@ -210,7 +210,12 @@ public sealed class ExchangeAccountSyncService(
                                     balanceObservationAt);
                             }
 
-                            if (!IsApplied(balanceDisposition) && !IsApplied(positionsDisposition))
+                            // Неоднозначный REST-баланс нельзя отбрасывать как обычный no-op:
+                            // признак balance_ambiguous должен сохраниться, даже если позиции
+                            // тоже не приняты (Superseded / AlreadyApplied).
+                            if (!IsApplied(balanceDisposition) &&
+                                !IsApplied(positionsDisposition) &&
+                                !restBalanceOrderAmbiguous)
                             {
                                 attemptResult = CreateNoOpResult(
                                     currentAccount,
