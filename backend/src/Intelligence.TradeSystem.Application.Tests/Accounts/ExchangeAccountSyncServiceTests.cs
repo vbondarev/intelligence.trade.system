@@ -2144,24 +2144,20 @@ public sealed class ExchangeAccountSyncServiceTests
                         RestOrderingDecision.WalletOverlapsBalanceRead(observedAt, messageCreatedAt, [interval]))
                     .ToArray());
 
-        public Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+        public Task<bool> HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             string symbol,
-            DateTimeOffset observedAt,
+            DateTimeOffset acceptedRestObservationAt,
+            DateTimeOffset streamObservedAt,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(
                 Intervals.Any(interval =>
-                    interval.CompletedAt < observedAt &&
+                    interval.StartedAt == acceptedRestObservationAt &&
+                    interval.CompletedAt < streamObservedAt &&
                     (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
                      (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
                       string.Equals(interval.Symbol, symbol.Trim(), StringComparison.OrdinalIgnoreCase)))));
-
-        public Task<bool> HasAnyBalanceEvidenceAsync(
-            UserId userId,
-            ExchangeAccountId exchangeAccountId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Intervals.Any(interval => interval.Kind == ExchangeRestOrderingKind.Balance));
 
         public Task<bool> HasBalanceEvidenceCompletingAtAsync(
             UserId userId,

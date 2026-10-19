@@ -163,6 +163,248 @@ public sealed class RestOrderingEvidenceTests
     }
 
     [Fact]
+    public async Task Older_position_evidence_does_not_prove_order_after_newer_rest_evidence_is_lost()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(1);
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(2);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        var evidence1 = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+            .ToArray();
+        evidence1.Should().ContainSingle();
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        var sync2 = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        sync2.FullPositionsCompleteAccepted.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.ActivePositions.Single().LastObservedAt.Should().Be(T0.AddSeconds(10));
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(T0.AddSeconds(10));
+        world.RestOrderingIntervals.Count(interval =>
+                interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+            .Should().Be(2);
+
+        // Остаётся только evidence REST №1; evidence REST №2 удалено.
+        world.ReplaceRestOrderingIntervals(evidence1);
+        world.RestOrderingIntervals.Should().ContainSingle(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
+            interval.CompletedAt == T0.AddSeconds(2));
+
+        // Scoped confirmation доступен и подтверждает актуальный size=3.
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddMinutes(2);
+        world.Clock.UtcNow = T0.AddMinutes(2);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        var changedBefore = world.Events.OfType<PositionChangedEventV1>().Count();
+        var delayed = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(15), sequence: 1, OpenPosition(size: 2m)));
+
+        delayed.Outcome.Should().BeOneOf(
+            RealtimeObservationApplyOutcome.Applied,
+            RealtimeObservationApplyOutcome.RecoveryRequired);
+        if (delayed.Outcome == RealtimeObservationApplyOutcome.Applied)
+        {
+            delayed.ConfirmedByRest.Should().BeTrue();
+        }
+        else
+        {
+            delayed.ConfirmedByRest.Should().BeFalse();
+        }
+
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.Events.OfType<PositionChangedEventV1>().Should().HaveCount(changedBefore);
+        world.Events.OfType<PositionChangedEventV1>()
+            .Should().NotContain(change => change.After.Size == 2m);
+    }
+
+    [Fact]
+    public async Task Older_position_evidence_requires_recovery_when_scoped_confirmation_unavailable()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(1);
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(2);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        var evidence1 = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+            .ToArray();
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.ReplaceRestOrderingIntervals(evidence1);
+        world.CredentialsUnavailable = true;
+        var changedBefore = world.Events.OfType<PositionChangedEventV1>().Count();
+
+        var delayed = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(15), sequence: 1, OpenPosition(size: 2m)));
+
+        delayed.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        delayed.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.Events.OfType<PositionChangedEventV1>().Should().HaveCount(changedBefore);
+    }
+
+    [Fact]
+    public async Task Older_balance_evidence_does_not_allow_silent_stale_after_newer_rest_evidence_is_lost()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 1_000m, 950m, 800m, 50m, []);
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(2);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        var evidence1 = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.Balance)
+            .ToArray();
+        evidence1.Should().ContainSingle();
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(1_000m);
+
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_500m, 100m, []);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        var sync2 = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        sync2.BalanceReadCompletedAt.Should().Be(T0.AddSeconds(20));
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(T0.AddSeconds(20));
+        world.Account.LastAppliedPositionsObservationAt.Should().NotBeNull();
+
+        // Балансовое evidence REST №1 сохраняется; evidence REST №2 удаляется.
+        world.ReplaceRestOrderingIntervals(evidence1);
+        world.RestOrderingIntervals.Should().ContainSingle(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance &&
+            interval.CompletedAt == T0.AddSeconds(2));
+        var balanceWatermark = world.Account.LastAppliedBalanceObservationAt;
+        var eventsBefore = world.Events.Count;
+
+        var wallet = await world.CreateWalletService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.WalletObservation(T0.AddSeconds(15), totalEquity: 2_000m));
+
+        wallet.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        wallet.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(balanceWatermark);
+        world.Events.Count.Should().Be(eventsBefore);
+    }
+
+    [Fact]
+    public async Task Fresh_ws_after_accepted_rest_evidence_still_applies_directly()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete &&
+            interval.StartedAt == T0.AddSeconds(10) &&
+            interval.CompletedAt == T0.AddSeconds(20));
+
+        var fresh = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(25), sequence: 1, OpenPosition(size: 2m)));
+
+        fresh.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        fresh.ConfirmedByRest.Should().BeFalse();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+    }
+
+    [Fact]
+    public async Task Duplicate_ws_after_partial_evidence_loss_remains_duplicate()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(1);
+        world.Clock.UtcNow = T0.AddSeconds(1);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(2);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        var evidence1 = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+            .ToArray();
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        var first = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(25), sequence: 5, OpenPosition(size: 4m)));
+        first.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        first.ConfirmedByRest.Should().BeFalse();
+        world.ReplaceRestOrderingIntervals(evidence1);
+
+        var duplicate = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(25), sequence: 5, OpenPosition(size: 4m)));
+
+        duplicate.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(4m);
+    }
+
+    [Fact]
+    public async Task Proven_older_wallet_with_accepted_balance_evidence_remains_stale()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_500m, 100m, []);
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+        await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance &&
+            interval.CompletedAt == T0.AddSeconds(20));
+        var equity = world.LatestPortfolio!.Capital.TotalEquity;
+        var watermark = world.Account.LastAppliedBalanceObservationAt;
+
+        var older = await world.CreateWalletService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.WalletObservation(T0.AddSeconds(5), totalEquity: 1_000m));
+
+        older.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
+        older.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanBalance);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(equity);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(watermark);
+    }
+
+    [Fact]
+    public async Task Initial_ws_without_prior_rest_still_applies_directly()
+    {
+        var world = new RealtimeTestWorld();
+        world.Account.LastAppliedPositionsObservationAt.Should().BeNull();
+        world.RestOrderingIntervals.Should().BeEmpty();
+
+        var opened = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            generation: 1,
+            world.OpenObservation(T0.AddSeconds(5), sequence: 1, OpenPosition(size: 2m)));
+
+        opened.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        opened.ConfirmedByRest.Should().BeFalse();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+    }
+
+    [Fact]
     public async Task Missing_rest_evidence_does_not_allow_delayed_ws_position_rollback()
     {
         var world = new RealtimeTestWorld();

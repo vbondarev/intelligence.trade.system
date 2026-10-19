@@ -116,23 +116,28 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
             .ToArray();
     }
 
-    public async Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+    public async Task<bool> HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         string symbol,
-        DateTimeOffset observedAt,
+        DateTimeOffset acceptedRestObservationAt,
+        DateTimeOffset streamObservedAt,
         CancellationToken cancellationToken = default)
     {
         EnsureUserId(userId);
         EnsureAccountId(exchangeAccountId);
         ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
 
-        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+        var normalizedAcceptedAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedRestObservationAt);
+        var normalizedStreamAt = TimestampCanonicalizer.ToUtcMicroseconds(streamObservedAt);
         var trimmedSymbol = symbol.Trim();
 
+        // StartedAt интервала = ObservedAt принятого REST-снимка (watermark). Только такое
+        // совпадение связывает evidence с актуальным принятым состоянием, а не с более старой сверкой.
         var entities = await OwnedIntervals(userId, exchangeAccountId)
             .Where(interval =>
-                interval.CompletedAt < normalizedObservedAt &&
+                interval.StartedAt == normalizedAcceptedAt &&
+                interval.CompletedAt < normalizedStreamAt &&
                 (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
                  interval.Kind == ExchangeRestOrderingKind.ScopedSymbol))
             .ToArrayAsync(cancellationToken)
@@ -141,18 +146,6 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
         return entities.Any(interval =>
             interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
             string.Equals(interval.Symbol, trimmedSymbol, StringComparison.OrdinalIgnoreCase));
-    }
-
-    public Task<bool> HasAnyBalanceEvidenceAsync(
-        UserId userId,
-        ExchangeAccountId exchangeAccountId,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureUserId(userId);
-        EnsureAccountId(exchangeAccountId);
-
-        return OwnedIntervals(userId, exchangeAccountId)
-            .AnyAsync(interval => interval.Kind == ExchangeRestOrderingKind.Balance, cancellationToken);
     }
 
     public async Task<bool> HasBalanceEvidenceCompletingAtAsync(

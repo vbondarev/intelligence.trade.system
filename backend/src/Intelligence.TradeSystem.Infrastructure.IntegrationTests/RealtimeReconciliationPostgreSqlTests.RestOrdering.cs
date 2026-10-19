@@ -382,6 +382,213 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         return await query.AnyAsync();
     }
 
+    [Fact]
+    public async Task Older_position_evidence_on_b_does_not_allow_rollback_on_a_after_newer_evidence_loss()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+
+        var rest1Clock = new MutableTimeProvider(T1.AddSeconds(1));
+        var rest1Provider = new TestPrivateProvider
+        {
+            Clock = rest1Clock,
+            PositionsObservedAt = T1.AddSeconds(1),
+            BeforePositionsResponse = () =>
+            {
+                rest1Clock.UtcNow = T1.AddSeconds(2);
+                return Task.CompletedTask;
+            },
+        };
+        rest1Provider.SetPosition(OpenPosition(size: 1m));
+        Assert.True((await SynchronizeViaScopeAsync(account, rest1Provider, rest1Clock)).FullPositionsCompleteAccepted);
+        Guid evidence1Id;
+        await using (var context = fixture.CreateContext())
+        {
+            var evidence1 = Assert.Single(
+                await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                    .Where(interval =>
+                        interval.ExchangeAccountId == account.Id.Value &&
+                        interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+                    .ToListAsync());
+            evidence1Id = evidence1.Id;
+            Assert.Equal(T1.AddSeconds(2), evidence1.CompletedAt);
+        }
+
+        var rest2Clock = new MutableTimeProvider(T1.AddSeconds(10));
+        var rest2Provider = new TestPrivateProvider
+        {
+            Clock = rest2Clock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            BeforePositionsResponse = () =>
+            {
+                rest2Clock.UtcNow = T1.AddSeconds(20);
+                return Task.CompletedTask;
+            },
+        };
+        rest2Provider.SetPosition(OpenPosition(size: 3m));
+        Assert.True((await SynchronizeViaScopeAsync(account, rest2Provider, rest2Clock)).FullPositionsCompleteAccepted);
+        await using (var context = fixture.CreateContext())
+        {
+            Assert.Equal(2, await context.ExchangeRestOrderingIntervals.CountAsync(interval =>
+                interval.ExchangeAccountId == account.Id.Value &&
+                interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete));
+        }
+
+        await RemoveRestOrderingEvidenceExceptAsync(account, evidence1Id);
+        await using (var context = fixture.CreateContext())
+        {
+            var remaining = Assert.Single(
+                await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                    .Where(interval => interval.ExchangeAccountId == account.Id.Value)
+                    .ToListAsync());
+            Assert.Equal(evidence1Id, remaining.Id);
+            Assert.Equal(ExchangeRestOrderingKind.FullPositionsComplete, remaining.Kind);
+            Assert.Equal(T1.AddSeconds(2), remaining.CompletedAt);
+        }
+
+        int changedBefore;
+        await using (var beforeContext = fixture.CreateContext())
+        {
+            changedBefore = await CountOutboxAsync(
+                beforeContext,
+                account,
+                ApplicationEventTypes.PositionChanged);
+        }
+
+        rest2Provider.PositionsObservedAt = T1.AddMinutes(2);
+        rest2Provider.Clock = new MutableTimeProvider(T1.AddMinutes(2));
+        rest2Provider.SetPosition(OpenPosition(size: 3m));
+        await using var instanceA = CreateApplicationServices(
+            account,
+            rest2Provider,
+            new FixedTimeProvider(T1.AddMinutes(2)));
+        await using var scopeA = instanceA.CreateAsyncScope();
+        var delayed = await scopeA.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(15), 1, OpenPosition(size: 2m)));
+
+        Assert.True(
+            delayed.Outcome is RealtimeObservationApplyOutcome.Applied
+                or RealtimeObservationApplyOutcome.RecoveryRequired);
+        if (delayed.Outcome == RealtimeObservationApplyOutcome.Applied)
+        {
+            Assert.True(delayed.ConfirmedByRest);
+        }
+
+        await using var verification = fixture.CreateContext();
+        var position = await SinglePositionAsync(verification, account);
+        Assert.Equal(3m, position.Size);
+        Assert.NotEqual(2m, position.Size);
+        var accountAfter = await new ExchangeAccountRepository(verification)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(T1.AddSeconds(10), accountAfter!.Value.LastAppliedPositionsObservationAt);
+        Assert.Equal(
+            changedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        if (delayed.Outcome == RealtimeObservationApplyOutcome.RecoveryRequired)
+        {
+            var cursor = await new PositionObservationCursorStore(verification)
+                .GetAsync(account.UserId, CursorKey(account));
+            Assert.Null(cursor);
+        }
+    }
+
+    [Fact]
+    public async Task Older_balance_evidence_on_b_does_not_allow_silent_stale_on_a_after_newer_evidence_loss()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+
+        var rest1Clock = new MutableTimeProvider(T1.AddSeconds(1));
+        var rest1Provider = new TestPrivateProvider
+        {
+            Clock = rest1Clock,
+            PositionsObservedAt = T1.AddSeconds(1),
+            Balance = new AccountBalance(AccountType.Unified, 1_000m, 900m, 800m, 10m, []),
+            BeforeBalanceResponse = () =>
+            {
+                rest1Clock.UtcNow = T1.AddSeconds(2);
+                return Task.CompletedTask;
+            },
+        };
+        rest1Provider.SetPosition(OpenPosition());
+        var sync1 = await SynchronizeViaScopeAsync(account, rest1Provider, rest1Clock);
+        Assert.Equal(T1.AddSeconds(2), sync1.BalanceReadCompletedAt);
+        Guid balanceEvidence1Id;
+        await using (var context = fixture.CreateContext())
+        {
+            var evidence1 = Assert.Single(
+                await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                    .Where(interval =>
+                        interval.ExchangeAccountId == account.Id.Value &&
+                        interval.Kind == ExchangeRestOrderingKind.Balance)
+                    .ToListAsync());
+            balanceEvidence1Id = evidence1.Id;
+        }
+
+        var rest2Clock = new MutableTimeProvider(T1.AddSeconds(10));
+        var rest2Provider = new TestPrivateProvider
+        {
+            Clock = rest2Clock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_500m, 100m, []),
+            BeforeBalanceResponse = () =>
+            {
+                rest2Clock.UtcNow = T1.AddSeconds(20);
+                return Task.CompletedTask;
+            },
+        };
+        rest2Provider.SetPosition(OpenPosition());
+        var sync2 = await SynchronizeViaScopeAsync(account, rest2Provider, rest2Clock);
+        Assert.Equal(T1.AddSeconds(20), sync2.BalanceReadCompletedAt);
+        Assert.Equal(3_000m, (await LatestPortfolioAsync(account)).Capital.TotalEquity);
+
+        await RemoveRestOrderingEvidenceExceptAsync(account, balanceEvidence1Id);
+        await using (var context = fixture.CreateContext())
+        {
+            var remaining = Assert.Single(
+                await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                    .Where(interval =>
+                        interval.ExchangeAccountId == account.Id.Value &&
+                        interval.Kind == ExchangeRestOrderingKind.Balance)
+                    .ToListAsync());
+            Assert.Equal(balanceEvidence1Id, remaining.Id);
+            Assert.Equal(T1.AddSeconds(2), remaining.CompletedAt);
+        }
+
+        int outboxBefore;
+        DateTimeOffset? balanceWatermarkBefore;
+        await using (var beforeContext = fixture.CreateContext())
+        {
+            outboxBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PortfolioUpdated);
+            var loaded = await new ExchangeAccountRepository(beforeContext)
+                .GetByIdAsync(account.UserId, account.Id);
+            balanceWatermarkBefore = loaded!.Value.LastAppliedBalanceObservationAt;
+            Assert.Equal(T1.AddSeconds(20), balanceWatermarkBefore);
+        }
+
+        await using var instanceA = CreateApplicationServices(account, rest2Provider);
+        await using var scopeA = instanceA.CreateAsyncScope();
+        var wallet = await scopeA.ServiceProvider
+            .GetRequiredService<RealtimeWalletObservationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                WalletObservation(account, T1.AddSeconds(15), totalEquity: 2_000m));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, wallet.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.AmbiguousWithRestBalance, wallet.ReasonCode);
+        Assert.Equal(3_000m, (await LatestPortfolioAsync(account)).Capital.TotalEquity);
+        await using var verification = fixture.CreateContext();
+        var accountAfter = await new ExchangeAccountRepository(verification)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(balanceWatermarkBefore, accountAfter!.Value.LastAppliedBalanceObservationAt);
+        Assert.Equal(
+            outboxBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
     /// <summary>
     /// Моделирует потерю/отсутствие interval history после принятого REST без production delete path.
     /// </summary>
@@ -390,6 +597,21 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         await using var context = fixture.CreateContext();
         var intervals = await context.ExchangeRestOrderingIntervals
             .Where(interval => interval.ExchangeAccountId == account.Id.Value)
+            .ToListAsync();
+        context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Удаляет все intervals аккаунта, кроме указанного — модель частичной потери history.
+    /// </summary>
+    private async Task RemoveRestOrderingEvidenceExceptAsync(ExchangeAccount account, Guid keepId)
+    {
+        await using var context = fixture.CreateContext();
+        var intervals = await context.ExchangeRestOrderingIntervals
+            .Where(interval =>
+                interval.ExchangeAccountId == account.Id.Value &&
+                interval.Id != keepId)
             .ToListAsync();
         context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
         await context.SaveChangesAsync();

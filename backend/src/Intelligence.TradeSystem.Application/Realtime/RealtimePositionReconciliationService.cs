@@ -345,10 +345,13 @@ public sealed class RealtimePositionReconciliationService(
 
     /// <summary>
     /// Пустой результат <see cref="IExchangeRestOrderingEvidenceStore.GetPositionEvidenceAsync"/>
-    /// означает лишь отсутствие найденного пересечения. Если watermark REST уже поднят, а
-    /// завершение чтения до WS не доказано evidence, Active-состояние нельзя безопасно менять
-    /// DirectApply: REST мог принять более новый размер. Unknown после неуспешного REST по-прежнему
-    /// восстанавливается прямым применением.
+    /// означает лишь отсутствие найденного пересечения. Когда материал позиции совпадает с
+    /// positions watermark (успешная REST-сверка записала оба), DirectApply допустим только при
+    /// evidence этой сверки (<c>StartedAt</c> = watermark), завершённом до WS. Исторический
+    /// интервал другой сверки не доказывает порядок. Если watermark ушёл вперёд без обновления
+    /// <see cref="Position.LastObservedAt"/> (неуспешный REST) или позиция новее watermark
+    /// (уже принятый WS), проверка не требует confirmation по отсутствию evidence. Unknown после
+    /// неуспешного REST по-прежнему восстанавливается прямым применением.
     /// </summary>
     private async Task<bool> RequiresConfirmationForMissingRestEvidenceAsync(
         UserId userId,
@@ -374,11 +377,19 @@ public sealed class RealtimePositionReconciliationService(
             return false;
         }
 
+        // Watermark без совпадающего LastObservedAt не означает принятое REST-состояние позиции.
+        var normalizedLastObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(existing.LastObservedAt);
+        if (normalizedLastObservedAt != normalizedWatermark)
+        {
+            return false;
+        }
+
         return !await restOrderingEvidenceStore
-            .HasPositionEvidenceCompletedBeforeAsync(
+            .HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
                 userId,
                 prepared.Observation.ExchangeAccountId,
                 prepared.Observation.Symbol,
+                positionsWatermark,
                 prepared.ObservedAt,
                 cancellationToken)
             .ConfigureAwait(false);

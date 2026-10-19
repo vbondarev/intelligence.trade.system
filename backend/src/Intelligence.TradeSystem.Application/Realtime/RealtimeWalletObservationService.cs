@@ -341,10 +341,11 @@ public sealed class RealtimeWalletObservationService(
     }
 
     /// <summary>
-    /// REST-синхронизация обычно поднимает оба watermark; капитал с тем же Balance watermark при
-    /// полном отсутствии Balance evidence выглядит как принятый REST-снимок с утерянной историей
-    /// интервалов. Silent Stale в этом случае запрещён. Чистый wallet-поток (positions watermark
-    /// отсутствует) по-прежнему может получить Stale.
+    /// REST-синхронизация обычно поднимает оба watermark; капитал с тем же Balance watermark без
+    /// Balance evidence, завершающегося ровно в <paramref name="acceptedCapitalAt"/>, выглядит как
+    /// принятый REST-снимок без доказанной связи с актуальной сверкой. Исторический Balance-интервал
+    /// другой сверки происхождения капитала не доказывает — silent Stale запрещён. Чистый
+    /// wallet-поток (positions watermark отсутствует) по-прежнему может получить Stale.
     /// </summary>
     private async Task<bool> IsAmbiguousOlderWalletWithoutRestEvidenceAsync(
         UserId userId,
@@ -365,19 +366,12 @@ public sealed class RealtimeWalletObservationService(
             return false;
         }
 
-        if (await restOrderingEvidenceStore
-                .HasBalanceEvidenceCompletingAtAsync(
-                    userId,
-                    exchangeAccountId,
-                    acceptedCapitalAt,
-                    cancellationToken)
-                .ConfigureAwait(false))
-        {
-            return false;
-        }
-
         return !await restOrderingEvidenceStore
-            .HasAnyBalanceEvidenceAsync(userId, exchangeAccountId, cancellationToken)
+            .HasBalanceEvidenceCompletingAtAsync(
+                userId,
+                exchangeAccountId,
+                acceptedCapitalAt,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 

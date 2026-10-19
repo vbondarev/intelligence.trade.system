@@ -718,11 +718,12 @@ internal sealed class RealtimeTestWorld
             return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>(matches);
         }
 
-        public Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+        public Task<bool> HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             string symbol,
-            DateTimeOffset observedAt,
+            DateTimeOffset acceptedRestObservationAt,
+            DateTimeOffset streamObservedAt,
             CancellationToken cancellationToken = default)
         {
             if (userId != world.UserId || exchangeAccountId != world.AccountId)
@@ -730,28 +731,14 @@ internal sealed class RealtimeTestWorld
                 return Task.FromResult(false);
             }
 
-            var normalizedObservedAt = observedAt;
             var trimmedSymbol = symbol.Trim();
             var completedBefore = world.restOrderingIntervals.Any(interval =>
-                interval.CompletedAt < normalizedObservedAt &&
+                interval.StartedAt == acceptedRestObservationAt &&
+                interval.CompletedAt < streamObservedAt &&
                 (interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete ||
                  (interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
                   string.Equals(interval.Symbol, trimmedSymbol, StringComparison.OrdinalIgnoreCase))));
             return Task.FromResult(completedBefore);
-        }
-
-        public Task<bool> HasAnyBalanceEvidenceAsync(
-            UserId userId,
-            ExchangeAccountId exchangeAccountId,
-            CancellationToken cancellationToken = default)
-        {
-            if (userId != world.UserId || exchangeAccountId != world.AccountId)
-            {
-                return Task.FromResult(false);
-            }
-
-            return Task.FromResult(world.restOrderingIntervals.Any(interval =>
-                interval.Kind == ExchangeRestOrderingKind.Balance));
         }
 
         public Task<bool> HasBalanceEvidenceCompletingAtAsync(

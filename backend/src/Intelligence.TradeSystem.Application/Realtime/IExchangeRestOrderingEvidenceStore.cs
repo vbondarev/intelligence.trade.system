@@ -46,29 +46,23 @@ public interface IExchangeRestOrderingEvidenceStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// True, если для символа есть Full/Scoped evidence с <c>CompletedAt</c> строго раньше
-    /// <paramref name="observedAt"/>. Это доказывает, что известное REST-чтение завершилось до
-    /// потокового события; пустой результат <see cref="GetPositionEvidenceAsync"/> сам по себе
-    /// таким доказательством не является.
+    /// True, если есть Full/Scoped evidence символа, связанное с актуальным принятым REST-состоянием
+    /// (<paramref name="acceptedRestObservationAt"/> = <c>StartedAt</c> интервала) и завершённое
+    /// строго раньше <paramref name="streamObservedAt"/>. Исторический интервал другой сверки таким
+    /// доказательством не является; пустой результат <see cref="GetPositionEvidenceAsync"/> — тоже.
     /// </summary>
-    Task<bool> HasPositionEvidenceCompletedBeforeAsync(
+    Task<bool> HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         string symbol,
-        DateTimeOffset observedAt,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// True, если для аккаунта есть хотя бы один Balance-интервал.
-    /// </summary>
-    Task<bool> HasAnyBalanceEvidenceAsync(
-        UserId userId,
-        ExchangeAccountId exchangeAccountId,
+        DateTimeOffset acceptedRestObservationAt,
+        DateTimeOffset streamObservedAt,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// True, если есть Balance evidence с <c>CompletedAt</c>, равным
-    /// <paramref name="completedAt"/> (после каноникализации до микросекунд).
+    /// <paramref name="completedAt"/> (после каноникализации до микросекунд). Это связывает
+    /// evidence с принятым REST-капиталом, у которого <c>ObservedAt</c> совпадает с завершением чтения.
     /// </summary>
     Task<bool> HasBalanceEvidenceCompletingAtAsync(
         UserId userId,
