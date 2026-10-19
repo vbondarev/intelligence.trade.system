@@ -95,23 +95,43 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
 
         await secondEnteredPersistence.Task.WaitAsync(CompletionTimeout);
 
-        ExchangeAccountSyncResult firstResult;
-        ExchangeAccountSyncResult secondResult;
-        if (aPersistsFirst)
+        Exception? firstFailure = null;
+        ExchangeAccountSyncResult? firstResult = null;
+        try
         {
-            firstResult = await taskA.WaitAsync(CompletionTimeout);
-            releaseSecondPersistence.TrySetResult(true);
-            secondResult = await taskB.WaitAsync(CompletionTimeout);
+            firstResult = aPersistsFirst
+                ? await taskA.WaitAsync(CompletionTimeout)
+                : await taskB.WaitAsync(CompletionTimeout);
         }
-        else
+        catch (Exception exception)
         {
-            firstResult = await taskB.WaitAsync(CompletionTimeout);
+            firstFailure = exception;
+        }
+        finally
+        {
+            // Барьер освобождается и при ошибке первой операции, иначе вторая зависает.
             releaseSecondPersistence.TrySetResult(true);
-            secondResult = await taskA.WaitAsync(CompletionTimeout);
         }
 
-        var resultA = aPersistsFirst ? firstResult : secondResult;
-        var resultB = aPersistsFirst ? secondResult : firstResult;
+        ExchangeAccountSyncResult secondResult;
+        try
+        {
+            secondResult = aPersistsFirst
+                ? await taskB.WaitAsync(CompletionTimeout)
+                : await taskA.WaitAsync(CompletionTimeout);
+        }
+        catch (Exception secondFailure) when (firstFailure is not null)
+        {
+            throw new AggregateException(firstFailure, secondFailure);
+        }
+
+        if (firstFailure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstFailure).Throw();
+        }
+
+        var resultA = aPersistsFirst ? firstResult! : secondResult;
+        var resultB = aPersistsFirst ? secondResult : firstResult!;
 
         // Failed-наблюдение, чьи watermark Applied, даёт ExchangeUnavailable; если Failed
         // оказался Superseded после принятия Complete другого экземпляра — Outcome=Synchronized
@@ -136,11 +156,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Null(resultB.BalanceReadStartedAt);
         Assert.Null(resultB.BalanceReadCompletedAt);
         Assert.True(resultB.AcceptedPositionsObservation);
-        // ExchangeUnavailable не несёт PortfolioState → FullPositionsCompleteAccepted в результате
-        // false, хотя AppendRestOrderingEvidenceAsync уже записал FullPositionsComplete в БД.
-        Assert.Equal(
-            resultB.Outcome == ExchangeAccountSyncOutcome.Synchronized,
-            resultB.FullPositionsCompleteAccepted);
+        // Полный снимок позиций принят независимо от Outcome/Balance: evidence и результат совпадают.
+        Assert.True(resultB.FullPositionsCompleteAccepted);
 
         await using var verification = fixture.CreateContext();
         var portfolio = await new PortfolioStateRepository(verification)

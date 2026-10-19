@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -1810,6 +1811,52 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_100m);
         world.Portfolios[^1].Capital.ObservedAt.Should().Be(duringBalanceAt);
+    }
+
+    /// <summary>
+    /// P2-1: деградированная REST-сверка с принятым Complete positions расширяет FullSyncWindow,
+    /// но не завершает recovery через FullReconciliationCommitted.
+    /// </summary>
+    [Fact]
+    public async Task Failed_balance_with_complete_positions_extends_full_sync_window_without_committing_recovery()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        world.Provider.BalanceFails = true;
+        var restStartedAt = T0.AddSeconds(10);
+        world.Clock.UtcNow = restStartedAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = restStartedAt.AddSeconds(10);
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        sync.AcceptedPositionsObservation.Should().BeTrue();
+        sync.FullPositionsCompleteAccepted.Should().BeTrue();
+        sync.FullReconciliationCommitted.Should().BeFalse();
+        world.RestOrderingIntervals.Should().Contain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
+        world.State!.LastFullyReconciledAt.Should().BeNull();
+
+        world.CredentialsUnavailable = true;
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(restStartedAt.AddSeconds(5), 1, OpenPosition(size: 1m)))
+            .Should()
+            .BeTrue();
+        var overlapping = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        var blocked = overlapping.Should().ContainSingle().Subject;
+        blocked.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        blocked.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationUnavailable);
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(2m);
+        world.State.LastFullyReconciledAt.Should().BeNull();
     }
 
     /// <summary>

@@ -111,6 +111,52 @@ public sealed class RestOrderingEvidenceTests
             interval.Symbol == "BTCUSDT");
     }
 
+    /// <summary>
+    /// P2-1: Failed balance не скрывает принятие Complete positions — evidence и результат совпадают.
+    /// </summary>
+    [Fact]
+    public async Task Failed_balance_with_complete_positions_accepts_full_positions_without_full_reconciliation()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.BalanceFails = true;
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = T0.AddSeconds(20);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.PortfolioState.Should().BeNull();
+        result.AcceptedPositionsObservation.Should().BeTrue();
+        result.FullPositionsCompleteAccepted.Should().BeTrue();
+        result.FullReconciliationCommitted.Should().BeFalse();
+        result.BalanceReadStartedAt.Should().BeNull();
+        result.BalanceReadCompletedAt.Should().BeNull();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.RestOrderingIntervals.Should().ContainSingle(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
+        world.RestOrderingIntervals.Should().NotContain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.Balance);
+    }
+
+    [Fact]
+    public async Task Failed_positions_does_not_accept_full_positions_complete()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        world.Provider.OnPositionsRequest = () => world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(5);
+
+        var result = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.AcceptedPositionsObservation.Should().BeFalse();
+        result.FullPositionsCompleteAccepted.Should().BeFalse();
+        result.FullReconciliationCommitted.Should().BeFalse();
+        world.RestOrderingIntervals.Should().NotContain(interval =>
+            interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
+    }
+
     [Fact]
     public async Task Scoped_symbol_evidence_does_not_affect_other_symbols()
     {

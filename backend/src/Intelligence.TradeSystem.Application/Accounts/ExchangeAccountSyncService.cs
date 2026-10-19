@@ -118,6 +118,9 @@ public sealed class ExchangeAccountSyncService(
             var attemptedNewPositionKeys = Array.Empty<ExchangePositionKey>();
             var balanceDisposition = ExchangeAccountObservationDisposition.Superseded;
             var positionsDisposition = ExchangeAccountObservationDisposition.Superseded;
+            // Совпадают с критерием FullPositionsComplete evidence внутри успешной транзакции.
+            var positionsAreCurrent = false;
+            var positionsFullyReconciled = false;
 
             try
             {
@@ -261,8 +264,7 @@ public sealed class ExchangeAccountSyncService(
                                 .Select(position => position.LastObservedAt)
                                 .Append(observationCompletedAt)
                                 .Max();
-                            var positionsAreCurrent =
-                                IsApplied(positionsDisposition);
+                            positionsAreCurrent = IsApplied(positionsDisposition);
                             var acceptRestBalance = IsApplied(balanceDisposition) && hasFreshBalance;
                             var reconciliation = PositionReconciler.Reconcile(
                                 exchangeAccountId,
@@ -275,7 +277,7 @@ public sealed class ExchangeAccountSyncService(
                                 .Select(position => position.ExchangePositionKey)
                                 .ToArray();
 
-                            var positionsFullyReconciled = positionsAreCurrent
+                            positionsFullyReconciled = positionsAreCurrent
                                 ? reconciliation.IsFullyReconciled &&
                                   CoversAllActivePositions(
                                       trackedPositions.Concat(reconciliation.NewPositions),
@@ -519,7 +521,9 @@ public sealed class ExchangeAccountSyncService(
                         balanceObservation,
                         positionsDisposition,
                         normalizedPositionsObservation,
-                        positionsReadCompletedAt);
+                        positionsReadCompletedAt,
+                        positionsAreCurrent,
+                        positionsFullyReconciled);
                 }
 
                 return AttachAcceptedResourceEvidence(
@@ -529,7 +533,9 @@ public sealed class ExchangeAccountSyncService(
                     balanceObservation,
                     positionsDisposition,
                     normalizedPositionsObservation,
-                    positionsReadCompletedAt);
+                    positionsReadCompletedAt,
+                    positionsAreCurrent,
+                    positionsFullyReconciled);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -553,7 +559,9 @@ public sealed class ExchangeAccountSyncService(
                     balanceObservation,
                     positionsDisposition,
                     normalizedPositionsObservation,
-                    positionsReadCompletedAt);
+                    positionsReadCompletedAt,
+                    positionsAreCurrent,
+                    positionsFullyReconciled);
             }
 
             return attemptResult;
@@ -891,6 +899,11 @@ public sealed class ExchangeAccountSyncService(
     /// <summary>
     /// Передаёт coordinator сведения о фактически принятых REST-ресурсах без подмены общего Outcome.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="positionsAreCurrent"/> и <paramref name="positionsFullyReconciled"/> —
+    /// те же признаки успешной persistence attempt, что и для <c>FullPositionsComplete</c> evidence;
+    /// не выводятся из Outcome или наличия <see cref="ExchangeAccountSyncResult.PortfolioState"/>.
+    /// </remarks>
     private static ExchangeAccountSyncResult AttachAcceptedResourceEvidence(
         ExchangeAccountSyncResult result,
         bool hasFreshBalance,
@@ -898,7 +911,9 @@ public sealed class ExchangeAccountSyncService(
         AccountBalanceObservation balanceObservation,
         ExchangeAccountObservationDisposition positionsDisposition,
         OpenPositionsObservation positionsObservation,
-        DateTimeOffset positionsReadCompletedAt)
+        DateTimeOffset positionsReadCompletedAt,
+        bool positionsAreCurrent,
+        bool positionsFullyReconciled)
     {
         var balanceRead = ResolveAcceptedBalanceReadWindow(
             hasFreshBalance,
@@ -911,11 +926,12 @@ public sealed class ExchangeAccountSyncService(
             positionsDisposition,
             positionsObservation,
             positionsReadCompletedAt);
+        // Тот же критерий, что AppendRestOrderingEvidenceAsync для FullPositionsComplete.
         var fullPositionsComplete =
-            positionsAccepted &&
+            positionsAreCurrent &&
             positionsObservation.Status == OpenPositionsObservationStatus.Complete &&
             positionsObservation.Symbol is null &&
-            (result.PortfolioState?.PositionsFullyReconciled == true || result.FullReconciliationCommitted);
+            positionsFullyReconciled;
         return result
             .WithAcceptedBalanceRead(balanceRead?.StartedAt, balanceRead?.CompletedAt)
             .WithAcceptedPositionsObservation(positionsAccepted)
