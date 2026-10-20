@@ -2,9 +2,9 @@
 
 Версия документа: 3.62
 Дата актуализации: 20 октября 2026 года
-Проверенная база: `develop` @ `0ac520d5230dc57c40f9f475350b2ca32271b648`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187; G-03: Issue #189 / PR #190; нормализация документации React Web-клиента: Issue #191 / PR #192; граница realtime-контура Stage G/H: Issue #194; G-04: Issue #193 / PR #195; G-05: Issue #198 / PR #199; G-06 / PR-3: Issue #202 / PR #208 (подготовлен к Human Merge Gate, ещё не слит)
+Проверенная база: `develop` @ `0ac520d5230dc57c40f9f475350b2ca32271b648`; G-01: Issue #180 / PR #181; prerequisite G-02: Issue #182 / PR #183; G-02: Issue #184 / PR #185; архитектура внешней аутентификации: Issue #187; G-03: Issue #189 / PR #190; нормализация документации React Web-клиента: Issue #191 / PR #192; граница realtime-контура Stage G/H: Issue #194; G-04: Issue #193 / PR #195; G-05: Issue #198 / PR #199; G-06 / PR-3: Issue #202 / PR #208 (реализован foundation согласования)
 Последняя учтённая задача: Issue #202 «G-06. Реализовать realtime-наблюдение Bybit и согласование фактического состояния»; промежуточный PR #208 — Incremental Reconciliation
-Текущий этап: **G — основной Web-клиент и realtime-контур**; G-01 — G-05 завершены; G-06 находится в работе, PR-3/PR #208 подготовлен к слиянию, PR-4 realtime worker ещё не реализован
+Текущий этап: **G — основной Web-клиент и realtime-контур**; G-01 — G-05 завершены; G-06 находится в работе, PR-3/PR #208 реализовал foundation согласования, PR-4 realtime worker ещё не реализован
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -352,7 +352,7 @@ GET    /api/v1/auth/me
 
 ### Этап G. Создать основной Web-клиент и realtime-контур
 
-Статус этапа: 🚧 В работе; G-01 — G-05 завершены, G-06 выполняется поэтапно; PR-3/PR #208 подготовлен к слиянию, оставшаяся реализация G-06 (включая PR-4) не завершена.
+Статус этапа: 🚧 В работе; G-01 — G-05 завершены, G-06 выполняется поэтапно; PR-3/PR #208 реализовал foundation, оставшаяся реализация G-06 (включая PR-4) не завершена.
 
 Цель: завершить основной пользовательский Web-сценарий первого MVP — не только React-интерфейс и browser realtime transport, но и полный путь от изменения фактического состояния биржи до автоматического обновления открытого Web:
 
@@ -374,7 +374,7 @@ Stage G поэтому является cross-stack этапом и включа
 | G-08 | Добавить адаптивность и базовую доступность | ⬜ | Основные сценарии работают на телефоне и компьютере |
 | G-09 | Зафиксировать базовую дизайн-систему и обработку ошибок | ⬜ | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
 
-**Промежуточный результат G-06 / PR-3 (Issue #202, [PR #208](https://github.com/vbondarev/intelligence.trade.system/pull/208)).** Реализованы application-level согласование приватных WS-наблюдений с REST, persisted PostgreSQL REST ordering evidence, versioned `RecoveryRequestEpoch`, generation/recovery fencing, биржевые cursors, атомарное сохранение доменного состояния и outbox и тесты PostgreSQL на порядок, восстановление, clock skew и конкурентные сценарии. На этапе подготовки к merge подтверждён exact-head CI для кода PR-3; обновление документации требует повторной проверки CI на окончательном HEAD. **PR-3 не запускает realtime worker:** автоматическое получение и доставка WS-наблюдений в эксплуатационном контуре и полный G-06 остаются следующими работами. Follow-up: [#209](https://github.com/vbondarev/intelligence.trade.system/issues/209) (история позиций), [#210](https://github.com/vbondarev/intelligence.trade.system/issues/210) (SQL Balance evidence), [#211](https://github.com/vbondarev/intelligence.trade.system/issues/211) (несмежные REST-окна), [#212](https://github.com/vbondarev/intelligence.trade.system/issues/212) и [#213](https://github.com/vbondarev/intelligence.trade.system/issues/213) (потенциальные correctness-риски при утрате evidence). Перенос #212/#213 не равнозначен исправлению; действующий Approved Amendment требует отдельного решения по ним **до** Human Merge Gate. Issue #202 остаётся задачей всего G-06, даже после слияния отдельного PR-3.
+**Промежуточный результат G-06 / PR-3 (Issue #202, [PR #208](https://github.com/vbondarev/intelligence.trade.system/pull/208)).** Реализованы application-level согласование приватных WS-наблюдений с REST, persisted PostgreSQL REST ordering evidence, versioned `RecoveryRequestEpoch`, generation/recovery fencing, биржевые cursors, атомарное сохранение доменного состояния и outbox и тесты PostgreSQL на порядок, восстановление, clock skew и конкурентные сценарии. Результаты exact-head CI и решение Human Merge Gate для PR-3 фиксируются в PR #208, а не в дорожной карте. **PR-3 не запускает realtime worker:** автоматическое получение и доставка WS-наблюдений в эксплуатационном контуре и полный G-06 остаются следующими работами. Follow-up: [#209](https://github.com/vbondarev/intelligence.trade.system/issues/209) (история позиций), [#210](https://github.com/vbondarev/intelligence.trade.system/issues/210) (SQL Balance evidence), [#211](https://github.com/vbondarev/intelligence.trade.system/issues/211) (несмежные REST-окна), [#212](https://github.com/vbondarev/intelligence.trade.system/issues/212) и [#213](https://github.com/vbondarev/intelligence.trade.system/issues/213) (потенциальные correctness-риски при утрате evidence). Перенос #212/#213 не равнозначен исправлению; действующий Approved Amendment требует отдельного решения по ним **до** Human Merge Gate. Issue #202 остаётся задачей всего G-06, даже после слияния отдельного PR-3.
 
 #### Параллельное направление G-AUTH — внешняя аутентификация
 
