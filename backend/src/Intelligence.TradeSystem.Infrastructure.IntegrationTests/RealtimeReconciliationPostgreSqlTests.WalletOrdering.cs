@@ -74,6 +74,10 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Null(
             await new WalletObservationCursorStore(verification)
                 .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+        var persistedAccount = await new ExchangeAccountRepository(verification)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.NotNull(persistedAccount);
+        Assert.Null(persistedAccount!.Value.LastAppliedBalanceObservationAt);
         Assert.Equal(0, await CountPortfoliosAsync(verification, account));
         Assert.Equal(0, await CountOutboxAsync(verification, account));
     }

@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.History;
@@ -9,6 +10,7 @@ using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -1325,6 +1327,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var openedBefore = 0;
         var changedBefore = 0;
         var closedBefore = 0;
+        var portfolioUpdatedBefore = 0;
+        var balanceEvidenceBefore = 0;
         await using (var beforeContext = fixture.CreateContext())
         {
             var beforeAccount = await new ExchangeAccountRepository(beforeContext)
@@ -1338,6 +1342,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             openedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionOpened);
             changedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionChanged);
             closedBefore = await CountOutboxAsync(beforeContext, account, ApplicationEventTypes.PositionClosed);
+            portfolioUpdatedBefore = await CountOutboxAsync(
+                beforeContext,
+                account,
+                ApplicationEventTypes.PortfolioUpdated);
+            balanceEvidenceBefore = await beforeContext.ExchangeRestOrderingIntervals
+                .AsNoTracking()
+                .CountAsync(interval =>
+                    interval.ExchangeAccountId == account.Id.Value &&
+                    interval.Kind == ExchangeRestOrderingKind.Balance);
         }
 
         var clock = new MutableTimeProvider(t1);
@@ -1371,8 +1384,16 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(
             degradedBefore + 1,
             await CountOutboxAsync(verification, account, ApplicationEventTypes.ExchangeAccountSyncDegraded));
-        Assert.True(
-            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated) >= 1);
+        Assert.Equal(
+            portfolioUpdatedBefore + 1,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        Assert.Equal(
+            balanceEvidenceBefore,
+            await verification.ExchangeRestOrderingIntervals
+                .AsNoTracking()
+                .CountAsync(interval =>
+                    interval.ExchangeAccountId == account.Id.Value &&
+                    interval.Kind == ExchangeRestOrderingKind.Balance));
         Assert.Equal(
             openedBefore,
             await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
