@@ -12,5 +12,7 @@ public sealed class PositionObservationCursorEntity
     public DateTimeOffset? LastProviderUpdatedAt { get; set; }
     public DateTimeOffset? LastMessageCreatedAt { get; set; }
     public string LastAcceptedFingerprint { get; set; } = null!;
+    public Guid? LastDirectAppliedPositionId { get; set; }
+    public long? LastDirectAppliedPositionVersion { get; set; }
     public long Version { get; set; }
 }

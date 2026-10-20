@@ -28,6 +28,11 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// позиции → аккаунт → состояние наблюдения.
 /// </para>
 /// <para>
+/// Для прямого обновления существующей позиции курсор должен доказывать, что её текущая CAS-версия
+/// была сохранена последним direct WS, либо ordering evidence должен подтверждать REST-состояние с
+/// <see cref="Position.LastObservedAt"/>. Сам account watermark происхождение позиции не доказывает.
+/// </para>
+/// <para>
 /// Нулевой размер и смена направления в слоте позиции не применяются напрямую: состояние слота
 /// подтверждается scoped REST-наблюдением, а закрытие выполняется существующим
 /// <see cref="PositionReconciler"/> только по полному снимку. Автоматическая evaluation не запускается.
@@ -232,10 +237,9 @@ public sealed class RealtimePositionReconciliationService(
                             }
 
                             var slot = locked.Positions
-                                .Select(versioned => versioned.Value)
-                                .Where(position =>
-                                    position.TrackingState != PositionTrackingState.Closed &&
-                                    IsInSlot(position, prepared))
+                                .Where(versioned =>
+                                    versioned.Value.TrackingState != PositionTrackingState.Closed &&
+                                    IsInSlot(versioned.Value, prepared))
                                 .ToArray();
 
                             if (prepared.Observation.Kind == PrivatePositionObservationKind.PotentialClose)
@@ -246,14 +250,14 @@ public sealed class RealtimePositionReconciliationService(
                                     return;
                                 }
 
-                                await SaveCursorAsync(userId, generation, prepared, locked.Cursor, token)
+                                await SaveCursorAsync(userId, generation, prepared, locked.Cursor, null, token)
                                     .ConfigureAwait(false);
                                 result = RealtimeObservationApplyResult.Applied();
                                 return;
                             }
 
                             var key = prepared.Key!.Value;
-                            if (slot.Any(position => position.ExchangePositionKey != key))
+                            if (slot.Any(versioned => versioned.Value.ExchangePositionKey != key))
                             {
                                 requiresRestConfirmation = true;
                                 return;
@@ -282,7 +286,7 @@ public sealed class RealtimePositionReconciliationService(
                                 await RequiresConfirmationForMissingRestEvidenceAsync(
                                         userId,
                                         prepared,
-                                        locked.Account,
+                                        locked,
                                         slot[0],
                                         token)
                                     .ConfigureAwait(false))
@@ -291,7 +295,13 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            result = await UpdateLifecycleAsync(userId, generation, prepared, locked, slot[0], token)
+                            result = await UpdateLifecycleAsync(
+                                    userId,
+                                    generation,
+                                    prepared,
+                                    locked,
+                                    slot[0],
+                                    token)
                                 .ConfigureAwait(false);
                         },
                         cancellationToken)
@@ -352,42 +362,27 @@ public sealed class RealtimePositionReconciliationService(
     }
 
     /// <summary>
-    /// Пустой результат <see cref="IExchangeRestOrderingEvidenceStore.GetPositionEvidenceAsync"/>
-    /// означает лишь отсутствие найденного пересечения. Когда материал позиции совпадает с
-    /// positions watermark (успешная REST-сверка записала оба), DirectApply допустим только при
-    /// evidence этой сверки (<c>StartedAt</c> = watermark), завершённом до WS. Исторический
-    /// интервал другой сверки не доказывает порядок. Если watermark ушёл вперёд без обновления
-    /// <see cref="Position.LastObservedAt"/> (неуспешный REST) или позиция новее watermark
-    /// (уже принятый WS), проверка не требует confirmation по отсутствию evidence. Unknown после
-    /// неуспешного REST по-прежнему восстанавливается прямым применением.
+    /// Прямое обновление допустимо без REST confirmation, только если текущая CAS-версия позиции
+    /// совпадает с версией, записанной последним прямым WS, либо найдено подходящее завершённое REST
+    /// evidence для <see cref="Position.LastObservedAt"/>. Account watermark не доказывает происхождение
+    /// состояния позиции. Unknown сохраняет прежнюю политику прямого восстановления после неуспешного REST.
     /// </summary>
     private async Task<bool> RequiresConfirmationForMissingRestEvidenceAsync(
         UserId userId,
         PreparedObservation prepared,
-        ExchangeAccount account,
-        Position existing,
+        LockedState locked,
+        Versioned<Position> existing,
         CancellationToken cancellationToken)
     {
-        if (existing.TrackingState == PositionTrackingState.Unknown)
+        var position = existing.Value;
+        if (position.TrackingState == PositionTrackingState.Unknown)
         {
             return false;
         }
 
-        if (account.LastAppliedPositionsObservationAt is not { } positionsWatermark)
-        {
-            return false;
-        }
-
-        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(prepared.ObservedAt);
-        var normalizedWatermark = TimestampCanonicalizer.ToUtcMicroseconds(positionsWatermark);
-        if (normalizedObservedAt < normalizedWatermark)
-        {
-            return false;
-        }
-
-        // Watermark без совпадающего LastObservedAt не означает принятое REST-состояние позиции.
-        var normalizedLastObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(existing.LastObservedAt);
-        if (normalizedLastObservedAt != normalizedWatermark)
+        var cursor = locked.Cursor?.Value;
+        if (cursor?.LastDirectAppliedPositionId == position.Id &&
+            cursor.LastDirectAppliedPositionVersion == existing.Version)
         {
             return false;
         }
@@ -397,7 +392,7 @@ public sealed class RealtimePositionReconciliationService(
                 userId,
                 prepared.Observation.ExchangeAccountId,
                 prepared.Observation.Symbol,
-                positionsWatermark,
+                position.LastObservedAt,
                 prepared.ObservedAt,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -456,7 +451,7 @@ public sealed class RealtimePositionReconciliationService(
             observed.TakeProfit,
             observed.StopLoss,
             observed.TrailingStop);
-        await positionRepository
+        var version = await positionRepository
             .SaveAsync(userId, created, expectedVersion: null, cancellationToken)
             .ConfigureAwait(false);
 
@@ -471,6 +466,7 @@ public sealed class RealtimePositionReconciliationService(
                 locked,
                 positions,
                 created.Changes.Select(change => (created, change)),
+                new Versioned<Position>(created, version),
                 cancellationToken)
             .ConfigureAwait(false);
         return RealtimeObservationApplyResult.Applied();
@@ -481,9 +477,10 @@ public sealed class RealtimePositionReconciliationService(
         long generation,
         PreparedObservation prepared,
         LockedState locked,
-        Position existing,
+        Versioned<Position> versionedExisting,
         CancellationToken cancellationToken)
     {
+        var existing = versionedExisting.Value;
         // Сюда попадают только наблюдения с ревизией новее курсора. Если ограниченный ObservedAt
         // оказывается не новее принятого состояния, биржевой порядок и время записи противоречат друг
         // другу — прямое применение запрещено, нужна полная сверка.
@@ -522,9 +519,8 @@ public sealed class RealtimePositionReconciliationService(
             observed.StopLoss,
             observed.TrailingStop,
             PositionChangeCause.ExchangeObservation);
-        var version = locked.Positions.Single(versioned => versioned.Value.Id == existing.Id).Version;
-        await positionRepository
-            .SaveAsync(userId, existing, version, cancellationToken)
+        var version = await positionRepository
+            .SaveAsync(userId, existing, versionedExisting.Version, cancellationToken)
             .ConfigureAwait(false);
 
         await PersistDerivedStateAsync(
@@ -534,6 +530,7 @@ public sealed class RealtimePositionReconciliationService(
                 locked,
                 locked.Positions.Select(versioned => versioned.Value).ToArray(),
                 change is null ? [] : [(existing, change)],
+                new Versioned<Position>(existing, version),
                 cancellationToken)
             .ConfigureAwait(false);
         return RealtimeObservationApplyResult.Applied();
@@ -688,6 +685,7 @@ public sealed class RealtimePositionReconciliationService(
                                     locked,
                                     positions,
                                     reconciliation.Changes.Select(change => (positionsById[change.PositionId], change)),
+                                    null,
                                     token)
                                 .ConfigureAwait(false);
                             if (scopedReadBounds is { } bounds)
@@ -813,6 +811,7 @@ public sealed class RealtimePositionReconciliationService(
         LockedState locked,
         IReadOnlyCollection<Position> positions,
         IEnumerable<(Position Position, PositionChange Change)> changes,
+        Versioned<Position>? directAppliedPosition,
         CancellationToken cancellationToken)
     {
         var accountId = prepared.Observation.ExchangeAccountId;
@@ -846,7 +845,14 @@ public sealed class RealtimePositionReconciliationService(
             .SaveAsync(userId, portfolioState, cancellationToken)
             .ConfigureAwait(false);
 
-        await SaveCursorAsync(userId, generation, prepared, locked.Cursor, cancellationToken).ConfigureAwait(false);
+        await SaveCursorAsync(
+                userId,
+                generation,
+                prepared,
+                locked.Cursor,
+                directAppliedPosition,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         var applicationEvents = changes
             .Select(pair => PositionApplicationEventFactory.Create(userId, locked.Account, pair.Position, pair.Change))
@@ -867,6 +873,7 @@ public sealed class RealtimePositionReconciliationService(
         long generation,
         PreparedObservation prepared,
         Versioned<PositionObservationCursor>? current,
+        Versioned<Position>? directAppliedPosition,
         CancellationToken cancellationToken)
     {
         // Курсор не допускает регресса известных компонентов ревизии, поэтому неизвестный в
@@ -878,6 +885,8 @@ public sealed class RealtimePositionReconciliationService(
             LastProviderUpdatedAt = MaxNullable(current?.Value.LastProviderUpdatedAt, prepared.ProviderUpdatedAt),
             LastMessageCreatedAt = prepared.Observation.MessageCreatedAt ?? current?.Value.LastMessageCreatedAt,
             LastAcceptedFingerprint = prepared.Fingerprint,
+            LastDirectAppliedPositionId = directAppliedPosition?.Value.Id,
+            LastDirectAppliedPositionVersion = directAppliedPosition?.Version,
         };
         return cursorStore.SaveAsync(userId, cursor, current?.Version, generation, cancellationToken);
     }

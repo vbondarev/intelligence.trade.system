@@ -25,6 +25,15 @@ public sealed class PositionObservationCursorConfiguration
                 "ck_position_observation_cursors_fingerprint_format",
                 "last_accepted_fingerprint ~ '^[A-Za-z0-9:_.-]{1,128}$'");
             table.HasCheckConstraint(
+                "ck_position_observation_cursors_direct_applied_position_pair",
+                """
+                (last_direct_applied_position_id IS NULL AND last_direct_applied_position_version IS NULL)
+                OR
+                (last_direct_applied_position_id IS NOT NULL
+                 AND last_direct_applied_position_version IS NOT NULL
+                 AND last_direct_applied_position_version > 0)
+                """);
+            table.HasCheckConstraint(
                 "ck_position_observation_cursors_version_positive",
                 "version > 0");
         });
@@ -63,6 +72,12 @@ public sealed class PositionObservationCursorConfiguration
             .HasColumnName("last_accepted_fingerprint")
             .HasMaxLength(PositionObservationCursor.FingerprintMaxLength)
             .IsRequired();
+        builder.Property(cursor => cursor.LastDirectAppliedPositionId)
+            .HasColumnName("last_direct_applied_position_id")
+            .HasColumnType("uuid");
+        builder.Property(cursor => cursor.LastDirectAppliedPositionVersion)
+            .HasColumnName("last_direct_applied_position_version")
+            .HasColumnType("bigint");
         builder.Property(cursor => cursor.Version)
             .HasColumnName("version")
             .HasColumnType("bigint")

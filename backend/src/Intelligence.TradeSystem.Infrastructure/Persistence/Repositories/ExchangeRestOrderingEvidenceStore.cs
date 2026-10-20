@@ -156,8 +156,8 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
         var normalizedStreamAt = TimestampCanonicalizer.ToUtcMicroseconds(streamObservedAt);
         var trimmedSymbol = symbol.Trim();
 
-        // StartedAt интервала = ObservedAt принятого REST-снимка (watermark). Только такое
-        // совпадение связывает evidence с актуальным принятым состоянием, а не с более старой сверкой.
+        // StartedAt интервала совпадает с принятой меткой REST-наблюдения позиции. Только такое
+        // совпадение связывает evidence с актуальным состоянием позиции, а не с более старой сверкой.
         var entities = await OwnedIntervals(userId, exchangeAccountId)
             .Where(interval =>
                 interval.StartedAt == normalizedAcceptedAt &&

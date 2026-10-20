@@ -101,6 +101,13 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                 nameof(cursor));
         }
 
+        if (!cursor.HasValidDirectAppliedPositionStamp)
+        {
+            throw new ArgumentException(
+                "A direct-applied position stamp requires a position ID and positive version.",
+                nameof(cursor));
+        }
+
         if (dbContext.Database.CurrentTransaction is not null)
         {
             return await LockAccountAndWriteAsync(
@@ -164,6 +171,14 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                 NpgsqlDbType.TimestampTz,
                 PersistenceDateTime.ToUtc(cursor.LastMessageCreatedAt)),
             Parameter("last_accepted_fingerprint", NpgsqlDbType.Varchar, cursor.LastAcceptedFingerprint),
+            Parameter(
+                "last_direct_applied_position_id",
+                NpgsqlDbType.Uuid,
+                cursor.LastDirectAppliedPositionId?.Value),
+            Parameter(
+                "last_direct_applied_position_version",
+                NpgsqlDbType.Bigint,
+                cursor.LastDirectAppliedPositionVersion?.Value),
             Parameter("next_version", NpgsqlDbType.Bigint, nextVersion.Value),
         };
 
@@ -183,6 +198,8 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                     last_provider_updated_at,
                     last_message_created_at,
                     last_accepted_fingerprint,
+                    last_direct_applied_position_id,
+                    last_direct_applied_position_version,
                     version)
                 SELECT
                     fence.exchange_account_id,
@@ -193,6 +210,8 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                     @last_provider_updated_at,
                     @last_message_created_at,
                     @last_accepted_fingerprint,
+                    @last_direct_applied_position_id,
+                    @last_direct_applied_position_version,
                     @next_version
                 FROM fence
                 ON CONFLICT (exchange_account_id, market_category, instrument_id, position_idx) DO NOTHING
@@ -214,6 +233,8 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                     last_provider_updated_at = @last_provider_updated_at,
                     last_message_created_at = @last_message_created_at,
                     last_accepted_fingerprint = @last_accepted_fingerprint,
+                    last_direct_applied_position_id = @last_direct_applied_position_id,
+                    last_direct_applied_position_version = @last_direct_applied_position_version,
                     version = @next_version
                 FROM fence
                 WHERE stored.exchange_account_id = fence.exchange_account_id
@@ -264,6 +285,12 @@ internal sealed class PositionObservationCursorStore(TradeSystemDbContext dbCont
                 LastProviderUpdatedAt = entity.LastProviderUpdatedAt,
                 LastMessageCreatedAt = entity.LastMessageCreatedAt,
                 LastAcceptedFingerprint = entity.LastAcceptedFingerprint,
+                LastDirectAppliedPositionId = entity.LastDirectAppliedPositionId is { } positionId
+                    ? PositionId.FromGuid(positionId)
+                    : null,
+                LastDirectAppliedPositionVersion = entity.LastDirectAppliedPositionVersion is { } positionVersion
+                    ? new ConcurrencyVersion(positionVersion)
+                    : null,
             },
             new ConcurrencyVersion(entity.Version));
 

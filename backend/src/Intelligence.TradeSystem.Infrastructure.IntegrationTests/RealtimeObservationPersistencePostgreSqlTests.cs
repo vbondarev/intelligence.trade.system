@@ -174,15 +174,78 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
                     Assert.Equal(11, cursor.Value.LastProviderSequence);
                     Assert.Equal(BaseTime.AddSeconds(1), cursor.Value.LastProviderUpdatedAt);
                     Assert.Equal("fp-btc-11", cursor.Value.LastAcceptedFingerprint);
+                    Assert.Null(cursor.Value.LastDirectAppliedPositionId);
+                    Assert.Null(cursor.Value.LastDirectAppliedPositionVersion);
                     Assert.Equal(new ConcurrencyVersion(2), cursor.Version);
                 },
                 cursor =>
                 {
                     Assert.Equal(eth, cursor.Value.Key);
                     Assert.Equal(900, cursor.Value.LastProviderSequence);
+                    Assert.Null(cursor.Value.LastDirectAppliedPositionId);
+                    Assert.Null(cursor.Value.LastDirectAppliedPositionVersion);
                     Assert.Equal(ConcurrencyVersion.Initial, cursor.Version);
                 });
         }
+    }
+
+    [Fact]
+    public async Task Direct_applied_position_stamp_round_trips_resets_and_enforces_its_pair_constraint()
+    {
+        var account = await CreateSavedAccountAsync();
+        var generation = await StartObservationAsync(account);
+        var key = CreateKey(account, "BTCUSDT");
+        var positionId = PositionId.New();
+        var cursor = CreateCursor(key, 1, BaseTime) with
+        {
+            LastDirectAppliedPositionId = positionId,
+            LastDirectAppliedPositionVersion = new ConcurrencyVersion(7),
+        };
+        ConcurrencyVersion version;
+
+        await using (var context = fixture.CreateContext())
+        {
+            var store = new PositionObservationCursorStore(context);
+            version = await store.SaveAsync(account.UserId, cursor, null, generation);
+
+            var stored = await store.GetAsync(account.UserId, key);
+            Assert.Equal(positionId, stored!.Value.LastDirectAppliedPositionId);
+            Assert.Equal(new ConcurrencyVersion(7), stored.Value.LastDirectAppliedPositionVersion);
+
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(
+                account.UserId,
+                cursor with { LastDirectAppliedPositionVersion = null },
+                version,
+                generation));
+
+            await store.SaveAsync(
+                account.UserId,
+                CreateCursor(key, 2, BaseTime.AddSeconds(1)),
+                version,
+                generation);
+        }
+
+        await using (var verification = fixture.CreateContext())
+        {
+            var stored = await new PositionObservationCursorStore(verification).GetAsync(account.UserId, key);
+            Assert.Equal(new ConcurrencyVersion(2), stored!.Version);
+            Assert.Null(stored.Value.LastDirectAppliedPositionId);
+            Assert.Null(stored.Value.LastDirectAppliedPositionVersion);
+        }
+
+        await using var constraintContext = fixture.CreateContext();
+        var exception = await Assert.ThrowsAsync<PostgresException>(() =>
+            constraintContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE position_observation_cursors
+                SET last_direct_applied_position_version = 0
+                WHERE exchange_account_id = {account.Id.Value}
+                  AND market_category = {"Linear"}
+                  AND instrument_id = {"BTCUSDT"}
+                  AND position_idx = {0}
+                """));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+        Assert.Equal("ck_position_observation_cursors_direct_applied_position_pair", exception.ConstraintName);
     }
 
     [Fact]

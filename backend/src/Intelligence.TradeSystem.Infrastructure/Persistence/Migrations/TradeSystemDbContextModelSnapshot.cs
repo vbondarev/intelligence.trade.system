@@ -1025,6 +1025,14 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("last_accepted_fingerprint");
 
+                    b.Property<Guid?>("LastDirectAppliedPositionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_direct_applied_position_id");
+
+                    b.Property<long?>("LastDirectAppliedPositionVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_direct_applied_position_version");
+
                     b.Property<DateTimeOffset?>("LastMessageCreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_message_created_at");
@@ -1048,6 +1056,8 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Migrations
 
                     b.ToTable("position_observation_cursors", null, t =>
                         {
+                            t.HasCheckConstraint("ck_position_observation_cursors_direct_applied_position_pair", "(last_direct_applied_position_id IS NULL AND last_direct_applied_position_version IS NULL)\r\nOR\r\n(last_direct_applied_position_id IS NOT NULL\r\n AND last_direct_applied_position_version IS NOT NULL\r\n AND last_direct_applied_position_version > 0)");
+
                             t.HasCheckConstraint("ck_position_observation_cursors_fingerprint_format", "last_accepted_fingerprint ~ '^[A-Za-z0-9:_.-]{1,128}$'");
 
                             t.HasCheckConstraint("ck_position_observation_cursors_position_idx_non_negative", "position_idx >= 0");
