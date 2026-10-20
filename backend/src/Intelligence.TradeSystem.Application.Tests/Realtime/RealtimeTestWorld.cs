@@ -37,10 +37,13 @@ internal sealed class RealtimeTestWorld
     private DateTimeOffset? lastAcceptedWalletMessageCreatedAt;
 
     /// <param name="observed">
-    /// Аккаунт уже наблюдается потоком: сохранено поколение 1 с требуемым recovery. Иначе состояние
-    /// наблюдения отсутствует до <see cref="StartObservation"/>.
+    /// Аккаунт уже наблюдается потоком. Иначе состояние наблюдения отсутствует до
+    /// <see cref="StartObservation"/>.
     /// </param>
-    public RealtimeTestWorld(bool observed = true)
+    /// <param name="recoveryRequired">
+    /// Для уже наблюдаемого аккаунта задаёт, ожидает ли сохранённое поколение начальной сверки.
+    /// </param>
+    public RealtimeTestWorld(bool observed = true, bool recoveryRequired = false)
     {
         account = new Versioned<ExchangeAccount>(
             ExchangeAccount.Create(
@@ -54,7 +57,7 @@ internal sealed class RealtimeTestWorld
             ConcurrencyVersion.Initial);
         if (observed)
         {
-            StartObservation();
+            StartObservation(recoveryRequired);
         }
 
         Provider = new FakePrivateProvider(this);
@@ -143,14 +146,15 @@ internal sealed class RealtimeTestWorld
             : null;
 
     /// <summary>Сохраняет первое поколение наблюдателя, как <c>AdvanceGenerationAsync</c> без прежнего состояния.</summary>
-    public void StartObservation() =>
+    public void StartObservation(bool recoveryRequired = true) =>
         state = new Versioned<RealtimeObservationState>(
             new RealtimeObservationState
             {
                 ExchangeAccountId = AccountId,
                 Generation = 1,
                 TransportStatus = RealtimeObservationTransportStatus.Connected,
-                RecoveryRequired = true,
+                RecoveryRequired = recoveryRequired,
+                LastFullyReconciledAt = recoveryRequired ? null : T0,
                 RecoveryRequestEpoch = 1,
             },
             ConcurrencyVersion.Initial);
@@ -1087,14 +1091,20 @@ internal sealed class RealtimeTestWorld
             return Task.FromResult(next);
         }
 
-        public Task<bool> TryLockGenerationAsync(
+        public Task<RealtimeObservationStateLockResult> TryLockGenerationAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             long generation,
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, exchangeAccountId);
-            return Task.FromResult(world.state?.Value.Generation == generation);
+            var state = world.state?.Value;
+            var result = state?.Generation != generation
+                ? RealtimeObservationStateLockResult.GenerationSuperseded
+                : state.RecoveryRequired
+                    ? RealtimeObservationStateLockResult.RecoveryRequired
+                    : RealtimeObservationStateLockResult.Locked;
+            return Task.FromResult(result);
         }
     }
 }

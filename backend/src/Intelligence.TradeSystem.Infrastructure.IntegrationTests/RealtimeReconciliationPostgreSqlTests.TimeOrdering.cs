@@ -492,7 +492,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task Failed_balance_complete_positions_keeps_rest_size_against_buffered_regression()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new MutableTimeProvider(T1);
         ExchangeAccountObservationCoordinator? coordinator = null;
         var provider = new TestPrivateProvider
@@ -733,8 +733,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.True(await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged) >= 1);
         Assert.Equal(0, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
         var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
-        Assert.True(state!.Value.RecoveryRequired);
-        Assert.Null(state.Value.LastFullyReconciledAt);
+        Assert.False(state!.Value.RecoveryRequired);
+        Assert.Equal(T1, state.Value.LastFullyReconciledAt);
     }
 
     /// <summary>
@@ -779,15 +779,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionOpened));
         Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
         var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
-        Assert.True(state!.Value.RecoveryRequired);
-        Assert.Null(state.Value.LastFullyReconciledAt);
+        Assert.False(state!.Value.RecoveryRequired);
+        Assert.Equal(T1, state.Value.LastFullyReconciledAt);
     }
 
     /// <summary>
-    /// R-208-02: противоречащий Complete с равным временем не снимает recovery и не меняет позицию.
+    /// R-208-02: противоречащий Complete с равным временем не меняет подтверждённую позицию.
     /// </summary>
     [Fact]
-    public async Task Equal_timestamp_conflicting_complete_keeps_recovery_and_position()
+    public async Task Equal_timestamp_conflicting_complete_keeps_confirmed_position()
     {
         var (account, generation) = await CreateObservedAccountAsync();
         Assert.Equal(
@@ -821,8 +821,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(changedBefore, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
             Assert.Equal(closedBefore, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionClosed));
             var state = await new RealtimeObservationStateStore(verification).GetAsync(account.UserId, account.Id);
-            Assert.True(state!.Value.RecoveryRequired);
-            Assert.Null(state.Value.LastFullyReconciledAt);
+            Assert.False(state!.Value.RecoveryRequired);
+            Assert.Equal(T1, state.Value.LastFullyReconciledAt);
             Assert.Equal(1, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
         }
 

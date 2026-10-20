@@ -79,7 +79,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     [Fact]
     public async Task Generation_lock_requires_a_transaction_and_fences_generation_change_until_commit()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateFullyReconciledAccountAsync();
 
         await using var observerContext = fixture.CreateContext();
         await using var lifecycleContext = fixture.CreateContext();
@@ -89,9 +89,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         await using (var transaction = await observerContext.Database.BeginTransactionAsync())
         {
-            Assert.False(await observerStore.TryLockGenerationAsync(account.UserId, account.Id, generation + 1));
-            Assert.False(await observerStore.TryLockGenerationAsync(UserId.New(), account.Id, generation));
-            Assert.True(await observerStore.TryLockGenerationAsync(account.UserId, account.Id, generation));
+            Assert.Equal(
+                RealtimeObservationStateLockResult.GenerationSuperseded,
+                await observerStore.TryLockGenerationAsync(account.UserId, account.Id, generation + 1));
+            Assert.Equal(
+                RealtimeObservationStateLockResult.GenerationSuperseded,
+                await observerStore.TryLockGenerationAsync(UserId.New(), account.Id, generation));
+            Assert.Equal(
+                RealtimeObservationStateLockResult.Locked,
+                await observerStore.TryLockGenerationAsync(account.UserId, account.Id, generation));
 
             var advance = new RealtimeObservationStateStore(lifecycleContext).AdvanceGenerationAsync(
                 account.UserId,
@@ -693,7 +699,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         await new PortfolioStateRepository(context).SaveAsync(account.UserId, state);
     }
 
-    private async Task<(ExchangeAccount Account, long Generation)> CreateObservedAccountAsync()
+    private async Task<(ExchangeAccount Account, long Generation)> CreateObservedAccountAsync(
+        bool recoveryRequired = false)
     {
         var account = ExchangeAccount.Create(
             ExchangeAccountId.New(),
@@ -709,6 +716,14 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             account.UserId,
             account.Id,
             RealtimeObservationTransportStatus.Connected);
+        if (!recoveryRequired)
+        {
+            await new RealtimeObservationStateStore(context).SaveAsync(
+                account.UserId,
+                state.Value with { RecoveryRequired = false, LastFullyReconciledAt = T1 },
+                state.Version);
+        }
+
         return (account, state.Value.Generation);
     }
 

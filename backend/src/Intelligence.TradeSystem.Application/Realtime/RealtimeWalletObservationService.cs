@@ -188,11 +188,18 @@ public sealed class RealtimeWalletObservationService(
             return RealtimeObservationApplyResult.AccountUnavailable();
         }
 
-        if (!await observationStateStore
-                .TryLockGenerationAsync(userId, exchangeAccountId, generation, cancellationToken)
-                .ConfigureAwait(false))
+        var stateLock = await observationStateStore
+            .TryLockGenerationAsync(userId, exchangeAccountId, generation, cancellationToken)
+            .ConfigureAwait(false);
+        if (stateLock == RealtimeObservationStateLockResult.GenerationSuperseded)
         {
             return RealtimeObservationApplyResult.GenerationSuperseded();
+        }
+
+        if (stateLock == RealtimeObservationStateLockResult.RecoveryRequired)
+        {
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.PersistedRecoveryRequired);
         }
 
         var previous = await portfolioStateRepository

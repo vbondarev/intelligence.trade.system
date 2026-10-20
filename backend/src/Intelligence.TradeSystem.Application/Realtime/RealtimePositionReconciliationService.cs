@@ -218,7 +218,12 @@ public sealed class RealtimePositionReconciliationService(
                     .ExecuteAsync(
                         async token =>
                         {
-                            var (locked, rejection) = await LockAsync(userId, generation, prepared, token)
+                            var (locked, rejection) = await LockAsync(
+                                    userId,
+                                    generation,
+                                    prepared,
+                                    allowPersistedRecovery: false,
+                                    token)
                                 .ConfigureAwait(false);
                             if (locked is null)
                             {
@@ -608,7 +613,12 @@ public sealed class RealtimePositionReconciliationService(
                     .ExecuteAsync(
                         async token =>
                         {
-                            var (locked, rejection) = await LockAsync(userId, generation, prepared, token)
+                            var (locked, rejection) = await LockAsync(
+                                    userId,
+                                    generation,
+                                    prepared,
+                                    allowPersistedRecovery: true,
+                                    token)
                                 .ConfigureAwait(false);
                             if (locked is null)
                             {
@@ -726,6 +736,7 @@ public sealed class RealtimePositionReconciliationService(
         UserId userId,
         long generation,
         PreparedObservation prepared,
+        bool allowPersistedRecovery,
         CancellationToken cancellationToken)
     {
         var accountId = prepared.Observation.ExchangeAccountId;
@@ -751,11 +762,20 @@ public sealed class RealtimePositionReconciliationService(
             return (null, RealtimeObservationApplyResult.AccountUnavailable());
         }
 
-        if (!await observationStateStore
-                .TryLockGenerationAsync(userId, accountId, generation, cancellationToken)
-                .ConfigureAwait(false))
+        var stateLock = await observationStateStore
+            .TryLockGenerationAsync(userId, accountId, generation, cancellationToken)
+            .ConfigureAwait(false);
+        if (stateLock == RealtimeObservationStateLockResult.GenerationSuperseded)
         {
             return (null, RealtimeObservationApplyResult.GenerationSuperseded());
+        }
+
+        if (stateLock == RealtimeObservationStateLockResult.RecoveryRequired && !allowPersistedRecovery)
+        {
+            return (
+                null,
+                RealtimeObservationApplyResult.RecoveryRequired(
+                    RealtimeObservationApplyResult.PersistedRecoveryRequired));
         }
 
         var cursor = await cursorStore

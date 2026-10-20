@@ -23,7 +23,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task H02_Recovery_ABA_across_independent_instances_keeps_newer_recovery_request()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
@@ -94,7 +94,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task H05_Cas_conflict_on_confirm_does_not_ack_newer_recovery_epoch()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
@@ -164,7 +164,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task H07_Repeated_loss_while_recovery_required_increments_epoch()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
@@ -223,7 +223,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task H10_Generation_change_during_confirm_preserves_new_generation_recovery()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var providerA = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         var providerB = new TestPrivateProvider { ObservedAt = T1.AddMinutes(2) };
@@ -282,7 +282,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task H17_Distinct_losses_bump_epoch_retries_are_idempotent()
     {
-        var (account, generation) = await CreateObservedAccountAsync();
+        var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var provider = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         await using var services = CreateApplicationServices(account, provider, clock);
@@ -334,8 +334,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     [Fact]
     public async Task Recovery_epoch_is_isolated_per_user_account()
     {
-        var (accountA, generationA) = await CreateObservedAccountAsync();
-        var (accountB, _) = await CreateObservedAccountAsync();
+        var (accountA, generationA) = await CreateObservedAccountAsync(recoveryRequired: true);
+        var (accountB, _) = await CreateObservedAccountAsync(recoveryRequired: true);
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
         var provider = new TestPrivateProvider { ObservedAt = T1.AddMinutes(1) };
         await using var servicesA = CreateApplicationServices(accountA, provider, clock);
@@ -454,7 +454,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             }
         }
 
-        public Task<bool> TryLockGenerationAsync(
+        public Task<RealtimeObservationStateLockResult> TryLockGenerationAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             long generation,

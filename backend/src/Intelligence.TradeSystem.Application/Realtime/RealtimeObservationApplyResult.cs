@@ -39,6 +39,7 @@ public sealed record RealtimeObservationApplyResult
     public const string WalletUnconfirmed = "wallet_unconfirmed";
     public const string WalletIncomplete = "wallet_incomplete";
     public const string BufferOverflow = "buffer_overflow";
+    public const string PersistedRecoveryRequired = "persisted_recovery_required";
 
     private RealtimeObservationApplyResult(
         RealtimeObservationApplyOutcome outcome,

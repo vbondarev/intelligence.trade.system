@@ -14,7 +14,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task H05_Cas_retry_on_confirm_does_not_ack_injected_newer_epoch()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         var baselineEpoch = world.State!.RecoveryRequestEpoch;
@@ -114,7 +114,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Successful_full_sync_clears_only_matching_epoch_and_keeps_epoch_value()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         world.State!.RecoveryRequestEpoch.Should().Be(1);
@@ -130,7 +130,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Concurrent_epoch_bump_during_rest_prevents_stale_confirm()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         world.State!.RecoveryRequired.Should().BeTrue();

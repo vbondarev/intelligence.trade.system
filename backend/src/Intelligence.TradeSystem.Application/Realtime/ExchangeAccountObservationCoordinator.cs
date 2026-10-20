@@ -245,9 +245,12 @@ public sealed class ExchangeAccountObservationCoordinator(
 
                     break;
                 case RealtimeObservationApplyOutcome.RecoveryRequired:
-                    lock (channel.Sync)
+                    if (result.ReasonCode != RealtimeObservationApplyResult.PersistedRecoveryRequired)
                     {
-                        channel.RecoveryRequests++;
+                        lock (channel.Sync)
+                        {
+                            channel.RecoveryRequests++;
+                        }
                     }
 
                     recoveryReported = true;

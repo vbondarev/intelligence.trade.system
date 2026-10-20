@@ -174,7 +174,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
         return nextVersion;
     }
 
-    public async Task<bool> TryLockGenerationAsync(
+    public async Task<RealtimeObservationStateLockResult> TryLockGenerationAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         long generation,
@@ -197,7 +197,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                   AND account.user_id = @user_id
                 FOR KEY SHARE OF account
             )
-            SELECT observation.generation
+            SELECT observation.recovery_required
             FROM exchange_realtime_observations AS observation
             INNER JOIN account_lock ON account_lock.exchange_account_id = observation.exchange_account_id
             WHERE observation.generation = @generation
@@ -211,7 +211,14 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
             static async (command, token) =>
             {
                 await using var reader = await command.ExecuteReaderAsync(token);
-                return await reader.ReadAsync(token);
+                if (!await reader.ReadAsync(token))
+                {
+                    return RealtimeObservationStateLockResult.GenerationSuperseded;
+                }
+
+                return reader.GetBoolean(0)
+                    ? RealtimeObservationStateLockResult.RecoveryRequired
+                    : RealtimeObservationStateLockResult.Locked;
             },
             cancellationToken);
 

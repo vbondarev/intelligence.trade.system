@@ -140,7 +140,18 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
 
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
-        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        world.Cursor("BTCUSDT").Should().BeNull();
+
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        coordinator.TryEnqueue(
+                world.UserId,
+                2,
+                world.OpenObservation(world.Clock.UtcNow.AddSeconds(1), 2))
+            .Should()
+            .BeTrue();
+        (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
     }
 
@@ -215,6 +226,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.Provider.BalanceFails = true;
 
         var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var portfoliosAfterSync = world.Portfolios.Count;
+        var eventsAfterSync = world.Events.Count;
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
@@ -399,9 +412,9 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     }
 
     [Fact]
-    public async Task Wallet_Applied_After_Failed_Rest_Does_Not_Mark_The_Account_As_Reconciled()
+    public async Task Wallet_Is_Rejected_While_Initial_Recovery_Remains_Pending()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
         coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(world.Clock.UtcNow.AddSeconds(-1)))
@@ -411,16 +424,23 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.Provider.BalanceFails = true;
 
         var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var portfoliosAfterSync = world.Portfolios.Count;
+        var eventsAfterSync = world.Events.Count;
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
-        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        var rejected = results.Should().ContainSingle().Subject;
+        rejected.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        rejected.ReasonCode.Should().Be(RealtimeObservationApplyResult.PersistedRecoveryRequired);
         world.State!.RecoveryRequired.Should().BeTrue();
+        world.State.RecoveryRequestEpoch.Should().Be(1);
         world.State.LastFullyReconciledAt.Should().BeNull();
         world.Account.LastSyncedAt.Should().BeNull();
         world.Account.LastError.Should().Be("balance_failed");
+        world.Portfolios.Should().HaveCount(portfoliosAfterSync);
         world.Portfolios[^1].PositionsFullyReconciled.Should().BeFalse();
-        world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_000m);
+        world.Portfolios[^1].Capital.TotalEquity.Should().BeNull();
+        world.Events.Should().HaveCount(eventsAfterSync);
     }
 
     [Fact]
@@ -778,7 +798,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Recovery_Is_Not_Acknowledged_By_Complete_Positions_Without_Full_Coverage()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         world.SeedPosition(Position.Create(
             ExchangePositionKey.Create(world.AccountId, InstrumentId.From("BTCUSD"), PositionSide.Long, 0),
             MarketCategory.Inverse,
@@ -805,7 +825,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Recovery_Is_Not_Acknowledged_When_The_Full_Sync_Transaction_Fails_To_Commit()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
@@ -895,7 +915,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Lost_Cas_On_The_Reconciled_Write_Does_Not_Acknowledge_Recovery()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
@@ -1234,7 +1254,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Generation_Advanced_During_Rest_Without_Stream_Observations_Is_Reconciled_By_The_Next_Sync()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         world.Provider.OnPositionsRequest = () =>
@@ -1280,7 +1300,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Foreign_User_Synchronization_Neither_Learns_Nor_Reconciles_The_Owner_Generation()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
 
@@ -1820,7 +1840,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Failed_balance_with_complete_positions_extends_full_sync_window_without_committing_recovery()
     {
-        var world = new RealtimeTestWorld();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
@@ -1921,8 +1941,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         position.TrackingState.Should().Be(PositionTrackingState.Active);
         position.LastObservedAt.Should().Be(T0.AddSeconds(21));
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
-        world.State!.RecoveryRequired.Should().BeTrue();
-        world.State.LastFullyReconciledAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.LastFullyReconciledAt.Should().Be(T0);
     }
 
     /// <summary>
@@ -2111,7 +2131,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             world.UserId,
             1,
             world.OpenObservation(T0.AddSeconds(10), 1, OpenPosition(size: 1m)));
-        world.State!.RecoveryRequired.Should().BeTrue();
+        world.InjectConcurrentRecoveryRequest();
         world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         world.Provider.SnapshotObservedAt = T0.AddSeconds(10);
         using var provider = world.CreateServiceProvider();
@@ -2125,7 +2145,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.ActivePositions.Single().Size.Should().Be(1m);
         world.LatestPortfolio!.PositionsFullyReconciled.Should().BeFalse();
         world.State!.RecoveryRequired.Should().BeTrue();
-        world.State.LastFullyReconciledAt.Should().BeNull();
+        world.State.LastFullyReconciledAt.Should().Be(T0);
     }
 
     /// <summary>S-24: неуспешная сверка после успешной не уничтожает доказательство порядка для буфера.</summary>
