@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <!-- Принудительное обновление транзитивной MessagePack 2.5.302 → 2.5.303 (GHSA-qhrr-8q5h-9q3h). -->
+    <PackageReference Include="MessagePack" />
   </ItemGroup>
 
   <ItemGroup>

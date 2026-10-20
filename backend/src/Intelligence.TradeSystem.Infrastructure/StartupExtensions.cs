@@ -87,6 +87,8 @@ public static class StartupExtensions
         services.AddScoped<IPositionMarketIdentityStore, PositionMarketIdentityRepository>();
         services.AddScoped<IRealtimeObservationStateStore, RealtimeObservationStateStore>();
         services.AddScoped<IPositionObservationCursorStore, PositionObservationCursorStore>();
+        services.AddScoped<IExchangeRestOrderingEvidenceStore, ExchangeRestOrderingEvidenceStore>();
+        services.AddScoped<IWalletObservationCursorStore, WalletObservationCursorStore>();
         services.AddScoped<IMarketMarkPriceStore, MarketMarkPriceStore>();
         services.AddScoped<PositionReadService>();
         services.AddScoped<PositionTimelineService>();

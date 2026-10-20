@@ -50,6 +50,8 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
         // предлагается только для аккаунта пользователя, поэтому чужой аккаунт не изменяется.
         // Строка аккаунта блокируется до вставки или изменения состояния, в порядке каскадного
         // удаления аккаунта: удалённый конкурентно аккаунт даёт пустую выборку, а не FK violation.
+        // RecoveryRequestEpoch увеличивается вместе с поколенческим recovery-запросом и не
+        // сбрасывается в ноль при переполнении long — такая запись отклоняется.
         var entity = await TradeSystemDbCommand.ExecuteAsync(
             dbContext,
             """
@@ -61,9 +63,10 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                 last_heartbeat_at,
                 last_fully_reconciled_at,
                 recovery_required,
+                recovery_request_epoch,
                 failure_code,
                 version)
-            SELECT account.exchange_account_id, 1, @status, NULL, NULL, NULL, TRUE, NULL, 1
+            SELECT account.exchange_account_id, 1, @status, NULL, NULL, NULL, TRUE, 1, NULL, 1
             FROM exchange_accounts AS account
             WHERE account.exchange_account_id = @exchange_account_id
               AND account.user_id = @user_id
@@ -73,8 +76,10 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                 transport_status = EXCLUDED.transport_status,
                 last_heartbeat_at = NULL,
                 recovery_required = TRUE,
+                recovery_request_epoch = observation.recovery_request_epoch + 1,
                 failure_code = NULL,
                 version = observation.version + 1
+            WHERE observation.recovery_request_epoch < 9223372036854775807
             RETURNING
                 observation.exchange_account_id,
                 observation.generation,
@@ -83,6 +88,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                 observation.last_heartbeat_at,
                 observation.last_fully_reconciled_at,
                 observation.recovery_required,
+                observation.recovery_request_epoch,
                 observation.failure_code,
                 observation.version
             """,
@@ -94,10 +100,20 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
             ReadSingleOrDefaultAsync,
             cancellationToken);
 
-        return entity is null
-            ? throw new ConcurrencyConflictException(
-                $"Exchange account {exchangeAccountId} is unavailable in the requested user scope.")
-            : ToVersioned(entity);
+        if (entity is null)
+        {
+            var existing = await GetAsync(userId, exchangeAccountId, cancellationToken);
+            if (existing is { Value.RecoveryRequestEpoch: long.MaxValue })
+            {
+                throw new InvalidOperationException(
+                    $"RecoveryRequestEpoch of exchange account {exchangeAccountId} would overflow.");
+            }
+
+            throw new ConcurrencyConflictException(
+                $"Exchange account {exchangeAccountId} is unavailable in the requested user scope.");
+        }
+
+        return ToVersioned(entity);
     }
 
     public async Task<ConcurrencyVersion> SaveAsync(
@@ -119,6 +135,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                 last_heartbeat_at = @last_heartbeat_at,
                 last_fully_reconciled_at = @last_fully_reconciled_at,
                 recovery_required = @recovery_required,
+                recovery_request_epoch = @recovery_request_epoch,
                 failure_code = @failure_code,
                 version = @next_version
             FROM exchange_accounts AS account
@@ -142,6 +159,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                     NpgsqlDbType.TimestampTz,
                     PersistenceDateTime.ToUtc(state.LastFullyReconciledAt)),
                 Parameter("recovery_required", NpgsqlDbType.Boolean, state.RecoveryRequired),
+                Parameter("recovery_request_epoch", NpgsqlDbType.Bigint, state.RecoveryRequestEpoch),
                 Parameter("failure_code", NpgsqlDbType.Varchar, state.FailureCode),
             ],
             cancellationToken);
@@ -154,6 +172,57 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
         }
 
         return nextVersion;
+    }
+
+    public async Task<RealtimeObservationStateLockResult> TryLockGenerationAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        long generation,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureIdentity(userId, exchangeAccountId);
+        if (dbContext.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException(
+                "Realtime observation generation lock requires an active database transaction.");
+        }
+
+        var locked = await TradeSystemDbCommand.ExecuteAsync(
+            dbContext,
+            """
+            WITH account_lock AS (
+                SELECT account.exchange_account_id
+                FROM exchange_accounts AS account
+                WHERE account.exchange_account_id = @exchange_account_id
+                  AND account.user_id = @user_id
+                FOR KEY SHARE OF account
+            )
+            SELECT observation.recovery_required
+            FROM exchange_realtime_observations AS observation
+            INNER JOIN account_lock ON account_lock.exchange_account_id = observation.exchange_account_id
+            WHERE observation.generation = @generation
+            FOR SHARE OF observation
+            """,
+            [
+                Parameter("exchange_account_id", NpgsqlDbType.Uuid, exchangeAccountId.Value),
+                Parameter("user_id", NpgsqlDbType.Uuid, userId.Value),
+                Parameter("generation", NpgsqlDbType.Bigint, generation),
+            ],
+            static async (command, token) =>
+            {
+                await using var reader = await command.ExecuteReaderAsync(token);
+                if (!await reader.ReadAsync(token))
+                {
+                    return RealtimeObservationStateLockResult.GenerationSuperseded;
+                }
+
+                return reader.GetBoolean(0)
+                    ? RealtimeObservationStateLockResult.RecoveryRequired
+                    : RealtimeObservationStateLockResult.Locked;
+            },
+            cancellationToken);
+
+        return locked;
     }
 
     private static async Task<ExchangeRealtimeObservationEntity?> ReadSingleOrDefaultAsync(
@@ -175,8 +244,9 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
             LastHeartbeatAt = await ReadNullableTimestampAsync(reader, 4, cancellationToken),
             LastFullyReconciledAt = await ReadNullableTimestampAsync(reader, 5, cancellationToken),
             RecoveryRequired = reader.GetBoolean(6),
-            FailureCode = await reader.IsDBNullAsync(7, cancellationToken) ? null : reader.GetString(7),
-            Version = reader.GetInt64(8),
+            RecoveryRequestEpoch = reader.GetInt64(7),
+            FailureCode = await reader.IsDBNullAsync(8, cancellationToken) ? null : reader.GetString(8),
+            Version = reader.GetInt64(9),
         };
     }
 
@@ -199,6 +269,7 @@ internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbConte
                 LastHeartbeatAt = entity.LastHeartbeatAt,
                 LastFullyReconciledAt = entity.LastFullyReconciledAt,
                 RecoveryRequired = entity.RecoveryRequired,
+                RecoveryRequestEpoch = entity.RecoveryRequestEpoch,
                 FailureCode = entity.FailureCode,
             },
             new ConcurrencyVersion(entity.Version));

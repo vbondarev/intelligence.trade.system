@@ -19,6 +19,9 @@ public sealed class ExchangeRealtimeObservationConfiguration
                 "ck_exchange_realtime_observations_failure_code_format",
                 "failure_code IS NULL OR failure_code ~ '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'");
             table.HasCheckConstraint(
+                "ck_exchange_realtime_observations_recovery_request_epoch_non_negative",
+                "recovery_request_epoch >= 0");
+            table.HasCheckConstraint(
                 "ck_exchange_realtime_observations_version_positive",
                 "version > 0");
         });
@@ -48,6 +51,11 @@ public sealed class ExchangeRealtimeObservationConfiguration
             .HasColumnType("timestamp with time zone");
         builder.Property(observation => observation.RecoveryRequired)
             .HasColumnName("recovery_required")
+            .IsRequired();
+        builder.Property(observation => observation.RecoveryRequestEpoch)
+            .HasColumnName("recovery_request_epoch")
+            .HasColumnType("bigint")
+            .HasDefaultValue(0L)
             .IsRequired();
         builder.Property(observation => observation.FailureCode)
             .HasColumnName("failure_code")

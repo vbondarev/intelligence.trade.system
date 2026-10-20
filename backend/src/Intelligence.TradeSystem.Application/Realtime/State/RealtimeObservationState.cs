@@ -57,6 +57,23 @@ public sealed record RealtimeObservationState
     public required bool RecoveryRequired { get; init; }
 
     /// <summary>
+    /// Монотонный номер запроса восстановления: каждый новый реальный loss увеличивает значение,
+    /// даже когда <see cref="RecoveryRequired"/> уже <see langword="true"/>. Подтверждение REST
+    /// снимает только запрос с тем же номером, который сверка зафиксировала до IO. Значение не
+    /// уменьшается при снятии recovery.
+    /// </summary>
+    public long RecoveryRequestEpoch
+    {
+        get;
+        init => field = value >= 0
+            ? value
+            : throw new ArgumentOutOfRangeException(
+                nameof(RecoveryRequestEpoch),
+                value,
+                "RecoveryRequestEpoch must be non-negative.");
+    }
+
+    /// <summary>
     /// Нормализованный машиночитаемый код причины деградации или остановки; не содержит текста
     /// ошибки биржи. Допустимы ASCII-буквы, цифры, <c>_</c>, <c>.</c> и <c>-</c>; первый символ — буква.
     /// </summary>

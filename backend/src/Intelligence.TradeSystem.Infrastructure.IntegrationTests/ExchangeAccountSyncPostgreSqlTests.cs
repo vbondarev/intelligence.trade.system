@@ -528,6 +528,11 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
         await using var verificationContext = fixture.CreateContext();
         Assert.Empty(await new PositionRepository(verificationContext)
             .GetByExchangeAccountAsync(account.UserId, account.Id));
+        var persistedAccount = await new ExchangeAccountRepository(verificationContext)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.NotNull(persistedAccount);
+        Assert.Null(persistedAccount!.Value.LastAppliedBalanceObservationAt);
+        Assert.Null(persistedAccount.Value.LastAppliedPositionsObservationAt);
         Assert.Equal(baselinePositionChangeCount, await verificationContext.PositionChanges.CountAsync());
         Assert.Empty(await verificationContext.PortfolioStates
             .Where(state => state.ExchangeAccountId == account.Id.Value)
@@ -563,6 +568,8 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 ? new ThrowingAfterOperationSyncTransaction(context)
                 : new ExchangeAccountSyncTransaction(context),
             new ApplicationEventOutbox(context),
+            new ExchangeRestOrderingEvidenceStore(context),
+            new WalletObservationCursorStore(context),
             new FixedTimeProvider(calculatedAt.AddMinutes(1)));
 
         return await service.SynchronizeAsync(account.UserId, account.Id);

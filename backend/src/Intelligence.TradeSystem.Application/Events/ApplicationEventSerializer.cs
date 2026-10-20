@@ -207,6 +207,7 @@ public static class ApplicationEventSerializer
                     !Enum.IsDefined(value.ExchangeId) ||
                     value.FailureCategory is not
                         ("balance_failed" or
+                         "balance_ambiguous" or
                          "positions_failed" or
                          "positions_partial" or
                          "positions_ambiguous"))
