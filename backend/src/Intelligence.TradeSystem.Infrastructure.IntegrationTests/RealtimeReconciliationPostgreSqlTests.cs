@@ -527,38 +527,93 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     }
 
     [Fact]
-    public async Task Wallet_observation_newer_than_rest_balance_survives_overlapping_full_sync()
+    public async Task Wallet_observation_after_rest_requires_recovery_and_recovery_can_complete()
     {
         var (account, generation) = await CreateObservedAccountAsync();
         var walletAt = T1.AddSeconds(2);
+        var balanceCompletedAt = T1.AddSeconds(1);
+        var recoveryAt = T1.AddSeconds(10);
+        var clock = new MutableTimeProvider(T1);
         ExchangeAccountObservationCoordinator? coordinator = null;
-        var restProvider = new TestPrivateProvider
+        var restProvider = new TestPrivateProvider { Clock = clock };
+        restProvider.BeforeBalanceResponse = () =>
         {
-            BeforePositionsResponse = () =>
-            {
-                Assert.True(coordinator!.TryEnqueue(account.UserId, generation, WalletObservation(account, walletAt)));
-                return Task.CompletedTask;
-            },
+            restProvider.BeforeBalanceResponse = null;
+            clock.UtcNow = balanceCompletedAt;
+            return Task.CompletedTask;
         };
-        await using var services = CreateApplicationServices(account, restProvider);
+        restProvider.BeforePositionsResponse = () =>
+        {
+            restProvider.BeforePositionsResponse = null;
+            Assert.True(coordinator!.TryEnqueue(account.UserId, generation, WalletObservation(account, walletAt)));
+            return Task.CompletedTask;
+        };
+        await using var services = CreateApplicationServices(account, restProvider, clock);
         coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
 
         var sync = await coordinator.SynchronizeAsync(account.UserId, account.Id);
-        var applied = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
-        Assert.True(coordinator.TryEnqueue(account.UserId, generation, WalletObservation(account, walletAt)));
-        var repeated = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+        Assert.True(sync.FullReconciliationCommitted);
+        var stateAfterSync = await ReadStateAsync(account);
+        Assert.False(stateAfterSync.RecoveryRequired);
 
-        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, sync.Outcome);
-        Assert.Equal(RealtimeObservationApplyOutcome.Applied, Assert.Single(applied).Outcome);
-        Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, Assert.Single(repeated).Outcome);
-        await using var context = fixture.CreateContext();
-        await AssertWalletCapitalAsync(context, account, walletAt, positionsWatermark: T1);
-        Assert.Equal(2, await CountPortfoliosAsync(context, account));
-        Assert.Equal(2, await CountOutboxAsync(context, account, ApplicationEventTypes.PortfolioUpdated));
+        int portfoliosBeforeWallet;
+        int outboxBeforeWallet;
+        int portfolioUpdatedBeforeWallet;
+        await using (var before = fixture.CreateContext())
+        {
+            portfoliosBeforeWallet = await CountPortfoliosAsync(before, account);
+            outboxBeforeWallet = await CountOutboxAsync(before, account);
+            portfolioUpdatedBeforeWallet = await CountOutboxAsync(
+                before,
+                account,
+                ApplicationEventTypes.PortfolioUpdated);
+        }
+
+        var applied = await coordinator.ProcessPendingAsync(account.UserId, account.Id);
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, Assert.Single(applied).Outcome);
+        var stateAfterRejection = await ReadStateAsync(account);
+        Assert.True(stateAfterRejection.RecoveryRequired);
+        Assert.Equal(stateAfterSync.RecoveryRequestEpoch + 1, stateAfterRejection.RecoveryRequestEpoch);
+        Assert.Equal(stateAfterSync.LastFullyReconciledAt, stateAfterRejection.LastFullyReconciledAt);
+        await using (var verification = fixture.CreateContext())
+        {
+            Assert.Equal(portfoliosBeforeWallet, await CountPortfoliosAsync(verification, account));
+            Assert.Equal(outboxBeforeWallet, await CountOutboxAsync(verification, account));
+            Assert.Equal(
+                portfolioUpdatedBeforeWallet,
+                await CountOutboxAsync(
+                    verification,
+                    account,
+                    ApplicationEventTypes.PortfolioUpdated));
+            Assert.Null(await new WalletObservationCursorStore(verification)
+                .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+        }
+
+        clock.UtcNow = recoveryAt;
+        var recovery = await coordinator.SynchronizeAsync(account.UserId, account.Id);
+        Assert.True(recovery.FullReconciliationCommitted);
+        var stateAfterRecovery = await ReadStateAsync(account);
+        Assert.False(stateAfterRecovery.RecoveryRequired);
+        Assert.Equal(stateAfterRejection.RecoveryRequestEpoch, stateAfterRecovery.RecoveryRequestEpoch);
+        Assert.True(stateAfterRecovery.LastFullyReconciledAt > stateAfterRejection.LastFullyReconciledAt);
+        Assert.Empty(await coordinator.ProcessPendingAsync(account.UserId, account.Id));
+        Assert.Equal(stateAfterRecovery.RecoveryRequestEpoch, (await ReadStateAsync(account)).RecoveryRequestEpoch);
+
+        await using var finalVerification = fixture.CreateContext();
+        var finalPortfolio = await new PortfolioStateRepository(finalVerification)
+            .GetLatestAsync(account.UserId, account.Id);
+        Assert.Equal(1_000m, finalPortfolio!.Capital.TotalEquity);
+        Assert.Equal(recoveryAt, finalPortfolio.Capital.ObservedAt);
+        var finalAccount = (await new ExchangeAccountRepository(finalVerification)
+            .GetByIdAsync(account.UserId, account.Id))!.Value;
+        Assert.Equal(recoveryAt, finalAccount.LastAppliedBalanceObservationAt);
+        Assert.Equal(recoveryAt, finalAccount.LastAppliedPositionsObservationAt);
+        Assert.Null(await new WalletObservationCursorStore(finalVerification)
+            .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
     }
 
     [Fact]
-    public async Task Wallet_observation_racing_with_rest_sync_is_not_overwritten_by_the_older_rest_balance()
+    public async Task Wallet_observation_racing_with_rest_sync_never_silently_overwrites_rest_or_wallet_capital()
     {
         var (account, generation) = await CreateObservedAccountAsync();
         var walletAt = T1.AddSeconds(2);
@@ -587,13 +642,45 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 .ApplyAsync(account.UserId, generation, WalletObservation(account, walletAt));
         }
 
-        Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, syncResult.Outcome);
-        Assert.Equal(RealtimeObservationApplyOutcome.Applied, walletResult.Outcome);
-        Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, repeated.Outcome);
         await using var verification = fixture.CreateContext();
-        await AssertWalletCapitalAsync(verification, account, walletAt, positionsWatermark: T1);
-        Assert.Equal(2, await CountPortfoliosAsync(verification, account));
-        Assert.Equal(2, await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        if (walletResult.Outcome == RealtimeObservationApplyOutcome.Applied)
+        {
+            Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, syncResult.Outcome);
+            Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, repeated.Outcome);
+            await AssertWalletCapitalAsync(verification, account, walletAt, positionsWatermark: T1);
+            Assert.Equal(2, await CountPortfoliosAsync(verification, account));
+            Assert.Equal(2, await CountOutboxAsync(
+                verification,
+                account,
+                ApplicationEventTypes.PortfolioUpdated));
+        }
+        else
+        {
+            Assert.Equal(ExchangeAccountSyncOutcome.Synchronized, syncResult.Outcome);
+            Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, walletResult.Outcome);
+            Assert.Equal(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder,
+                walletResult.ReasonCode);
+            Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, repeated.Outcome);
+            Assert.Equal(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder,
+                repeated.ReasonCode);
+            Assert.Equal(1, await CountPortfoliosAsync(verification, account));
+            Assert.Equal(1, await CountOutboxAsync(
+                verification,
+                account,
+                ApplicationEventTypes.PortfolioUpdated));
+            var portfolio = await new PortfolioStateRepository(verification)
+                .GetLatestAsync(account.UserId, account.Id);
+            Assert.Equal(1_000m, portfolio!.Capital.TotalEquity);
+            Assert.Equal(T1, portfolio.Capital.ObservedAt);
+            var persistedAccount = (await new ExchangeAccountRepository(verification)
+                .GetByIdAsync(account.UserId, account.Id))!.Value;
+            Assert.Equal(T1, persistedAccount.LastAppliedBalanceObservationAt);
+            Assert.Equal(T1, persistedAccount.LastAppliedPositionsObservationAt);
+            Assert.Null(await new WalletObservationCursorStore(verification)
+                .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+        }
     }
 
     [Fact]

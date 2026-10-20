@@ -408,7 +408,7 @@ public sealed class RestOrderingEvidenceTests
     }
 
     [Fact]
-    public async Task Proven_older_wallet_with_accepted_balance_evidence_remains_stale()
+    public async Task Wallet_before_rest_interval_without_wallet_cursor_requires_order_confirmation()
     {
         var world = new RealtimeTestWorld();
         world.Provider.SetExchangePosition(OpenPosition());
@@ -427,10 +427,11 @@ public sealed class RestOrderingEvidenceTests
             generation: 1,
             world.WalletObservation(T0.AddSeconds(5), totalEquity: 1_000m));
 
-        older.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
-        older.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanBalance);
+        older.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        older.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.LatestPortfolio!.Capital.TotalEquity.Should().Be(equity);
         world.Account.LastAppliedBalanceObservationAt.Should().Be(watermark);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
     }
 
     [Fact]

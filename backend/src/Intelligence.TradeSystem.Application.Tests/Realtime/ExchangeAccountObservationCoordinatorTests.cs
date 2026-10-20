@@ -156,7 +156,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     }
 
     [Fact]
-    public async Task Wallet_Newer_Than_Rest_Balance_Received_During_Full_Sync_Is_Applied()
+    public async Task Wallet_Newer_Than_Rest_Balance_Received_During_Full_Sync_Requires_Recovery()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
@@ -171,17 +171,25 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
 
         var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
         var portfoliosAfterSync = world.Portfolios.Count;
-        var eventsAfterSync = world.Events.Count;
-        world.Clock.UtcNow = restAt.AddSeconds(5);
+        var portfolioEventsAfterSync = world.Events.OfType<PortfolioUpdatedEventV1>().Count();
+        var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
+        var recoveryAt = restAt.AddSeconds(5);
+        world.Clock.UtcNow = recoveryAt;
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         sync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
-        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        var result = results.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.Portfolios.Should().HaveCount(portfoliosAfterSync + 1);
-        world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_100m);
-        world.Portfolios[^1].Capital.ObservedAt.Should().Be(walletAt);
-        world.Account.LastAppliedBalanceObservationAt.Should().Be(walletAt);
-        world.Events.Skip(eventsAfterSync).Should().ContainSingle().Which.Should().BeOfType<PortfolioUpdatedEventV1>();
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(world.Provider.Balance.TotalEquity);
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(recoveryAt);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(recoveryAt);
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(recoveryAt);
+        world.Events.OfType<PortfolioUpdatedEventV1>().Should().HaveCount(portfolioEventsAfterSync + 1);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
     }
 
     [Fact]
@@ -201,13 +209,15 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         var result = results.Should().ContainSingle().Subject;
-        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
-        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanBalance);
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.Portfolios.Should().HaveCount(portfoliosAfterSync);
         world.Portfolios[^1].Capital.TotalEquity.Should().Be(2_000m);
         world.Portfolios[^1].Capital.ObservedAt.Should().Be(restAt);
         world.Account.LastAppliedBalanceObservationAt.Should().Be(restAt);
         world.Events.Should().HaveCount(eventsAfterSync);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeTrue();
     }
 
     [Fact]
@@ -271,31 +281,37 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     }
 
     [Fact]
-    public async Task Wallet_With_The_Same_Watermark_And_Values_Is_Duplicate_Without_Writes()
+    public async Task Wallet_With_Rest_Values_Is_Duplicate_And_Later_Unordered_Change_Requires_Recovery()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
-        var restAt = world.Clock.UtcNow;
+        var restAt = world.LatestPortfolio!.Capital.ObservedAt!.Value;
         var portfoliosAfterSync = world.Portfolios.Count;
-        var eventsAfterSync = world.Events.Count;
+        var portfolioEventsAfterSync = world.Events.OfType<PortfolioUpdatedEventV1>().Count();
+        var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
 
         coordinator.TryEnqueue(world.UserId, 1, RestBalanceWalletObservation(world, restAt)).Should().BeTrue();
         var atRestBalance = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.Clock.UtcNow = restAt.AddSeconds(30);
         var wallet = world.WalletObservation(world.Clock.UtcNow.AddSeconds(-1));
         coordinator.TryEnqueue(world.UserId, 1, wallet).Should().BeTrue();
-        var newer = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
-        coordinator.TryEnqueue(world.UserId, 1, wallet).Should().BeTrue();
-        var repeated = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        var unordered = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        var recoveryAt = world.Clock.UtcNow;
 
         atRestBalance.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
-        newer.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
-        repeated.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        unordered.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        unordered.Single().ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.Portfolios.Should().HaveCount(portfoliosAfterSync + 1);
-        world.Portfolios[^1].Capital.TotalEquity.Should().Be(1_000m);
-        world.Events.Should().HaveCount(eventsAfterSync + 1);
+        world.Portfolios[^1].Capital.TotalEquity.Should().Be(world.Provider.Balance.TotalEquity);
+        world.Portfolios[^1].Capital.ObservedAt.Should().Be(recoveryAt);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(recoveryAt);
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(recoveryAt);
+        world.Events.OfType<PortfolioUpdatedEventV1>().Should().HaveCount(portfolioEventsAfterSync + 1);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
     }
 
     [Fact]
@@ -304,13 +320,16 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
-        coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0)).Should().BeTrue();
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
-        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.State!.RecoveryRequired.Should().BeFalse();
-        var restAt = world.Clock.UtcNow;
+        var restAt = world.LatestPortfolio!.Capital.ObservedAt!.Value;
         var portfoliosAfterSync = world.Portfolios.Count;
         var eventsAfterSync = world.Events.Count;
+
+        coordinator.TryEnqueue(world.UserId, 1, RestBalanceWalletObservation(world, restAt)).Should().BeTrue();
+        var duplicate = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        duplicate.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Duplicate);
+        world.State!.RecoveryRequired.Should().BeFalse();
 
         coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(restAt)).Should().BeTrue();
         var recoveryFlags = new List<bool>();
@@ -377,16 +396,25 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             world.WalletObservation(restAt.AddSeconds(2), totalEquity: 1_100m),
             completedAt: restAt.AddSeconds(4));
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var portfolioEventsBeforeRecovery = world.Events.OfType<PortfolioUpdatedEventV1>().Count();
         var position = world.ActivePositions.Single();
 
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        var recoveryAt = restAt.AddSeconds(4);
 
-        results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
-        world.Account.LastAppliedPositionsObservationAt.Should().Be(restAt);
-        world.Account.LastAppliedBalanceObservationAt.Should().Be(restAt.AddSeconds(2));
+        var result = results.Should().ContainSingle().Subject;
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        world.Account.LastAppliedPositionsObservationAt.Should().Be(recoveryAt);
+        world.Account.LastAppliedBalanceObservationAt.Should().Be(recoveryAt);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.Events.OfType<PortfolioUpdatedEventV1>().Should().HaveCount(portfolioEventsBeforeRecovery + 1);
         var unchanged = world.ActivePositions.Should().ContainSingle().Subject;
         unchanged.Id.Should().Be(position.Id);
-        unchanged.LastObservedAt.Should().Be(position.LastObservedAt);
+        unchanged.LastObservedAt.Should().Be(recoveryAt);
+        unchanged.Size.Should().Be(position.Size);
+        unchanged.TrackingState.Should().Be(position.TrackingState);
         unchanged.Changes.Should().HaveCount(position.Changes.Count);
         world.Portfolios[^1].Positions.Should().ContainSingle();
         world.Cursor("BTCUSDT").Should().BeNull();

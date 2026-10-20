@@ -207,9 +207,8 @@ public sealed class RealtimeWalletObservationService(
             .ConfigureAwait(false);
         var account = latest.Value;
 
-        // Persisted Balance intervals читаются после блокировок: silent Stale запрещён, если биржевая
-        // метка или ObservedAt попадает в интервал REST-чтения другого экземпляра, либо если порядок
-        // относительно REST-капитала недоказан из-за отсутствия evidence.
+        // Persisted Balance evidence читается после блокировок: непересечение интервала не доказывает
+        // новизну wallet относительно принятого REST-капитала при несопоставимых часах источников.
         var balanceEvidence = await restOrderingEvidenceStore
             .GetBalanceEvidenceAsync(
                 userId,
@@ -307,8 +306,8 @@ public sealed class RealtimeWalletObservationService(
 
     /// <summary>
     /// Сравнивает wallet-наблюдение с принятым биржевым курсором и капиталом. Биржевой
-    /// <paramref name="messageCreatedAt"/> первичен относительно ограниченного ObservedAt; silent
-    /// Stale запрещён, если капитал мог быть принят REST без доступной interval history.
+    /// <paramref name="messageCreatedAt"/> задаёт порядок между wallet-сообщениями, но не относительно
+    /// REST-времени; совпадающее с текущим REST-капиталом evidence требует подтверждения при конфликте.
     /// </summary>
     private async Task<RealtimeObservationApplyResult?> CompareWalletObservationOrderAsync(
         UserId userId,
@@ -351,6 +350,25 @@ public sealed class RealtimeWalletObservationService(
 
         var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
         var normalizedCapitalAt = TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt);
+        if (await HasAcceptedRestBalanceEvidenceAsync(
+                userId,
+                exchangeAccountId,
+                account,
+                acceptedCapitalAt,
+                cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (acceptedWalletExchangeAt is null && normalizedObservedAt == normalizedCapitalAt)
+            {
+                return HasSameValues(acceptedCapital, observedCapital)
+                    ? RealtimeObservationApplyResult.Duplicate()
+                    : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
+            }
+
+            return RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        }
+
         if (normalizedObservedAt < normalizedCapitalAt)
         {
             // Биржевая отметка новее принятого капитала при откате ObservedAt — порядок неоднозначен.
@@ -404,6 +422,31 @@ public sealed class RealtimeWalletObservationService(
         }
 
         return null;
+    }
+
+    private async Task<bool> HasAcceptedRestBalanceEvidenceAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        ExchangeAccount account,
+        DateTimeOffset acceptedCapitalAt,
+        CancellationToken cancellationToken)
+    {
+        if (account.LastAppliedBalanceObservationAt is not { } balanceWatermark ||
+            TimestampCanonicalizer.ToUtcMicroseconds(balanceWatermark) !=
+            TimestampCanonicalizer.ToUtcMicroseconds(acceptedCapitalAt))
+        {
+            return false;
+        }
+
+        // Только evidence, завершившееся в момент текущего капитала, связывает его с REST;
+        // исторический интервал сам по себе не устанавливает происхождение состояния.
+        return await restOrderingEvidenceStore
+            .HasBalanceEvidenceCompletingAtAsync(
+                userId,
+                exchangeAccountId,
+                acceptedCapitalAt,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

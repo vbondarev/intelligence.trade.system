@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
@@ -14,6 +15,151 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed partial class RealtimeReconciliationPostgreSqlTests
 {
+    [Fact]
+    public async Task Delayed_wallet_with_exchange_clock_ahead_does_not_roll_back_newer_rest_capital_without_wallet_cursor()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var balanceStartedAt = T1.AddSeconds(20);
+        var balanceCompletedAt = T1.AddSeconds(30);
+        var messageCreatedAt = T1.AddSeconds(35);
+        var receivedAt = T1.AddSeconds(40);
+        var restClock = new MutableTimeProvider(balanceStartedAt);
+        var restProvider = new TestPrivateProvider
+        {
+            Clock = restClock,
+            ObservedAt = balanceCompletedAt,
+            PositionsObservedAt = balanceCompletedAt,
+            Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_800m, 10m, []),
+            BeforeBalanceResponse = () =>
+            {
+                restClock.UtcNow = balanceCompletedAt;
+                return Task.CompletedTask;
+            },
+        };
+        restProvider.SetPosition(OpenPosition());
+
+        await using var services = CreateApplicationServices(account, restProvider, restClock);
+        await using (var restScope = services.CreateAsyncScope())
+        {
+            var sync = await restScope.ServiceProvider
+                .GetRequiredService<ExchangeAccountSyncService>()
+                .SynchronizeAsync(account.UserId, account.Id);
+            Assert.True(sync.FullReconciliationCommitted);
+        }
+
+        PortfolioCapitalState capitalBefore;
+        DateTimeOffset? balanceWatermarkBefore;
+        DateTimeOffset? positionsWatermarkBefore;
+        DateTimeOffset? lastFullyReconciledAtBefore;
+        long recoveryRequestEpochBefore;
+        int portfolioCountBefore;
+        int outboxCountBefore;
+        int portfolioUpdatedCountBefore;
+        int positionChangesBefore;
+        PositionId positionId;
+        PositionTrackingState positionStateBefore;
+        DateTimeOffset positionObservedAtBefore;
+
+        await using (var before = fixture.CreateContext())
+        {
+            var portfolio = await new PortfolioStateRepository(before)
+                .GetLatestAsync(account.UserId, account.Id);
+            Assert.NotNull(portfolio);
+            capitalBefore = portfolio!.Capital;
+            Assert.Equal(3_000m, capitalBefore.TotalEquity);
+            Assert.Equal(balanceCompletedAt, capitalBefore.ObservedAt);
+
+            var persistedAccount = await new ExchangeAccountRepository(before)
+                .GetByIdAsync(account.UserId, account.Id);
+            Assert.NotNull(persistedAccount);
+            balanceWatermarkBefore = persistedAccount!.Value.LastAppliedBalanceObservationAt;
+            positionsWatermarkBefore = persistedAccount.Value.LastAppliedPositionsObservationAt;
+            Assert.Equal(balanceCompletedAt, balanceWatermarkBefore);
+            Assert.Equal(balanceCompletedAt, positionsWatermarkBefore);
+
+            var state = await new RealtimeObservationStateStore(before)
+                .GetAsync(account.UserId, account.Id);
+            Assert.NotNull(state);
+            Assert.False(state!.Value.RecoveryRequired);
+            lastFullyReconciledAtBefore = state.Value.LastFullyReconciledAt;
+            recoveryRequestEpochBefore = state.Value.RecoveryRequestEpoch;
+
+            Assert.Null(await new WalletObservationCursorStore(before)
+                .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+
+            var balanceEvidence = Assert.Single(await new ExchangeRestOrderingEvidenceStore(before)
+                .GetBalanceEvidenceAsync(
+                    account.UserId,
+                    account.Id,
+                    balanceStartedAt.AddSeconds(5),
+                    messageCreatedAt: null));
+            Assert.Equal(ExchangeRestOrderingKind.Balance, balanceEvidence.Kind);
+            Assert.Equal(balanceStartedAt, balanceEvidence.StartedAt);
+            Assert.Equal(balanceCompletedAt, balanceEvidence.CompletedAt);
+
+            var position = Assert.Single(await new PositionRepository(before)
+                .GetByExchangeAccountAsync(account.UserId, account.Id));
+            positionId = position.Value.Id;
+            positionStateBefore = position.Value.TrackingState;
+            positionObservedAtBefore = position.Value.LastObservedAt;
+            positionChangesBefore = await CountChangesAsync(before, positionId);
+            portfolioCountBefore = await CountPortfoliosAsync(before, account);
+            outboxCountBefore = await CountOutboxAsync(before, account);
+            portfolioUpdatedCountBefore = await CountOutboxAsync(
+                before,
+                account,
+                ApplicationEventTypes.PortfolioUpdated);
+        }
+
+        RealtimeObservationApplyResult result;
+        await using (var walletContext = fixture.CreateContext())
+        {
+            result = await CreateWalletService(walletContext).ApplyAsync(
+                account.UserId,
+                generation,
+                WalletObservation(account, messageCreatedAt, totalEquity: 1_000m) with
+                {
+                    ReceivedAt = receivedAt,
+                });
+        }
+
+        await using var after = fixture.CreateContext();
+        var capitalAfter = (await new PortfolioStateRepository(after)
+            .GetLatestAsync(account.UserId, account.Id))!.Capital;
+        Assert.Equal(
+            $"RecoveryRequired; capital={capitalBefore.TotalEquity}",
+            $"{result.Outcome}; capital={capitalAfter.TotalEquity}");
+        Assert.Equal(
+            RealtimeObservationApplyResult.AmbiguousObservationOrder,
+            result.ReasonCode);
+        Assert.Equal(capitalBefore, capitalAfter);
+
+        var accountAfter = (await new ExchangeAccountRepository(after)
+            .GetByIdAsync(account.UserId, account.Id))!.Value;
+        Assert.Equal(balanceWatermarkBefore, accountAfter.LastAppliedBalanceObservationAt);
+        Assert.Equal(positionsWatermarkBefore, accountAfter.LastAppliedPositionsObservationAt);
+        Assert.Null(await new WalletObservationCursorStore(after)
+            .GetLastAcceptedMessageCreatedAtAsync(account.UserId, account.Id));
+
+        var stateAfter = (await new RealtimeObservationStateStore(after)
+            .GetAsync(account.UserId, account.Id))!.Value;
+        Assert.False(stateAfter.RecoveryRequired);
+        Assert.Equal(lastFullyReconciledAtBefore, stateAfter.LastFullyReconciledAt);
+        Assert.Equal(recoveryRequestEpochBefore, stateAfter.RecoveryRequestEpoch);
+
+        var positionAfter = Assert.Single(await new PositionRepository(after)
+            .GetByExchangeAccountAsync(account.UserId, account.Id));
+        Assert.Equal(positionId, positionAfter.Value.Id);
+        Assert.Equal(positionStateBefore, positionAfter.Value.TrackingState);
+        Assert.Equal(positionObservedAtBefore, positionAfter.Value.LastObservedAt);
+        Assert.Equal(positionChangesBefore, await CountChangesAsync(after, positionId));
+        Assert.Equal(portfolioCountBefore, await CountPortfoliosAsync(after, account));
+        Assert.Equal(outboxCountBefore, await CountOutboxAsync(after, account));
+        Assert.Equal(
+            portfolioUpdatedCountBefore,
+            await CountOutboxAsync(after, account, ApplicationEventTypes.PortfolioUpdated));
+    }
+
     [Fact]
     public async Task Wallet_cursor_persists_across_restart_and_independent_scopes()
     {

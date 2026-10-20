@@ -124,6 +124,40 @@ public sealed class WalletExchangeOrderingTests
     }
 
     [Fact]
+    public async Task Newer_Wallet_Cursor_Does_Not_Prove_Order_After_Rest_Balance()
+    {
+        var world = new RealtimeTestWorld();
+        world.Clock.UtcNow = T0.AddSeconds(10);
+        (await world.CreateWalletService().ApplyAsync(
+                world.UserId,
+                1,
+                world.WalletObservation(T0.AddSeconds(10), totalEquity: 2_000m)))
+            .Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+
+        world.Provider.Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_800m, 10m, []);
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = T0.AddSeconds(20);
+        world.Provider.OnBalanceRequest = () => world.Clock.UtcNow = T0.AddSeconds(30);
+        var sync = await world.CreateSyncService().SynchronizeAsync(world.UserId, world.AccountId);
+        sync.FullReconciliationCommitted.Should().BeTrue();
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(10));
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+
+        var eventCountBefore = world.Events.Count;
+        var newerWallet = world.WalletObservation(T0.AddSeconds(40), totalEquity: 1_000m) with
+        {
+            ReceivedAt = T0.AddSeconds(50),
+        };
+        var result = await world.CreateWalletService().ApplyAsync(world.UserId, 1, newerWallet);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        world.LatestPortfolio!.Capital.TotalEquity.Should().Be(3_000m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().Be(T0.AddSeconds(10));
+        world.Events.Should().HaveCount(eventCountBefore);
+    }
+
+    [Fact]
     public async Task Rest_Balance_Does_Not_Overwrite_Newer_Wallet_When_Capital_ObservedAt_Is_Clamped()
     {
         var world = new RealtimeTestWorld();
