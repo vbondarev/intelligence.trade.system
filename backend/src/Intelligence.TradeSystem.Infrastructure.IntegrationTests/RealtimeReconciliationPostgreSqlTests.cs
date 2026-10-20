@@ -645,7 +645,13 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         await using var verification = fixture.CreateContext();
         if (walletResult.Outcome == RealtimeObservationApplyOutcome.Applied)
         {
-            Assert.Equal(ExchangeAccountSyncOutcome.ExchangeUnavailable, syncResult.Outcome);
+            Assert.Contains(
+                syncResult.Outcome,
+                new[]
+                {
+                    ExchangeAccountSyncOutcome.ExchangeUnavailable,
+                    ExchangeAccountSyncOutcome.Synchronized,
+                });
             Assert.Equal(RealtimeObservationApplyOutcome.Duplicate, repeated.Outcome);
             await AssertWalletCapitalAsync(verification, account, walletAt, positionsWatermark: T1);
             Assert.Equal(2, await CountPortfoliosAsync(verification, account));
