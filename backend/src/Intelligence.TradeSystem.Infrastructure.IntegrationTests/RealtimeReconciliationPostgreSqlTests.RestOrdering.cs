@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -890,6 +891,357 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
+    public async Task Missing_scoped_rest_evidence_must_not_allow_delayed_ws_position_rollback()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var fullRestClock = new MutableTimeProvider(T1);
+        var fullRestProvider = new TestPrivateProvider
+        {
+            Clock = fullRestClock,
+            PositionsObservedAt = T1,
+            BeforePositionsResponse = () =>
+            {
+                fullRestClock.UtcNow = T1.AddSeconds(2);
+                return Task.CompletedTask;
+            },
+        };
+        fullRestProvider.SetPosition(OpenPosition(size: 1m));
+        var fullSync = await SynchronizeViaScopeAsync(account, fullRestProvider, fullRestClock);
+        Assert.True(fullSync.FullPositionsCompleteAccepted);
+
+        var scopedRestClock = new MutableTimeProvider(T1.AddSeconds(10));
+        var scopedRestProvider = new TestPrivateProvider
+        {
+            Clock = scopedRestClock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            BeforePositionsResponse = () =>
+            {
+                scopedRestClock.UtcNow = T1.AddSeconds(20);
+                return Task.CompletedTask;
+            },
+        };
+        scopedRestProvider.SetPosition(OpenPosition(size: 3m));
+
+        await using (var instance = CreateApplicationServices(account, scopedRestProvider, scopedRestClock))
+        await using (var scope = instance.CreateAsyncScope())
+        {
+            var confirmation = await scope.ServiceProvider
+                .GetRequiredService<RealtimePositionReconciliationService>()
+                .ApplyAsync(
+                    account.UserId,
+                    generation,
+                    OpenObservation(account, T1.AddSeconds(5), 10, OpenPosition(size: 2m)),
+                    confirmWithRest: true);
+
+            Assert.Equal(RealtimeObservationApplyOutcome.Applied, confirmation.Outcome);
+            Assert.True(confirmation.ConfirmedByRest);
+        }
+
+        Position positionBefore;
+        ConcurrencyVersion positionVersionBefore;
+        PositionObservationCursor cursorBefore;
+        ConcurrencyVersion cursorVersionBefore;
+        int changesBefore;
+        int portfoliosBefore;
+        int outboxBefore;
+        int positionChangedBefore;
+        int portfolioUpdatedBefore;
+        await using (var context = fixture.CreateContext())
+        {
+            var accountAfterScopedRest = await new ExchangeAccountRepository(context)
+                .GetByIdAsync(account.UserId, account.Id);
+            Assert.Equal(T1, accountAfterScopedRest!.Value.LastAppliedPositionsObservationAt);
+
+            var scopedEvidence = Assert.Single(await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                .Where(interval =>
+                    interval.ExchangeAccountId == account.Id.Value &&
+                    interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
+                    interval.Symbol == "BTCUSDT")
+                .ToListAsync());
+            Assert.Equal(T1.AddSeconds(10), scopedEvidence.StartedAt);
+            Assert.Equal(T1.AddSeconds(20), scopedEvidence.CompletedAt);
+
+            var versionedPosition = Assert.Single(
+                await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id));
+            positionBefore = versionedPosition.Value;
+            positionVersionBefore = versionedPosition.Version;
+            var cursor = await new PositionObservationCursorStore(context)
+                .GetAsync(account.UserId, CursorKey(account));
+            cursorBefore = cursor!.Value;
+            cursorVersionBefore = cursor.Version;
+            changesBefore = await CountChangesAsync(context, positionBefore.Id);
+            portfoliosBefore = await CountPortfoliosAsync(context, account);
+            outboxBefore = await CountOutboxAsync(context, account);
+            positionChangedBefore = await CountOutboxAsync(
+                context,
+                account,
+                ApplicationEventTypes.PositionChanged);
+            portfolioUpdatedBefore = await CountOutboxAsync(
+                context,
+                account,
+                ApplicationEventTypes.PortfolioUpdated);
+        }
+
+        Assert.Equal(3m, positionBefore.Size);
+        Assert.Equal(T1.AddSeconds(10), positionBefore.LastObservedAt);
+        await RemoveScopedRestOrderingEvidenceAsync(account, "BTCUSDT");
+        Assert.False(await HasRestOrderingKindAsync(account, ExchangeRestOrderingKind.ScopedSymbol, "BTCUSDT"));
+        Assert.True(await HasRestOrderingKindAsync(account, ExchangeRestOrderingKind.FullPositionsComplete));
+
+        scopedRestProvider.Status = OpenPositionsObservationStatus.Partial;
+        scopedRestProvider.PositionsObservedAt = T1.AddSeconds(21);
+        scopedRestProvider.Clock = new MutableTimeProvider(T1.AddSeconds(22));
+        await using var otherInstance = CreateApplicationServices(
+            account,
+            scopedRestProvider,
+            new FixedTimeProvider(T1.AddSeconds(22)));
+        await using var otherScope = otherInstance.CreateAsyncScope();
+        var delayed = await otherScope.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(15), 11, OpenPosition(size: 2m)) with
+                {
+                    ReceivedAt = T1.AddSeconds(21),
+                });
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, delayed.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.RestConfirmationIncomplete, delayed.ReasonCode);
+        await using var verification = fixture.CreateContext();
+        var positionAfter = Assert.Single(
+            await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id));
+        var cursorAfter = await new PositionObservationCursorStore(verification)
+            .GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(positionBefore.Id, positionAfter.Value.Id);
+        Assert.Equal(positionVersionBefore, positionAfter.Version);
+        Assert.Equal(3m, positionAfter.Value.Size);
+        Assert.Equal(changesBefore, await CountChangesAsync(verification, positionBefore.Id));
+        Assert.Equal(cursorVersionBefore, cursorAfter!.Version);
+        Assert.Equal(cursorBefore, cursorAfter.Value);
+        Assert.Equal(portfoliosBefore, await CountPortfoliosAsync(verification, account));
+        Assert.Equal(outboxBefore, await CountOutboxAsync(verification, account));
+        Assert.Equal(
+            positionChangedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        Assert.Equal(
+            portfolioUpdatedBefore,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        var accountAfterDelayed = await new ExchangeAccountRepository(verification)
+            .GetByIdAsync(account.UserId, account.Id);
+        Assert.Equal(T1, accountAfterDelayed!.Value.LastAppliedPositionsObservationAt);
+
+        scopedRestProvider.Status = OpenPositionsObservationStatus.Complete;
+        scopedRestProvider.PositionsObservedAt = T1.AddSeconds(22);
+        scopedRestProvider.Clock = new MutableTimeProvider(T1.AddSeconds(23));
+        await using var confirmationInstance = CreateApplicationServices(
+            account,
+            scopedRestProvider,
+            new FixedTimeProvider(T1.AddSeconds(23)));
+        await using var confirmationScope = confirmationInstance.CreateAsyncScope();
+        var freshlyConfirmed = await confirmationScope.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(15), 11, OpenPosition(size: 2m)) with
+                {
+                    ReceivedAt = T1.AddSeconds(21),
+                });
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, freshlyConfirmed.Outcome);
+        Assert.True(freshlyConfirmed.ConfirmedByRest);
+        await using var confirmedState = fixture.CreateContext();
+        var confirmedPosition = Assert.Single(
+            await new PositionRepository(confirmedState).GetByExchangeAccountAsync(account.UserId, account.Id));
+        var confirmedCursor = await new PositionObservationCursorStore(confirmedState)
+            .GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(3m, confirmedPosition.Value.Size);
+        Assert.Equal(11, confirmedCursor!.Value.LastProviderSequence);
+        Assert.Null(confirmedCursor.Value.LastDirectAppliedPositionId);
+        Assert.Null(confirmedCursor.Value.LastDirectAppliedPositionVersion);
+        Assert.Equal(changesBefore, await CountChangesAsync(confirmedState, confirmedPosition.Value.Id));
+        Assert.Equal(
+            positionChangedBefore,
+            await CountOutboxAsync(confirmedState, account, ApplicationEventTypes.PositionChanged));
+    }
+
+    [Fact]
+    public async Task Direct_ws_stamp_allows_next_ws_after_rest_evidence_is_lost()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var restClock = new MutableTimeProvider(T1);
+        var provider = new TestPrivateProvider
+        {
+            Clock = restClock,
+            PositionsObservedAt = T1,
+            BeforePositionsResponse = () =>
+            {
+                restClock.UtcNow = T1.AddSeconds(1);
+                return Task.CompletedTask;
+            },
+        };
+        provider.SetPosition(OpenPosition(size: 1m));
+        Assert.True((await SynchronizeViaScopeAsync(account, provider, restClock)).FullPositionsCompleteAccepted);
+
+        var requestsBeforeDirectUpdates = provider.PositionRequests.Count;
+        await using var instance = CreateApplicationServices(
+            account,
+            provider,
+            new FixedTimeProvider(T1.AddSeconds(2)));
+        await using (var scope = instance.CreateAsyncScope())
+        {
+            var firstDirect = await scope.ServiceProvider
+                .GetRequiredService<RealtimePositionReconciliationService>()
+                .ApplyAsync(account.UserId, generation, OpenObservation(account, T1.AddSeconds(2), 1, OpenPosition(size: 2m)));
+            Assert.Equal(RealtimeObservationApplyOutcome.Applied, firstDirect.Outcome);
+            Assert.False(firstDirect.ConfirmedByRest);
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            var position = Assert.Single(
+                await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id));
+            var cursor = await new PositionObservationCursorStore(context)
+                .GetAsync(account.UserId, CursorKey(account));
+            Assert.Equal(position.Value.Id, cursor!.Value.LastDirectAppliedPositionId);
+            Assert.Equal(position.Version, cursor.Value.LastDirectAppliedPositionVersion);
+        }
+
+        await ClearRestOrderingEvidenceAsync(account);
+        Assert.False(await HasRestOrderingKindAsync(account, ExchangeRestOrderingKind.FullPositionsComplete));
+
+        await using var nextInstance = CreateApplicationServices(
+            account,
+            provider,
+            new FixedTimeProvider(T1.AddSeconds(3)));
+        await using var nextScope = nextInstance.CreateAsyncScope();
+        var nextDirect = await nextScope.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(account.UserId, generation, OpenObservation(account, T1.AddSeconds(3), 2, OpenPosition(size: 3m)));
+
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, nextDirect.Outcome);
+        Assert.False(nextDirect.ConfirmedByRest);
+        Assert.Equal(requestsBeforeDirectUpdates, provider.PositionRequests.Count);
+        await using var verification = fixture.CreateContext();
+        Assert.Equal(3m, (await SinglePositionAsync(verification, account)).Size);
+    }
+
+    [Fact]
+    public async Task Rest_version_change_invalidates_direct_ws_stamp_after_evidence_is_lost()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var first = await ApplyAsync(account, generation, OpenObservation(account, T1, 1, OpenPosition(size: 1m)));
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, first.Outcome);
+
+        ConcurrencyVersion directPositionVersion;
+        ConcurrencyVersion directCursorVersion;
+        PositionId directPositionId;
+        await using (var context = fixture.CreateContext())
+        {
+            var directPosition = Assert.Single(
+                await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id));
+            var directCursor = await new PositionObservationCursorStore(context)
+                .GetAsync(account.UserId, CursorKey(account));
+            directPositionVersion = directPosition.Version;
+            directCursorVersion = directCursor!.Version;
+            directPositionId = directPosition.Value.Id;
+            Assert.Equal(directPositionId, directCursor.Value.LastDirectAppliedPositionId);
+            Assert.Equal(directPositionVersion, directCursor.Value.LastDirectAppliedPositionVersion);
+        }
+
+        var restClock = new MutableTimeProvider(T1.AddSeconds(10));
+        var provider = new TestPrivateProvider
+        {
+            Clock = restClock,
+            PositionsObservedAt = T1.AddSeconds(10),
+            BeforePositionsResponse = () =>
+            {
+                restClock.UtcNow = T1.AddSeconds(11);
+                return Task.CompletedTask;
+            },
+        };
+        provider.SetPosition(OpenPosition(size: 3m));
+        Assert.True((await SynchronizeViaScopeAsync(account, provider, restClock)).FullPositionsCompleteAccepted);
+
+        Position positionBeforeDelayed;
+        ConcurrencyVersion positionVersionBeforeDelayed;
+        PositionObservationCursor cursorBeforeDelayed;
+        ConcurrencyVersion cursorVersionBeforeDelayed;
+        int changesBeforeDelayed;
+        int portfoliosBeforeDelayed;
+        int outboxBeforeDelayed;
+        int positionChangedBeforeDelayed;
+        int portfolioUpdatedBeforeDelayed;
+        await using (var context = fixture.CreateContext())
+        {
+            var restPosition = Assert.Single(
+                await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id));
+            var cursor = await new PositionObservationCursorStore(context)
+                .GetAsync(account.UserId, CursorKey(account));
+            positionBeforeDelayed = restPosition.Value;
+            positionVersionBeforeDelayed = restPosition.Version;
+            cursorBeforeDelayed = cursor!.Value;
+            cursorVersionBeforeDelayed = cursor.Version;
+            Assert.True(positionVersionBeforeDelayed.Value > directPositionVersion.Value);
+            Assert.Equal(directPositionId, cursorBeforeDelayed.LastDirectAppliedPositionId);
+            Assert.Equal(directPositionVersion, cursorBeforeDelayed.LastDirectAppliedPositionVersion);
+            changesBeforeDelayed = await CountChangesAsync(context, positionBeforeDelayed.Id);
+            portfoliosBeforeDelayed = await CountPortfoliosAsync(context, account);
+            outboxBeforeDelayed = await CountOutboxAsync(context, account);
+            positionChangedBeforeDelayed = await CountOutboxAsync(
+                context,
+                account,
+                ApplicationEventTypes.PositionChanged);
+            portfolioUpdatedBeforeDelayed = await CountOutboxAsync(
+                context,
+                account,
+                ApplicationEventTypes.PortfolioUpdated);
+        }
+
+        await ClearRestOrderingEvidenceAsync(account);
+        provider.Status = OpenPositionsObservationStatus.Partial;
+        provider.PositionsObservedAt = T1.AddSeconds(21);
+        provider.Clock = new MutableTimeProvider(T1.AddSeconds(22));
+        await using var instance = CreateApplicationServices(
+            account,
+            provider,
+            new FixedTimeProvider(T1.AddSeconds(22)));
+        await using var scope = instance.CreateAsyncScope();
+        var delayed = await scope.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(
+                account.UserId,
+                generation,
+                OpenObservation(account, T1.AddSeconds(20), 2, OpenPosition(size: 2m)) with
+                {
+                    ReceivedAt = T1.AddSeconds(21),
+                });
+
+        Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, delayed.Outcome);
+        Assert.Equal(RealtimeObservationApplyResult.RestConfirmationIncomplete, delayed.ReasonCode);
+        await using var verification = fixture.CreateContext();
+        var positionAfter = Assert.Single(
+            await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id));
+        var cursorAfter = await new PositionObservationCursorStore(verification)
+            .GetAsync(account.UserId, CursorKey(account));
+        Assert.Equal(positionVersionBeforeDelayed, positionAfter.Version);
+        Assert.Equal(3m, positionAfter.Value.Size);
+        Assert.Equal(changesBeforeDelayed, await CountChangesAsync(verification, positionAfter.Value.Id));
+        Assert.Equal(cursorVersionBeforeDelayed, cursorAfter!.Version);
+        Assert.Equal(cursorBeforeDelayed, cursorAfter.Value);
+        Assert.Equal(portfoliosBeforeDelayed, await CountPortfoliosAsync(verification, account));
+        Assert.Equal(outboxBeforeDelayed, await CountOutboxAsync(verification, account));
+        Assert.Equal(
+            positionChangedBeforeDelayed,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+        Assert.Equal(
+            portfolioUpdatedBeforeDelayed,
+            await CountOutboxAsync(verification, account, ApplicationEventTypes.PortfolioUpdated));
+        Assert.Equal(directCursorVersion, cursorVersionBeforeDelayed);
+    }
+
+    [Fact]
     public async Task Missing_balance_evidence_after_rest_on_b_requires_recovery_for_ambiguous_wallet_on_a()
     {
         var (account, generation) = await CreateObservedAccountAsync();
@@ -1258,6 +1610,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         await using var context = fixture.CreateContext();
         var intervals = await context.ExchangeRestOrderingIntervals
             .Where(interval => interval.ExchangeAccountId == account.Id.Value)
+            .ToListAsync();
+        context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task RemoveScopedRestOrderingEvidenceAsync(ExchangeAccount account, string symbol)
+    {
+        await using var context = fixture.CreateContext();
+        var intervals = await context.ExchangeRestOrderingIntervals
+            .Where(interval =>
+                interval.ExchangeAccountId == account.Id.Value &&
+                interval.Kind == ExchangeRestOrderingKind.ScopedSymbol &&
+                interval.Symbol == symbol)
             .ToListAsync();
         context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
         await context.SaveChangesAsync();

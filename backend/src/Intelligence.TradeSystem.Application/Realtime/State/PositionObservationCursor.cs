@@ -1,3 +1,6 @@
+using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Domain.Identity;
+
 namespace Intelligence.TradeSystem.Application.Realtime.State;
 
 /// <summary>
@@ -13,6 +16,11 @@ namespace Intelligence.TradeSystem.Application.Realtime.State;
 /// Хранилище не допускает регресса известных компонентов ревизии: сохранённые
 /// <see cref="LastProviderSequence"/> и <see cref="LastProviderUpdatedAt"/> не уменьшаются и не
 /// сбрасываются в <see langword="null"/>. Хотя бы один из них обязателен.
+/// </para>
+/// <para>
+/// Пара <see cref="LastDirectAppliedPositionId"/> и
+/// <see cref="LastDirectAppliedPositionVersion"/> связывает последний direct WS с версией
+/// сохранённой позиции. REST confirmation и cursor-only observations не оставляют такое доказательство.
 /// </para>
 /// </remarks>
 public sealed record PositionObservationCursor
@@ -58,8 +66,23 @@ public sealed record PositionObservationCursor
             : throw new ArgumentException("Fingerprint must be a short ASCII token.", nameof(LastAcceptedFingerprint));
     }
 
+    /// <summary>Идентификатор позиции, последний раз непосредственно сохранённой по WS.</summary>
+    public PositionId? LastDirectAppliedPositionId { get; init; }
+
+    /// <summary>Версия позиции, сохранённая вместе с последним непосредственным применением WS.</summary>
+    public ConcurrencyVersion? LastDirectAppliedPositionVersion { get; init; }
+
     /// <summary>Известен ли хотя бы один компонент ревизии, необходимый для сохранения курсора.</summary>
     public bool HasRevision => LastProviderSequence is not null || LastProviderUpdatedAt is not null;
+
+    /// <summary>Образуют ли поля direct-WS доказательства допустимую пару.</summary>
+    public bool HasValidDirectAppliedPositionStamp =>
+        (LastDirectAppliedPositionId, LastDirectAppliedPositionVersion) switch
+        {
+            (null, null) => true,
+            ({ } positionId, { Value: > 0 }) => positionId.Value != Guid.Empty,
+            _ => false,
+        };
 
     private static bool IsValidFingerprint(string? value)
     {

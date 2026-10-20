@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
@@ -158,6 +159,16 @@ public sealed class RealtimeObservationStateModelTests
         };
 
         cursor.HasRevision.Should().BeTrue();
+        cursor.HasValidDirectAppliedPositionStamp.Should().BeTrue();
+        (cursor with { LastDirectAppliedPositionId = PositionId.New() })
+            .HasValidDirectAppliedPositionStamp.Should().BeFalse();
+        (cursor with { LastDirectAppliedPositionVersion = ConcurrencyVersion.Initial })
+            .HasValidDirectAppliedPositionStamp.Should().BeFalse();
+        (cursor with
+        {
+            LastDirectAppliedPositionId = PositionId.New(),
+            LastDirectAppliedPositionVersion = ConcurrencyVersion.Initial,
+        }).HasValidDirectAppliedPositionStamp.Should().BeTrue();
         (cursor with { LastProviderSequence = null }).HasRevision.Should().BeFalse();
         (cursor with { LastProviderSequence = null, LastProviderUpdatedAt = Now }).HasRevision.Should().BeTrue();
         ((Action)(() => _ = cursor with { LastProviderSequence = 0 }))
