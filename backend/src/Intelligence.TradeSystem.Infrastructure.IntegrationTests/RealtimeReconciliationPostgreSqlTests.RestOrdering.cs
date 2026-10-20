@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
@@ -90,48 +91,21 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var syncA = scopeA.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
         var syncB = scopeB.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
 
-        var taskA = Task.Run(() => syncA.SynchronizeAsync(account.UserId, account.Id));
-        var taskB = Task.Run(() => syncB.SynchronizeAsync(account.UserId, account.Id));
+        using var cancellation = new CancellationTokenSource();
+        var taskA = Task.Run(
+            () => syncA.SynchronizeAsync(account.UserId, account.Id, cancellation.Token),
+            cancellation.Token);
+        var taskB = Task.Run(
+            () => syncB.SynchronizeAsync(account.UserId, account.Id, cancellation.Token),
+            cancellation.Token);
 
-        await secondEnteredPersistence.Task.WaitAsync(CompletionTimeout);
-
-        Exception? firstFailure = null;
-        ExchangeAccountSyncResult? firstResult = null;
-        try
-        {
-            firstResult = aPersistsFirst
-                ? await taskA.WaitAsync(CompletionTimeout)
-                : await taskB.WaitAsync(CompletionTimeout);
-        }
-        catch (Exception exception)
-        {
-            firstFailure = exception;
-        }
-        finally
-        {
-            // Барьер освобождается и при ошибке первой операции, иначе вторая зависает.
-            releaseSecondPersistence.TrySetResult(true);
-        }
-
-        ExchangeAccountSyncResult secondResult;
-        try
-        {
-            secondResult = aPersistsFirst
-                ? await taskB.WaitAsync(CompletionTimeout)
-                : await taskA.WaitAsync(CompletionTimeout);
-        }
-        catch (Exception secondFailure) when (firstFailure is not null)
-        {
-            throw new AggregateException(firstFailure, secondFailure);
-        }
-
-        if (firstFailure is not null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstFailure).Throw();
-        }
-
-        var resultA = aPersistsFirst ? firstResult! : secondResult;
-        var resultB = aPersistsFirst ? secondResult : firstResult!;
+        var (resultA, resultB) = await AwaitGatedConcurrentRestSyncsAsync(
+            taskA,
+            taskB,
+            secondEnteredPersistence,
+            releaseSecondPersistence,
+            aPersistsFirst,
+            cancellation);
 
         // Failed-наблюдение, чьи watermark Applied, даёт ExchangeUnavailable; если Failed
         // оказался Superseded после принятия Complete другого экземпляра — Outcome=Synchronized
@@ -216,6 +190,165 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(
             1,
             await verification.PositionChanges.CountAsync(change => change.PositionId == position.Id.Value));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task H09_rest_failure_before_persistence_gate_releases_barrier_and_preserves_cause(
+        bool aPersistsFirst)
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var injected = new InvalidOperationException("Инъекция сбоя REST до persistence gate.");
+        using var restOverlap = new Barrier(2);
+        var providerA = new TestPrivateProvider(restOverlap)
+        {
+            Clock = new MutableTimeProvider(T1.AddSeconds(20)),
+            PositionsObservedAt = T1.AddSeconds(10),
+            Status = OpenPositionsObservationStatus.Failed,
+            Balance = new AccountBalance(AccountType.Unified, 3_000m, 2_900m, 2_500m, 100m, []),
+        };
+        var providerB = new TestPrivateProvider(restOverlap)
+        {
+            Clock = new MutableTimeProvider(T1.AddSeconds(10)),
+            PositionsObservedAt = T1.AddSeconds(20),
+            BalanceFails = true,
+        };
+        providerB.SetPosition(OpenPosition(size: 3m));
+        if (aPersistsFirst)
+        {
+            providerB.BeforePositionsResponse = () => throw injected;
+        }
+        else
+        {
+            providerA.BeforePositionsResponse = () => throw injected;
+        }
+
+        var secondEnteredPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecondPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var servicesA = CreateApplicationServices(
+            account,
+            providerA,
+            new FixedTimeProvider(T1.AddSeconds(30)),
+            decorateAccountRepository: aPersistsFirst
+                ? null
+                : inner => new GateSecondAccountReadRepository(
+                    inner,
+                    secondEnteredPersistence,
+                    releaseSecondPersistence));
+        await using var servicesB = CreateApplicationServices(
+            account,
+            providerB,
+            new FixedTimeProvider(T1.AddSeconds(30)),
+            decorateAccountRepository: aPersistsFirst
+                ? inner => new GateSecondAccountReadRepository(
+                    inner,
+                    secondEnteredPersistence,
+                    releaseSecondPersistence)
+                : null);
+
+        await using var scopeA = servicesA.CreateAsyncScope();
+        await using var scopeB = servicesB.CreateAsyncScope();
+        var syncA = scopeA.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
+        var syncB = scopeB.ServiceProvider.GetRequiredService<ExchangeAccountSyncService>();
+        using var cancellation = new CancellationTokenSource();
+        var taskA = Task.Run(
+            () => syncA.SynchronizeAsync(account.UserId, account.Id, cancellation.Token),
+            cancellation.Token);
+        var taskB = Task.Run(
+            () => syncB.SynchronizeAsync(account.UserId, account.Id, cancellation.Token),
+            cancellation.Token);
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() =>
+            AwaitGatedConcurrentRestSyncsAsync(
+                taskA,
+                taskB,
+                secondEnteredPersistence,
+                releaseSecondPersistence,
+                aPersistsFirst,
+                cancellation));
+
+        Assert.Contains(
+            FlattenExceptions(exception),
+            failure => failure.Message == injected.Message);
+        Assert.True(releaseSecondPersistence.Task.IsCompletedSuccessfully);
+        Assert.True(taskA.IsCompleted);
+        Assert.True(taskB.IsCompleted);
+        Assert.False(secondEnteredPersistence.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task H09_wait_releases_gate_when_gated_rest_fails_before_persistence()
+    {
+        var injected = new InvalidOperationException("Инъекция сбоя REST до persistence gate.");
+        var outcome = await RunGatedConcurrentRestFailureAsync(
+            first: Task.FromResult(ExchangeAccountSyncResult.NotFound()),
+            second: Task.FromException<ExchangeAccountSyncResult>(injected),
+            signalEntered: false);
+
+        Assert.Contains(FlattenExceptions(outcome.Exception), failure => failure.Message == injected.Message);
+        Assert.True(outcome.Release.Task.IsCompletedSuccessfully);
+        Assert.True(outcome.First.IsCompleted);
+        Assert.True(outcome.Second.IsCompleted);
+        Assert.False(outcome.Entered.Task.IsCompleted);
+        Assert.True(outcome.CancellationRequested);
+    }
+
+    [Fact]
+    public async Task H09_wait_releases_gate_when_first_rest_task_fails_after_persistence_entry()
+    {
+        var injected = new InvalidOperationException("Инъекция сбоя первой REST-задачи.");
+        var outcome = await RunGatedConcurrentRestFailureAsync(
+            first: Task.FromException<ExchangeAccountSyncResult>(injected),
+            second: Task.FromResult(ExchangeAccountSyncResult.NotFound()),
+            signalEntered: true);
+
+        Assert.Contains(FlattenExceptions(outcome.Exception), failure => failure.Message == injected.Message);
+        Assert.True(outcome.Release.Task.IsCompletedSuccessfully);
+        Assert.True(outcome.First.IsCompleted);
+        Assert.True(outcome.Second.IsCompleted);
+        Assert.True(outcome.CancellationRequested);
+    }
+
+    [Fact]
+    public async Task H09_wait_preserves_second_rest_failure_after_first_completes()
+    {
+        var injected = new InvalidOperationException("Инъекция сбоя второй REST-задачи.");
+        var outcome = await RunGatedConcurrentRestFailureAsync(
+            first: Task.FromResult(ExchangeAccountSyncResult.NotFound()),
+            second: Task.FromException<ExchangeAccountSyncResult>(injected),
+            signalEntered: true);
+
+        Assert.Contains(FlattenExceptions(outcome.Exception), failure => failure.Message == injected.Message);
+        Assert.True(outcome.Release.Task.IsCompletedSuccessfully);
+        Assert.True(outcome.First.IsCompleted);
+        Assert.True(outcome.Second.IsCompleted);
+    }
+
+    [Fact]
+    public async Task H09_wait_reports_timeout_and_unfinished_task_when_second_never_enters()
+    {
+        var stubborn = new TaskCompletionSource<ExchangeAccountSyncResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var outcome = await RunGatedConcurrentRestFailureAsync(
+            first: Task.FromResult(ExchangeAccountSyncResult.NotFound()),
+            second: stubborn.Task,
+            signalEntered: false,
+            waitTimeout: TimeSpan.FromMilliseconds(50),
+            cleanupTimeout: TimeSpan.FromMilliseconds(50));
+
+        var flattened = FlattenExceptions(outcome.Exception);
+        Assert.Contains(flattened, failure => failure is TimeoutException);
+        Assert.Contains(
+            flattened,
+            failure => failure.Message.Contains("осталась активной", StringComparison.Ordinal));
+        Assert.True(outcome.Release.Task.IsCompletedSuccessfully);
+        Assert.True(outcome.CancellationRequested);
+        Assert.False(outcome.Second.IsCompleted);
+        stubborn.TrySetCanceled();
     }
 
     [Fact]
@@ -820,6 +953,219 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         context.ExchangeRestOrderingIntervals.RemoveRange(intervals);
         await context.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Ожидает детерминированный порядок commit двух REST-сводок. После запуска задач любой
+    /// выход, включая тайм-аут входа в persistence, освобождает второй gate и наблюдает обе задачи.
+    /// </summary>
+    private static async Task<(ExchangeAccountSyncResult ResultA, ExchangeAccountSyncResult ResultB)>
+        AwaitGatedConcurrentRestSyncsAsync(
+            Task<ExchangeAccountSyncResult> taskA,
+            Task<ExchangeAccountSyncResult> taskB,
+            TaskCompletionSource<bool> secondEnteredPersistence,
+            TaskCompletionSource<bool> releaseSecondPersistence,
+            bool aPersistsFirst,
+            CancellationTokenSource cancellation,
+            TimeSpan? waitTimeout = null,
+            TimeSpan? cleanupTimeout = null)
+    {
+        var timeout = waitTimeout ?? CompletionTimeout;
+        var cleanup = cleanupTimeout ?? CompletionTimeout;
+        var firstTask = aPersistsFirst ? taskA : taskB;
+        var secondTask = aPersistsFirst ? taskB : taskA;
+        Exception? primaryFailure = null;
+        ExchangeAccountSyncResult? firstResult = null;
+
+        try
+        {
+            await Task.WhenAny(secondEnteredPersistence.Task, secondTask).WaitAsync(timeout);
+            if (!secondEnteredPersistence.Task.IsCompletedSuccessfully)
+            {
+                primaryFailure = ExceptionFromCompletedTask(secondTask)
+                    ?? new TimeoutException(
+                        "Вторая REST-операция не вошла в persistence gate в отведённое время.");
+            }
+            else
+            {
+                try
+                {
+                    firstResult = await firstTask.WaitAsync(timeout);
+                }
+                catch (Exception exception)
+                {
+                    primaryFailure = exception;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+        }
+        finally
+        {
+            releaseSecondPersistence.TrySetResult(true);
+        }
+
+        if (primaryFailure is null)
+        {
+            try
+            {
+                var secondResult = await secondTask.WaitAsync(timeout);
+                return aPersistsFirst
+                    ? (firstResult!, secondResult)
+                    : (secondResult, firstResult!);
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+            }
+        }
+
+        var failure = primaryFailure
+            ?? new InvalidOperationException(
+                "Конкурентные REST-задачи завершились без результата и без зафиксированной ошибки.");
+        cancellation.Cancel();
+        var observed = await ObserveConcurrentRestTasksAsync(taskA, taskB, cleanup);
+        ThrowConcurrentRestFailures(failure, observed);
+        throw new InvalidOperationException("Ожидалось повторное возбуждение ошибки конкурентных REST-задач.");
+    }
+
+    private static async Task<GatedConcurrentRestFailure> RunGatedConcurrentRestFailureAsync(
+        Task<ExchangeAccountSyncResult> first,
+        Task<ExchangeAccountSyncResult> second,
+        bool signalEntered,
+        TimeSpan? waitTimeout = null,
+        TimeSpan? cleanupTimeout = null)
+    {
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        if (signalEntered)
+        {
+            entered.TrySetResult(true);
+        }
+
+        var boundedWait = waitTimeout ?? TimeSpan.FromSeconds(1);
+        var boundedCleanup = cleanupTimeout ?? TimeSpan.FromSeconds(1);
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() =>
+            AwaitGatedConcurrentRestSyncsAsync(
+                first,
+                second,
+                entered,
+                release,
+                aPersistsFirst: true,
+                cancellation,
+                boundedWait,
+                boundedCleanup));
+
+        return new GatedConcurrentRestFailure(
+            exception,
+            first,
+            second,
+            entered,
+            release,
+            cancellation.IsCancellationRequested);
+    }
+
+    private static async Task<IReadOnlyList<Exception>> ObserveConcurrentRestTasksAsync(
+        Task<ExchangeAccountSyncResult> taskA,
+        Task<ExchangeAccountSyncResult> taskB,
+        TimeSpan timeout)
+    {
+        var observedA = ObserveConcurrentRestTaskAsync(taskA, "A", timeout);
+        var observedB = ObserveConcurrentRestTaskAsync(taskB, "B", timeout);
+        return new[] { await observedA, await observedB }
+            .OfType<Exception>()
+            .ToArray();
+    }
+
+    private static async Task<Exception?> ObserveConcurrentRestTaskAsync(
+        Task task,
+        string name,
+        TimeSpan timeout)
+    {
+        try
+        {
+            await task.WaitAsync(timeout);
+            return null;
+        }
+        catch (TimeoutException)
+        {
+            if (task.IsCompletedSuccessfully)
+            {
+                return null;
+            }
+
+            if (task.IsFaulted || task.IsCanceled)
+            {
+                return ExceptionFromCompletedTask(task);
+            }
+
+            _ = task.ContinueWith(
+                static completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return new TimeoutException(
+                $"REST-задача {name} осталась активной после отмены и ограниченного ожидания cleanup.");
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private static Exception? ExceptionFromCompletedTask(Task task)
+    {
+        if (task.IsFaulted)
+        {
+            return UnwrapException(task.Exception!);
+        }
+
+        return task.IsCanceled ? new OperationCanceledException() : null;
+    }
+
+    private static void ThrowConcurrentRestFailures(
+        Exception primary,
+        IReadOnlyList<Exception> observed)
+    {
+        var extra = observed
+            .Where(exception => !RefersToSameFailure(primary, exception))
+            .ToArray();
+        if (extra.Length == 0)
+        {
+            ExceptionDispatchInfo.Capture(primary).Throw();
+        }
+
+        throw new AggregateException([primary, .. extra]);
+    }
+
+    private static bool RefersToSameFailure(Exception left, Exception right)
+    {
+        var unwrappedLeft = UnwrapException(left);
+        var unwrappedRight = UnwrapException(right);
+        return ReferenceEquals(unwrappedLeft, unwrappedRight)
+            || (unwrappedLeft.GetType() == unwrappedRight.GetType()
+                && unwrappedLeft.Message == unwrappedRight.Message);
+    }
+
+    private static Exception UnwrapException(Exception exception) =>
+        exception is AggregateException { InnerExceptions.Count: 1 } aggregate
+            ? UnwrapException(aggregate.InnerException!)
+            : exception;
+
+    private static Exception[] FlattenExceptions(Exception exception) =>
+        exception is AggregateException aggregate
+            ? [.. aggregate.Flatten().InnerExceptions]
+            : [exception];
+
+    private sealed record GatedConcurrentRestFailure(
+        Exception Exception,
+        Task<ExchangeAccountSyncResult> First,
+        Task<ExchangeAccountSyncResult> Second,
+        TaskCompletionSource<bool> Entered,
+        TaskCompletionSource<bool> Release,
+        bool CancellationRequested);
 
     /// <summary>
     /// Удерживает второе чтение аккаунта внутри persistence-транзакции, пока другой экземпляр
