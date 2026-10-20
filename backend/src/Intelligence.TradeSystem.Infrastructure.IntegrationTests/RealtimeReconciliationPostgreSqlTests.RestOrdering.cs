@@ -18,6 +18,324 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed partial class RealtimeReconciliationPostgreSqlTests
 {
+    [Fact]
+    public async Task Rest_ordering_evidence_enforces_user_and_account_isolation_for_reads_and_writes()
+    {
+        var (accountA, _) = await CreateObservedAccountAsync();
+        var (accountB, _) = await CreateObservedAccountAsync();
+        Assert.NotEqual(accountA.UserId, accountB.UserId);
+        Assert.NotEqual(accountA.Id, accountB.Id);
+
+        ExchangeRestOrderingInterval CreateEvidence(
+            ExchangeAccount account,
+            ExchangeRestOrderingKind kind,
+            string? symbol,
+            DateTimeOffset startedAt,
+            DateTimeOffset completedAt) =>
+            new()
+            {
+                Id = Guid.NewGuid(),
+                ExchangeAccountId = account.Id,
+                Kind = kind,
+                Symbol = symbol,
+                StartedAt = startedAt,
+                CompletedAt = completedAt,
+                RecordedAt = T1.AddSeconds(100),
+            };
+
+        var balanceA = CreateEvidence(
+            accountA,
+            ExchangeRestOrderingKind.Balance,
+            null,
+            T1.AddSeconds(10),
+            T1.AddSeconds(20));
+        var fullPositionsA = CreateEvidence(
+            accountA,
+            ExchangeRestOrderingKind.FullPositionsComplete,
+            null,
+            T1.AddSeconds(30),
+            T1.AddSeconds(40));
+        var scopedSymbolA = CreateEvidence(
+            accountA,
+            ExchangeRestOrderingKind.ScopedSymbol,
+            "ETHUSDT",
+            T1.AddSeconds(50),
+            T1.AddSeconds(60));
+        var balanceB = CreateEvidence(
+            accountB,
+            ExchangeRestOrderingKind.Balance,
+            null,
+            T1.AddSeconds(14),
+            T1.AddSeconds(16));
+
+        await using (var writeContext = fixture.CreateContext())
+        {
+            var store = new ExchangeRestOrderingEvidenceStore(writeContext);
+            await store.AppendAsync(accountA.UserId, balanceA);
+            await store.AppendAsync(accountA.UserId, fullPositionsA);
+            await store.AppendAsync(accountA.UserId, scopedSymbolA);
+            await store.AppendAsync(accountB.UserId, balanceB);
+        }
+
+        var balanceObservedAt = T1.AddSeconds(15);
+        var fullPositionsObservedAt = T1.AddSeconds(35);
+        var scopedSymbolObservedAt = T1.AddSeconds(55);
+        var balanceEvidenceAt = T1.AddSeconds(20);
+
+        await using (var readContext = fixture.CreateContext())
+        {
+            var store = new ExchangeRestOrderingEvidenceStore(readContext);
+
+            var ownerBalance = Assert.Single(await store.GetBalanceEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                balanceObservedAt,
+                messageCreatedAt: null));
+            Assert.Equal(balanceA.Id, ownerBalance.Id);
+            Assert.Equal(ExchangeRestOrderingKind.Balance, ownerBalance.Kind);
+
+            var ownerFullPositions = Assert.Single(await store.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                "BTCUSDT",
+                fullPositionsObservedAt,
+                exchangeFactAt: null));
+            Assert.Equal(fullPositionsA.Id, ownerFullPositions.Id);
+            Assert.Equal(ExchangeRestOrderingKind.FullPositionsComplete, ownerFullPositions.Kind);
+
+            var ownerScopedSymbol = Assert.Single(await store.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                "ETHUSDT",
+                scopedSymbolObservedAt,
+                exchangeFactAt: null));
+            Assert.Equal(scopedSymbolA.Id, ownerScopedSymbol.Id);
+            Assert.Equal(ExchangeRestOrderingKind.ScopedSymbol, ownerScopedSymbol.Kind);
+
+            Assert.True(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountA.UserId,
+                accountA.Id,
+                "BTCUSDT",
+                T1.AddSeconds(30),
+                T1.AddSeconds(41)));
+            Assert.True(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountA.UserId,
+                accountA.Id,
+                "ETHUSDT",
+                T1.AddSeconds(50),
+                T1.AddSeconds(61)));
+            Assert.True(await store.HasBalanceEvidenceCompletingAtAsync(
+                accountA.UserId,
+                accountA.Id,
+                balanceEvidenceAt));
+
+            Assert.Empty(await store.GetPositionEvidenceAsync(
+                accountB.UserId,
+                accountA.Id,
+                "BTCUSDT",
+                fullPositionsObservedAt,
+                exchangeFactAt: null));
+            Assert.Empty(await store.GetPositionEvidenceAsync(
+                accountB.UserId,
+                accountA.Id,
+                "ETHUSDT",
+                scopedSymbolObservedAt,
+                exchangeFactAt: null));
+            Assert.Empty(await store.GetBalanceEvidenceAsync(
+                accountB.UserId,
+                accountA.Id,
+                balanceObservedAt,
+                messageCreatedAt: null));
+            Assert.False(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountB.UserId,
+                accountA.Id,
+                "BTCUSDT",
+                T1.AddSeconds(30),
+                T1.AddSeconds(41)));
+            Assert.False(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountB.UserId,
+                accountA.Id,
+                "ETHUSDT",
+                T1.AddSeconds(50),
+                T1.AddSeconds(61)));
+            Assert.False(await store.HasBalanceEvidenceCompletingAtAsync(
+                accountB.UserId,
+                accountA.Id,
+                balanceEvidenceAt));
+
+            Assert.Empty(await store.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountB.Id,
+                "BTCUSDT",
+                fullPositionsObservedAt,
+                exchangeFactAt: null));
+            Assert.Empty(await store.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountB.Id,
+                "ETHUSDT",
+                scopedSymbolObservedAt,
+                exchangeFactAt: null));
+            Assert.Empty(await store.GetBalanceEvidenceAsync(
+                accountA.UserId,
+                accountB.Id,
+                balanceObservedAt,
+                messageCreatedAt: null));
+            Assert.False(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountA.UserId,
+                accountB.Id,
+                "BTCUSDT",
+                T1.AddSeconds(30),
+                T1.AddSeconds(41)));
+            Assert.False(await store.HasAcceptedPositionRestEvidenceCompletedBeforeAsync(
+                accountA.UserId,
+                accountB.Id,
+                "ETHUSDT",
+                T1.AddSeconds(50),
+                T1.AddSeconds(61)));
+            Assert.False(await store.HasBalanceEvidenceCompletingAtAsync(
+                accountA.UserId,
+                accountB.Id,
+                balanceEvidenceAt));
+
+            var ownerBBalance = Assert.Single(await store.GetBalanceEvidenceAsync(
+                accountB.UserId,
+                accountB.Id,
+                balanceObservedAt,
+                messageCreatedAt: null));
+            Assert.Equal(balanceB.Id, ownerBBalance.Id);
+            Assert.Equal(ExchangeRestOrderingKind.Balance, ownerBBalance.Kind);
+            Assert.True(await store.HasBalanceEvidenceCompletingAtAsync(
+                accountB.UserId,
+                accountB.Id,
+                balanceB.CompletedAt));
+        }
+
+        async Task<(
+            int EvidenceCount,
+            DateTimeOffset? LastSyncedAt,
+            DateTimeOffset? LastAppliedBalanceObservationAt,
+            DateTimeOffset? LastAppliedPositionsObservationAt,
+            ExchangeAccountConnectionStatus ConnectionStatus,
+            string? LastError,
+            int PortfolioCount,
+            int OutboxCount)> ReadAppendSideEffectSnapshotAsync(ExchangeAccount account)
+        {
+            await using var context = fixture.CreateContext();
+            var persistedAccount = await new ExchangeAccountRepository(context)
+                .GetByIdAsync(account.UserId, account.Id);
+            Assert.NotNull(persistedAccount);
+            var accountState = persistedAccount.Value;
+
+            return (
+                await context.ExchangeRestOrderingIntervals.AsNoTracking()
+                    .CountAsync(interval => interval.ExchangeAccountId == account.Id.Value),
+                accountState.LastSyncedAt,
+                accountState.LastAppliedBalanceObservationAt,
+                accountState.LastAppliedPositionsObservationAt,
+                accountState.ConnectionStatus,
+                accountState.LastError,
+                await CountPortfoliosAsync(context, account),
+                await CountOutboxAsync(context, account));
+        }
+
+        var accountAStateBeforeRejectedAppend = await ReadAppendSideEffectSnapshotAsync(accountA);
+        var accountBStateBeforeRejectedAppend = await ReadAppendSideEffectSnapshotAsync(accountB);
+        Assert.Equal(3, accountAStateBeforeRejectedAppend.EvidenceCount);
+        Assert.Equal(1, accountBStateBeforeRejectedAppend.EvidenceCount);
+
+        var rejectedEvidence = CreateEvidence(
+            accountA,
+            ExchangeRestOrderingKind.Balance,
+            null,
+            T1.AddSeconds(70),
+            T1.AddSeconds(80));
+        var ownershipException = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await using var unauthorizedContext = fixture.CreateContext();
+            await new ExchangeRestOrderingEvidenceStore(unauthorizedContext)
+                .AppendAsync(accountB.UserId, rejectedEvidence);
+        });
+        Assert.Equal(
+            "The exchange account is unavailable in the user scope for REST ordering evidence.",
+            ownershipException.Message);
+
+        await using (var verificationContext = fixture.CreateContext())
+        {
+            var persistedAEntities = await verificationContext.ExchangeRestOrderingIntervals.AsNoTracking()
+                .Where(interval => interval.ExchangeAccountId == accountA.Id.Value)
+                .OrderBy(interval => interval.StartedAt)
+                .ToArrayAsync();
+            var persistedA = persistedAEntities
+                .Select(interval => (
+                    interval.Id,
+                    interval.Kind,
+                    interval.Symbol,
+                    interval.StartedAt,
+                    interval.CompletedAt,
+                    interval.RecordedAt))
+                .ToArray();
+            var expectedA = new[]
+            {
+                (balanceA.Id, balanceA.Kind, balanceA.Symbol, balanceA.StartedAt, balanceA.CompletedAt, balanceA.RecordedAt),
+                (fullPositionsA.Id, fullPositionsA.Kind, fullPositionsA.Symbol, fullPositionsA.StartedAt, fullPositionsA.CompletedAt, fullPositionsA.RecordedAt),
+                (scopedSymbolA.Id, scopedSymbolA.Kind, scopedSymbolA.Symbol, scopedSymbolA.StartedAt, scopedSymbolA.CompletedAt, scopedSymbolA.RecordedAt),
+            }.OrderBy(interval => interval.StartedAt).ToArray();
+            Assert.Equal(expectedA, persistedA);
+            Assert.DoesNotContain(persistedA, interval => interval.Id == rejectedEvidence.Id);
+
+            var persistedBEntity = Assert.Single(await verificationContext.ExchangeRestOrderingIntervals.AsNoTracking()
+                .Where(interval => interval.ExchangeAccountId == accountB.Id.Value)
+                .ToArrayAsync());
+            var persistedB = (
+                persistedBEntity.Id,
+                persistedBEntity.Kind,
+                persistedBEntity.Symbol,
+                persistedBEntity.StartedAt,
+                persistedBEntity.CompletedAt,
+                persistedBEntity.RecordedAt);
+            Assert.Equal(
+                (balanceB.Id, balanceB.Kind, balanceB.Symbol, balanceB.StartedAt, balanceB.CompletedAt, balanceB.RecordedAt),
+                persistedB);
+        }
+
+        Assert.Equal(accountAStateBeforeRejectedAppend, await ReadAppendSideEffectSnapshotAsync(accountA));
+        Assert.Equal(accountBStateBeforeRejectedAppend, await ReadAppendSideEffectSnapshotAsync(accountB));
+
+        await using var finalReadContext = fixture.CreateContext();
+        var finalStore = new ExchangeRestOrderingEvidenceStore(finalReadContext);
+        Assert.Equal(
+            new[] { balanceA.Id },
+            (await finalStore.GetBalanceEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                balanceObservedAt,
+                messageCreatedAt: null))
+                .Select(interval => interval.Id));
+        Assert.Equal(
+            new[] { fullPositionsA.Id },
+            (await finalStore.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                "BTCUSDT",
+                fullPositionsObservedAt,
+                exchangeFactAt: null))
+                .Select(interval => interval.Id));
+        Assert.Equal(
+            new[] { scopedSymbolA.Id },
+            (await finalStore.GetPositionEvidenceAsync(
+                accountA.UserId,
+                accountA.Id,
+                "ETHUSDT",
+                scopedSymbolObservedAt,
+                exchangeFactAt: null))
+                .Select(interval => interval.Id));
+        Assert.Empty(await finalStore.GetBalanceEvidenceAsync(
+            accountB.UserId,
+            accountA.Id,
+            balanceObservedAt,
+            messageCreatedAt: null));
+    }
+
     /// <summary>
     /// H-09: две конкурентные REST-сверки одной учётной записи принимают разные ресурсы
     /// (A — Complete balance / Failed positions, B — Failed balance / Complete positions).
