@@ -612,7 +612,7 @@ public sealed class RealtimePositionReconciliationServiceTests
     }
 
     [Fact]
-    public async Task Delayed_Open_Refuted_By_Fresh_Complete_Rest_Snapshot_Does_Not_Create_Position()
+    public async Task Delayed_Open_Refuted_By_Fresh_Complete_Rest_Snapshot_Requires_Recovery_Without_Cursor()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
@@ -621,15 +621,21 @@ public sealed class RealtimePositionReconciliationServiceTests
             .SynchronizeAsync(world.UserId, world.AccountId);
         sync.FullReconciliationCommitted.Should().BeTrue();
         world.Clock.UtcNow = T0.AddSeconds(11);
+        var eventsBefore = world.Events.Count;
+        var portfoliosBefore = world.Portfolios.Count;
+        var requestsBefore = world.Provider.PositionRequests.Count;
 
         var result = await world.CreatePositionService()
             .ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(9), 1));
 
-        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
-        result.ConfirmedByRest.Should().BeTrue();
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.Positions.Should().BeEmpty();
         world.Events.OfType<PositionOpenedEventV1>().Should().BeEmpty();
-        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        world.Events.Should().HaveCount(eventsBefore);
+        world.Portfolios.Should().HaveCount(portfoliosBefore);
+        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal("BTCUSDT");
+        world.Cursor("BTCUSDT").Should().BeNull();
     }
 
     [Theory]

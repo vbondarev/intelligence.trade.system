@@ -51,6 +51,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 3);
         var syncAt = await ReconcileWithEmptyBufferAsync(world, coordinator);
         var requestsBefore = world.Provider.PositionRequests.Count;
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = syncAt.AddSeconds(4);
         bool? fourthEnqueued = null;
         world.BeforeTransactionExecuteAsync = _ =>
         {
@@ -71,7 +73,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             RealtimeObservationApplyOutcome.RecoveryRequired);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
         world.State!.RecoveryRequired.Should().BeTrue();
-        world.Provider.PositionRequests.Should().HaveCount(requestsBefore);
+        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal("BTCUSDT", "BTCUSDT");
 
         world.Clock.UtcNow = syncAt.AddSeconds(10);
         var recovery = await coordinator
@@ -80,7 +82,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
 
         recovery.Should().ContainSingle().Which.ReasonCode.Should().Be(RealtimeObservationApplyResult.BufferOverflow);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2, "the recovery sync supersedes the buffered fourth observation");
-        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal([null]);
+        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal("BTCUSDT", "BTCUSDT", null);
         world.State!.RecoveryRequired.Should().BeFalse();
         world.State.LastFullyReconciledAt.Should().Be(syncAt.AddSeconds(10));
     }
@@ -367,6 +369,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         var syncAt = await ReconcileWithEmptyBufferAsync(world, coordinator);
         var requestsBefore = world.Provider.PositionRequests.Count;
+        world.Provider.SetExchangePosition(OpenPosition());
+        world.Clock.UtcNow = syncAt.AddSeconds(2);
         var transactionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseTransaction = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         world.BeforeTransactionExecuteAsync = async cancellationToken =>
@@ -387,7 +391,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
         world.State!.RecoveryRequired.Should().BeTrue();
-        world.Provider.PositionRequests.Should().HaveCount(requestsBefore);
+        world.Provider.PositionRequests.Skip(requestsBefore).Should().Equal("BTCUSDT");
 
         world.Clock.UtcNow = syncAt.AddSeconds(10);
         var recovery = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);

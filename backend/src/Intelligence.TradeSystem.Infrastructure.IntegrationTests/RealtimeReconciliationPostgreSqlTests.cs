@@ -1175,6 +1175,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
         public void SetPosition(OpenPosition position) => positions.Add(position);
 
+        public void ClearPositions() => positions.Clear();
+
         public Task<ApiKeyAccessMetadataObservation> GetApiKeyAccessMetadataAsync(
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -246,18 +246,22 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     {
         var (account, generation) = await CreateObservedAccountAsync();
         var provider = new TestPrivateProvider();
-        await using var services = CreateApplicationServices(account, provider);
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        await using var services = CreateApplicationServices(account, provider, clock);
         var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
         var coordinator = new ExchangeAccountObservationCoordinator(
             scopeFactory,
-            new FixedTimeProvider(T1.AddMinutes(1)),
+            clock,
             bufferCapacity: 1);
         Assert.True((await coordinator.SynchronizeAsync(account.UserId, account.Id)).FullReconciliationCommitted);
         var reconciled = await ReadStateAsync(account);
         Assert.False(reconciled.RecoveryRequired);
         Assert.Equal(T1.AddMinutes(1), reconciled.LastFullyReconciledAt);
         var openAt = T1.AddMinutes(2);
+        provider.SetPosition(OpenPosition());
+        provider.ObservedAt = openAt.AddSeconds(1);
         Assert.True(coordinator.TryEnqueue(account.UserId, generation, OpenObservation(account, openAt, 10)));
+        clock.UtcNow = openAt.AddSeconds(1);
         Assert.Equal(
             RealtimeObservationApplyOutcome.Applied,
             Assert.Single(await coordinator.ProcessPendingAsync(account.UserId, account.Id)).Outcome);
@@ -280,7 +284,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             var position = await SinglePositionAsync(verification, account);
             Assert.Equal(PositionTrackingState.Active, position.TrackingState);
             Assert.Equal(1m, position.Size);
-            AssertHistory(position, (PositionChangeKind.New, openAt));
+            AssertHistory(position, (PositionChangeKind.New, openAt.AddSeconds(1)));
             Assert.Equal(10, (await new PositionObservationCursorStore(verification).GetAsync(account.UserId, CursorKey(account)))!.Value.LastProviderSequence);
             Assert.Equal((portfoliosBefore, outboxBefore), await CountWritesAsync(verification, account));
         }
@@ -291,12 +295,18 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             bufferCapacity: 1);
         Assert.Empty(await restarted.ProcessPendingAsync(account.UserId, account.Id));
         Assert.True((await ReadStateAsync(account)).RecoveryRequired);
+        clock.UtcNow = T1.AddMinutes(3);
         provider.ObservedAt = T1.AddMinutes(3);
+        provider.ClearPositions();
         provider.SetPosition(OpenPosition(size: 2m));
 
         var recovery = await restarted.SynchronizeAsync(account.UserId, account.Id);
 
-        Assert.True(recovery.FullReconciliationCommitted);
+        Assert.True(
+            recovery.FullReconciliationCommitted,
+            $"Outcome={recovery.Outcome}; positions accepted={recovery.AcceptedPositionsObservation}; " +
+            $"positions complete={recovery.FullPositionsCompleteAccepted}; " +
+            $"balance read={recovery.BalanceReadStartedAt is not null}");
         var recovered = await ReadStateAsync(account);
         Assert.Equal(generation, recovered.Generation);
         Assert.False(recovered.RecoveryRequired);

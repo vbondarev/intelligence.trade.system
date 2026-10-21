@@ -36,10 +36,13 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// Нулевой размер и смена направления в слоте позиции не применяются напрямую: состояние слота
 /// подтверждается scoped REST-наблюдением, а закрытие выполняется существующим
 /// <see cref="PositionReconciler"/> только по полному снимку. Автоматическая evaluation не запускается.
-/// Открытие, не более новое, чем watermark REST-наблюдения позиций аккаунта, тоже подтверждается
-/// scoped REST-наблюдением: watermark не отличает полный снимок от неуспешной попытки.
-/// Снимок подтверждает событие, только если запрошен не раньше получения сообщения и новее этого
-/// watermark; иначе состояние не меняется и требуется recovery.
+/// Если активный слот пуст и существует watermark REST-наблюдения позиций аккаунта, любое новое
+/// WS-открытие требует scoped REST confirmation: одно сравнение временных меток не доказывает, что
+/// событие не задержано, а отсутствие ordering evidence не доказывает безопасность direct-open.
+/// Первоначальное direct-open сохраняется, если account watermark отсутствует и нет пересечения
+/// с REST evidence. Scoped REST подтверждает открытие только при запросе не раньше получения
+/// сообщения и наблюдении новее account watermark; иначе состояние не меняется и требуется recovery.
+/// Для закрытых lifecycle сохраняется существующая проверка относительно времени закрытия.
 /// </para>
 /// </remarks>
 public sealed class RealtimePositionReconciliationService(
@@ -270,7 +273,9 @@ public sealed class RealtimePositionReconciliationService(
                             {
                                 // Stale/ambiguous относительно закрытия обрабатываются DirectApply без
                                 // ConfirmWithRest: evidence не должна подменять OlderThanClosure.
-                                if (overlapsPersistedRest && !IsOpenRejectedByClosure(prepared, locked))
+                                if ((overlapsPersistedRest ||
+                                     locked.Account.LastAppliedPositionsObservationAt is not null) &&
+                                    !IsOpenRejectedByClosure(prepared, locked))
                                 {
                                     requiresRestConfirmation = true;
                                     return;
@@ -662,6 +667,21 @@ public sealed class RealtimePositionReconciliationService(
                             var versions = locked.Positions.ToDictionary(
                                 versioned => versioned.Value.Id,
                                 versioned => versioned.Version);
+                            var hasActivePositionInSlot = trackedPositions.Any(position =>
+                                position.TrackingState != PositionTrackingState.Closed &&
+                                IsInSlot(position, prepared));
+                            var confirmsIncomingOpen = prepared.Observation.Kind == PrivatePositionObservationKind.Open &&
+                                reconciliation.NewPositions.Any(position =>
+                                    position.ExchangePositionKey == prepared.Key);
+                            if (!hasActivePositionInSlot &&
+                                prepared.Observation.Kind == PrivatePositionObservationKind.Open &&
+                                !confirmsIncomingOpen)
+                            {
+                                result = RealtimeObservationApplyResult.RecoveryRequired(
+                                    RealtimeObservationApplyResult.AmbiguousObservationOrder);
+                                return;
+                            }
+
                             foreach (var position in reconciliation.PositionsToPersist)
                             {
                                 await positionRepository

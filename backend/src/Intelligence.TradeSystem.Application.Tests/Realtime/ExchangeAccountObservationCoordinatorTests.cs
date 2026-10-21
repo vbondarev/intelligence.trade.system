@@ -38,6 +38,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var fullSyncAt = world.Clock.UtcNow;
 
         var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Provider.SetExchangePosition(OpenPosition());
         world.Clock.UtcNow = fullSyncAt.AddSeconds(1);
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
@@ -48,7 +49,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         result.ConfirmedByRest.Should().BeTrue();
         world.Provider.PositionRequests.Should().Equal(null, "BTCUSDT");
-        world.Positions.Should().BeEmpty();
+        world.ActivePositions.Should().ContainSingle();
     }
 
     [Fact]
@@ -144,12 +145,15 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.Cursor("BTCUSDT").Should().BeNull();
 
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Provider.SetExchangePosition(OpenPosition());
+        var nextOpenAt = world.Clock.UtcNow.AddSeconds(1);
         coordinator.TryEnqueue(
                 world.UserId,
                 2,
-                world.OpenObservation(world.Clock.UtcNow.AddSeconds(1), 2))
+                world.OpenObservation(nextOpenAt, 2))
             .Should()
             .BeTrue();
+        world.Clock.UtcNow = nextOpenAt.AddSeconds(1);
         (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
             .Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
@@ -529,6 +533,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
         var syncAt = await ReconcileWithEmptyBufferAsync(world, coordinator);
+        world.Provider.SetExchangePosition(OpenPosition());
         world.Clock.UtcNow = syncAt.AddSeconds(2);
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(syncAt.AddSeconds(1), 1)).Should().BeTrue();
         (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
@@ -551,6 +556,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
 
         world.CredentialsUnavailable = false;
         world.CredentialsMissing = false;
+        world.Provider.ClearExchangePositions();
         world.Clock.UtcNow = syncAt.AddSeconds(10);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
@@ -591,6 +597,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             bufferCapacity: 1);
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)).Should().BeTrue();
         await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        world.Provider.SetExchangePosition(OpenPosition());
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
@@ -2297,12 +2304,14 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.SetPositionsWatermark(T0);
         world.Clock.UtcNow = T0.AddSeconds(5);
         var longHedge = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        world.Provider.SetExchangePosition(longHedge);
+        world.Clock.UtcNow = T0.AddSeconds(6);
         await world.CreatePositionService()
             .ApplyAsync(world.UserId, 1, world.OpenObservation(T0.AddSeconds(5), 1, longHedge));
         world.ActivePositions.Should().ContainSingle()
             .Which.ExchangePositionKey.PositionIdx.Should().Be(1);
 
-        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Provider.ClearExchangePositions();
         world.Clock.UtcNow = T0.AddSeconds(10);
         coordinator.TryEnqueue(world.UserId, 1, world.CloseObservation(T0.AddSeconds(9), 2, positionIdx: 1))
             .Should()
@@ -2313,7 +2322,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var scopedWindowEnd = world.Clock.UtcNow;
 
         var shortHedge = OpenPosition(side: PositionSide.Short, positionIdx: 2);
-        world.Provider.RemoveExchangePosition("BTCUSDT");
+        world.Provider.ClearExchangePositions();
         world.Clock.UtcNow = scopedWindowEnd.AddSeconds(1);
         var delayedOpen = world.OpenObservation(T0.AddSeconds(9), 3, shortHedge) with
         {
@@ -2322,7 +2331,9 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         coordinator.TryEnqueue(world.UserId, 1, delayedOpen).Should().BeTrue();
         var delayed = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
-        delayed.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
+        var delayedResult = delayed.Should().ContainSingle().Subject;
+        delayedResult.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        delayedResult.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
         world.ActivePositions.Should().BeEmpty();
         world.Events.OfType<PositionOpenedEventV1>().Should().HaveCount(1);
         world.Positions.Should().ContainSingle()
@@ -2399,7 +2410,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         coordinator.TryEnqueue(world.UserId, 1, ethOpen).Should().BeTrue();
         var eth = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
-        eth.Should().ContainSingle().Which.ConfirmedByRest.Should().BeFalse();
+        eth.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
         world.ActivePositions.Should().HaveCount(2);
     }
 
