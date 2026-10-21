@@ -59,6 +59,7 @@ internal static class ExchangeAccountSerializationLock
                 ON a.exchange_account_id = p.exchange_account_id
             WHERE p.exchange_account_id = @exchange_account_id
               AND a.user_id = @user_id
+              AND p.tracking_state <> 'Closed'
             ORDER BY p.position_id
             FOR UPDATE OF p
             """;

@@ -27,6 +27,21 @@ internal static class PhysicalPositionSlot
             symbol.Trim(),
             StringComparison.OrdinalIgnoreCase);
 
+    public static bool Matches(
+        ExchangePositionKey key,
+        MarketCategory positionCategory,
+        MarketCategory expectedCategory,
+        ExchangeAccountId exchangeAccountId,
+        string symbol,
+        int positionIdx) =>
+        key.ExchangeAccountId == exchangeAccountId &&
+        positionCategory == expectedCategory &&
+        key.PositionIdx == positionIdx &&
+        string.Equals(
+            key.InstrumentId.Value,
+            symbol.Trim(),
+            StringComparison.OrdinalIgnoreCase);
+
     public static bool Matches(Position position, ExchangePositionKey key, MarketCategory category) =>
         Matches(
             position,

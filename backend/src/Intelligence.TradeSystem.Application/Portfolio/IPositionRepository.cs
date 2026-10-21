@@ -16,14 +16,40 @@ public interface IPositionRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Возвращает лёгкий ID/version watermark всех позиций биржевой учётной записи в указанной
-    /// области пользователя, без materialization доменного агрегата и его
+    /// Возвращает лёгкий ID/version watermark текущих позиций биржевой учётной записи
+    /// в указанной области пользователя, без materialization доменного агрегата и его
     /// <see cref="Domain.History.PositionChange"/> истории. Предназначен для pre-lock race
     /// detection, где полный агрегат не требуется.
     /// </summary>
-    Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+    Task<IReadOnlyCollection<PositionVersionWatermark>> GetCurrentVersionWatermarksAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Загружает текущие позиции аккаунта как лёгкие portfolio projections без истории lifecycle.
+    /// </summary>
+    Task<IReadOnlyCollection<PositionPortfolioProjection>> GetCurrentPortfolioPositionsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Загружает текущие агрегаты и историю только этих lifecycle в указанной области пользователя.
+    /// </summary>
+    Task<IReadOnlyCollection<Versioned<Position>>> GetCurrentWithHistoryAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Возвращает последнее закрытие каждого запрошенного физического слота в указанной области пользователя.
+    /// </summary>
+    Task<IReadOnlyCollection<LatestClosedPositionSlot>> GetLatestClosedSlotsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        MarketCategory marketCategory,
+        IReadOnlyCollection<PositionSlotKey> slots,
         CancellationToken cancellationToken = default);
 
     Task<Versioned<Position>?> GetByIdAsync(

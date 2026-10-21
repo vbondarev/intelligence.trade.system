@@ -40,12 +40,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(observation);
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        SetupPositionLoad(fixture);
         fixture.PositionRepository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -105,17 +100,16 @@ public sealed class ExchangeAccountSyncServiceTests
     }
 
     [Fact]
-    public async Task SynchronizeAsync_UsesLightweightWatermarkForPreLockCheck_AndLoadsFullAggregateOnlyOnce()
+    public async Task SynchronizeAsync_UsesCurrentWatermarkAndScopedClosureLookup()
     {
-        // Предварительная race-проверка до блокировки должна использовать лёгкую проекцию ID/version watermark,
-        // а не вторую загрузку полного aggregate (с историей): GetByExchangeAccountAsync должен
-        // вызываться только один раз — для reconciliation-чтения после блокировки.
+        // Предварительная проверка использует только текущие ID/version, а после блокировки загружается
+        // история текущих агрегатов и отдельная closure evidence для слотов REST-наблюдения.
         var fixture = CreateFixture();
         SetupSuccessfulObservation(fixture, ObservedAt);
         var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
         SetupPositionLoad(fixture, trackedPosition);
         fixture.PositionRepository
-            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+            .Setup(repository => repository.GetCurrentVersionWatermarksAsync(
                 fixture.UserId,
                 fixture.Account.Id,
                 It.IsAny<CancellationToken>()))
@@ -134,15 +128,23 @@ public sealed class ExchangeAccountSyncServiceTests
 
         result.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         fixture.PositionRepository.Verify(
-            repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+            repository => repository.GetCurrentVersionWatermarksAsync(
                 fixture.UserId,
                 fixture.Account.Id,
                 It.IsAny<CancellationToken>()),
             Times.Once);
         fixture.PositionRepository.Verify(
-            repository => repository.GetByExchangeAccountAsync(
+            repository => repository.GetCurrentWithHistoryAsync(
                 fixture.UserId,
                 fixture.Account.Id,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.PositionRepository.Verify(
+            repository => repository.GetLatestClosedSlotsAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                MarketCategory.Linear,
+                It.IsAny<IReadOnlyCollection<PositionSlotKey>>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -158,7 +160,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
         SetupPositionLoad(fixture, trackedPosition);
         fixture.PositionRepository
-            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+            .Setup(repository => repository.GetCurrentVersionWatermarksAsync(
                 fixture.UserId,
                 fixture.Account.Id,
                 It.IsAny<CancellationToken>()))
@@ -685,13 +687,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 null,
                 ObservedAt,
                 []));
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-                [new Versioned<Position>(trackedPosition, ConcurrencyVersion.Initial)]);
+        SetupPositionLoad(fixture, trackedPosition);
         fixture.PositionRepository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -900,12 +896,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 null,
                 ObservedAt,
                 []));
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new Versioned<Position>(trackedPosition, ConcurrencyVersion.Initial)]);
+        SetupPositionLoad(fixture, trackedPosition);
         fixture.PositionRepository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -984,12 +975,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 null,
                 ObservedAt,
                 "provider-secret-like-message"));
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        SetupPositionLoad(fixture);
         fixture.PortfolioRepository
             .Setup(repository => repository.GetLatestAsync(
                 fixture.UserId,
@@ -1076,12 +1062,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 null,
                 ObservedAt,
                 []));
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new Versioned<Position>(trackedPosition, ConcurrencyVersion.Initial)]);
+        SetupPositionLoad(fixture, trackedPosition);
         fixture.PositionRepository
             .Setup(repository => repository.SaveAsync(
                 fixture.UserId,
@@ -1890,7 +1871,7 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()),
             Times.Never);
         fixture.PositionRepository.Verify(
-            repository => repository.GetVersionWatermarkByExchangeAccountAsync(
+            repository => repository.GetCurrentVersionWatermarksAsync(
                 It.IsAny<UserId>(),
                 It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()),
@@ -1954,16 +1935,12 @@ public sealed class ExchangeAccountSyncServiceTests
                 []));
     }
 
-    private static void SetupPositionLoad(Fixture fixture, params Position[] positions) =>
-        fixture.PositionRepository
-            .Setup(repository => repository.GetByExchangeAccountAsync(
-                fixture.UserId,
-                fixture.Account.Id,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-                positions
-                    .Select(position => new Versioned<Position>(position, ConcurrencyVersion.Initial))
-                    .ToArray());
+    private static void SetupPositionLoad(Fixture fixture, params Position[] positions)
+    {
+        fixture.TrackedPositions.Clear();
+        fixture.TrackedPositions.AddRange(
+            positions.Select(position => new Versioned<Position>(position, ConcurrencyVersion.Initial)));
+    }
 
     private static void SetupPositionSave(Fixture fixture) =>
         fixture.PositionRepository
@@ -2040,6 +2017,7 @@ public sealed class ExchangeAccountSyncServiceTests
         var lease = new Mock<IPrivateAccountProviderLease>(MockBehavior.Strict);
         var positionRepository = new Mock<IPositionRepository>(MockBehavior.Strict);
         var portfolioRepository = new Mock<IPortfolioStateRepository>(MockBehavior.Strict);
+        var trackedPositions = new List<Versioned<Position>>();
         lease.SetupGet(value => value.Provider).Returns(provider.Object);
         lease.Setup(value => value.Dispose());
         portfolioRepository
@@ -2049,19 +2027,59 @@ public sealed class ExchangeAccountSyncServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((PortfolioState?)null);
         positionRepository
-            .Setup(repository => repository.GetVersionWatermarkByExchangeAccountAsync(
-                userId,
-                ownedAccount.Id,
+            .Setup(repository => repository.GetCurrentWithHistoryAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()))
-            .Returns<UserId, ExchangeAccountId, CancellationToken>(async (u, a, ct) =>
-            {
-                var tracked = await positionRepository.Object
-                    .GetByExchangeAccountAsync(u, a, ct)
-                    .ConfigureAwait(false);
-                return (IReadOnlyCollection<PositionVersionWatermark>)tracked
-                    .Select(versioned => new PositionVersionWatermark(versioned.Value.Id, versioned.Version))
-                    .ToArray();
-            });
+            .Returns<UserId, ExchangeAccountId, CancellationToken>((_, _, _) =>
+                Task.FromResult<IReadOnlyCollection<Versioned<Position>>>(
+                    trackedPositions
+                        .Where(versioned => versioned.Value.TrackingState != PositionTrackingState.Closed)
+                        .ToArray()));
+        positionRepository
+            .Setup(repository => repository.GetCurrentVersionWatermarksAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<UserId, ExchangeAccountId, CancellationToken>((_, _, _) =>
+                Task.FromResult<IReadOnlyCollection<PositionVersionWatermark>>(
+                    trackedPositions
+                        .Where(versioned => versioned.Value.TrackingState != PositionTrackingState.Closed)
+                        .Select(versioned => new PositionVersionWatermark(versioned.Value.Id, versioned.Version))
+                        .ToArray()));
+        positionRepository
+            .Setup(repository => repository.GetLatestClosedSlotsAsync(
+                It.IsAny<UserId>(),
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<MarketCategory>(),
+                It.IsAny<IReadOnlyCollection<PositionSlotKey>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<UserId, ExchangeAccountId, MarketCategory, IReadOnlyCollection<PositionSlotKey>, CancellationToken>(
+                (_, _, category, slots, _) =>
+                {
+                    return Task.FromResult<IReadOnlyCollection<LatestClosedPositionSlot>>(
+                        slots
+                            .Select(slot =>
+                            {
+                                var closedAt = trackedPositions
+                                    .Select(versioned => versioned.Value)
+                                    .Where(position =>
+                                        position.TrackingState == PositionTrackingState.Closed &&
+                                        position.MarketCategory == category &&
+                                        position.ExchangePositionKey.PositionIdx == slot.PositionIdx &&
+                                        string.Equals(
+                                            position.ExchangePositionKey.InstrumentId.Value,
+                                            slot.InstrumentId.Value,
+                                            StringComparison.OrdinalIgnoreCase))
+                                    .Select(position => position.ClosedAt)
+                                    .Max();
+                                return closedAt is { } value
+                                    ? new LatestClosedPositionSlot(slot, value)
+                                    : null;
+                            })
+                            .OfType<LatestClosedPositionSlot>()
+                            .ToArray());
+                });
         factory
             .Setup(value => value.Create(
                 ownedAccount.ExchangeId,
@@ -2094,6 +2112,7 @@ public sealed class ExchangeAccountSyncServiceTests
             factory,
             provider,
             positionRepository,
+            trackedPositions,
             portfolioRepository,
             transaction,
             eventOutbox,
@@ -2206,6 +2225,7 @@ public sealed class ExchangeAccountSyncServiceTests
         Mock<IPrivateAccountProviderFactory> Factory,
         Mock<IPrivateAccountProvider> Provider,
         Mock<IPositionRepository> PositionRepository,
+        List<Versioned<Position>> TrackedPositions,
         Mock<IPortfolioStateRepository> PortfolioRepository,
         IExchangeAccountSyncTransaction Transaction,
         RecordingApplicationEventOutbox EventOutbox,

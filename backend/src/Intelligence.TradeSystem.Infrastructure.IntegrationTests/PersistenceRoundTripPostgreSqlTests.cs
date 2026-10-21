@@ -115,6 +115,7 @@ public sealed class PersistenceRoundTripPostgreSqlTests(PostgreSqlFixture fixtur
                     var reconciliation = PositionReconciler.Reconcile(
                         account.Id,
                         loadedPositions.Select(item => item.Value).ToArray(),
+                        [],
                         OpenPositionsObservation.Failed(
                             MarketCategory.Linear,
                             null,

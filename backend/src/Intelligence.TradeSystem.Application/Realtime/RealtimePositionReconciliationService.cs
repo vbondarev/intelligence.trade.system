@@ -240,9 +240,9 @@ public sealed class RealtimePositionReconciliationService(
                             }
 
                             var slot = locked.Positions
-                                .Where(versioned =>
-                                    versioned.Value.TrackingState != PositionTrackingState.Closed &&
-                                    IsInSlot(versioned.Value, prepared))
+                                .Where(projection =>
+                                    projection.State.TrackingState != PositionTrackingState.Closed &&
+                                    IsInSlot(projection.State, prepared))
                                 .ToArray();
 
                             if (prepared.Observation.Kind == PrivatePositionObservationKind.PotentialClose)
@@ -260,7 +260,7 @@ public sealed class RealtimePositionReconciliationService(
                             }
 
                             var key = prepared.Key!.Value;
-                            if (slot.Any(versioned => versioned.Value.ExchangePositionKey != key))
+                            if (slot.Any(projection => projection.State.ExchangePositionKey != key))
                             {
                                 requiresRestConfirmation = true;
                                 return;
@@ -271,17 +271,32 @@ public sealed class RealtimePositionReconciliationService(
 
                             if (slot.Length == 0)
                             {
-                                // Stale/ambiguous относительно закрытия обрабатываются DirectApply без
-                                // ConfirmWithRest: evidence не должна подменять OlderThanClosure.
-                                if ((overlapsPersistedRest ||
-                                     locked.Account.LastAppliedPositionsObservationAt is not null) &&
-                                    !IsOpenRejectedByClosure(prepared, locked))
+                                var latestClosure = await GetLatestClosedAtAsync(
+                                        userId,
+                                        prepared,
+                                        token)
+                                    .ConfigureAwait(false);
+                                var closureRejection = GetOpenClosureRejection(prepared, latestClosure);
+                                if (closureRejection is not null)
+                                {
+                                    result = closureRejection;
+                                    return;
+                                }
+
+                                if (overlapsPersistedRest ||
+                                    locked.Account.LastAppliedPositionsObservationAt is not null)
                                 {
                                     requiresRestConfirmation = true;
                                     return;
                                 }
 
-                                result = await OpenLifecycleAsync(userId, generation, prepared, locked, token)
+                                result = await OpenLifecycleAsync(
+                                        userId,
+                                        generation,
+                                        prepared,
+                                        locked,
+                                        latestClosure,
+                                        token)
                                     .ConfigureAwait(false);
                                 requiresRestConfirmation = result is null;
                                 return;
@@ -300,12 +315,23 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
+                            var target = await positionRepository
+                                .GetByIdAsync(userId, slot[0].PositionId, token)
+                                .ConfigureAwait(false);
+                            if (target is null || target.Version != slot[0].Version ||
+                                target.Value.TrackingState == PositionTrackingState.Closed ||
+                                !IsInSlot(target.Value, prepared))
+                            {
+                                throw new ConcurrencyConflictException(
+                                    "The target position changed after its locked portfolio projection was read.");
+                            }
+
                             result = await UpdateLifecycleAsync(
                                     userId,
                                     generation,
                                     prepared,
                                     locked,
-                                    slot[0],
+                                    target,
                                     token)
                                 .ConfigureAwait(false);
                         },
@@ -334,14 +360,37 @@ public sealed class RealtimePositionReconciliationService(
     /// <summary>
     /// Открытие не новее закрытия слота: DirectApply вернёт Stale или AmbiguousObservationOrder.
     /// </summary>
-    private static bool IsOpenRejectedByClosure(PreparedObservation prepared, LockedState locked)
+    private async Task<DateTimeOffset?> GetLatestClosedAtAsync(
+        UserId userId,
+        PreparedObservation prepared,
+        CancellationToken cancellationToken)
     {
-        var latestClosure = locked.Positions
-            .Select(versioned => versioned.Value)
-            .Where(position => position.TrackingState == PositionTrackingState.Closed && IsInSlot(position, prepared))
-            .Select(position => position.ClosedAt)
-            .Max();
-        return latestClosure is { } closedAt && prepared.ObservedAt <= closedAt;
+        var key = prepared.Key
+            ?? throw new InvalidOperationException("An open position observation must have an exchange key.");
+        var latestClosedSlots = await positionRepository
+            .GetLatestClosedSlotsAsync(
+                userId,
+                prepared.Observation.ExchangeAccountId,
+                MarketCategory.Linear,
+                [PositionSlotKey.From(key)],
+                cancellationToken)
+            .ConfigureAwait(false);
+        return latestClosedSlots.Count == 0 ? null : latestClosedSlots.First().ClosedAt;
+    }
+
+    private static RealtimeObservationApplyResult? GetOpenClosureRejection(
+        PreparedObservation prepared,
+        DateTimeOffset? latestClosure)
+    {
+        if (latestClosure is not { } closedAt || prepared.ObservedAt > closedAt)
+        {
+            return null;
+        }
+
+        return IsExchangeFactAfter(prepared, closedAt)
+            ? RealtimeObservationApplyResult.RecoveryRequired(
+                RealtimeObservationApplyResult.AmbiguousObservationOrder)
+            : RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanClosure);
     }
 
     private async Task<bool> OverlapsPersistedRestAsync(
@@ -376,17 +425,17 @@ public sealed class RealtimePositionReconciliationService(
         UserId userId,
         PreparedObservation prepared,
         LockedState locked,
-        Versioned<Position> existing,
+        PositionPortfolioProjection existing,
         CancellationToken cancellationToken)
     {
-        var position = existing.Value;
+        var position = existing.State;
         if (position.TrackingState == PositionTrackingState.Unknown)
         {
             return false;
         }
 
         var cursor = locked.Cursor?.Value;
-        if (cursor?.LastDirectAppliedPositionId == position.Id &&
+        if (cursor?.LastDirectAppliedPositionId == existing.PositionId &&
             cursor.LastDirectAppliedPositionVersion == existing.Version)
         {
             return false;
@@ -409,25 +458,16 @@ public sealed class RealtimePositionReconciliationService(
         long generation,
         PreparedObservation prepared,
         LockedState locked,
+        DateTimeOffset? latestClosure,
         CancellationToken cancellationToken)
     {
         // Закрытие lifecycle выполняется только по полному снимку, поэтому сообщение не новее закрытия
         // уже опровергнуто им. Курсор при этом уже доказал, что ревизия новее закрытия: если биржевое
         // время факта тоже новее, а ограниченный ObservedAt — нет, порядок неоднозначен.
-        var latestClosure = locked.Positions
-            .Select(versioned => versioned.Value)
-            .Where(position => position.TrackingState == PositionTrackingState.Closed && IsInSlot(position, prepared))
-            .Select(position => position.ClosedAt)
-            .Max();
-        if (latestClosure is { } closedAt && prepared.ObservedAt <= closedAt)
+        var closureRejection = GetOpenClosureRejection(prepared, latestClosure);
+        if (closureRejection is not null)
         {
-            if (IsExchangeFactAfter(prepared, closedAt))
-            {
-                return RealtimeObservationApplyResult.RecoveryRequired(
-                    RealtimeObservationApplyResult.AmbiguousObservationOrder);
-            }
-
-            return RealtimeObservationApplyResult.Stale(RealtimeObservationApplyResult.OlderThanClosure);
+            return closureRejection;
         }
 
         // Watermark продвигается и неуспешными или частичными REST-попытками, поэтому не доказывает
@@ -461,8 +501,8 @@ public sealed class RealtimePositionReconciliationService(
             .ConfigureAwait(false);
 
         var positions = locked.Positions
-            .Select(versioned => versioned.Value)
-            .Append(created)
+            .Select(projection => projection.State)
+            .Append(PositionPortfolioProjection.ToSnapshot(created))
             .ToArray();
         await PersistDerivedStateAsync(
                 userId,
@@ -533,7 +573,11 @@ public sealed class RealtimePositionReconciliationService(
                 generation,
                 prepared,
                 locked,
-                locked.Positions.Select(versioned => versioned.Value).ToArray(),
+                locked.Positions
+                    .Where(projection => projection.PositionId != existing.Id)
+                    .Select(projection => projection.State)
+                    .Append(PositionPortfolioProjection.ToSnapshot(existing))
+                    .ToArray(),
                 change is null ? [] : [(existing, change)],
                 new Versioned<Position>(existing, version),
                 cancellationToken)
@@ -639,7 +683,31 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            var trackedPositions = locked.Positions.Select(versioned => versioned.Value).ToArray();
+                            var tracked = await positionRepository
+                                .GetCurrentWithHistoryAsync(userId, accountId, token)
+                                .ConfigureAwait(false);
+                            if (!HasSamePositionWatermark(locked.Positions, tracked))
+                            {
+                                throw new ConcurrencyConflictException(
+                                    "The current positions changed while the REST confirmation acquired its serialization locks.");
+                            }
+
+                            var trackedPositions = tracked
+                                .Select(versioned => versioned.Value)
+                                .ToArray();
+                            var latestClosedSlots = await positionRepository
+                                .GetLatestClosedSlotsAsync(
+                                    userId,
+                                    accountId,
+                                    snapshot.Category,
+                                    snapshot.Positions
+                                        .Select(position => new PositionSlotKey(
+                                            InstrumentId.From(position.Symbol.Trim()),
+                                            position.PositionIdx))
+                                        .Distinct()
+                                        .ToArray(),
+                                    token)
+                                .ConfigureAwait(false);
                             var now = Max(clock.GetUtcNow(), snapshot.ObservedAt);
                             foreach (var position in trackedPositions)
                             {
@@ -654,6 +722,7 @@ public sealed class RealtimePositionReconciliationService(
                             var reconciliation = PositionReconciler.Reconcile(
                                 accountId,
                                 trackedPositions,
+                                latestClosedSlots,
                                 snapshot,
                                 now,
                                 PortfolioStaleAfter);
@@ -664,7 +733,7 @@ public sealed class RealtimePositionReconciliationService(
                                 return;
                             }
 
-                            var versions = locked.Positions.ToDictionary(
+                            var versions = tracked.ToDictionary(
                                 versioned => versioned.Value.Id,
                                 versioned => versioned.Version);
                             var hasActivePositionInSlot = trackedPositions.Any(position =>
@@ -703,7 +772,9 @@ public sealed class RealtimePositionReconciliationService(
                                     generation,
                                     prepared,
                                     locked,
-                                    positions,
+                                    positions
+                                        .Select(position => PositionPortfolioProjection.ToSnapshot(position))
+                                        .ToArray(),
                                     reconciliation.Changes.Select(change => (positionsById[change.PositionId], change)),
                                     null,
                                     token)
@@ -767,7 +838,7 @@ public sealed class RealtimePositionReconciliationService(
         }
 
         var watermarkBeforeLocks = await positionRepository
-            .GetVersionWatermarkByExchangeAccountAsync(userId, accountId, cancellationToken)
+            .GetCurrentVersionWatermarksAsync(userId, accountId, cancellationToken)
             .ConfigureAwait(false);
         await persistenceTransaction.LockPositionsAsync(userId, accountId, cancellationToken).ConfigureAwait(false);
         await persistenceTransaction.LockAccountAsync(userId, accountId, cancellationToken).ConfigureAwait(false);
@@ -813,7 +884,7 @@ public sealed class RealtimePositionReconciliationService(
         }
 
         var positions = await positionRepository
-            .GetByExchangeAccountAsync(userId, accountId, cancellationToken)
+            .GetCurrentPortfolioPositionsAsync(userId, accountId, cancellationToken)
             .ConfigureAwait(false);
         if (!HasSamePositionWatermark(watermarkBeforeLocks, positions))
         {
@@ -829,7 +900,7 @@ public sealed class RealtimePositionReconciliationService(
         long generation,
         PreparedObservation prepared,
         LockedState locked,
-        IReadOnlyCollection<Position> positions,
+        IReadOnlyCollection<PortfolioPositionState> positions,
         IEnumerable<(Position Position, PositionChange Change)> changes,
         Versioned<Position>? directAppliedPosition,
         CancellationToken cancellationToken)
@@ -847,14 +918,14 @@ public sealed class RealtimePositionReconciliationService(
 
         foreach (var position in positions)
         {
-            if (position.TrackingState != PositionTrackingState.Closed && position.LastObservedAt > calculatedAt)
+            if (position.LastObservedAt > calculatedAt)
             {
                 calculatedAt = position.LastObservedAt;
             }
         }
 
         calculatedAt = PortfolioStateCalculatedAt.Resolve(calculatedAt, previous?.CalculatedAt);
-        var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
+        var portfolioState = PortfolioStateAssembler.AssembleFromSnapshotsWithCapital(
             capital,
             positions,
             accountId,
@@ -999,6 +1070,15 @@ public sealed class RealtimePositionReconciliationService(
             prepared.CursorKey.Symbol.Value,
             prepared.CursorKey.PositionIdx);
 
+    private static bool IsInSlot(PortfolioPositionState position, PreparedObservation prepared) =>
+        PhysicalPositionSlot.Matches(
+            position.ExchangePositionKey,
+            position.MarketCategory,
+            MarketCategory.Linear,
+            prepared.CursorKey.ExchangeAccountId,
+            prepared.CursorKey.Symbol.Value,
+            prepared.CursorKey.PositionIdx);
+
     /// <summary>
     /// Биржевое время факта (не ограниченное <see cref="PrivatePositionObservation.ReceivedAt"/>)
     /// строго позже указанной отметки.
@@ -1026,7 +1106,7 @@ public sealed class RealtimePositionReconciliationService(
 
     private static bool HasSamePositionWatermark(
         IReadOnlyCollection<PositionVersionWatermark> expected,
-        IReadOnlyCollection<Versioned<Position>> actual)
+        IReadOnlyCollection<PositionPortfolioProjection> actual)
     {
         if (expected.Count != actual.Count)
         {
@@ -1034,6 +1114,20 @@ public sealed class RealtimePositionReconciliationService(
         }
 
         var expectedById = expected.ToDictionary(watermark => watermark.PositionId, watermark => watermark.Version);
+        return actual.All(projection =>
+            expectedById.TryGetValue(projection.PositionId, out var version) && version == projection.Version);
+    }
+
+    private static bool HasSamePositionWatermark(
+        IReadOnlyCollection<PositionPortfolioProjection> expected,
+        IReadOnlyCollection<Versioned<Position>> actual)
+    {
+        if (expected.Count != actual.Count)
+        {
+            return false;
+        }
+
+        var expectedById = expected.ToDictionary(projection => projection.PositionId, projection => projection.Version);
         return actual.All(versioned =>
             expectedById.TryGetValue(versioned.Value.Id, out var version) && version == versioned.Version);
     }
@@ -1077,5 +1171,5 @@ public sealed class RealtimePositionReconciliationService(
     private sealed record LockedState(
         ExchangeAccount Account,
         Versioned<PositionObservationCursor>? Cursor,
-        IReadOnlyCollection<Versioned<Position>> Positions);
+        IReadOnlyCollection<PositionPortfolioProjection> Positions);
 }

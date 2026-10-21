@@ -2,9 +2,14 @@
 using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Portfolio;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Mapping;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
@@ -54,7 +59,7 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             .ToArray();
     }
 
-    public async Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+    public async Task<IReadOnlyCollection<PositionVersionWatermark>> GetCurrentVersionWatermarksAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         CancellationToken cancellationToken = default)
@@ -65,6 +70,7 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
             .AsNoTracking()
             .Where(position =>
                 position.ExchangeAccountId == exchangeAccountId.Value &&
+                position.TrackingState != PositionTrackingState.Closed &&
                 dbContext.ExchangeAccounts.Any(account =>
                     account.Id == position.ExchangeAccountId &&
                     account.UserId == userId.Value))
@@ -77,6 +83,193 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
                 PositionId.FromGuid(row.Id),
                 new ConcurrencyVersion(row.Version)))
             .ToArray();
+    }
+
+    public async Task<IReadOnlyCollection<PositionPortfolioProjection>> GetCurrentPortfolioPositionsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+
+        var rows = await dbContext.Positions
+            .AsNoTracking()
+            .Where(position =>
+                position.ExchangeAccountId == exchangeAccountId.Value &&
+                position.TrackingState != PositionTrackingState.Closed &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == position.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .OrderBy(position => position.Id)
+            .Select(position => new
+            {
+                position.Id,
+                position.Version,
+                position.ExchangeAccountId,
+                position.InstrumentId,
+                position.PositionSide,
+                position.PositionIdx,
+                position.MarketCategory,
+                position.SettlementAsset,
+                position.TrackingState,
+                position.Size,
+                position.PositionValue,
+                position.UnrealizedPnl,
+                position.AverageEntryPrice,
+                position.MarkPrice,
+                position.LiquidationPrice,
+                position.Leverage,
+                position.LastObservedAt,
+            })
+            .ToArrayAsync(cancellationToken);
+
+        return rows
+            .Select(row =>
+            {
+                var key = ExchangePositionKey.Create(
+                    ExchangeAccountId.FromGuid(row.ExchangeAccountId),
+                    InstrumentId.From(row.InstrumentId),
+                    row.PositionSide,
+                    row.PositionIdx);
+                var state = new PortfolioPositionState(
+                    PositionId.FromGuid(row.Id),
+                    key,
+                    row.MarketCategory,
+                    SettlementAsset.From(row.SettlementAsset),
+                    row.PositionSide,
+                    row.TrackingState,
+                    row.Size,
+                    row.PositionValue,
+                    row.UnrealizedPnl,
+                    row.AverageEntryPrice,
+                    row.MarkPrice,
+                    row.LiquidationPrice,
+                    row.Leverage,
+                    PersistenceDateTime.ToUtc(row.LastObservedAt));
+                return new PositionPortfolioProjection(
+                    state.PositionId,
+                    new ConcurrencyVersion(row.Version),
+                    state);
+            })
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyCollection<Versioned<Position>>> GetCurrentWithHistoryAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+
+        var entities = await dbContext.Positions
+            .AsNoTracking()
+            .Where(position =>
+                position.ExchangeAccountId == exchangeAccountId.Value &&
+                position.TrackingState != PositionTrackingState.Closed &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == position.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .OrderBy(position => position.Id)
+            .ToArrayAsync(cancellationToken);
+
+        if (entities.Length == 0)
+        {
+            return [];
+        }
+
+        var positionIds = entities.Select(position => position.Id).ToArray();
+        var changes = await dbContext.PositionChanges
+            .AsNoTracking()
+            .Where(change => positionIds.Contains(change.PositionId))
+            .OrderBy(change => change.PositionId)
+            .ThenBy(change => change.Sequence)
+            .ToArrayAsync(cancellationToken);
+        var changesByPosition = changes
+            .GroupBy(change => change.PositionId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyCollection<PositionChangeEntity>)group.ToArray());
+
+        return entities
+            .Select(entity => new Versioned<Position>(
+                PositionMapper.ToDomain(
+                    entity,
+                    changesByPosition.TryGetValue(entity.Id, out var positionChanges)
+                        ? positionChanges
+                        : []),
+                new ConcurrencyVersion(entity.Version)))
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyCollection<LatestClosedPositionSlot>> GetLatestClosedSlotsAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        MarketCategory marketCategory,
+        IReadOnlyCollection<PositionSlotKey> slots,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        ArgumentNullException.ThrowIfNull(slots);
+
+        var uniqueSlots = slots
+            .GroupBy(slot => (slot.InstrumentId.Value.ToUpperInvariant(), slot.PositionIdx))
+            .Select(group => group.First())
+            .ToArray();
+        if (uniqueSlots.Length == 0)
+        {
+            return [];
+        }
+
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            SELECT requested.instrument_id, requested.position_idx, latest.closed_at
+            FROM unnest(@instrument_ids, @position_indices) AS requested(instrument_id, position_idx)
+            JOIN LATERAL (
+                SELECT p.closed_at
+                FROM positions AS p
+                INNER JOIN exchange_accounts AS account
+                    ON account.exchange_account_id = p.exchange_account_id
+                WHERE p.exchange_account_id = @exchange_account_id
+                  AND account.user_id = @user_id
+                  AND p.market_category = @market_category
+                  AND p.tracking_state = 'Closed'
+                  AND lower(p.instrument_id) = lower(requested.instrument_id)
+                  AND p.position_idx = requested.position_idx
+                ORDER BY p.closed_at DESC, p.position_id DESC
+                LIMIT 1
+            ) AS latest ON TRUE
+            """;
+        command.Parameters.Add(new NpgsqlParameter(
+            "instrument_ids",
+            uniqueSlots.Select(slot => slot.InstrumentId.Value).ToArray())
+        {
+            NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text,
+        });
+        command.Parameters.Add(new NpgsqlParameter(
+            "position_indices",
+            uniqueSlots.Select(slot => slot.PositionIdx).ToArray())
+        {
+            NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer,
+        });
+        command.Parameters.Add(new NpgsqlParameter("exchange_account_id", exchangeAccountId.Value));
+        command.Parameters.Add(new NpgsqlParameter("user_id", userId.Value));
+        command.Parameters.Add(new NpgsqlParameter("market_category", marketCategory.ToString()));
+
+        var result = new List<LatestClosedPositionSlot>(uniqueSlots.Length);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new LatestClosedPositionSlot(
+                new PositionSlotKey(InstrumentId.From(reader.GetString(0)), reader.GetInt32(1)),
+                PersistenceDateTime.ToUtc(reader.GetFieldValue<DateTimeOffset>(2))));
+        }
+
+        return result;
     }
 
     public async Task<Versioned<Position>?> GetByIdAsync(
