@@ -185,8 +185,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     public async Task Full_rest_reconciliation_confirms_epoch_and_reenables_stream_observations()
     {
         var (account, generation) = await CreateObservedAccountAsync(recoveryRequired: true);
-        var clock = new FixedTimeProvider(T1.AddMinutes(1));
-        await using var services = CreateApplicationServices(account, new TestPrivateProvider(), clock);
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var provider = new TestPrivateProvider();
+        await using var services = CreateApplicationServices(account, provider, clock);
         var coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
 
         var reconciliation = await coordinator.SynchronizeAsync(account.UserId, account.Id);
@@ -197,8 +198,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         Assert.Equal(1, confirmed.RecoveryRequestEpoch);
         Assert.Equal(T1.AddMinutes(1), confirmed.LastFullyReconciledAt);
 
-        var result = await ApplyAsync(account, generation, OpenObservation(account, T1.AddMinutes(2), 1));
+        provider.SetPosition(OpenPosition());
+        clock.UtcNow = T1.AddMinutes(2).AddSeconds(1);
+        provider.ObservedAt = clock.UtcNow;
+        await using var scope = services.CreateAsyncScope();
+        var result = await scope.ServiceProvider
+            .GetRequiredService<RealtimePositionReconciliationService>()
+            .ApplyAsync(account.UserId, generation, OpenObservation(account, T1.AddMinutes(2), 1));
         Assert.Equal(RealtimeObservationApplyOutcome.Applied, result.Outcome);
+        Assert.True(result.ConfirmedByRest);
     }
 
     [Fact]

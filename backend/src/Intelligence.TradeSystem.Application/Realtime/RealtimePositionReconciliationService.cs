@@ -270,7 +270,9 @@ public sealed class RealtimePositionReconciliationService(
                             {
                                 // Stale/ambiguous относительно закрытия обрабатываются DirectApply без
                                 // ConfirmWithRest: evidence не должна подменять OlderThanClosure.
-                                if (overlapsPersistedRest && !IsOpenRejectedByClosure(prepared, locked))
+                                if ((overlapsPersistedRest ||
+                                     locked.Account.LastAppliedPositionsObservationAt is not null) &&
+                                    !IsOpenRejectedByClosure(prepared, locked))
                                 {
                                     requiresRestConfirmation = true;
                                     return;
@@ -662,6 +664,21 @@ public sealed class RealtimePositionReconciliationService(
                             var versions = locked.Positions.ToDictionary(
                                 versioned => versioned.Value.Id,
                                 versioned => versioned.Version);
+                            var hasActivePositionInSlot = trackedPositions.Any(position =>
+                                position.TrackingState != PositionTrackingState.Closed &&
+                                IsInSlot(position, prepared));
+                            var confirmsIncomingOpen = prepared.Observation.Kind == PrivatePositionObservationKind.Open &&
+                                reconciliation.NewPositions.Any(position =>
+                                    position.ExchangePositionKey == prepared.Key);
+                            if (!hasActivePositionInSlot &&
+                                prepared.Observation.Kind == PrivatePositionObservationKind.Open &&
+                                !confirmsIncomingOpen)
+                            {
+                                result = RealtimeObservationApplyResult.RecoveryRequired(
+                                    RealtimeObservationApplyResult.AmbiguousObservationOrder);
+                                return;
+                            }
+
                             foreach (var position in reconciliation.PositionsToPersist)
                             {
                                 await positionRepository
