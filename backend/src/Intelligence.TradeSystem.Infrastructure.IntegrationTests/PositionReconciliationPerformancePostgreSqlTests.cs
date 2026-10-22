@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
@@ -87,6 +88,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         }
 
         AssertMeasurements(runs, fixture.Datasets);
+        await AssertBusinessOutcomeParityAsync(fixture, runs);
         var plans = await ExplainMeasuredCommandsAsync(fixture.ConnectionString, runs);
         AssertPlans(plans, fixture.Datasets);
 
@@ -150,16 +152,20 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         var clockNow = WorkflowTime(iteration).AddSeconds(1);
         var clock = new FixedTimeProvider(clockNow);
         var baseline = account.Implementation == PositionReconciliationImplementation.Baseline;
+        var lockState = new PerformanceLockState();
         var positionRepository = new PerformancePositionRepository(
+            context,
             new PositionRepository(context),
             account,
             baseline,
             materialized,
-            capture);
+            capture,
+            lockState);
         var persistenceTransaction = new PerformanceSyncTransaction(
             context,
             baseline,
-            capture);
+            capture,
+            lockState);
         var accountRepository = new ExchangeAccountRepository(context);
         var portfolioRepository = new PortfolioStateRepository(context);
         var outbox = new ApplicationEventOutbox(context);
@@ -295,7 +301,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             CommitDurationMilliseconds: null,
             persistenceTransaction.LockOrderPreserved,
             outcome,
-            commands.Select(command => command.ToEvidence()).ToArray());
+            Array.Empty<PerformanceSqlCommandEvidence>());
         return new WorkflowRun(measurement, commands);
     }
 
@@ -357,6 +363,177 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
     private static DateTimeOffset WorkflowTime(int iteration) =>
         WorkflowAnchor.AddDays(120).AddMinutes(iteration);
 
+    private static async Task AssertBusinessOutcomeParityAsync(
+        PositionReconciliationPerformanceFixture fixture,
+        IReadOnlyCollection<WorkflowRun> runs)
+    {
+        foreach (var dataset in fixture.Datasets)
+        {
+            foreach (var workflow in Enum.GetValues<PositionReconciliationWorkflow>())
+            {
+                var baselineAccount = dataset.GetAccount(
+                    workflow,
+                    PositionReconciliationImplementation.Baseline);
+                var optimizedAccount = dataset.GetAccount(
+                    workflow,
+                    PositionReconciliationImplementation.Optimized);
+                var expectedCurrentCount = 7 +
+                    (workflow == PositionReconciliationWorkflow.OpenAfterClosure
+                        ? WarmupCount + MeasurementCount
+                        : 0);
+
+                await using var context = fixture.CreateContext();
+                var positionRepository = new PositionRepository(context);
+                var baselinePositions = await positionRepository.GetCurrentWithHistoryAsync(
+                    UserId.FromGuid(baselineAccount.UserId),
+                    ExchangeAccountId.FromGuid(baselineAccount.AccountId));
+                var optimizedPositions = await positionRepository.GetCurrentWithHistoryAsync(
+                    UserId.FromGuid(optimizedAccount.UserId),
+                    ExchangeAccountId.FromGuid(optimizedAccount.AccountId));
+
+                Assert.Equal(expectedCurrentCount, baselinePositions.Count);
+                Assert.Equal(expectedCurrentCount, optimizedPositions.Count);
+                Assert.Equal(PositionOutcomeSignature(baselinePositions), PositionOutcomeSignature(optimizedPositions));
+
+                var baselineSlots = baselinePositions
+                    .Select(position => (
+                        position.Value.MarketCategory,
+                        position.Value.ExchangePositionKey.InstrumentId.Value.ToUpperInvariant(),
+                        position.Value.ExchangePositionKey.PositionIdx))
+                    .Distinct()
+                    .Count();
+                var optimizedSlots = optimizedPositions
+                    .Select(position => (
+                        position.Value.MarketCategory,
+                        position.Value.ExchangePositionKey.InstrumentId.Value.ToUpperInvariant(),
+                        position.Value.ExchangePositionKey.PositionIdx))
+                    .Distinct()
+                    .Count();
+                Assert.Equal(expectedCurrentCount, baselineSlots);
+                Assert.Equal(expectedCurrentCount, optimizedSlots);
+
+                if (workflow != PositionReconciliationWorkflow.LockAcquisition)
+                {
+                    var portfolioRepository = new PortfolioStateRepository(context);
+                    var baselinePortfolio = await portfolioRepository.GetLatestAsync(
+                        UserId.FromGuid(baselineAccount.UserId),
+                        ExchangeAccountId.FromGuid(baselineAccount.AccountId));
+                    var optimizedPortfolio = await portfolioRepository.GetLatestAsync(
+                        UserId.FromGuid(optimizedAccount.UserId),
+                        ExchangeAccountId.FromGuid(optimizedAccount.AccountId));
+                    Assert.NotNull(baselinePortfolio);
+                    Assert.NotNull(optimizedPortfolio);
+                    Assert.Equal(
+                        PortfolioOutcomeSignature(baselinePortfolio),
+                        PortfolioOutcomeSignature(optimizedPortfolio));
+                }
+
+                var baselineOutcome = runs.Single(run =>
+                    run.Measurement.Dataset == dataset.Name &&
+                    run.Measurement.Workflow == workflow &&
+                    run.Measurement.Implementation == PositionReconciliationImplementation.Baseline &&
+                    run.Measurement.Iteration == MeasurementCount).Measurement.Outcome;
+                var optimizedOutcome = runs.Single(run =>
+                    run.Measurement.Dataset == dataset.Name &&
+                    run.Measurement.Workflow == workflow &&
+                    run.Measurement.Implementation == PositionReconciliationImplementation.Optimized &&
+                    run.Measurement.Iteration == MeasurementCount).Measurement.Outcome;
+                Assert.Equal(baselineOutcome, optimizedOutcome);
+            }
+        }
+    }
+
+    private static string PositionOutcomeSignature(
+        IReadOnlyCollection<Versioned<Position>> positions) =>
+        JsonSerializer.Serialize(positions
+            .Select(versioned => new
+            {
+                versioned.Version.Value,
+                position = new
+                {
+                    instrumentId = versioned.Value.ExchangePositionKey.InstrumentId.Value,
+                    versioned.Value.ExchangePositionKey.PositionIdx,
+                    side = versioned.Value.ExchangePositionKey.PositionSide,
+                    versioned.Value.MarketCategory,
+                    settlementAsset = versioned.Value.SettlementAsset.Value,
+                    versioned.Value.Size,
+                    versioned.Value.AverageEntryPrice,
+                    versioned.Value.PositionValue,
+                    versioned.Value.Leverage,
+                    versioned.Value.MarkPrice,
+                    versioned.Value.BreakEvenPrice,
+                    versioned.Value.LiquidationPrice,
+                    versioned.Value.UnrealizedPnl,
+                    versioned.Value.TakeProfit,
+                    versioned.Value.StopLoss,
+                    versioned.Value.TrailingStop,
+                    versioned.Value.FirstDetectedAt,
+                    versioned.Value.LastObservedAt,
+                    versioned.Value.TrackingState,
+                    versioned.Value.ClosedAt,
+                    changes = versioned.Value.Changes.Select(change => new
+                    {
+                        change.Kind,
+                        change.Cause,
+                        change.OccurredAt,
+                        change.TrackingStateAfter,
+                        change.Before,
+                        change.After,
+                    }),
+                },
+            })
+            .OrderBy(position => position.position.FirstDetectedAt)
+            .ThenBy(position => position.position.instrumentId, StringComparer.Ordinal)
+            .ThenBy(position => position.position.PositionIdx));
+
+    private static string PortfolioOutcomeSignature(PortfolioState portfolio)
+    {
+        var positions = portfolio.Positions
+            .Select(position => new
+            {
+                category = position.MarketCategory,
+                instrumentId = position.ExchangePositionKey.InstrumentId.Value,
+                position.ExchangePositionKey.PositionIdx,
+                position.PositionSide,
+                settlementAsset = position.SettlementAsset.Value,
+                position.TrackingState,
+                position.Size,
+                position.PositionValue,
+                position.UnrealizedPnl,
+                position.AverageEntryPrice,
+                position.MarkPrice,
+                position.LiquidationPrice,
+                position.Leverage,
+                position.LastObservedAt,
+            })
+            .OrderBy(position => position.category)
+            .ThenBy(position => position.instrumentId, StringComparer.Ordinal)
+            .ThenBy(position => position.PositionIdx)
+            .ThenBy(position => position.PositionSide)
+            .ToArray();
+
+        return JsonSerializer.Serialize(new
+        {
+            positions,
+            portfolio.Capital,
+            portfolio.CalculatedAt,
+            staleAfterTicks = portfolio.StaleAfter.Ticks,
+            portfolio.PositionsFullyReconciled,
+            portfolio.GrossExposure,
+            portfolio.LongExposure,
+            portfolio.ShortExposure,
+            portfolio.NetExposure,
+            portfolio.TotalUnrealizedPnl,
+            portfolio.UsedCapital,
+            portfolio.FreeCapital,
+            portfolio.FreeCapitalPercent,
+            portfolio.GrossExposureToEquityPercent,
+            portfolio.LargestPositionConcentrationPercent,
+            portfolio.IsComplete,
+            portfolio.IsFresh,
+        });
+    }
+
     private static void AssertMeasurements(
         IReadOnlyCollection<WorkflowRun> runs,
         IReadOnlyList<PositionReconciliationPerformanceDataset> datasets)
@@ -395,6 +572,15 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                         Assert.True(measurement.QueryExecutionDurationMilliseconds >= 0);
                         Assert.True(measurement.WallTimeMilliseconds >= 0);
                         Assert.Null(measurement.CommitDurationMilliseconds);
+                        if (workflow != PositionReconciliationWorkflow.LockAcquisition)
+                        {
+                            var expectedWatermarks = currentCount +
+                                (implementation == PositionReconciliationImplementation.Baseline
+                                    ? dataset.ClosedLifecycleCount
+                                    : 0);
+                            Assert.Equal(expectedWatermarks, measurement.MaterializedRows.Watermarks);
+                        }
+
                         if (workflow == PositionReconciliationWorkflow.WalletObservation &&
                             implementation == PositionReconciliationImplementation.Baseline &&
                             measurement.IsWarmup)
@@ -427,6 +613,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                             candidate.Measurement.Implementation == implementation &&
                             candidate.Measurement.Iteration == iteration);
                         AssertLockSqlShape(run.Commands, implementation);
+                        AssertWorkflowSqlSequence(run);
                     }
                 }
 
@@ -474,6 +661,124 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             Assert.Contains("tracking_state <> 'Closed'", positionLock.CommandText, StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    private static void AssertWorkflowSqlSequence(WorkflowRun run)
+    {
+        var commands = run.Commands;
+        var workflow = run.Measurement.Workflow;
+        var baseline = run.Measurement.Implementation == PositionReconciliationImplementation.Baseline;
+        var positionLock = Assert.Single(commands, command => command.QueryName == "position-lock");
+        var accountLock = Assert.Single(commands, command => command.QueryName == "account-lock");
+
+        Assert.True(positionLock.Sequence < accountLock.Sequence);
+        if (workflow == PositionReconciliationWorkflow.LockAcquisition)
+        {
+            Assert.DoesNotContain(commands, IsPositionChangesRead);
+            Assert.DoesNotContain(commands, command => command.QueryName == "latest-closed-slots");
+            Assert.DoesNotContain(commands, command =>
+                command.CommandType == "Reader" &&
+                ReferencesTable(command.CommandText, "positions"));
+            return;
+        }
+
+        var watermark = Assert.Single(commands, command =>
+            command.CommandType == "Reader" &&
+            ReferencesTable(command.CommandText, "positions") &&
+            command.Sequence < positionLock.Sequence);
+        Assert.Contains("position_id", watermark.CommandText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("version", watermark.CommandText, StringComparison.OrdinalIgnoreCase);
+        if (baseline)
+        {
+            Assert.Contains("tracking_state", watermark.CommandText, StringComparison.OrdinalIgnoreCase);
+            var whereStart = watermark.CommandText.IndexOf("WHERE", StringComparison.OrdinalIgnoreCase);
+            var orderByStart = watermark.CommandText.IndexOf("ORDER BY", whereStart, StringComparison.OrdinalIgnoreCase);
+            Assert.True(whereStart >= 0 && orderByStart > whereStart);
+            Assert.DoesNotContain(
+                "tracking_state",
+                watermark.CommandText[whereStart..orderByStart],
+                StringComparison.OrdinalIgnoreCase);
+        }
+        Assert.DoesNotContain("position_changes", watermark.CommandText, StringComparison.OrdinalIgnoreCase);
+
+        if (baseline)
+        {
+            Assert.DoesNotContain(commands, command =>
+                IsPositionChangesRead(command) &&
+                command.Sequence < accountLock.Sequence);
+            Assert.DoesNotContain(commands, command =>
+                command.CommandType == "Reader" &&
+                ReferencesTable(command.CommandText, "positions") &&
+                command.Sequence < accountLock.Sequence &&
+                command.Sequence != watermark.Sequence);
+
+            Assert.Contains(commands, command =>
+                command.CommandType == "Reader" &&
+                ReferencesTable(command.CommandText, "positions") &&
+                command.Sequence > accountLock.Sequence &&
+                command.CommandText.Contains("tracking_state", StringComparison.OrdinalIgnoreCase) &&
+                command.CommandText.Contains("instrument_id", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(commands, command =>
+                IsPositionChangesRead(command) &&
+                command.Sequence > accountLock.Sequence);
+            return;
+        }
+
+        var postLockPositionReads = commands
+            .Where(command =>
+                command.CommandType == "Reader" &&
+                ReferencesTable(command.CommandText, "positions") &&
+                command.Sequence > accountLock.Sequence)
+            .ToArray();
+        switch (workflow)
+        {
+            case PositionReconciliationWorkflow.WalletObservation:
+                Assert.NotEmpty(postLockPositionReads);
+                Assert.DoesNotContain(commands, IsPositionChangesRead);
+                Assert.DoesNotContain(commands, command => command.QueryName == "latest-closed-slots");
+                Assert.Contains(postLockPositionReads, command =>
+                    command.CommandText.Contains("tracking_state", StringComparison.OrdinalIgnoreCase));
+                break;
+            case PositionReconciliationWorkflow.DirectPositionUpdate:
+                Assert.NotEmpty(postLockPositionReads);
+                Assert.Contains(commands, command =>
+                    IsPositionChangesRead(command) &&
+                    command.Sequence > accountLock.Sequence);
+                Assert.DoesNotContain(commands, command => command.QueryName == "latest-closed-slots");
+                break;
+            case PositionReconciliationWorkflow.OpenAfterClosure:
+                Assert.NotEmpty(postLockPositionReads);
+                Assert.Contains(commands, command =>
+                    command.QueryName == "latest-closed-slots" &&
+                    command.Sequence > accountLock.Sequence);
+                Assert.DoesNotContain(commands, IsPositionChangesRead);
+                break;
+            case PositionReconciliationWorkflow.FullRestReconciliation:
+                Assert.NotEmpty(postLockPositionReads);
+                Assert.Contains(postLockPositionReads, command =>
+                    command.CommandText.Contains(
+                        "tracking_state <> 'Closed'",
+                        StringComparison.OrdinalIgnoreCase));
+                Assert.Contains(commands, command =>
+                    IsPositionChangesRead(command) &&
+                    command.Sequence > accountLock.Sequence);
+                Assert.Contains(commands, command =>
+                    command.QueryName == "latest-closed-slots" &&
+                    command.Sequence > accountLock.Sequence);
+                break;
+            default:
+                throw new InvalidOperationException($"Неизвестный сценарий benchmark: {workflow}.");
+        }
+    }
+
+    private static bool ReferencesTable(string sql, string tableName) =>
+        Regex.IsMatch(
+            sql,
+            $@"\b(?:FROM|JOIN|UPDATE|INTO)\s+(?:public\.)?""?{Regex.Escape(tableName)}""?(?=\s|$)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static bool IsPositionChangesRead(CapturedSqlCommand command) =>
+        command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) &&
+        ReferencesTable(command.CommandText, "position_changes");
 
     private static async Task<IReadOnlyList<PerformanceQueryPlanEvidence>> ExplainMeasuredCommandsAsync(
         string connectionString,
@@ -648,6 +953,27 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                 1,
                 1))
             .ToArray();
+        var sqlStatements = runs
+            .SelectMany(run => run.Commands)
+            .GroupBy(command => (command.CommandType, command.QueryName, command.CommandText))
+            .Select((group, index) => new PerformanceSqlStatementEvidence(
+                index + 1,
+                group.Key.CommandType,
+                group.Key.QueryName,
+                group.Key.CommandText))
+            .ToArray();
+        var sqlStatementIds = sqlStatements.ToDictionary(
+            statement => (statement.CommandType, statement.QueryName, statement.CommandText),
+            statement => statement.Id);
+        var measurements = runs
+            .Select(run => run.Measurement with
+            {
+                Commands = run.Commands
+                    .Select(command => command.ToEvidence(
+                        sqlStatementIds[(command.CommandType, command.QueryName, command.CommandText)]))
+                    .ToArray(),
+            })
+            .ToArray();
         return new PerformanceEvidence(
             DateTimeOffset.UtcNow,
             "postgres:16-alpine",
@@ -656,13 +982,14 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             new PerformanceMethodologyEvidence(
                 WarmupCount,
                 MeasurementCount,
-                "Полные сценарии Application используют реальные PostgreSQL repositories, transactions, portfolio, cursor и outbox. Базовый adapter заменяет специализированные reads одним legacy GetByExchangeAccountAsync на workflow и строит projections из того же результата; остальные orchestration и write paths одинаковы. Materialized position/PositionChanges учитывают также existing history, повторно materialized приложением при append-only CAS verification.",
+                "Baseline восстанавливает последовательность production-кода develop: до блокировок выполняется лёгкий watermark-запрос по всем lifecycle (PositionId, version и TrackingState нужны только для адаптации current-only application port; PositionChanges не читаются), затем блокируются все position rows по порядку и account через FOR NO KEY UPDATE, после чего SQL-запрос GetByExchangeAccountAsync материализует все lifecycle и их PositionChanges. Результат кэшируется только после обеих блокировок и используется при reconciliation. Optimized использует current-only watermark/projection, историю только target/current агрегатов и batch latest-closed lookup. Оба варианта запускают одинаковые Application workflows и write paths на независимо seeded аккаунтах с одинаковыми наблюдениями; parity проверяется по outcome, текущим агрегатам/истории и portfolio state.",
                 "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) запускается после обычных измерений на отдельном соединении и транзакции с последующим ROLLBACK. Его время не входит в workflow measurements.",
                 "Lock holding duration измеряется от начала position-lock SQL до завершения ExecuteAsync после commit. Commit не измеряется отдельно и входит в lock holding duration.",
                 "Query duration для EF reader-команд заканчивается при возврате DbDataReader; полное чтение и materialization отражены в wall time и счётчиках строк. Raw-команды измеряются до завершения их reader/scalar callback.",
-                "Materialized rows считает позиции, PositionChanges, portfolio projections, watermarks и результаты latest-closed lookup, включая историю, повторно загруженную для append-only CAS. Account, cursor и outbox строки сюда не входят; их SQL-команды и длительности учитываются."),
+                "Materialized rows считает позиции, PositionChanges, portfolio projections, watermarks и результаты latest-closed lookup, включая все lightweight watermark rows и историю, повторно загруженную для append-only CAS verification. Account, cursor и outbox строки сюда не входят; их SQL-команды и длительности учитываются."),
             datasets,
-            runs.Select(run => run.Measurement).ToArray(),
+            measurements,
+            sqlStatements,
             plans);
     }
 
@@ -685,11 +1012,18 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         builder.AppendLine();
         AppendInvariant(
             $"Для каждого workflow и варианта реализации выполнен прогрев ({evidence.Methodology.WarmupCount}) и {evidence.Methodology.MeasurementCount} измерения после прогрева. В таблице приведены медианы трёх измерений; полные результаты каждого прогона и SQL приведены в JSON evidence.");
+        builder.AppendLine(
+            "В JSON полный SQL хранится один раз в `sqlStatements`; каждая запись измерения ссылается на него через `sqlStatementId` и содержит параметры конкретного выполнения.");
         builder.AppendLine(evidence.Methodology.MaterializedRowsDescription);
         builder.AppendLine(
-            "Базовый вариант отличается только стратегией чтения: один раз загружает полный legacy aggregate через " +
-            "`GetByExchangeAccountAsync`, включая закрытые lifecycle и `PositionChanges`. Измеряется весь workflow, " +
-            "а не отдельный вызов repository.");
+            "Baseline воспроизводит последовательность `develop`: lightweight watermark всех lifecycle до locks → " +
+            "position locks → account lock → полная SQL-материализация через `GetByExchangeAccountAsync` после locks, " +
+            "включая закрытые lifecycle и `PositionChanges`. Адаптер повторно использует только эту post-lock " +
+            "materialization. Optimized читает current watermark/projections, требуемую target/current history и " +
+            "latest closed slot. Проверки подтверждают SQL-порядок по перехваченным командам; измеряется весь workflow.");
+        builder.AppendLine(
+            "Обе реализации используют одинаковые seeded positions, историю, workflow observations и Application " +
+            "write paths. После измерений тест сравнивает outcomes, current aggregate histories и сохранённый portfolio state.");
         builder.AppendLine(
             "Абсолютный SLA не задаётся; длительности зависят от среды. Lock holding включает commit; commit отдельно " +
             "не измерялся. Диагностические `EXPLAIN ANALYZE` выполняются отдельно в откатываемых транзакциях.");
@@ -726,9 +1060,10 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             "| Набор | Сценарий | Базовый: SQL round trips / position-state materialized rows / query ms / wall ms | " +
             "Оптимизированный: SQL round trips / position-state materialized rows / query ms / wall ms | " +
             "Заблокировано position rows (базовый → оптимизированный) | " +
-            "Lock SQL ms (базовый → оптимизированный) | " +
+            "Position lock SQL ms (базовый → оптимизированный) | " +
+            "Account lock SQL ms (базовый → оптимизированный) | " +
             "Lock holding ms (базовый → оптимизированный) |");
-        builder.AppendLine("|---|---|---:|---:|---:|---:|---:|");
+        builder.AppendLine("|---|---|---:|---:|---:|---:|---:|---:|");
 
         foreach (var dataset in evidence.Datasets)
         {
@@ -749,7 +1084,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                         !measurement.IsWarmup)
                     .ToArray();
                 AppendInvariant(
-                    $"| {dataset.Name} | {WorkflowLabel(workflow)} | {Median(baseline.Select(item => (double)item.SqlRoundTrips)):F0} / {Median(baseline.Select(item => (double)item.MaterializedRows.Total)):F0} / {Median(baseline.Select(item => item.QueryExecutionDurationMilliseconds)):F3} / {Median(baseline.Select(item => item.WallTimeMilliseconds)):F3} | {Median(optimized.Select(item => (double)item.SqlRoundTrips)):F0} / {Median(optimized.Select(item => (double)item.MaterializedRows.Total)):F0} / {Median(optimized.Select(item => item.QueryExecutionDurationMilliseconds)):F3} / {Median(optimized.Select(item => item.WallTimeMilliseconds)):F3} | {Median(baseline.Select(item => (double)item.PositionRowsLocked)):F0} → {Median(optimized.Select(item => (double)item.PositionRowsLocked)):F0} | {Median(baseline.Select(item => item.PositionLockSqlDurationMilliseconds + item.AccountLockSqlDurationMilliseconds)):F3} → {Median(optimized.Select(item => item.PositionLockSqlDurationMilliseconds + item.AccountLockSqlDurationMilliseconds)):F3} | {Median(baseline.Select(item => item.LockHoldingDurationMilliseconds)):F3} → {Median(optimized.Select(item => item.LockHoldingDurationMilliseconds)):F3} |");
+                    $"| {dataset.Name} | {WorkflowLabel(workflow)} | {Median(baseline.Select(item => (double)item.SqlRoundTrips)):F0} / {Median(baseline.Select(item => (double)item.MaterializedRows.Total)):F0} / {Median(baseline.Select(item => item.QueryExecutionDurationMilliseconds)):F3} / {Median(baseline.Select(item => item.WallTimeMilliseconds)):F3} | {Median(optimized.Select(item => (double)item.SqlRoundTrips)):F0} / {Median(optimized.Select(item => (double)item.MaterializedRows.Total)):F0} / {Median(optimized.Select(item => item.QueryExecutionDurationMilliseconds)):F3} / {Median(optimized.Select(item => item.WallTimeMilliseconds)):F3} | {Median(baseline.Select(item => (double)item.PositionRowsLocked)):F0} → {Median(optimized.Select(item => (double)item.PositionRowsLocked)):F0} | {Median(baseline.Select(item => item.PositionLockSqlDurationMilliseconds)):F3} → {Median(optimized.Select(item => item.PositionLockSqlDurationMilliseconds)):F3} | {Median(baseline.Select(item => item.AccountLockSqlDurationMilliseconds)):F3} → {Median(optimized.Select(item => item.AccountLockSqlDurationMilliseconds)):F3} | {Median(baseline.Select(item => item.LockHoldingDurationMilliseconds)):F3} → {Median(optimized.Select(item => item.LockHoldingDurationMilliseconds)):F3} |");
             }
         }
 
@@ -816,11 +1151,13 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
     }
 
     private sealed class PerformancePositionRepository(
+        TradeSystemDbContext dbContext,
         IPositionRepository inner,
         PositionReconciliationPerformanceAccount account,
         bool baseline,
         PositionMaterializationCounts materialized,
-        PerformanceCommandCapture capture)
+        PerformanceCommandCapture capture,
+        PerformanceLockState lockState)
         : IPositionRepository
     {
         private IReadOnlyCollection<Versioned<Position>>? legacyPositions;
@@ -849,10 +1186,33 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         {
             if (baseline)
             {
-                var positions = await ReadLegacyAccountAsync(userId, exchangeAccountId, cancellationToken);
-                return positions
-                    .Where(position => position.Value.TrackingState != PositionTrackingState.Closed)
-                    .Select(position => new PositionVersionWatermark(position.Value.Id, position.Version))
+                if (lockState.PositionLockAcquired || lockState.AccountLockAcquired)
+                {
+                    throw new InvalidOperationException(
+                        "Базовый watermark должен читаться до блокировок.");
+                }
+
+                var rows = await dbContext.Positions
+                    .AsNoTracking()
+                    .Where(position =>
+                        position.ExchangeAccountId == exchangeAccountId.Value &&
+                        dbContext.ExchangeAccounts.Any(account =>
+                            account.Id == position.ExchangeAccountId &&
+                            account.UserId == userId.Value))
+                    .OrderBy(position => position.Id)
+                    .Select(position => new
+                    {
+                        position.Id,
+                        position.Version,
+                        position.TrackingState,
+                    })
+                    .ToArrayAsync(cancellationToken);
+                materialized.AddWatermarks(rows.Length);
+                return rows
+                    .Where(row => row.TrackingState != PositionTrackingState.Closed)
+                    .Select(row => new PositionVersionWatermark(
+                        PositionId.FromGuid(row.Id),
+                        new ConcurrencyVersion(row.Version)))
                     .ToArray();
             }
 
@@ -1021,6 +1381,12 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken)
         {
+            if (!lockState.PositionLockAcquired || !lockState.AccountLockAcquired)
+            {
+                throw new InvalidOperationException(
+                    "Полная историческая загрузка baseline должна выполняться после обеих блокировок.");
+            }
+
             if (legacyPositions is not null)
             {
                 return legacyPositions;
@@ -1066,10 +1432,24 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         ];
     }
 
+    private sealed class PerformanceLockState
+    {
+        public bool PositionLockAcquired { get; set; }
+
+        public bool AccountLockAcquired { get; set; }
+
+        public void Reset()
+        {
+            PositionLockAcquired = false;
+            AccountLockAcquired = false;
+        }
+    }
+
     private sealed class PerformanceSyncTransaction(
         TradeSystemDbContext dbContext,
         bool baseline,
-        PerformanceCommandCapture capture)
+        PerformanceCommandCapture capture,
+        PerformanceLockState lockState)
         : IExchangeAccountSyncTransaction
     {
         private const string BaselinePositionLockSql =
@@ -1148,6 +1528,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             }
 
             positionLockSqlDuration += stopwatch.Elapsed;
+            lockState.PositionLockAcquired = true;
         }
 
         public async Task LockAccountAsync(
@@ -1155,6 +1536,12 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken = default)
         {
+            if (!lockState.PositionLockAcquired)
+            {
+                throw new InvalidOperationException(
+                    "Блокировка аккаунта должна следовать за блокировкой позиций.");
+            }
+
             var parameters = LockParameters(userId, exchangeAccountId);
             var stopwatch = Stopwatch.StartNew();
             await ExchangeAccountSerializationLock.LockAsync(
@@ -1171,12 +1558,14 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                 parameters,
                 stopwatch.Elapsed,
                 rowsReturned: 1);
+            lockState.AccountLockAcquired = true;
         }
 
         public async Task ExecuteAsync(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken = default)
         {
+            lockState.Reset();
             try
             {
                 await transaction.ExecuteAsync(operation, cancellationToken);
@@ -1365,6 +1754,7 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         PerformanceMethodologyEvidence Methodology,
         IReadOnlyList<PerformanceDatasetEvidence> Datasets,
         IReadOnlyList<PerformanceMeasurementEvidence> Measurements,
+        IReadOnlyList<PerformanceSqlStatementEvidence> SqlStatements,
         IReadOnlyList<PerformanceQueryPlanEvidence> Plans);
 
     private sealed record PerformanceRuntimeEnvironment(
@@ -1425,12 +1815,20 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
         string Outcome,
         IReadOnlyList<PerformanceSqlCommandEvidence> Commands);
 
+    private sealed record PerformanceSqlStatementEvidence(
+        int Id,
+        string CommandType,
+        string QueryName,
+        string CommandText);
+
     private sealed record PerformanceSqlCommandEvidence(
         int Sequence,
         string CommandType,
         string QueryName,
         double ExecutionDurationMilliseconds,
-        int? RowsReturned);
+        int? RowsReturned,
+        int SqlStatementId,
+        IReadOnlyList<PerformanceSqlParameterEvidence> Parameters);
 
     private sealed record PerformanceSqlParameterEvidence(
         string Name,
@@ -1499,13 +1897,15 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
                     ParameterValue(parameter.Value)))
                 .ToArray();
 
-        public PerformanceSqlCommandEvidence ToEvidence() =>
+        public PerformanceSqlCommandEvidence ToEvidence(int sqlStatementId) =>
             new(
                 Sequence,
                 CommandType,
                 QueryName,
                 ExecutionDuration.TotalMilliseconds,
-                RowsReturned);
+                RowsReturned,
+                sqlStatementId,
+                ToParameterEvidence());
 
         private static object? ParameterValue(object? value) =>
             value switch
@@ -1685,24 +2085,24 @@ public sealed class PositionReconciliationPerformancePostgreSqlTests(ITestOutput
             if (sql.Contains("unnest", StringComparison.OrdinalIgnoreCase) &&
                 sql.Contains("closed_at", StringComparison.OrdinalIgnoreCase))
                 return "latest-closed-slots";
-            if (sql.Contains("position_changes", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "position_changes"))
                 return "position-changes";
-            if (sql.Contains("positions", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "positions"))
                 return "positions";
-            if (sql.Contains("portfolio_states", StringComparison.OrdinalIgnoreCase) ||
-                sql.Contains("portfolio_position_states", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "portfolio_states") ||
+                ReferencesTable(sql, "portfolio_position_states"))
                 return "portfolio";
-            if (sql.Contains("position_observation_cursors", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "position_observation_cursors"))
                 return "position-cursor";
-            if (sql.Contains("exchange_wallet_observation_cursors", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "exchange_wallet_observation_cursors"))
                 return "wallet-cursor";
-            if (sql.Contains("exchange_realtime_observations", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "exchange_realtime_observations"))
                 return "realtime-state";
-            if (sql.Contains("exchange_rest_ordering_intervals", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "exchange_rest_ordering_intervals"))
                 return "rest-ordering-evidence";
-            if (sql.Contains("outbox_messages", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "outbox_messages"))
                 return "outbox";
-            if (sql.Contains("exchange_accounts", StringComparison.OrdinalIgnoreCase))
+            if (ReferencesTable(sql, "exchange_accounts"))
                 return "account";
             return "other";
         }

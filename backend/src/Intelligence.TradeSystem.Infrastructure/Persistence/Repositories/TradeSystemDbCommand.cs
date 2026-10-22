@@ -44,6 +44,12 @@ internal static class TradeSystemDbCommand
                 command.Parameters.Add(parameter);
             }
 
+            var observer = ExecutionObserver.Value;
+            if (observer is null)
+            {
+                return await execute(command, cancellationToken).ConfigureAwait(false);
+            }
+
             var stopwatch = Stopwatch.StartNew();
             try
             {
@@ -52,7 +58,7 @@ internal static class TradeSystemDbCommand
             finally
             {
                 stopwatch.Stop();
-                ExecutionObserver.Value?.Invoke(command, stopwatch.Elapsed);
+                observer(command, stopwatch.Elapsed);
             }
         }
         finally
