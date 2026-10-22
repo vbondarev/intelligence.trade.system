@@ -1,8 +1,10 @@
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Events;
+using Intelligence.TradeSystem.Application.Portfolio;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using static Intelligence.TradeSystem.Application.Tests.Realtime.RealtimeTestWorld;
 
@@ -106,6 +108,47 @@ public sealed class RealtimePositionReconciliationServiceTests
         result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RevisionConflict);
         world.ActivePositions.Single().StopLoss.Should().BeNull();
     }
+
+    [Theory]
+    [MemberData(nameof(InvalidPositionObservations))]
+    public async Task Scoped_Rest_InvalidRowsAreExcludedFromSlotLookupAndDoNotOpenPosition(
+        OpenPosition invalidPosition)
+    {
+        var world = new RealtimeTestWorld();
+        var validPosition = OpenPosition();
+        var snapshot = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            "BTCUSDT",
+            T0.AddSeconds(1),
+            [validPosition, invalidPosition]);
+        world.Provider.PositionsObservationOverride = snapshot;
+        world.Clock.UtcNow = T0.AddSeconds(1);
+
+        var result = await world.CreatePositionService().ApplyAsync(
+            world.UserId,
+            1,
+            world.OpenObservation(T0, sequence: 1, validPosition),
+            confirmWithRest: true);
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.RestConfirmationIncomplete);
+        world.ActivePositions.Should().BeEmpty();
+        world.Events.Should().BeEmpty();
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.Provider.PositionRequests.Should().Equal("BTCUSDT");
+        world.Provider.PositionsObservationOverride.Should().BeSameAs(snapshot);
+        world.LastRequestedClosedSlots.Should().Equal(
+            new PositionSlotKey(InstrumentId.From("BTCUSDT"), 0));
+    }
+
+    public static TheoryData<OpenPosition> InvalidPositionObservations =>
+    [
+        OpenPosition() with { Symbol = null! },
+        OpenPosition() with { Symbol = "" },
+        OpenPosition() with { Symbol = " \t " },
+        OpenPosition() with { Side = PositionSide.Unknown },
+        OpenPosition() with { PositionIdx = -1 },
+    ];
 
     [Fact]
     public async Task Older_Revision_Is_Stale()

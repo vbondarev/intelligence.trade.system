@@ -109,6 +109,8 @@ internal sealed class RealtimeTestWorld
 
     public IReadOnlyList<ExchangeRestOrderingInterval> RestOrderingIntervals => restOrderingIntervals;
 
+    public IReadOnlyCollection<PositionSlotKey> LastRequestedClosedSlots { get; private set; } = [];
+
     public DateTimeOffset? LastAcceptedWalletMessageCreatedAt => lastAcceptedWalletMessageCreatedAt;
 
     /// <summary>Добавляет persisted REST evidence без process-local окон coordinator.</summary>
@@ -476,6 +478,8 @@ internal sealed class RealtimeTestWorld
 
         public OpenPositionsObservationStatus Status { get; set; } = OpenPositionsObservationStatus.Complete;
 
+        public OpenPositionsObservation? PositionsObservationOverride { get; set; }
+
         public AccountBalance Balance { get; set; } =
             new(AccountType.Unified, 2_000m, 1_900m, 1_500m, 100m, []);
 
@@ -574,6 +578,11 @@ internal sealed class RealtimeTestWorld
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (PositionsObservationOverride is { } observationOverride)
+            {
+                return observationOverride;
+            }
+
             var source = exchangePositionsSnapshot ?? exchangePositions.Values.ToList();
             var observed = source
                 .Where(position => symbol is null || position.Symbol == symbol)
@@ -913,14 +922,72 @@ internal sealed class RealtimeTestWorld
             return Task.FromResult(result);
         }
 
-        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetCurrentVersionWatermarksAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, exchangeAccountId);
             IReadOnlyCollection<PositionVersionWatermark> result = world.positions.Values
+                .Where(versioned => versioned.Value.TrackingState != PositionTrackingState.Closed)
                 .Select(versioned => new PositionVersionWatermark(versioned.Value.Id, versioned.Version))
+                .ToArray();
+            return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyCollection<PositionPortfolioProjection>> GetCurrentPortfolioPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            world.EnsureScope(userId, exchangeAccountId);
+            IReadOnlyCollection<PositionPortfolioProjection> result = world.positions.Values
+                .Where(versioned => versioned.Value.TrackingState != PositionTrackingState.Closed)
+                .Select(PositionPortfolioProjection.From)
+                .ToArray();
+            return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyCollection<Versioned<Position>>> GetCurrentWithHistoryAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            world.EnsureScope(userId, exchangeAccountId);
+            IReadOnlyCollection<Versioned<Position>> result = world.positions.Values
+                .Where(versioned => versioned.Value.TrackingState != PositionTrackingState.Closed)
+                .OrderBy(versioned => versioned.Value.Id.Value)
+                .Select(versioned => new Versioned<Position>(Clone(versioned.Value), versioned.Version))
+                .ToArray();
+            return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyCollection<LatestClosedPositionSlot>> GetLatestClosedSlotsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            MarketCategory marketCategory,
+            IReadOnlyCollection<PositionSlotKey> slots,
+            CancellationToken cancellationToken = default)
+        {
+            world.EnsureScope(userId, exchangeAccountId);
+            world.LastRequestedClosedSlots = slots.ToArray();
+            IReadOnlyCollection<LatestClosedPositionSlot> result = slots
+                .Select(slot => world.positions.Values
+                    .Select(versioned => versioned.Value)
+                    .Where(position =>
+                        position.TrackingState == PositionTrackingState.Closed &&
+                        position.MarketCategory == marketCategory &&
+                        position.ExchangePositionKey.PositionIdx == slot.PositionIdx &&
+                        string.Equals(
+                            position.ExchangePositionKey.InstrumentId.Value,
+                            slot.InstrumentId.Value,
+                            StringComparison.OrdinalIgnoreCase))
+                    .Select(position => position.ClosedAt)
+                    .Max())
+                .Select((closedAt, index) => closedAt is { } value
+                    ? new LatestClosedPositionSlot(slots.ElementAt(index), value)
+                    : null)
+                .OfType<LatestClosedPositionSlot>()
                 .ToArray();
             return Task.FromResult(result);
         }
@@ -928,8 +995,18 @@ internal sealed class RealtimeTestWorld
         public Task<Versioned<Position>?> GetByIdAsync(
             UserId userId,
             PositionId id,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            if (userId != world.UserId ||
+                !world.positions.TryGetValue(id, out var position) ||
+                position.Value.ExchangePositionKey.ExchangeAccountId != world.AccountId)
+            {
+                return Task.FromResult<Versioned<Position>?>(null);
+            }
+
+            return Task.FromResult<Versioned<Position>?>(
+                new Versioned<Position>(Clone(position.Value), position.Version));
+        }
 
         public Task<ConcurrencyVersion> SaveAsync(
             UserId userId,

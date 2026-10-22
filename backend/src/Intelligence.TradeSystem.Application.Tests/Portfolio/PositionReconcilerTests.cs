@@ -48,7 +48,7 @@ public sealed class PositionReconcilerTests
         var position = CreateTrackedPosition(AccountA);
         var observation = OpenPositionsObservation.Complete(MarketCategory.Linear, null, T0.AddMinutes(1), []);
 
-        var result = PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [position], observation, T0.AddMinutes(1), StaleAfter);
 
         position.TrackingState.Should().Be(PositionTrackingState.Closed);
         result.Changes.Should().ContainSingle(c => c.Kind == PositionChangeKind.Closed);
@@ -61,7 +61,7 @@ public sealed class PositionReconcilerTests
         var position = CreateTrackedPosition(AccountA);
         var observation = OpenPositionsObservation.Failed(MarketCategory.Linear, null, T0.AddMinutes(1), "boom");
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [position], observation, T0.AddMinutes(1), StaleAfter);
 
         position.TrackingState.Should().Be(PositionTrackingState.Unknown);
@@ -81,7 +81,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "BTCUSDT", size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [observed, missing], observation, T0.AddMinutes(1), StaleAfter);
 
         observed.Size.Should().Be(2m);
@@ -99,7 +99,7 @@ public sealed class PositionReconcilerTests
         var inverse = CreateTrackedPosition(AccountA, symbol: "BTCUSD", category: MarketCategory.Inverse);
         var observation = OpenPositionsObservation.Complete(MarketCategory.Linear, null, T0.AddMinutes(1), []);
 
-        PositionReconciler.Reconcile(AccountA, [linear, inverse], observation, T0.AddMinutes(1), StaleAfter);
+        Reconcile(AccountA, [linear, inverse], observation, T0.AddMinutes(1), StaleAfter);
 
         linear.TrackingState.Should().Be(PositionTrackingState.Closed);
         inverse.TrackingState.Should().Be(PositionTrackingState.Active);
@@ -112,7 +112,7 @@ public sealed class PositionReconcilerTests
         var eth = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");
         var observation = OpenPositionsObservation.Complete(MarketCategory.Linear, "BTCUSDT", T0.AddMinutes(1), []);
 
-        PositionReconciler.Reconcile(AccountA, [btc, eth], observation, T0.AddMinutes(1), StaleAfter);
+        Reconcile(AccountA, [btc, eth], observation, T0.AddMinutes(1), StaleAfter);
 
         btc.TrackingState.Should().Be(PositionTrackingState.Closed);
         eth.TrackingState.Should().Be(PositionTrackingState.Active);
@@ -125,7 +125,7 @@ public sealed class PositionReconcilerTests
         var positionB = CreateTrackedPosition(AccountB);
         var observation = OpenPositionsObservation.Complete(MarketCategory.Linear, null, T0.AddMinutes(1), []);
 
-        PositionReconciler.Reconcile(AccountA, [positionA, positionB], observation, T0.AddMinutes(1), StaleAfter);
+        Reconcile(AccountA, [positionA, positionB], observation, T0.AddMinutes(1), StaleAfter);
 
         positionA.TrackingState.Should().Be(PositionTrackingState.Closed);
         positionB.TrackingState.Should().Be(PositionTrackingState.Active);
@@ -140,7 +140,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddMinutes(2), [CreateOpenPosition()]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
+        var result = Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
 
         result.NewPositions.Should().ContainSingle();
         result.NewPositions[0].Id.Should().NotBe(closed.Id);
@@ -155,7 +155,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddMinutes(1), [CreateOpenPosition()]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
+        var result = Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
@@ -169,7 +169,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddMinutes(2), [CreateOpenPosition()]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
+        var result = Reconcile(AccountA, [closed], observation, T0.AddMinutes(2), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
@@ -179,7 +179,7 @@ public sealed class PositionReconcilerTests
     public void Older_Active_Observation_Is_Ignored_Without_History()
     {
         var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(2));
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -202,7 +202,7 @@ public sealed class PositionReconcilerTests
     {
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -226,7 +226,7 @@ public sealed class PositionReconcilerTests
     {
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -250,7 +250,7 @@ public sealed class PositionReconcilerTests
     {
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(MarketCategory.Linear, null, observedAt, []),
@@ -270,7 +270,7 @@ public sealed class PositionReconcilerTests
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
         var conflicting = CreateOpenPosition(size: 1m) with { Leverage = 5m };
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(MarketCategory.Linear, null, observedAt, [conflicting]),
@@ -289,7 +289,7 @@ public sealed class PositionReconcilerTests
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
         position.MarkUnknown(observedAt, PositionChangeCause.PositionsObservationFailed);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -310,7 +310,7 @@ public sealed class PositionReconcilerTests
     {
         var position = CreateTrackedPosition(AccountA, at: T0.AddMinutes(2));
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -338,7 +338,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(2),
             [CreateOpenPosition(symbol: "BTCUSDT")]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [closed, missing],
             observation,
@@ -356,7 +356,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0, [CreateOpenPosition()]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0, StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0, StaleAfter);
 
         result.NewPositions.Should().ContainSingle();
         result.NewPositions[0].TrackingState.Should().Be(PositionTrackingState.Active);
@@ -370,7 +370,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddMinutes(1), [CreateOpenPosition(size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [position], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         position.Size.Should().Be(2m);
@@ -384,7 +384,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddHours(12), [CreateOpenPosition()]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(12), StaleAfter);
+        var result = Reconcile(AccountA, [position], observation, T0.AddHours(12), StaleAfter);
 
         position.TrackingState.Should().Be(PositionTrackingState.Active);
         position.LastObservedAt.Should().Be(T0.AddHours(12));
@@ -402,7 +402,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, null, T0.AddMinutes(1), [invalid]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
 
         tracked.TrackingState.Should().NotBe(PositionTrackingState.Closed);
         tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
@@ -418,7 +418,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, null, T0.AddMinutes(1),
             [CreateOpenPosition(category: MarketCategory.Inverse)]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [linear], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [linear], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
@@ -432,7 +432,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, null, T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "ETHUSDC", settlementAsset: "USDC")]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
             .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
@@ -447,7 +447,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, null, T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "ETHUSDC", size: 2m, settlementAsset: "USDC")]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
 
         tracked.Size.Should().Be(2m);
         tracked.SettlementAsset.Should().Be(SettlementAsset.From("USDC"));
@@ -463,7 +463,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, null, T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "BTCUSDT", size: 5m, settlementAsset: "USDC")]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
 
         tracked.Size.Should().Be(1m);
         tracked.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
@@ -483,7 +483,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, null, T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "BTCUSDT", settlementAsset: null)]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [tracked], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         tracked.TrackingState.Should().Be(PositionTrackingState.Unknown);
@@ -501,7 +501,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, "BTCUSDT", T0.AddMinutes(1),
             [CreateOpenPosition(symbol: "ETHUSDT")]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
+        var result = Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.Warnings.Should().NotBeEmpty();
@@ -517,7 +517,7 @@ public sealed class PositionReconcilerTests
             MarketCategory.Linear, "BTCUSDT", T0.AddMinutes(1), [invalid]);
         PositionReconciliationResult? result = null;
 
-        var act = () => result = PositionReconciler.Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
+        var act = () => result = Reconcile(AccountA, [btc], observation, T0.AddMinutes(1), StaleAfter);
 
         act.Should().NotThrow();
         result!.NewPositions.Should().BeEmpty();
@@ -532,7 +532,7 @@ public sealed class PositionReconcilerTests
         var position = CreateTrackedPosition(AccountA);
         position.MarkUnknown(T0.AddMinutes(1));
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -553,7 +553,7 @@ public sealed class PositionReconcilerTests
         var position = CreateTrackedPosition(AccountA);
         position.RefreshFreshness(T0.AddHours(2), StaleAfter);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -575,7 +575,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Failed(
             MarketCategory.Linear, null, T0.AddMinutes(30), "boom");
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             observation,
@@ -594,7 +594,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Partial(
             MarketCategory.Linear, null, T0.AddMinutes(30), []);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             observation,
@@ -625,7 +625,7 @@ public sealed class PositionReconcilerTests
             _ => OpenPositionsObservation.Failed(MarketCategory.Linear, null, observedAt, "boom"),
         };
 
-        var result = PositionReconciler.Reconcile(AccountA, [position], observation, markedAt, StaleAfter);
+        var result = Reconcile(AccountA, [position], observation, markedAt, StaleAfter);
 
         result.IsFullyReconciled.Should().BeFalse();
         result.Changes.Should().BeEmpty();
@@ -644,7 +644,7 @@ public sealed class PositionReconcilerTests
         var observation = OpenPositionsObservation.Complete(
             MarketCategory.Linear, "ETHUSDT", T0.AddMinutes(5), [CreateOpenPosition("ETHUSDT")]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [closed, active],
             observation,
@@ -662,7 +662,7 @@ public sealed class PositionReconcilerTests
     {
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -685,7 +685,7 @@ public sealed class PositionReconcilerTests
     {
         var observedAt = T0.AddMinutes(1);
         var position = CreateTrackedPosition(AccountA, at: observedAt);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA,
             [position],
             OpenPositionsObservation.Complete(
@@ -708,7 +708,7 @@ public sealed class PositionReconcilerTests
         var position = CreateTrackedPosition(AccountA, symbol: "ETHUSDT");
         var observation = OpenPositionsObservation.Complete(MarketCategory.Linear, "BTCUSDT", T0.AddHours(2), []);
 
-        PositionReconciler.Reconcile(AccountA, [position], observation, T0.AddHours(2), StaleAfter);
+        Reconcile(AccountA, [position], observation, T0.AddHours(2), StaleAfter);
 
         position.TrackingState.Should().Be(PositionTrackingState.Stale);
     }
@@ -720,7 +720,7 @@ public sealed class PositionReconcilerTests
         var positionB = CreateTrackedPosition(AccountB);
         var observation = OpenPositionsObservation.Partial(MarketCategory.Inverse, null, T0.AddHours(2), []);
 
-        PositionReconciler.Reconcile(AccountA, [positionA, positionB], observation, T0.AddHours(2), StaleAfter);
+        Reconcile(AccountA, [positionA, positionB], observation, T0.AddHours(2), StaleAfter);
 
         positionA.TrackingState.Should().Be(PositionTrackingState.Stale);
         positionB.TrackingState.Should().Be(PositionTrackingState.Active);
@@ -738,7 +738,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(6),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
@@ -759,7 +759,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(10),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
@@ -778,7 +778,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(11),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [closedLong], observation, T0.AddMinutes(11), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
@@ -798,7 +798,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(6),
             [CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [closedLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
@@ -817,7 +817,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(10),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
@@ -839,7 +839,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(6),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
@@ -861,7 +861,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(10), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
@@ -883,7 +883,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Short, size: 2m, positionIdx: 0),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.IsFullyReconciled.Should().BeFalse();
@@ -903,7 +903,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Short, size: 2m),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.IsFullyReconciled.Should().BeFalse();
@@ -922,7 +922,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 2m),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().HaveCount(2);
         result.IsFullyReconciled.Should().BeTrue();
@@ -941,7 +941,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 1m),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().ContainSingle();
         result.IsFullyReconciled.Should().BeFalse();
@@ -958,7 +958,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(11),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(11), StaleAfter);
 
         activeLong.TrackingState.Should().Be(PositionTrackingState.Closed);
@@ -985,7 +985,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().BeEmpty(
@@ -1021,7 +1021,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().NotContain(
@@ -1049,7 +1049,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 3m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         activeLong.Size.Should().Be(1m);
@@ -1073,7 +1073,7 @@ public sealed class PositionReconcilerTests
             AccountA, side: PositionSide.Long, size: 1m, at: T0.AddMinutes(10));
         var observedAt = T0.AddMinutes(20);
 
-        var resultAsc = PositionReconciler.Reconcile(
+        var resultAsc = Reconcile(
             AccountA,
             [firstOrder],
             OpenPositionsObservation.Complete(
@@ -1086,7 +1086,7 @@ public sealed class PositionReconcilerTests
                 ]),
             observedAt,
             StaleAfter);
-        var resultDesc = PositionReconciler.Reconcile(
+        var resultDesc = Reconcile(
             AccountA,
             [secondOrder],
             OpenPositionsObservation.Complete(
@@ -1125,7 +1125,7 @@ public sealed class PositionReconcilerTests
             T0.AddMinutes(20),
             [CreateOpenPosition(side: PositionSide.Short, size: 2m)]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
@@ -1150,7 +1150,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 4m),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
             .Which.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
@@ -1177,7 +1177,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Short, size: 4m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         activeLong.Size.Should().Be(2m);
@@ -1203,9 +1203,9 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 3m),
             ]);
 
-        PositionReconciler.Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+        Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
         var historyAfterFirst = activeLong.Changes.Count;
-        PositionReconciler.Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
+        Reconcile(AccountA, [activeLong], observation, T0.AddMinutes(20), StaleAfter);
 
         activeLong.Size.Should().Be(1m);
         activeLong.Changes.Should().HaveCount(historyAfterFirst);
@@ -1330,7 +1330,7 @@ public sealed class PositionReconcilerTests
             null,
             T0.AddMinutes(20),
             rows);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [btcLong, ethClosed], observation, T0.AddMinutes(20), StaleAfter);
         return (btcLong, ethClosed, result);
     }
@@ -1380,7 +1380,7 @@ public sealed class PositionReconcilerTests
             null,
             T0.AddMinutes(20),
             rows);
-        return PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        return Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
     }
 
     private static void AssertAmbiguousPhysicalSlotRejected(PositionReconciliationResult result)
@@ -1419,7 +1419,7 @@ public sealed class PositionReconcilerTests
             null,
             T0.AddMinutes(20),
             rows);
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [tracked], observation, T0.AddMinutes(20), StaleAfter);
         return (tracked, result);
     }
@@ -1461,7 +1461,7 @@ public sealed class PositionReconcilerTests
             null,
             T0.AddMinutes(20),
             rows);
-        return PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        return Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
     }
 
     private static void AssertConflictingSettlementDuplicatesRejected(PositionReconciliationResult result)
@@ -1487,7 +1487,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
             .Which.SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
@@ -1509,7 +1509,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: null),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().BeEmpty();
         result.IsFullyReconciled.Should().BeFalse();
@@ -1531,7 +1531,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(symbol: "ETHUSDT", side: PositionSide.Long, size: 3m, settlementAsset: "USDT"),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
             .Which.ExchangePositionKey.InstrumentId.Value.Should().Be("ETHUSDT");
@@ -1555,7 +1555,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Short, size: 2m, settlementAsset: "USDC"),
             ]);
 
-        var result = PositionReconciler.Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
+        var result = Reconcile(AccountA, [], observation, T0.AddMinutes(20), StaleAfter);
 
         AssertAmbiguousPhysicalSlotRejected(result);
     }
@@ -1574,10 +1574,10 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDT"),
                 CreateOpenPosition(side: PositionSide.Long, size: 2m, settlementAsset: "USDC"),
             ]);
-        PositionReconciler.Reconcile(AccountA, [], conflict, T0.AddMinutes(20), StaleAfter)
+        Reconcile(AccountA, [], conflict, T0.AddMinutes(20), StaleAfter)
             .NewPositions.Should().BeEmpty();
 
-        var recovered = PositionReconciler.Reconcile(
+        var recovered = Reconcile(
             AccountA,
             [],
             OpenPositionsObservation.Complete(
@@ -1611,7 +1611,7 @@ public sealed class PositionReconcilerTests
                 CreateOpenPosition(side: PositionSide.Short, positionIdx: 2, size: 3m),
             ]);
 
-        var result = PositionReconciler.Reconcile(
+        var result = Reconcile(
             AccountA, [closedIdx1], observation, T0.AddMinutes(20), StaleAfter);
 
         result.NewPositions.Should().ContainSingle()
@@ -1619,5 +1619,72 @@ public sealed class PositionReconcilerTests
         result.NewPositions.Should().NotContain(position =>
             position.ExchangePositionKey.PositionIdx == 1);
         result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Explicit_Latest_Closure_Blocks_Opposite_Side_Reopen_Without_Loading_Closed_Aggregate()
+    {
+        var closureAt = T0.AddMinutes(10);
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            closureAt,
+            [CreateOpenPosition(side: PositionSide.Short, positionIdx: 1)]);
+
+        var result = PositionReconciler.Reconcile(
+            AccountA,
+            [],
+            [
+                new LatestClosedPositionSlot(
+                    new PositionSlotKey(InstrumentId.From("btcusdt"), 1),
+                    closureAt),
+            ],
+            observation,
+            closureAt,
+            StaleAfter);
+
+        result.NewPositions.Should().BeEmpty();
+        result.IsFullyReconciled.Should().BeFalse();
+    }
+
+    private static PositionReconciliationResult Reconcile(
+        ExchangeAccountId exchangeAccountId,
+        IReadOnlyCollection<Position> trackedPositions,
+        OpenPositionsObservation observation,
+        DateTimeOffset now,
+        TimeSpan staleAfter,
+        bool applyObservation = true)
+    {
+        var latestClosedSlots = trackedPositions
+            .Where(position =>
+                position.ExchangePositionKey.ExchangeAccountId == exchangeAccountId &&
+                position.MarketCategory == observation.Category &&
+                position.TrackingState == PositionTrackingState.Closed &&
+                position.ClosedAt.HasValue &&
+                (observation.Symbol is null ||
+                 string.Equals(
+                     position.ExchangePositionKey.InstrumentId.Value,
+                     observation.Symbol.Trim(),
+                     StringComparison.OrdinalIgnoreCase)))
+            .GroupBy(position => (
+                Symbol: position.ExchangePositionKey.InstrumentId.Value.ToUpperInvariant(),
+                position.ExchangePositionKey.PositionIdx))
+            .Select(group =>
+            {
+                var position = group.First();
+                return new LatestClosedPositionSlot(
+                    PositionSlotKey.From(position.ExchangePositionKey),
+                    group.Max(item => item.ClosedAt!.Value));
+            })
+            .ToArray();
+
+        return PositionReconciler.Reconcile(
+            exchangeAccountId,
+            trackedPositions,
+            latestClosedSlots,
+            observation,
+            now,
+            staleAfter,
+            applyObservation);
     }
 }

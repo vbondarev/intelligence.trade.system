@@ -848,9 +848,29 @@ public sealed class PositionEvaluationServiceTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
+        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetCurrentVersionWatermarksAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<PositionPortfolioProjection>> GetCurrentPortfolioPositionsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<Versioned<Position>>> GetCurrentWithHistoryAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<LatestClosedPositionSlot>> GetLatestClosedSlotsAsync(
+            UserId userId,
+            ExchangeAccountId exchangeAccountId,
+            MarketCategory marketCategory,
+            IReadOnlyCollection<PositionSlotKey> slots,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

@@ -68,4 +68,27 @@ public static class PortfolioStateAssembler
             staleAfter,
             positionsFullyReconciled);
     }
+
+    /// <summary>
+    /// Собирает портфель из текущих неизменяемых projections без восстановления lifecycle-агрегатов.
+    /// </summary>
+    public static PortfolioState AssembleFromSnapshotsWithCapital(
+        PortfolioCapitalState capital,
+        IReadOnlyCollection<PortfolioPositionState> positions,
+        ExchangeAccountId exchangeAccountId,
+        DateTimeOffset calculatedAt,
+        TimeSpan staleAfter,
+        bool positionsFullyReconciled = true)
+    {
+        ArgumentNullException.ThrowIfNull(capital);
+        ArgumentNullException.ThrowIfNull(positions);
+
+        return PortfolioState.Restore(
+            exchangeAccountId,
+            positions.Where(position => position.TrackingState != PositionTrackingState.Closed),
+            capital,
+            calculatedAt,
+            staleAfter,
+            positionsFullyReconciled);
+    }
 }

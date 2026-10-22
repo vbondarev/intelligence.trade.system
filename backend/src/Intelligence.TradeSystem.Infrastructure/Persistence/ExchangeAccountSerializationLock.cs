@@ -8,6 +8,28 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence;
 
 internal static class ExchangeAccountSerializationLock
 {
+    internal const string AccountLockSql =
+        """
+        SELECT exchange_account_id
+        FROM exchange_accounts
+        WHERE exchange_account_id = @exchange_account_id
+          AND user_id = @user_id
+        FOR NO KEY UPDATE
+        """;
+
+    internal const string PositionLockSql =
+        """
+        SELECT p.position_id
+        FROM positions AS p
+        INNER JOIN exchange_accounts AS a
+            ON a.exchange_account_id = p.exchange_account_id
+        WHERE p.exchange_account_id = @exchange_account_id
+          AND a.user_id = @user_id
+          AND p.tracking_state <> 'Closed'
+        ORDER BY p.position_id
+        FOR UPDATE OF p
+        """;
+
     public static async Task LockAsync(
         TradeSystemDbContext dbContext,
         UserId userId,
@@ -22,13 +44,7 @@ internal static class ExchangeAccountSerializationLock
 
         await using var command = connection.CreateCommand();
         command.Transaction = dbContext.Database.CurrentTransaction!.GetDbTransaction();
-        command.CommandText = """
-            SELECT exchange_account_id
-            FROM exchange_accounts
-            WHERE exchange_account_id = @exchange_account_id
-              AND user_id = @user_id
-            FOR NO KEY UPDATE
-            """;
+        command.CommandText = AccountLockSql;
         AddParameter(command, "exchange_account_id", exchangeAccountId.Value);
         AddParameter(command, "user_id", userId.Value);
 
@@ -38,7 +54,7 @@ internal static class ExchangeAccountSerializationLock
                 $"Exchange account {exchangeAccountId} is unavailable in the requested user scope.");
     }
 
-    public static async Task LockPositionsAsync(
+    public static async Task<int> LockPositionsAsync(
         TradeSystemDbContext dbContext,
         UserId userId,
         ExchangeAccountId exchangeAccountId,
@@ -52,25 +68,20 @@ internal static class ExchangeAccountSerializationLock
 
         await using var command = connection.CreateCommand();
         command.Transaction = dbContext.Database.CurrentTransaction!.GetDbTransaction();
-        command.CommandText = """
-            SELECT p.position_id
-            FROM positions AS p
-            INNER JOIN exchange_accounts AS a
-                ON a.exchange_account_id = p.exchange_account_id
-            WHERE p.exchange_account_id = @exchange_account_id
-              AND a.user_id = @user_id
-            ORDER BY p.position_id
-            FOR UPDATE OF p
-            """;
+        command.CommandText = PositionLockSql;
         AddParameter(command, "exchange_account_id", exchangeAccountId.Value);
         AddParameter(command, "user_id", userId.Value);
 
         await using var reader = await command
             .ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
+        var rowsLocked = 0;
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            rowsLocked++;
         }
+
+        return rowsLocked;
     }
 
     public static async Task LockForPositionAsync(

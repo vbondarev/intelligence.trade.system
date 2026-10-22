@@ -25,12 +25,14 @@ public static class PositionReconciler
     public static PositionReconciliationResult Reconcile(
         ExchangeAccountId exchangeAccountId,
         IReadOnlyCollection<Position> trackedPositions,
+        IReadOnlyCollection<LatestClosedPositionSlot> latestClosedSlots,
         OpenPositionsObservation observation,
         DateTimeOffset now,
         TimeSpan staleAfter,
         bool applyObservation = true)
     {
         ArgumentNullException.ThrowIfNull(trackedPositions);
+        ArgumentNullException.ThrowIfNull(latestClosedSlots);
         ArgumentNullException.ThrowIfNull(observation);
 
         var warnings = new List<string>();
@@ -301,12 +303,14 @@ public static class PositionReconciler
             if (activeByKey.ContainsKey(key) || blockedNewKeys.Contains(key))
                 continue;
 
-            var latestClosedAt = trackedPositions
-                .Where(position =>
-                    position.TrackingState == PositionTrackingState.Closed &&
-                    PhysicalPositionSlot.Matches(position, key, observation.Category))
-                .Select(position => position.ClosedAt)
-                .DefaultIfEmpty()
+            var latestClosedAt = latestClosedSlots
+                .Where(slot =>
+                    slot.Slot.PositionIdx == key.PositionIdx &&
+                    string.Equals(
+                        slot.Slot.InstrumentId.Value,
+                        key.InstrumentId.Value,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(slot => (DateTimeOffset?)slot.ClosedAt)
                 .Max();
 
             if (latestClosedAt is { } closedAt && observation.ObservedAt <= closedAt)

@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
@@ -15,6 +16,16 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 /// </remarks>
 internal static class TradeSystemDbCommand
 {
+    private static readonly AsyncLocal<Action<DbCommand, TimeSpan>?> ExecutionObserver = new();
+
+    internal static IDisposable CaptureExecution(Action<DbCommand, TimeSpan> observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        var previous = ExecutionObserver.Value;
+        ExecutionObserver.Value = observer;
+        return new ExecutionObserverScope(previous);
+    }
+
     public static async Task<T> ExecuteAsync<T>(
         TradeSystemDbContext dbContext,
         string commandText,
@@ -22,7 +33,7 @@ internal static class TradeSystemDbCommand
         Func<DbCommand, CancellationToken, Task<T>> execute,
         CancellationToken cancellationToken)
     {
-        await dbContext.Database.OpenConnectionAsync(cancellationToken);
+        await dbContext.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var command = dbContext.Database.GetDbConnection().CreateCommand();
@@ -33,11 +44,26 @@ internal static class TradeSystemDbCommand
                 command.Parameters.Add(parameter);
             }
 
-            return await execute(command, cancellationToken);
+            var observer = ExecutionObserver.Value;
+            if (observer is null)
+            {
+                return await execute(command, cancellationToken).ConfigureAwait(false);
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                return await execute(command, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                stopwatch.Stop();
+                observer(command, stopwatch.Elapsed);
+            }
         }
         finally
         {
-            await dbContext.Database.CloseConnectionAsync();
+            await dbContext.Database.CloseConnectionAsync().ConfigureAwait(false);
         }
     }
 
@@ -52,4 +78,18 @@ internal static class TradeSystemDbCommand
             parameters,
             static (command, token) => command.ExecuteNonQueryAsync(token),
             cancellationToken);
+
+    private sealed class ExecutionObserverScope(
+        Action<DbCommand, TimeSpan>? previous) : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                ExecutionObserver.Value = previous;
+            }
+        }
+    }
 }

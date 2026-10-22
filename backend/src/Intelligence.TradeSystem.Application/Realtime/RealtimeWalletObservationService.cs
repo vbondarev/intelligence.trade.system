@@ -171,7 +171,7 @@ public sealed class RealtimeWalletObservationService(
         }
 
         var watermarkBeforeLocks = await positionRepository
-            .GetVersionWatermarkByExchangeAccountAsync(userId, exchangeAccountId, cancellationToken)
+            .GetCurrentVersionWatermarksAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
         await persistenceTransaction
             .LockPositionsAsync(userId, exchangeAccountId, cancellationToken)
@@ -246,16 +246,15 @@ public sealed class RealtimeWalletObservationService(
             ExchangeAccountObservationResource.Balance,
             observedAt);
 
-        var tracked = await positionRepository
-            .GetByExchangeAccountAsync(userId, exchangeAccountId, cancellationToken)
+        var positions = await positionRepository
+            .GetCurrentPortfolioPositionsAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
-        if (!HasSamePositionWatermark(watermarkBeforeLocks, tracked))
+        if (!HasSamePositionWatermark(watermarkBeforeLocks, positions))
         {
             throw new ConcurrencyConflictException(
                 "The position set changed while the realtime wallet observation acquired its serialization locks.");
         }
 
-        var positions = tracked.Select(versioned => versioned.Value).ToArray();
         var calculatedAt = clock.GetUtcNow();
         if (observedAt > calculatedAt)
         {
@@ -264,16 +263,16 @@ public sealed class RealtimeWalletObservationService(
 
         foreach (var position in positions)
         {
-            if (position.TrackingState != PositionTrackingState.Closed && position.LastObservedAt > calculatedAt)
+            if (position.State.LastObservedAt > calculatedAt)
             {
-                calculatedAt = position.LastObservedAt;
+                calculatedAt = position.State.LastObservedAt;
             }
         }
 
         calculatedAt = PortfolioStateCalculatedAt.Resolve(calculatedAt, previous?.CalculatedAt);
-        var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
+        var portfolioState = PortfolioStateAssembler.AssembleFromSnapshotsWithCapital(
             capital,
-            positions,
+            positions.Select(position => position.State).ToArray(),
             exchangeAccountId,
             calculatedAt,
             PortfolioStaleAfter,
@@ -502,7 +501,7 @@ public sealed class RealtimeWalletObservationService(
 
     private static bool HasSamePositionWatermark(
         IReadOnlyCollection<PositionVersionWatermark> expected,
-        IReadOnlyCollection<Versioned<Position>> actual)
+        IReadOnlyCollection<PositionPortfolioProjection> actual)
     {
         if (expected.Count != actual.Count)
         {
@@ -510,7 +509,7 @@ public sealed class RealtimeWalletObservationService(
         }
 
         var expectedById = expected.ToDictionary(watermark => watermark.PositionId, watermark => watermark.Version);
-        return actual.All(versioned =>
-            expectedById.TryGetValue(versioned.Value.Id, out var version) && version == versioned.Version);
+        return actual.All(projection =>
+            expectedById.TryGetValue(projection.PositionId, out var version) && version == projection.Version);
     }
 }

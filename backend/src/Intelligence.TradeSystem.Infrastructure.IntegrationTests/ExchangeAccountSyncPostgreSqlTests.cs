@@ -180,7 +180,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
     }
 
     [Fact]
-    public async Task GetVersionWatermarkByExchangeAccountAsync_ReturnsLightweightUserScopedProjection()
+    public async Task CurrentPositionReads_ExcludeClosedLifecyclesAndRemainUserScoped()
     {
         var owner = CreateAccount();
         var otherUser = CreateAccount();
@@ -193,6 +193,7 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
 
         Position btc;
         Position eth;
+        Position closed;
         Position foreign;
         await using (var seedContext = fixture.CreateContext())
         {
@@ -219,6 +220,18 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 positionValue: 100m,
                 leverage: 2m,
                 unrealizedPnl: 0m);
+            closed = Position.Create(
+                ExchangePositionKey.Create(owner.Id, InstrumentId.From("BTCUSDT"), PositionSide.Short, 1),
+                MarketCategory.Linear,
+                SettlementAsset.From("USDT"),
+                1m,
+                T1,
+                T1,
+                averageEntryPrice: 100m,
+                positionValue: 100m,
+                leverage: 2m,
+                unrealizedPnl: 0m);
+            closed.Close(T1.AddMinutes(1));
             foreign = Position.Create(
                 ExchangePositionKey.Create(otherUser.Id, InstrumentId.From("BTCUSDT"), PositionSide.Long, 0),
                 MarketCategory.Linear,
@@ -232,15 +245,20 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
                 unrealizedPnl: 0m);
             await positions.SaveAsync(owner.UserId, btc, expectedVersion: null);
             await positions.SaveAsync(owner.UserId, eth, expectedVersion: null);
+            await positions.SaveAsync(owner.UserId, closed, expectedVersion: null);
             await positions.SaveAsync(otherUser.UserId, foreign, expectedVersion: null);
         }
 
         await using var verificationContext = fixture.CreateContext();
         var repository = new PositionRepository(verificationContext);
-        var watermark = await repository.GetVersionWatermarkByExchangeAccountAsync(owner.UserId, owner.Id);
-        var full = await repository.GetByExchangeAccountAsync(owner.UserId, owner.Id);
+        var watermark = await repository.GetCurrentVersionWatermarksAsync(owner.UserId, owner.Id);
+        var full = await repository.GetCurrentWithHistoryAsync(owner.UserId, owner.Id);
+        var allLifecycles = await repository.GetByExchangeAccountAsync(owner.UserId, owner.Id);
+        var projections = await repository.GetCurrentPortfolioPositionsAsync(owner.UserId, owner.Id);
 
         Assert.Equal(2, watermark.Count);
+        Assert.Equal(3, allLifecycles.Count);
+        Assert.Equal(2, projections.Count);
         Assert.Equal(
             full.Select(versioned => versioned.Value.Id).OrderBy(id => id.Value),
             watermark.Select(entry => entry.PositionId).OrderBy(id => id.Value));
@@ -251,8 +269,82 @@ public sealed class ExchangeAccountSyncPostgreSqlTests(PostgreSqlFixture fixture
             watermark.Select(entry => entry.PositionId).ToArray(),
             watermark.OrderBy(entry => entry.PositionId.Value).Select(entry => entry.PositionId).ToArray());
         Assert.DoesNotContain(watermark, entry => entry.PositionId == foreign.Id);
+        Assert.DoesNotContain(watermark, entry => entry.PositionId == closed.Id);
         Assert.Contains(watermark, entry => entry.PositionId == btc.Id);
         Assert.Contains(watermark, entry => entry.PositionId == eth.Id);
+        Assert.DoesNotContain(projections, projection => projection.PositionId == closed.Id);
+    }
+
+    [Fact]
+    public async Task GetLatestClosedSlotsAsync_ReturnsLatestClosureWithoutSideAndIsUserScoped()
+    {
+        var owner = CreateAccount();
+        var otherUser = CreateAccount();
+        await using (var setupContext = fixture.CreateContext())
+        {
+            var accounts = new ExchangeAccountRepository(setupContext);
+            await accounts.SaveAsync(owner.UserId, owner, expectedVersion: null);
+            await accounts.SaveAsync(otherUser.UserId, otherUser, expectedVersion: null);
+        }
+
+        var earlierClosureAt = T1.AddMinutes(2);
+        var latestClosureAt = T1.AddMinutes(5);
+        await using (var seedContext = fixture.CreateContext())
+        {
+            var repository = new PositionRepository(seedContext);
+            await repository.SaveAsync(
+                owner.UserId,
+                CreateClosed(owner.Id, PositionSide.Long, 0, earlierClosureAt),
+                expectedVersion: null);
+            await repository.SaveAsync(
+                owner.UserId,
+                CreateClosed(owner.Id, PositionSide.Short, 0, latestClosureAt),
+                expectedVersion: null);
+            await repository.SaveAsync(
+                otherUser.UserId,
+                CreateClosed(otherUser.Id, PositionSide.Short, 0, T1.AddHours(1)),
+                expectedVersion: null);
+        }
+
+        await using var verificationContext = fixture.CreateContext();
+        var positions = new PositionRepository(verificationContext);
+        var latest = await positions.GetLatestClosedSlotsAsync(
+            owner.UserId,
+            owner.Id,
+            MarketCategory.Linear,
+            [
+                new PositionSlotKey(InstrumentId.From("btcusdt"), 0),
+                new PositionSlotKey(InstrumentId.From("ETHUSDT"), 0),
+            ]);
+
+        var closure = Assert.Single(latest);
+        Assert.Equal(new PositionSlotKey(InstrumentId.From("btcusdt"), 0), closure.Slot);
+        Assert.Equal(latestClosureAt, closure.ClosedAt);
+
+        static Position CreateClosed(
+            ExchangeAccountId accountId,
+            PositionSide side,
+            int positionIdx,
+            DateTimeOffset closedAt)
+        {
+            var position = Position.Create(
+                ExchangePositionKey.Create(
+                    accountId,
+                    InstrumentId.From("BTCUSDT"),
+                    side,
+                    positionIdx),
+                MarketCategory.Linear,
+                SettlementAsset.From("USDT"),
+                1m,
+                T1,
+                T1,
+                averageEntryPrice: 100m,
+                positionValue: 100m,
+                leverage: 2m,
+                unrealizedPnl: 0m);
+            position.Close(closedAt);
+            return position;
+        }
     }
 
     [Fact]

@@ -150,7 +150,7 @@ public sealed class ExchangeAccountSyncService(
                             }
 
                             var watermarkBeforeLocks = await positionRepository
-                                .GetVersionWatermarkByExchangeAccountAsync(
+                                .GetCurrentVersionWatermarksAsync(
                                     userId,
                                     exchangeAccountId,
                                     persistenceCancellationToken)
@@ -171,7 +171,7 @@ public sealed class ExchangeAccountSyncService(
                             var accountForPersistence = CopyAccount(currentAccount);
 
                             var tracked = await positionRepository
-                                .GetByExchangeAccountAsync(
+                                .GetCurrentWithHistoryAsync(
                                     userId,
                                     exchangeAccountId,
                                     persistenceCancellationToken)
@@ -185,6 +185,17 @@ public sealed class ExchangeAccountSyncService(
                             var trackedPositions = tracked
                                 .Select(versioned => versioned.Value)
                                 .ToArray();
+                            var latestClosedSlots = await positionRepository
+                                .GetLatestClosedSlotsAsync(
+                                    userId,
+                                    exchangeAccountId,
+                                    normalizedPositionsObservation.Category,
+                                    OpenPositionKeyMapper.GetPhysicalSlots(
+                                        normalizedPositionsObservation.Positions,
+                                        exchangeAccountId,
+                                        normalizedPositionsObservation.Category),
+                                    persistenceCancellationToken)
+                                .ConfigureAwait(false);
 
                             // Читается под блокировкой аккаунта при каждой попытке: новая сводка должна
                             // стать последней и после сводки потока, записанной экземпляром с опережающими
@@ -269,6 +280,7 @@ public sealed class ExchangeAccountSyncService(
                             var reconciliation = PositionReconciler.Reconcile(
                                 exchangeAccountId,
                                 trackedPositions,
+                                latestClosedSlots,
                                 normalizedPositionsObservation,
                                 freshnessEvaluatedAt,
                                 PortfolioStaleAfter,
@@ -323,9 +335,11 @@ public sealed class ExchangeAccountSyncService(
                                     ? capitalObservedAt
                                     : freshnessEvaluatedAt,
                                 previousPortfolioState?.CalculatedAt);
-                            var portfolioState = PortfolioStateAssembler.AssembleWithCapital(
+                            var portfolioState = PortfolioStateAssembler.AssembleFromSnapshotsWithCapital(
                                 capital,
-                                reconciledPositions,
+                                reconciledPositions
+                                    .Select(PositionPortfolioProjection.ToSnapshot)
+                                    .ToArray(),
                                 exchangeAccountId,
                                 calculatedAt,
                                 PortfolioStaleAfter,
@@ -578,12 +592,10 @@ public sealed class ExchangeAccountSyncService(
         CancellationToken cancellationToken)
     {
         var current = await positionRepository
-            .GetByExchangeAccountAsync(userId, exchangeAccountId, cancellationToken)
+            .GetCurrentPortfolioPositionsAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
         var activeKeys = current
-            .Select(versioned => versioned.Value)
-            .Where(position => position.TrackingState != PositionTrackingState.Closed)
-            .Select(position => position.ExchangePositionKey)
+            .Select(projection => projection.State.ExchangePositionKey)
             .ToHashSet();
         return keys.Any(activeKeys.Contains);
     }
@@ -859,7 +871,7 @@ public sealed class ExchangeAccountSyncService(
         }
 
         // Partial и неполное Complete дают только scoped evidence по подтверждаемым символам.
-        foreach (var symbol in ResolveScopedEvidenceSymbols(positionsObservation))
+        foreach (var symbol in ResolveScopedEvidenceSymbols(positionsObservation, exchangeAccountId))
         {
             await restOrderingEvidenceStore
                 .AppendAsync(
@@ -879,7 +891,9 @@ public sealed class ExchangeAccountSyncService(
         }
     }
 
-    private static IEnumerable<string> ResolveScopedEvidenceSymbols(OpenPositionsObservation observation)
+    private static IEnumerable<string> ResolveScopedEvidenceSymbols(
+        OpenPositionsObservation observation,
+        ExchangeAccountId exchangeAccountId)
     {
         if (!string.IsNullOrWhiteSpace(observation.Symbol))
         {
@@ -887,9 +901,9 @@ public sealed class ExchangeAccountSyncService(
             yield break;
         }
 
-        foreach (var symbol in observation.Positions
-                     .Select(position => position.Symbol.Trim())
-                     .Where(symbol => symbol.Length > 0)
+        foreach (var symbol in OpenPositionKeyMapper
+                     .GetPhysicalSlots(observation.Positions, exchangeAccountId, observation.Category)
+                     .Select(slot => slot.InstrumentId.Value)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             yield return symbol;
