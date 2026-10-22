@@ -149,6 +149,74 @@ public sealed class ExchangeAccountSyncServiceTests
             Times.Once);
     }
 
+    [Theory]
+    [MemberData(nameof(InvalidPositionObservations))]
+    public async Task SynchronizeAsync_InvalidPositionRowsDoNotBecomeClosureLookupSlots(
+        OpenPosition invalidPosition)
+    {
+        var fixture = CreateFixture();
+        var validPosition = CreateOpenPosition();
+        var positions = new[] { validPosition, invalidPosition };
+        var observation = OpenPositionsObservation.Complete(
+            MarketCategory.Linear,
+            null,
+            ObservedAt,
+            positions);
+        SetupSuccessfulObservation(fixture, ObservedAt);
+        fixture.Provider
+            .Setup(provider => provider.GetOpenPositionsAsync(
+                MarketCategory.Linear,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(observation);
+
+        var trackedPosition = CreateTrackedPosition(fixture, "BTCUSDT");
+        SetupPositionLoad(fixture, trackedPosition);
+        SetupPositionSave(fixture);
+        var savedStates = new List<PortfolioState>();
+        SetupPortfolioSave(fixture, savedStates);
+        fixture.AccountRepository
+            .Setup(repository => repository.SaveAsync(
+                fixture.UserId,
+                It.IsAny<ExchangeAccount>(),
+                fixture.AccountVersion,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConcurrencyVersion(2));
+
+        IReadOnlyCollection<PositionSlotKey>? requestedSlots = null;
+        fixture.PositionRepository
+            .Setup(repository => repository.GetLatestClosedSlotsAsync(
+                fixture.UserId,
+                fixture.Account.Id,
+                MarketCategory.Linear,
+                It.IsAny<IReadOnlyCollection<PositionSlotKey>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<UserId, ExchangeAccountId, MarketCategory, IReadOnlyCollection<PositionSlotKey>, CancellationToken>(
+                (_, _, _, slots, _) => requestedSlots = slots.ToArray())
+            .ReturnsAsync([]);
+
+        var result = await fixture.Service.SynchronizeAsync(fixture.UserId, fixture.Account.Id);
+
+        result.Outcome.Should().Be(ExchangeAccountSyncOutcome.ExchangeUnavailable);
+        result.FullReconciliationCommitted.Should().BeFalse();
+        result.Account!.LastError.Should().Be("positions_ambiguous");
+        savedStates.Should().ContainSingle().Which.PositionsFullyReconciled.Should().BeFalse();
+        trackedPosition.TrackingState.Should().Be(PositionTrackingState.Active);
+        trackedPosition.Changes.Should().ContainSingle();
+        observation.Positions.Should().Equal(validPosition, invalidPosition);
+        requestedSlots.Should().Equal(
+            new PositionSlotKey(InstrumentId.From("BTCUSDT"), 0));
+    }
+
+    public static TheoryData<OpenPosition> InvalidPositionObservations =>
+    [
+        CreateOpenPosition() with { Symbol = null! },
+        CreateOpenPosition() with { Symbol = "" },
+        CreateOpenPosition() with { Symbol = " \t " },
+        CreateOpenPosition() with { Side = PositionSide.Unknown },
+        CreateOpenPosition() with { PositionIdx = -1 },
+    ];
+
     [Fact]
     public async Task SynchronizeAsync_WhenPositionSetChangesBetweenWatermarkAndLocks_ThrowsConcurrencyConflict()
     {

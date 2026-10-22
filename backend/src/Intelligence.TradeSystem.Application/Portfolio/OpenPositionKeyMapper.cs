@@ -11,6 +11,26 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// </summary>
 internal static class OpenPositionKeyMapper
 {
+    public static IReadOnlyCollection<PositionSlotKey> GetPhysicalSlots(
+        IReadOnlyCollection<OpenPosition> positions,
+        ExchangeAccountId exchangeAccountId,
+        MarketCategory category)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+
+        var slots = new HashSet<PositionSlotKey>(PositionSlotKeyComparer.Instance);
+        foreach (var position in positions)
+        {
+            if (position.Category == category &&
+                TryMapKey(position, exchangeAccountId, out var key, out _))
+            {
+                slots.Add(PositionSlotKey.From(key));
+            }
+        }
+
+        return slots.ToArray();
+    }
+
     /// <summary>
     /// Пытается построить <see cref="ExchangePositionKey"/> из наблюдаемой открытой позиции.
     /// Возвращает <see langword="false"/>, если позицию нельзя безопасно сопоставить
@@ -54,5 +74,22 @@ internal static class OpenPositionKeyMapper
             warning = $"Skipped {position.Symbol} ({position.Category}): {ex.Message}";
             return false;
         }
+    }
+
+    private sealed class PositionSlotKeyComparer : IEqualityComparer<PositionSlotKey>
+    {
+        public static PositionSlotKeyComparer Instance { get; } = new();
+
+        public bool Equals(PositionSlotKey x, PositionSlotKey y) =>
+            x.PositionIdx == y.PositionIdx &&
+            string.Equals(
+                x.InstrumentId.Value,
+                y.InstrumentId.Value,
+                StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode(PositionSlotKey obj) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.InstrumentId.Value),
+                obj.PositionIdx);
     }
 }

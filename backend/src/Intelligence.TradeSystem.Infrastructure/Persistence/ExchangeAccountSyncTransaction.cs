@@ -11,15 +11,17 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence;
 public sealed class ExchangeAccountSyncTransaction(TradeSystemDbContext dbContext)
     : IExchangeAccountSyncTransaction
 {
-    public Task LockPositionsAsync(
+    public async Task LockPositionsAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
-        CancellationToken cancellationToken = default) =>
-        ExchangeAccountSerializationLock.LockPositionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        _ = await ExchangeAccountSerializationLock.LockPositionsAsync(
             dbContext,
             userId,
             exchangeAccountId,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+    }
 
     public Task LockAccountAsync(
         UserId userId,

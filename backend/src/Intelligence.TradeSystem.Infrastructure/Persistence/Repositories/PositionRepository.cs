@@ -15,6 +15,26 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositionRepository
 {
+    internal const string LatestClosedSlotsSql =
+        """
+        SELECT requested.instrument_id, requested.position_idx, latest.closed_at
+        FROM unnest(@instrument_ids, @position_indices) AS requested(instrument_id, position_idx)
+        JOIN LATERAL (
+            SELECT p.closed_at
+            FROM positions AS p
+            INNER JOIN exchange_accounts AS account
+                ON account.exchange_account_id = p.exchange_account_id
+            WHERE p.exchange_account_id = @exchange_account_id
+              AND account.user_id = @user_id
+              AND p.market_category = @market_category
+              AND p.tracking_state = 'Closed'
+              AND lower(p.instrument_id) = lower(requested.instrument_id)
+              AND p.position_idx = requested.position_idx
+            ORDER BY p.closed_at DESC, p.position_id DESC
+            LIMIT 1
+        ) AS latest ON TRUE
+        """;
+
     public async Task<IReadOnlyCollection<Versioned<Position>>> GetByExchangeAccountAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
@@ -226,24 +246,7 @@ public sealed class PositionRepository(TradeSystemDbContext dbContext) : IPositi
 
         await using var command = connection.CreateCommand();
         command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-        command.CommandText = """
-            SELECT requested.instrument_id, requested.position_idx, latest.closed_at
-            FROM unnest(@instrument_ids, @position_indices) AS requested(instrument_id, position_idx)
-            JOIN LATERAL (
-                SELECT p.closed_at
-                FROM positions AS p
-                INNER JOIN exchange_accounts AS account
-                    ON account.exchange_account_id = p.exchange_account_id
-                WHERE p.exchange_account_id = @exchange_account_id
-                  AND account.user_id = @user_id
-                  AND p.market_category = @market_category
-                  AND p.tracking_state = 'Closed'
-                  AND lower(p.instrument_id) = lower(requested.instrument_id)
-                  AND p.position_idx = requested.position_idx
-                ORDER BY p.closed_at DESC, p.position_id DESC
-                LIMIT 1
-            ) AS latest ON TRUE
-            """;
+        command.CommandText = LatestClosedSlotsSql;
         command.Parameters.Add(new NpgsqlParameter(
             "instrument_ids",
             uniqueSlots.Select(slot => slot.InstrumentId.Value).ToArray())

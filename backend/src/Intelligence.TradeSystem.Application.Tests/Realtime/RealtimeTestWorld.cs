@@ -109,6 +109,8 @@ internal sealed class RealtimeTestWorld
 
     public IReadOnlyList<ExchangeRestOrderingInterval> RestOrderingIntervals => restOrderingIntervals;
 
+    public IReadOnlyCollection<PositionSlotKey> LastRequestedClosedSlots { get; private set; } = [];
+
     public DateTimeOffset? LastAcceptedWalletMessageCreatedAt => lastAcceptedWalletMessageCreatedAt;
 
     /// <summary>Добавляет persisted REST evidence без process-local окон coordinator.</summary>
@@ -476,6 +478,8 @@ internal sealed class RealtimeTestWorld
 
         public OpenPositionsObservationStatus Status { get; set; } = OpenPositionsObservationStatus.Complete;
 
+        public OpenPositionsObservation? PositionsObservationOverride { get; set; }
+
         public AccountBalance Balance { get; set; } =
             new(AccountType.Unified, 2_000m, 1_900m, 1_500m, 100m, []);
 
@@ -574,6 +578,11 @@ internal sealed class RealtimeTestWorld
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (PositionsObservationOverride is { } observationOverride)
+            {
+                return observationOverride;
+            }
+
             var source = exchangePositionsSnapshot ?? exchangePositions.Values.ToList();
             var observed = source
                 .Where(position => symbol is null || position.Symbol == symbol)
@@ -913,18 +922,6 @@ internal sealed class RealtimeTestWorld
             return Task.FromResult(result);
         }
 
-        public Task<IReadOnlyCollection<PositionVersionWatermark>> GetVersionWatermarkByExchangeAccountAsync(
-            UserId userId,
-            ExchangeAccountId exchangeAccountId,
-            CancellationToken cancellationToken = default)
-        {
-            world.EnsureScope(userId, exchangeAccountId);
-            IReadOnlyCollection<PositionVersionWatermark> result = world.positions.Values
-                .Select(versioned => new PositionVersionWatermark(versioned.Value.Id, versioned.Version))
-                .ToArray();
-            return Task.FromResult(result);
-        }
-
         public Task<IReadOnlyCollection<PositionVersionWatermark>> GetCurrentVersionWatermarksAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
@@ -973,6 +970,7 @@ internal sealed class RealtimeTestWorld
             CancellationToken cancellationToken = default)
         {
             world.EnsureScope(userId, exchangeAccountId);
+            world.LastRequestedClosedSlots = slots.ToArray();
             IReadOnlyCollection<LatestClosedPositionSlot> result = slots
                 .Select(slot => world.positions.Values
                     .Select(versioned => versioned.Value)
@@ -999,7 +997,8 @@ internal sealed class RealtimeTestWorld
             PositionId id,
             CancellationToken cancellationToken = default)
         {
-            if (!world.positions.TryGetValue(id, out var position) ||
+            if (userId != world.UserId ||
+                !world.positions.TryGetValue(id, out var position) ||
                 position.Value.ExchangePositionKey.ExchangeAccountId != world.AccountId)
             {
                 return Task.FromResult<Versioned<Position>?>(null);

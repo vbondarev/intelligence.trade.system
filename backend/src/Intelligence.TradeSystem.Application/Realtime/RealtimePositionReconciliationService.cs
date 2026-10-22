@@ -700,12 +700,10 @@ public sealed class RealtimePositionReconciliationService(
                                     userId,
                                     accountId,
                                     snapshot.Category,
-                                    snapshot.Positions
-                                        .Select(position => new PositionSlotKey(
-                                            InstrumentId.From(position.Symbol.Trim()),
-                                            position.PositionIdx))
-                                        .Distinct()
-                                        .ToArray(),
+                                    OpenPositionKeyMapper.GetPhysicalSlots(
+                                        snapshot.Positions,
+                                        accountId,
+                                        snapshot.Category),
                                     token)
                                 .ConfigureAwait(false);
                             var now = Max(clock.GetUtcNow(), snapshot.ObservedAt);

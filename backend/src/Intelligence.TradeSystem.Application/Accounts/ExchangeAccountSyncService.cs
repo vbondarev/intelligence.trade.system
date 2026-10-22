@@ -190,12 +190,10 @@ public sealed class ExchangeAccountSyncService(
                                     userId,
                                     exchangeAccountId,
                                     normalizedPositionsObservation.Category,
-                                    normalizedPositionsObservation.Positions
-                                        .Select(position => new PositionSlotKey(
-                                            InstrumentId.From(position.Symbol.Trim()),
-                                            position.PositionIdx))
-                                        .Distinct()
-                                        .ToArray(),
+                                    OpenPositionKeyMapper.GetPhysicalSlots(
+                                        normalizedPositionsObservation.Positions,
+                                        exchangeAccountId,
+                                        normalizedPositionsObservation.Category),
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
 
@@ -873,7 +871,7 @@ public sealed class ExchangeAccountSyncService(
         }
 
         // Partial и неполное Complete дают только scoped evidence по подтверждаемым символам.
-        foreach (var symbol in ResolveScopedEvidenceSymbols(positionsObservation))
+        foreach (var symbol in ResolveScopedEvidenceSymbols(positionsObservation, exchangeAccountId))
         {
             await restOrderingEvidenceStore
                 .AppendAsync(
@@ -893,7 +891,9 @@ public sealed class ExchangeAccountSyncService(
         }
     }
 
-    private static IEnumerable<string> ResolveScopedEvidenceSymbols(OpenPositionsObservation observation)
+    private static IEnumerable<string> ResolveScopedEvidenceSymbols(
+        OpenPositionsObservation observation,
+        ExchangeAccountId exchangeAccountId)
     {
         if (!string.IsNullOrWhiteSpace(observation.Symbol))
         {
@@ -901,9 +901,9 @@ public sealed class ExchangeAccountSyncService(
             yield break;
         }
 
-        foreach (var symbol in observation.Positions
-                     .Select(position => position.Symbol.Trim())
-                     .Where(symbol => symbol.Length > 0)
+        foreach (var symbol in OpenPositionKeyMapper
+                     .GetPhysicalSlots(observation.Positions, exchangeAccountId, observation.Category)
+                     .Select(slot => slot.InstrumentId.Value)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             yield return symbol;
