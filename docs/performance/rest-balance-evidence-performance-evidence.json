@@ -1,0 +1,1800 @@
+{
+  "generatedAt": "2026-10-22T19:12:57.6700852+00:00",
+  "postgreSqlImage": "postgres:16-alpine",
+  "dockerEngineVersion": "29.7.2",
+  "runtime": {
+    "operatingSystem": "Microsoft Windows NT 10.0.26300.0",
+    "dotNetVersion": "10.0.11",
+    "sdkVersion": "10.0.400",
+    "processorCount": 16
+  },
+  "database": {
+    "serverVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "sharedBuffers": "128MB",
+    "workMem": "4MB",
+    "effectiveCacheSize": "4GB",
+    "maxParallelWorkers": "8",
+    "randomPageCost": "4"
+  },
+  "methodology": {
+    "warmupCount": 1,
+    "measurementCount": 3,
+    "baseline": "Baseline \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u0435\u0442 \u043F\u0440\u0435\u0436\u043D\u0438\u0439 \u043F\u0443\u0442\u044C: \u0437\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u0442 \u0432\u0441\u0435 Balance-\u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u044B \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430, \u0437\u0430\u0442\u0435\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u0435\u0442 \u0438\u0445 \u0432 \u043F\u0430\u043C\u044F\u0442\u0438.",
+    "optimized": "Optimized \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442 \u0442\u0435 \u0436\u0435 strict interior predicates \u0432 PostgreSQL \u0434\u043E ToArrayAsync.",
+    "datasetComparison": "\u041E\u0431\u0430 \u0432\u0430\u0440\u0438\u0430\u043D\u0442\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442 \u043E\u0434\u0438\u043D PostgreSQL dataset \u043D\u0430 \u043A\u0430\u0436\u0434\u044B\u0439 \u043E\u0431\u044A\u0451\u043C; \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0432\u0430\u0440\u0438\u0430\u043D\u0442\u043E\u0432 \u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0438\u0442\u0435\u0440\u0430\u0446\u0438\u044F\u043C\u0438.",
+    "materializedRows": "\u0427\u0438\u0441\u043B\u043E materialized rows \u0440\u0430\u0432\u043D\u043E \u0447\u0438\u0441\u043B\u0443 \u0437\u0430\u043F\u0438\u0441\u0435\u0439, \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0451\u043D\u043D\u044B\u0445 EF-\u0437\u0430\u043F\u0440\u043E\u0441\u043E\u043C \u0434\u043E ToModel; \u0434\u043B\u044F optimized \u044D\u0442\u043E \u0442\u0430\u043A\u0436\u0435 \u0447\u0438\u0441\u043B\u043E \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u043E\u0432 \u043C\u0435\u0442\u043E\u0434\u0430.",
+    "queryDuration": "Query duration \u0438\u0437\u043C\u0435\u0440\u044F\u0435\u0442 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u0435 reader-\u043A\u043E\u043C\u0430\u043D\u0434\u044B \u0434\u043E \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0430 DbDataReader; \u043F\u043E\u043B\u043D\u0430\u044F \u0434\u043B\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u043C\u0435\u0442\u043E\u0434\u0430 \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442 \u0447\u0442\u0435\u043D\u0438\u0435 \u0438 \u043C\u0430\u0442\u0435\u0440\u0438\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044E."
+  },
+  "datasets": [
+    {
+      "name": "100",
+      "balanceIntervalCount": 100,
+      "sameUserOtherAccountBalanceIntervals": 2000,
+      "otherUserBalanceIntervals": 2000,
+      "positionIntervalsOnMeasuredAccount": 500,
+      "expectedMatches": 3
+    },
+    {
+      "name": "10000",
+      "balanceIntervalCount": 10000,
+      "sameUserOtherAccountBalanceIntervals": 2000,
+      "otherUserBalanceIntervals": 2000,
+      "positionIntervalsOnMeasuredAccount": 500,
+      "expectedMatches": 3
+    },
+    {
+      "name": "50000",
+      "balanceIntervalCount": 50000,
+      "sameUserOtherAccountBalanceIntervals": 2000,
+      "otherUserBalanceIntervals": 2000,
+      "positionIntervalsOnMeasuredAccount": 500,
+      "expectedMatches": 3
+    }
+  ],
+  "measurements": [
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "baseline",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 100,
+      "queryExecutionDurationMilliseconds": 2.9604,
+      "methodDurationMilliseconds": 66.2355,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 2.9604,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "optimized",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 2.8299,
+      "methodDurationMilliseconds": 18.0257,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 2.8299,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "optimized",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 1.8464,
+      "methodDurationMilliseconds": 2.9328,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 1.8464,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "baseline",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 100,
+      "queryExecutionDurationMilliseconds": 2.2985,
+      "methodDurationMilliseconds": 3.6624,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 2.2985,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "baseline",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 100,
+      "queryExecutionDurationMilliseconds": 2.3044,
+      "methodDurationMilliseconds": 3.9253,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 2.3044,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "optimized",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 2.0156,
+      "methodDurationMilliseconds": 3.207,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 2.0156,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "optimized",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 1.733,
+      "methodDurationMilliseconds": 2.68,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 1.733,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "100",
+      "historyRows": 100,
+      "implementation": "baseline",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 100,
+      "queryExecutionDurationMilliseconds": 1.6454,
+      "methodDurationMilliseconds": 2.7962,
+      "candidateIds": [
+        "6e3b8288-4ae8-4b60-9121-fbcbe7d4d34d",
+        "bac9f455-370c-4288-8d2d-9f533420e18e",
+        "bbb08f2e-a3ee-40da-b1df-bf2017dc0e9c"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.6454,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "baseline",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 10000,
+      "queryExecutionDurationMilliseconds": 1.3673,
+      "methodDurationMilliseconds": 33.6802,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.3673,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "optimized",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 2.2211,
+      "methodDurationMilliseconds": 3.1767,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 2.2211,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "optimized",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 1.7257,
+      "methodDurationMilliseconds": 2.3972,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 1.7257,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "baseline",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 10000,
+      "queryExecutionDurationMilliseconds": 1.3119,
+      "methodDurationMilliseconds": 39.198,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.3119,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "baseline",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 10000,
+      "queryExecutionDurationMilliseconds": 1.6535,
+      "methodDurationMilliseconds": 49.1151,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.6535,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "optimized",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 2.2769,
+      "methodDurationMilliseconds": 3.2677,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 2.2769,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "optimized",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 1.8867,
+      "methodDurationMilliseconds": 2.6907,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 1.8867,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "10000",
+      "historyRows": 10000,
+      "implementation": "baseline",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 10000,
+      "queryExecutionDurationMilliseconds": 1.5186,
+      "methodDurationMilliseconds": 28.1002,
+      "candidateIds": [
+        "5441b73e-e0b5-4c57-af21-025e0849e3bf",
+        "55507707-6f87-4958-8c85-3bfc30a35163",
+        "7863a443-55d8-476d-b178-6c271a69738a"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.5186,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "baseline",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 50000,
+      "queryExecutionDurationMilliseconds": 1.9115,
+      "methodDurationMilliseconds": 145.4555,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.9115,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "optimized",
+      "iteration": 0,
+      "isWarmup": true,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 5.9958,
+      "methodDurationMilliseconds": 7.784,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 5.9958,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "optimized",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 4.8522,
+      "methodDurationMilliseconds": 5.8319,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 4.8522,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "baseline",
+      "iteration": 1,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 50000,
+      "queryExecutionDurationMilliseconds": 1.4056,
+      "methodDurationMilliseconds": 129.3152,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.4056,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "baseline",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 50000,
+      "queryExecutionDurationMilliseconds": 2.1627,
+      "methodDurationMilliseconds": 129.1926,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 2.1627,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "optimized",
+      "iteration": 2,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 6.7498,
+      "methodDurationMilliseconds": 8.5704,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 6.7498,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "optimized",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 3,
+      "queryExecutionDurationMilliseconds": 5.0758,
+      "methodDurationMilliseconds": 6.2216,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+        "durationMilliseconds": 5.0758,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          },
+          {
+            "name": "@observed",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          },
+          {
+            "name": "@messageCreated",
+            "npgsqlDbType": "timestampTz",
+            "value": "2026-10-20T10:00:00+00:00"
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "50000",
+      "historyRows": 50000,
+      "implementation": "baseline",
+      "iteration": 3,
+      "isWarmup": false,
+      "sqlRoundTrips": 1,
+      "materializedRows": 50000,
+      "queryExecutionDurationMilliseconds": 1.6335,
+      "methodDurationMilliseconds": 119.4281,
+      "candidateIds": [
+        "143d32cc-9a58-4e67-9e4f-8de6cc7e56cf",
+        "2a81588a-07f5-4d43-8a08-9331575fef20",
+        "2ae36878-8f7b-4cd9-89f1-f8b63c4fc421"
+      ],
+      "command": {
+        "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+        "durationMilliseconds": 1.6335,
+        "parameters": [
+          {
+            "name": "@exchangeAccountId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+          },
+          {
+            "name": "@userId_Value",
+            "npgsqlDbType": "uuid",
+            "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+          }
+        ]
+      }
+    }
+  ],
+  "sqlStatements": [
+    {
+      "id": "100-baseline",
+      "dataset": "100",
+      "implementation": "baseline",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        }
+      ]
+    },
+    {
+      "id": "100-optimized",
+      "dataset": "100",
+      "implementation": "optimized",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "503c65aa-c9fc-41ca-8534-7aaa8f28e81e"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        },
+        {
+          "name": "@observed",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        },
+        {
+          "name": "@messageCreated",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        }
+      ]
+    },
+    {
+      "id": "10000-baseline",
+      "dataset": "10000",
+      "implementation": "baseline",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        }
+      ]
+    },
+    {
+      "id": "10000-optimized",
+      "dataset": "10000",
+      "implementation": "optimized",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "69fb1e2d-dbf8-49c6-83b2-a874d3910933"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        },
+        {
+          "name": "@observed",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        },
+        {
+          "name": "@messageCreated",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        }
+      ]
+    },
+    {
+      "id": "50000-baseline",
+      "dataset": "50000",
+      "implementation": "baseline",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        }
+      ]
+    },
+    {
+      "id": "50000-optimized",
+      "dataset": "50000",
+      "implementation": "optimized",
+      "commandText": "SELECT e.id, e.completed_at, e.exchange_account_id, e.kind, e.recorded_at, e.started_at, e.symbol\r\nFROM exchange_rest_ordering_intervals AS e\r\nWHERE e.exchange_account_id = @exchangeAccountId_Value AND EXISTS (\r\n    SELECT 1\r\n    FROM exchange_accounts AS e0\r\n    WHERE e0.exchange_account_id = e.exchange_account_id AND e0.user_id = @userId_Value) AND e.kind = \u0027Balance\u0027 AND e.started_at \u003C e.completed_at AND ((e.started_at \u003C @observed AND @observed \u003C e.completed_at) OR (e.started_at \u003C @messageCreated AND @messageCreated \u003C e.completed_at))",
+      "parameters": [
+        {
+          "name": "@exchangeAccountId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "1db6773c-9102-4c5b-9c2c-5d67214a3235"
+        },
+        {
+          "name": "@userId_Value",
+          "npgsqlDbType": "uuid",
+          "value": "547dbb4a-1f3f-42c1-b1e2-e32635929bbb"
+        },
+        {
+          "name": "@observed",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        },
+        {
+          "name": "@messageCreated",
+          "npgsqlDbType": "timestampTz",
+          "value": "2026-10-20T10:00:00+00:00"
+        }
+      ]
+    }
+  ],
+  "plans": [
+    {
+      "dataset": "100",
+      "implementation": "baseline",
+      "sqlStatementId": "100-baseline",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.60,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 0.048,
+            "Actual Total Time": 0.182,
+            "Actual Rows": 100,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 303,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.43,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 0.031,
+                "Actual Total Time": 0.101,
+                "Actual Rows": 100,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u0027503c65aa-c9fc-41ca-8534-7aaa8f28e81e\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 103,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.001,
+                "Actual Total Time": 0.001,
+                "Actual Rows": 1,
+                "Actual Loops": 100,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u0027503c65aa-c9fc-41ca-8534-7aaa8f28e81e\u0027::uuid)",
+                "Rows Removed by Filter": 3,
+                "Shared Hit Blocks": 200,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.144,
+          "Triggers": [],
+          "Execution Time": 0.211
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    },
+    {
+      "dataset": "100",
+      "implementation": "optimized",
+      "sqlStatementId": "100-optimized",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.61,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 0.082,
+            "Actual Total Time": 0.089,
+            "Actual Rows": 3,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 14,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.44,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 0.064,
+                "Actual Total Time": 0.067,
+                "Actual Rows": 3,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u0027503c65aa-c9fc-41ca-8534-7aaa8f28e81e\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text) AND (started_at \u003C \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone) AND (completed_at \u003E \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 8,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.006,
+                "Actual Total Time": 0.006,
+                "Actual Rows": 1,
+                "Actual Loops": 3,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u0027503c65aa-c9fc-41ca-8534-7aaa8f28e81e\u0027::uuid)",
+                "Rows Removed by Filter": 3,
+                "Shared Hit Blocks": 6,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.150,
+          "Triggers": [],
+          "Execution Time": 0.122
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    },
+    {
+      "dataset": "10000",
+      "implementation": "baseline",
+      "sqlStatementId": "10000-baseline",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.60,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 0.051,
+            "Actual Total Time": 9.022,
+            "Actual Rows": 10000,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 29912,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.43,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 0.035,
+                "Actual Total Time": 3.937,
+                "Actual Rows": 10000,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u002769fb1e2d-dbf8-49c6-83b2-a874d3910933\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 9912,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.000,
+                "Actual Total Time": 0.000,
+                "Actual Rows": 1,
+                "Actual Loops": 10000,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u002769fb1e2d-dbf8-49c6-83b2-a874d3910933\u0027::uuid)",
+                "Rows Removed by Filter": 2,
+                "Shared Hit Blocks": 20000,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.098,
+          "Triggers": [],
+          "Execution Time": 9.320
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    },
+    {
+      "dataset": "10000",
+      "implementation": "optimized",
+      "sqlStatementId": "10000-optimized",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.61,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 0.627,
+            "Actual Total Time": 0.631,
+            "Actual Rows": 3,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 107,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.44,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 0.610,
+                "Actual Total Time": 0.612,
+                "Actual Rows": 3,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u002769fb1e2d-dbf8-49c6-83b2-a874d3910933\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text) AND (started_at \u003C \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone) AND (completed_at \u003E \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 101,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.006,
+                "Actual Total Time": 0.006,
+                "Actual Rows": 1,
+                "Actual Loops": 3,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u002769fb1e2d-dbf8-49c6-83b2-a874d3910933\u0027::uuid)",
+                "Rows Removed by Filter": 2,
+                "Shared Hit Blocks": 6,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.115,
+          "Triggers": [],
+          "Execution Time": 0.653
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    },
+    {
+      "dataset": "50000",
+      "implementation": "baseline",
+      "sqlStatementId": "50000-baseline",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.60,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 0.044,
+            "Actual Total Time": 40.564,
+            "Actual Rows": 50000,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 149586,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.43,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 0.031,
+                "Actual Total Time": 17.282,
+                "Actual Rows": 50000,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u00271db6773c-9102-4c5b-9c2c-5d67214a3235\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 49586,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.000,
+                "Actual Total Time": 0.000,
+                "Actual Rows": 1,
+                "Actual Loops": 50000,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u00271db6773c-9102-4c5b-9c2c-5d67214a3235\u0027::uuid)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 100000,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.083,
+          "Triggers": [],
+          "Execution Time": 41.861
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    },
+    {
+      "dataset": "50000",
+      "implementation": "optimized",
+      "sqlStatementId": "50000-optimized",
+      "executionPlan": [
+        {
+          "Plan": {
+            "Node Type": "Nested Loop",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Join Type": "Semi",
+            "Startup Cost": 0.55,
+            "Total Cost": 16.61,
+            "Plan Rows": 1,
+            "Plan Width": 412,
+            "Actual Startup Time": 3.079,
+            "Actual Total Time": 3.083,
+            "Actual Rows": 3,
+            "Actual Loops": 1,
+            "Inner Unique": false,
+            "Shared Hit Blocks": 466,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+                "Relation Name": "exchange_rest_ordering_intervals",
+                "Alias": "e",
+                "Startup Cost": 0.41,
+                "Total Cost": 8.44,
+                "Plan Rows": 1,
+                "Plan Width": 412,
+                "Actual Startup Time": 3.043,
+                "Actual Total Time": 3.045,
+                "Actual Rows": 3,
+                "Actual Loops": 1,
+                "Index Cond": "((exchange_account_id = \u00271db6773c-9102-4c5b-9c2c-5d67214a3235\u0027::uuid) AND ((kind)::text = \u0027Balance\u0027::text) AND (started_at \u003C \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone) AND (completed_at \u003E \u00272026-10-20 10:00:00\u002B00\u0027::timestamp with time zone))",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(started_at \u003C completed_at)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 460,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Inner",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ux_exchange_accounts_user_exchange_provider_account_id",
+                "Relation Name": "exchange_accounts",
+                "Alias": "e0",
+                "Startup Cost": 0.14,
+                "Total Cost": 8.16,
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Startup Time": 0.011,
+                "Actual Total Time": 0.011,
+                "Actual Rows": 1,
+                "Actual Loops": 3,
+                "Index Cond": "(user_id = \u0027547dbb4a-1f3f-42c1-b1e2-e32635929bbb\u0027::uuid)",
+                "Rows Removed by Index Recheck": 0,
+                "Filter": "(exchange_account_id = \u00271db6773c-9102-4c5b-9c2c-5d67214a3235\u0027::uuid)",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 6,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.127,
+          "Triggers": [],
+          "Execution Time": 3.113
+        }
+      ],
+      "indexNames": [
+        "ix_exchange_rest_ordering_intervals_account_kind_bounds",
+        "ux_exchange_accounts_user_exchange_provider_account_id"
+      ]
+    }
+  ]
+}
