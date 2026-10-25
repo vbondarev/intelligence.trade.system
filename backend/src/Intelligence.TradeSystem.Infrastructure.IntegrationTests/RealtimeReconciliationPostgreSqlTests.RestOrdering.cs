@@ -150,7 +150,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
 
             Assert.True(
                 expectedIds.SequenceEqual(evidence.Select(interval => interval.Id).OrderBy(id => id)),
-                $"Unexpected REST Balance evidence for case: {testCase.Name}.");
+                $"Неверный REST Balance evidence для сценария: {testCase.Name}.");
         }
 
         await using (var context = fixture.CreateContext())
