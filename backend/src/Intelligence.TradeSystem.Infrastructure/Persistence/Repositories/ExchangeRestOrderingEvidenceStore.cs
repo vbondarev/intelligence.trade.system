@@ -119,23 +119,45 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
         EnsureUserId(userId);
         EnsureAccountId(exchangeAccountId);
 
-        if (observedAt is null && messageCreatedAt is null)
+        var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+        var normalizedMessageCreatedAt = TimestampCanonicalizer.ToUtcMicroseconds(messageCreatedAt);
+
+        if (normalizedObservedAt is null && normalizedMessageCreatedAt is null)
         {
             return [];
         }
 
-        // Строгий интерьер: started < t < completed. Загружаем интервалы, где хотя бы одна метка
-        // может попасть внутрь (started < t и completed > t).
-        var candidates = await OwnedIntervals(userId, exchangeAccountId)
+        var query = OwnedIntervals(userId, exchangeAccountId)
             .Where(interval => interval.Kind == ExchangeRestOrderingKind.Balance)
-            .Where(interval => interval.StartedAt < interval.CompletedAt)
+            .Where(interval => interval.StartedAt < interval.CompletedAt);
+
+        if (normalizedObservedAt is { } observed &&
+            normalizedMessageCreatedAt is { } messageCreated)
+        {
+            query = query.Where(interval =>
+                (interval.StartedAt < observed &&
+                 observed < interval.CompletedAt) ||
+                (interval.StartedAt < messageCreated &&
+                 messageCreated < interval.CompletedAt));
+        }
+        else if (normalizedObservedAt is { } observedOnly)
+        {
+            query = query.Where(interval =>
+                interval.StartedAt < observedOnly &&
+                observedOnly < interval.CompletedAt);
+        }
+        else if (normalizedMessageCreatedAt is { } messageOnly)
+        {
+            query = query.Where(interval =>
+                interval.StartedAt < messageOnly &&
+                messageOnly < interval.CompletedAt);
+        }
+
+        var candidates = await query
             .ToArrayAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return candidates
-            .Where(interval =>
-                OverlapsStrictInterior(observedAt, interval) ||
-                OverlapsStrictInterior(messageCreatedAt, interval))
             .Select(ToModel)
             .ToArray();
     }
@@ -201,19 +223,6 @@ internal sealed class ExchangeRestOrderingEvidenceStore(TradeSystemDbContext dbC
                 dbContext.ExchangeAccounts.Any(account =>
                     account.Id == interval.ExchangeAccountId &&
                     account.UserId == userId.Value));
-
-    private static bool OverlapsStrictInterior(
-        DateTimeOffset? timestamp,
-        ExchangeRestOrderingIntervalEntity interval)
-    {
-        if (timestamp is not { } value)
-        {
-            return false;
-        }
-
-        var normalized = TimestampCanonicalizer.ToUtcMicroseconds(value);
-        return normalized > interval.StartedAt && normalized < interval.CompletedAt;
-    }
 
     private static ExchangeRestOrderingInterval ToModel(ExchangeRestOrderingIntervalEntity entity) =>
         new()

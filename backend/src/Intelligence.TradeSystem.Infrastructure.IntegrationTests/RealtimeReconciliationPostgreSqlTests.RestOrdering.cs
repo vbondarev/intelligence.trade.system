@@ -10,15 +10,173 @@ using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
 using Intelligence.TradeSystem.Domain.Snapshots;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
+using Intelligence.TradeSystem.Infrastructure.Persistence.Entities;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Xunit;
 
 namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 
 public sealed partial class RealtimeReconciliationPostgreSqlTests
 {
+    [Fact]
+    public async Task Rest_balance_evidence_uses_strict_normalized_interiors_and_account_ownership()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var (otherUserAccount, _) = await CreateObservedAccountAsync();
+        var sameUserAccount = ExchangeAccount.Create(
+            ExchangeAccountId.New(),
+            account.UserId,
+            ExchangeId.Bybit,
+            ExchangeAccountProviderIdentity.From($"provider-{Guid.NewGuid():N}"),
+            "Другой аккаунт",
+            ExchangeAccountConnectionStatus.Connected,
+            ExchangeAccountCapabilities.ReadBalance | ExchangeAccountCapabilities.ReadPositions);
+        await using (var context = fixture.CreateContext())
+        {
+            await new ExchangeAccountRepository(context).SaveAsync(
+                sameUserAccount.UserId,
+                sameUserAccount,
+                expectedVersion: null);
+        }
+
+        var startedAt = new DateTimeOffset(2026, 10, 20, 10, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddSeconds(10);
+        var inside = startedAt.AddSeconds(5);
+        var zeroLengthAt = startedAt.AddMinutes(1);
+        ExchangeRestOrderingInterval Evidence(
+            ExchangeAccount owner,
+            ExchangeRestOrderingKind kind,
+            DateTimeOffset started,
+            DateTimeOffset completed) =>
+            new()
+            {
+                Id = Guid.NewGuid(),
+                ExchangeAccountId = owner.Id,
+                Kind = kind,
+                Symbol = null,
+                StartedAt = started,
+                CompletedAt = completed,
+                RecordedAt = completedAt.AddMinutes(1),
+            };
+
+        var balance = Evidence(account, ExchangeRestOrderingKind.Balance, startedAt, completedAt);
+        var zeroLength = Evidence(account, ExchangeRestOrderingKind.Balance, zeroLengthAt, zeroLengthAt);
+        var positions = Evidence(
+            account,
+            ExchangeRestOrderingKind.FullPositionsComplete,
+            startedAt,
+            completedAt);
+        var sameUserBalance = Evidence(
+            sameUserAccount,
+            ExchangeRestOrderingKind.Balance,
+            startedAt,
+            completedAt);
+        var otherUserBalance = Evidence(
+            otherUserAccount,
+            ExchangeRestOrderingKind.Balance,
+            startedAt,
+            completedAt);
+
+        await using (var context = fixture.CreateContext())
+        {
+            var store = new ExchangeRestOrderingEvidenceStore(context);
+            await store.AppendAsync(account.UserId, balance);
+            await store.AppendAsync(account.UserId, zeroLength);
+            await store.AppendAsync(account.UserId, positions);
+            await store.AppendAsync(account.UserId, sameUserBalance);
+            await store.AppendAsync(otherUserAccount.UserId, otherUserBalance);
+        }
+
+        var invalidInterval = Evidence(
+            account,
+            ExchangeRestOrderingKind.Balance,
+            completedAt,
+            startedAt);
+        await using (var validationContext = fixture.CreateContext())
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() =>
+                new ExchangeRestOrderingEvidenceStore(validationContext)
+                    .AppendAsync(account.UserId, invalidInterval));
+        }
+
+        await using (var constraintContext = fixture.CreateContext())
+        {
+            constraintContext.ExchangeRestOrderingIntervals.Add(new ExchangeRestOrderingIntervalEntity
+            {
+                Id = invalidInterval.Id,
+                ExchangeAccountId = account.Id.Value,
+                Kind = invalidInterval.Kind,
+                StartedAt = invalidInterval.StartedAt,
+                CompletedAt = invalidInterval.CompletedAt,
+                RecordedAt = invalidInterval.RecordedAt,
+            });
+            var exception = await Assert.ThrowsAsync<DbUpdateException>(
+                () => constraintContext.SaveChangesAsync());
+            var postgresException = Assert.IsType<PostgresException>(exception.InnerException);
+            Assert.Equal("ck_exchange_rest_ordering_intervals_bounds", postgresException.ConstraintName);
+        }
+
+        var cases = new (string Name, DateTimeOffset? ObservedAt, DateTimeOffset? MessageCreatedAt, bool Expected)[]
+        {
+            ("оба timestamp null", null, null, false),
+            ("observedAt внутри", inside, null, true),
+            ("messageCreatedAt внутри", null, inside, true),
+            ("observedAt внутри, messageCreatedAt снаружи", inside, completedAt.AddSeconds(1), true),
+            ("observedAt снаружи, messageCreatedAt внутри", startedAt.AddSeconds(-1), inside, true),
+            ("обе метки внутри одного интервала", inside, inside.AddSeconds(1), true),
+            ("обе метки снаружи", startedAt.AddSeconds(-1), completedAt.AddSeconds(1), false),
+            ("совпадение с началом", startedAt, null, false),
+            ("совпадение с концом", completedAt, null, false),
+            ("нулевой интервал", zeroLengthAt, null, false),
+            ("ненулевой timezone offset", inside.ToOffset(TimeSpan.FromHours(3)), null, true),
+            ("на одну микросекунду после начала", startedAt.AddTicks(TimeSpan.TicksPerMicrosecond), null, true),
+            ("на одну микросекунду перед концом", completedAt.AddTicks(-TimeSpan.TicksPerMicrosecond), null, true),
+            ("усечение sub-microsecond timestamp до начала", startedAt.AddTicks(1), null, false),
+        };
+
+        foreach (var testCase in cases)
+        {
+            await using var context = fixture.CreateContext();
+            var store = new ExchangeRestOrderingEvidenceStore(context);
+            var evidence = await store.GetBalanceEvidenceAsync(
+                account.UserId,
+                account.Id,
+                testCase.ObservedAt,
+                testCase.MessageCreatedAt);
+            var expectedIds = testCase.Expected ? new[] { balance.Id } : [];
+
+            Assert.True(
+                expectedIds.SequenceEqual(evidence.Select(interval => interval.Id).OrderBy(id => id)),
+                $"Неверный REST Balance evidence для сценария: {testCase.Name}.");
+        }
+
+        await using (var context = fixture.CreateContext())
+        {
+            var store = new ExchangeRestOrderingEvidenceStore(context);
+            Assert.Equal(
+                new[] { sameUserBalance.Id },
+                (await store.GetBalanceEvidenceAsync(
+                    account.UserId,
+                    sameUserAccount.Id,
+                    inside,
+                    messageCreatedAt: null))
+                    .Select(interval => interval.Id));
+            Assert.Empty(await store.GetBalanceEvidenceAsync(
+                otherUserAccount.UserId,
+                account.Id,
+                inside,
+                messageCreatedAt: null));
+            Assert.Empty(await store.GetBalanceEvidenceAsync(
+                account.UserId,
+                otherUserAccount.Id,
+                inside,
+                messageCreatedAt: null));
+        }
+    }
+
     [Fact]
     public async Task Rest_ordering_evidence_enforces_user_and_account_isolation_for_reads_and_writes()
     {
