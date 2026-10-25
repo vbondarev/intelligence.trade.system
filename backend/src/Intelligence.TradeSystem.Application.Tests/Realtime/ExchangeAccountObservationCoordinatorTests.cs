@@ -1803,6 +1803,67 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.ActivePositions.Should().BeEmpty();
     }
 
+    /// <summary>Несмежные Balance evidence не создают локальное покрытие промежутка между чтениями.</summary>
+    [Fact]
+    public async Task Disjoint_Balance_Rest_Windows_Do_Not_Falsely_Cover_Wallet_In_Gap()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstStartedAt = world.Clock.UtcNow;
+        world.Provider.OnBalanceRequest = () =>
+        {
+            world.Provider.OnBalanceRequest = null;
+            world.Clock.UtcNow = firstStartedAt.AddSeconds(1);
+        };
+
+        var firstSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        var secondStartedAt = firstStartedAt.AddSeconds(10);
+        world.Clock.UtcNow = secondStartedAt;
+        world.Provider.OnBalanceRequest = () =>
+        {
+            world.Provider.OnBalanceRequest = null;
+            world.Clock.UtcNow = secondStartedAt.AddSeconds(1);
+        };
+        var secondSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        firstSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        secondSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        var balanceEvidence = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.Balance)
+            .OrderBy(interval => interval.StartedAt)
+            .ToArray();
+        balanceEvidence.Should().HaveCount(2);
+        balanceEvidence[0].StartedAt.Should().Be(firstStartedAt);
+        balanceEvidence[0].CompletedAt.Should().Be(firstStartedAt.AddSeconds(1));
+        balanceEvidence[1].StartedAt.Should().Be(secondStartedAt);
+        balanceEvidence[1].CompletedAt.Should().Be(secondStartedAt.AddSeconds(1));
+
+        var wallet = world.WalletObservation(firstStartedAt.AddSeconds(5), totalEquity: 1_500m);
+        wallet.ReceivedAt.Should().BeAfter(wallet.MessageCreatedAt!.Value);
+        var portfoliosAfterSync = world.Portfolios.Count;
+        var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
+        coordinator.TryEnqueue(world.UserId, 1, wallet).Should().BeTrue();
+        world.Clock.UtcNow = secondStartedAt.AddSeconds(2);
+
+        var result = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should()
+            .ContainSingle()
+            .Subject;
+
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        world.Portfolios.Count.Should().BeGreaterThan(portfoliosAfterSync);
+        world.Portfolios.Should().OnlyContain(portfolio => portfolio.Capital.TotalEquity == 2_000m);
+        world.ActivePositions.Should().BeEmpty();
+        secondSync.BalanceReadCompletedAt.Should().NotBeNull();
+        world.Account.LastAppliedBalanceObservationAt.Should()
+            .BeOnOrAfter(secondSync.BalanceReadCompletedAt!.Value);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
+    }
+
     /// <summary>S-20: wallet во время REST-чтения баланса не откатывает принятый капитал.</summary>
     [Fact]
     public async Task Wallet_During_Successful_Balance_Read_Requires_Recovery_Without_Capital_Regression()
@@ -1869,11 +1930,11 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     }
 
     /// <summary>
-    /// P2-1: деградированная REST-сверка с принятым Complete positions расширяет FullSyncWindow,
+    /// P2-1: деградированная REST-сверка с принятым Complete positions записывает FullSyncWindow,
     /// но не завершает recovery через FullReconciliationCommitted.
     /// </summary>
     [Fact]
-    public async Task Failed_balance_with_complete_positions_extends_full_sync_window_without_committing_recovery()
+    public async Task Failed_balance_with_complete_positions_records_full_sync_window_without_committing_recovery()
     {
         var world = new RealtimeTestWorld(recoveryRequired: true);
         world.Provider.SetExchangePosition(OpenPosition(size: 2m));
@@ -2221,7 +2282,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.ActivePositions.Single().Changes.Should().ContainSingle();
     }
 
-    /// <summary>S-25: последовательные scoped REST-окна объединяются и не теряют доказательство порядка.</summary>
+    /// <summary>S-25: последнее локальное scoped-окно сохраняет защиту запоздалых наблюдений.</summary>
     [Fact]
     public async Task Sequential_Scoped_Rest_Windows_Keep_Order_Evidence_For_Delayed_Observation()
     {
@@ -2245,8 +2306,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         second.Should().ContainSingle().Which.ConfirmedByRest.Should().BeTrue();
         world.ActivePositions.Single().Size.Should().Be(2m);
 
-        // ObservedAt только в первом scoped-окне: без merge окно заменилось бы вторым подтверждением,
-        // и более новая ревизия напрямую записала бы size=1 поверх size=2.
+        // Наблюдение предшествует последнему scoped-окну: специальное правило для события до начала
+        // этого окна по-прежнему отправляет его на confirmation, а не позволяет откатить позицию.
         world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         world.Clock.UtcNow = T0.AddSeconds(21);
         coordinator.TryEnqueue(
