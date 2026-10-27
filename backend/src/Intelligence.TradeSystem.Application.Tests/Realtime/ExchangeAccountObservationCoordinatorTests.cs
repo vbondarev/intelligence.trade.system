@@ -1914,10 +1914,29 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         coordinator.TryEnqueue(
                 world.UserId,
                 1,
-                world.OpenObservation(T0.AddSeconds(15), 1))
+                world.CloseObservation(T0.AddSeconds(15), 1))
             .Should()
             .BeTrue();
         world.Clock.UtcNow = secondCompletedAt.AddSeconds(1);
+
+        var closeResult = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should()
+            .ContainSingle()
+            .Subject;
+
+        closeResult.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
+        closeResult.ConfirmedByRest.Should().BeFalse();
+        world.Provider.PositionRequests.Should().Equal(null, null);
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
+        world.Positions.Should().ContainSingle().Which.Should().BeSameAs(position);
+        world.Events.Should().HaveCount(eventsBefore);
+
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(T0.AddSeconds(15), 2))
+            .Should()
+            .BeTrue();
 
         var result = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
             .Should()
@@ -1928,7 +1947,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         result.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanClosure);
         result.ConfirmedByRest.Should().BeFalse();
         world.Provider.PositionRequests.Should().Equal(null, null);
-        world.Cursor("BTCUSDT").Should().BeNull();
+        world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(1);
         world.Positions.Should().ContainSingle().Which.Should().BeSameAs(position);
         position.TrackingState.Should().Be(PositionTrackingState.Closed);
         position.ClosedAt.Should().Be(secondStartedAt);
@@ -2054,9 +2073,11 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
     }
 
-    /// <summary>W-05A: почти соприкасающиеся Balance-окна не покрывают промежуток локально.</summary>
+    /// <summary>
+    /// W-05A: граница первого Balance-окна не становится внутренней точкой объединённого интервала.
+    /// </summary>
     [Fact]
-    public async Task Nearly_Touching_Balance_Rest_Windows_Do_Not_Falsely_Cover_Wallet_In_Gap()
+    public async Task Nearly_Touching_Balance_Rest_Windows_Do_Not_Falsely_Cover_Wallet_On_First_Window_Boundary()
     {
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
@@ -2090,6 +2111,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         balanceEvidence[1].CompletedAt.Should().Be(secondCompletedAt);
 
         var wallet = world.WalletObservation(firstCompletedAt, totalEquity: 1_500m);
+        wallet.MessageCreatedAt.Should().Be(firstCompletedAt);
         wallet.ReceivedAt.Should().BeAfter(wallet.MessageCreatedAt!.Value);
         var portfoliosBefore = world.Portfolios.Count;
         var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
