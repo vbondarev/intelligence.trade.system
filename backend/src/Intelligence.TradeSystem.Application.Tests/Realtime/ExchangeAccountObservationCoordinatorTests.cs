@@ -4,6 +4,7 @@ using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.Ordering;
 using Intelligence.TradeSystem.Application.Realtime.State;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -1811,22 +1812,14 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
         var firstStartedAt = world.Clock.UtcNow;
-        world.Provider.OnBalanceRequest = () =>
-        {
-            world.Provider.OnBalanceRequest = null;
-            world.Clock.UtcNow = firstStartedAt.AddSeconds(1);
-        };
-
-        var firstSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
-
         var secondStartedAt = firstStartedAt.AddSeconds(10);
-        world.Clock.UtcNow = secondStartedAt;
-        world.Provider.OnBalanceRequest = () =>
-        {
-            world.Provider.OnBalanceRequest = null;
-            world.Clock.UtcNow = secondStartedAt.AddSeconds(1);
-        };
-        var secondSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        var (firstSync, secondSync) = await SynchronizeBalanceWindowsAsync(
+            world,
+            coordinator,
+            firstStartedAt,
+            firstStartedAt.AddSeconds(1),
+            secondStartedAt,
+            secondStartedAt.AddSeconds(1));
 
         firstSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
         secondSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
@@ -1862,6 +1855,233 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             .BeOnOrAfter(secondSync.BalanceReadCompletedAt!.Value);
         world.State!.RecoveryRequired.Should().BeFalse();
         world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
+    }
+
+    /// <summary>P-01: два несмежных Full evidence не создают локальное покрытие позиции в промежутке.</summary>
+    [Fact]
+    public async Task Disjoint_Full_Positions_Rest_Windows_Do_Not_Falsely_Cover_Position_In_Gap()
+    {
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 3m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstStartedAt = T0.AddSeconds(10);
+        var firstCompletedAt = T0.AddSeconds(11);
+        var secondStartedAt = T0.AddSeconds(20);
+        var secondCompletedAt = T0.AddSeconds(21);
+
+        world.Clock.UtcNow = firstStartedAt;
+        world.Provider.SnapshotObservedAt = firstStartedAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = firstCompletedAt;
+        };
+        var firstSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        firstSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        firstSync.FullReconciliationCommitted.Should().BeTrue();
+        world.ActivePositions.Should().ContainSingle().Which.Size.Should().Be(3m);
+        world.ActivePositions.Single().LastObservedAt.Should().Be(firstStartedAt);
+
+        world.Provider.ClearExchangePositions();
+        world.Clock.UtcNow = secondStartedAt;
+        world.Provider.SnapshotObservedAt = secondStartedAt;
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            world.Clock.UtcNow = secondCompletedAt;
+        };
+        var secondSync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        secondSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        secondSync.FullReconciliationCommitted.Should().BeTrue();
+        firstSync.FullPositionsCompleteAccepted.Should().BeTrue();
+        secondSync.FullPositionsCompleteAccepted.Should().BeTrue();
+        var fullEvidence = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete)
+            .OrderBy(interval => interval.StartedAt)
+            .ToArray();
+        fullEvidence.Should().HaveCount(2);
+        fullEvidence[0].StartedAt.Should().Be(firstStartedAt);
+        fullEvidence[0].CompletedAt.Should().Be(firstCompletedAt);
+        fullEvidence[1].StartedAt.Should().Be(secondStartedAt);
+        fullEvidence[1].CompletedAt.Should().Be(secondCompletedAt);
+        var position = world.Positions.Should().ContainSingle().Subject;
+        position.TrackingState.Should().Be(PositionTrackingState.Closed);
+        position.ClosedAt.Should().Be(secondStartedAt);
+        position.Changes.Should().ContainSingle(change => change.Kind == PositionChangeKind.Closed);
+
+        var eventsBefore = world.Events.Count;
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.OpenObservation(T0.AddSeconds(15), 1))
+            .Should()
+            .BeTrue();
+        world.Clock.UtcNow = secondCompletedAt.AddSeconds(1);
+
+        var result = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should()
+            .ContainSingle()
+            .Subject;
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.Stale);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.OlderThanClosure);
+        result.ConfirmedByRest.Should().BeFalse();
+        world.Provider.PositionRequests.Should().Equal(null, null);
+        world.Cursor("BTCUSDT").Should().BeNull();
+        world.Positions.Should().ContainSingle().Which.Should().BeSameAs(position);
+        position.TrackingState.Should().Be(PositionTrackingState.Closed);
+        position.ClosedAt.Should().Be(secondStartedAt);
+        position.Changes.Should().ContainSingle(change => change.Kind == PositionChangeKind.Closed);
+        world.Events.Should().HaveCount(eventsBefore);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(1);
+    }
+
+    /// <summary>W-02: историческое пересечение Balance разрешается через persisted evidence.</summary>
+    [Fact]
+    public async Task Historical_Balance_Rest_Window_Still_Requires_Recovery_For_Overlapping_Wallet()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstStartedAt = T0.AddSeconds(10);
+        var firstCompletedAt = T0.AddSeconds(11);
+        var secondStartedAt = T0.AddSeconds(20);
+        var secondCompletedAt = T0.AddSeconds(21);
+        var (firstSync, secondSync) = await SynchronizeBalanceWindowsAsync(
+            world,
+            coordinator,
+            firstStartedAt,
+            firstCompletedAt,
+            secondStartedAt,
+            secondCompletedAt);
+
+        firstSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        secondSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        var balanceEvidence = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.Balance)
+            .OrderBy(interval => interval.StartedAt)
+            .ToArray();
+        balanceEvidence.Should().HaveCount(2);
+        balanceEvidence[0].StartedAt.Should().Be(firstStartedAt);
+        balanceEvidence[0].CompletedAt.Should().Be(firstCompletedAt);
+        balanceEvidence[1].StartedAt.Should().Be(secondStartedAt);
+        balanceEvidence[1].CompletedAt.Should().Be(secondCompletedAt);
+        var portfoliosBefore = world.Portfolios.Count;
+        var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
+
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.WalletObservation(firstStartedAt.AddSeconds(0.5), totalEquity: 1_500m))
+            .Should()
+            .BeTrue();
+        world.Clock.UtcNow = secondCompletedAt.AddSeconds(1);
+
+        var result = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should()
+            .ContainSingle()
+            .Subject;
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousWithRestBalance);
+        world.BalanceEvidenceReadCount.Should().Be(1);
+        world.Portfolios.Count.Should().BeGreaterThan(portfoliosBefore);
+        world.Portfolios.Should().OnlyContain(portfolio => portfolio.Capital.TotalEquity == 2_000m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.Account.LastAppliedBalanceObservationAt.Should().BeOnOrAfter(secondCompletedAt);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
+    }
+
+    /// <summary>W-05: общая граница окон остаётся границей после нормализации до микросекунд.</summary>
+    [Fact]
+    public async Task Touching_Balance_Rest_Windows_Do_Not_Cover_Their_Shared_Boundary()
+    {
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        var firstStartedAt = T0.AddSeconds(10);
+        var sharedBoundary = T0.AddSeconds(11);
+        var secondStartedAt = sharedBoundary.AddTicks(1);
+        var secondCompletedAt = T0.AddSeconds(12);
+        var (firstSync, secondSync) = await SynchronizeBalanceWindowsAsync(
+            world,
+            coordinator,
+            firstStartedAt,
+            sharedBoundary,
+            secondStartedAt,
+            secondCompletedAt);
+
+        firstSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        secondSync.Outcome.Should().Be(ExchangeAccountSyncOutcome.Synchronized);
+        var balanceEvidence = world.RestOrderingIntervals
+            .Where(interval => interval.Kind == ExchangeRestOrderingKind.Balance)
+            .OrderBy(interval => interval.StartedAt)
+            .ToArray();
+        balanceEvidence.Should().HaveCount(2);
+        balanceEvidence[0].StartedAt.Should().Be(firstStartedAt);
+        balanceEvidence[0].CompletedAt.Should().Be(sharedBoundary);
+        balanceEvidence[1].StartedAt.Should().Be(secondStartedAt);
+        balanceEvidence[1].CompletedAt.Should().Be(secondCompletedAt);
+        TimestampCanonicalizer.ToUtcMicroseconds(balanceEvidence[1].StartedAt).Should().Be(sharedBoundary);
+        var portfoliosBefore = world.Portfolios.Count;
+        var recoveryEpochBefore = world.State!.RecoveryRequestEpoch;
+        var walletAt = sharedBoundary.AddTicks(2);
+        TimestampCanonicalizer.ToUtcMicroseconds(walletAt).Should().Be(sharedBoundary);
+
+        coordinator.TryEnqueue(
+                world.UserId,
+                1,
+                world.WalletObservation(walletAt, totalEquity: 1_500m))
+            .Should()
+            .BeTrue();
+        world.Clock.UtcNow = secondCompletedAt.AddSeconds(1);
+
+        var result = (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
+            .Should()
+            .ContainSingle()
+            .Subject;
+
+        result.Outcome.Should().Be(RealtimeObservationApplyOutcome.RecoveryRequired);
+        result.ReasonCode.Should().Be(RealtimeObservationApplyResult.AmbiguousObservationOrder);
+        world.BalanceEvidenceReadCount.Should().Be(1);
+        world.Portfolios.Count.Should().BeGreaterThan(portfoliosBefore);
+        world.Portfolios.Should().OnlyContain(portfolio => portfolio.Capital.TotalEquity == 2_000m);
+        world.LastAcceptedWalletMessageCreatedAt.Should().BeNull();
+        world.Account.LastAppliedBalanceObservationAt.Should().BeOnOrAfter(secondCompletedAt);
+        world.State!.RecoveryRequired.Should().BeFalse();
+        world.State.RecoveryRequestEpoch.Should().Be(recoveryEpochBefore + 1);
+    }
+
+    private static async Task<(ExchangeAccountSyncResult First, ExchangeAccountSyncResult Second)>
+        SynchronizeBalanceWindowsAsync(
+            RealtimeTestWorld world,
+            ExchangeAccountObservationCoordinator coordinator,
+            DateTimeOffset firstStartedAt,
+            DateTimeOffset firstCompletedAt,
+            DateTimeOffset secondStartedAt,
+            DateTimeOffset secondCompletedAt)
+    {
+        world.Clock.UtcNow = firstStartedAt;
+        world.Provider.OnBalanceRequest = () =>
+        {
+            world.Provider.OnBalanceRequest = null;
+            world.Clock.UtcNow = firstCompletedAt;
+        };
+        var first = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        world.Clock.UtcNow = secondStartedAt;
+        world.Provider.OnBalanceRequest = () =>
+        {
+            world.Provider.OnBalanceRequest = null;
+            world.Clock.UtcNow = secondCompletedAt;
+        };
+        var second = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        return (first, second);
     }
 
     /// <summary>S-20: wallet во время REST-чтения баланса не откатывает принятый капитал.</summary>

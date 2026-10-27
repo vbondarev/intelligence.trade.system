@@ -2,6 +2,7 @@ using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
+using Intelligence.TradeSystem.Application.Time;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -946,10 +947,17 @@ public sealed class ExchangeAccountObservationCoordinator(
         /// <summary>
         /// Открытый интервал чтения баланса: точка завершения уже зафиксирована в
         /// <c>Capital.ObservedAt</c> и сравнивается обычным путём, а совпадение с нулевой длительностью
-        /// не создаёт ложной неоднозначности.
+        /// не создаёт ложной неоднозначности. Все метки нормализуются до точности persisted evidence.
         /// </summary>
-        public bool ContainsStrictInterior(DateTimeOffset observedAt) =>
-            StartedAt < CompletedAt && observedAt > StartedAt && observedAt < CompletedAt;
+        public bool ContainsStrictInterior(DateTimeOffset observedAt)
+        {
+            var startedAt = TimestampCanonicalizer.ToUtcMicroseconds(StartedAt);
+            var completedAt = TimestampCanonicalizer.ToUtcMicroseconds(CompletedAt);
+            var normalizedObservedAt = TimestampCanonicalizer.ToUtcMicroseconds(observedAt);
+            return startedAt < completedAt &&
+                normalizedObservedAt > startedAt &&
+                normalizedObservedAt < completedAt;
+        }
 
         /// <summary>
         /// Нормализует границы: при откате часов backend <c>CompletedAt</c> может быть раньше

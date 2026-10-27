@@ -109,6 +109,8 @@ internal sealed class RealtimeTestWorld
 
     public IReadOnlyList<ExchangeRestOrderingInterval> RestOrderingIntervals => restOrderingIntervals;
 
+    public int BalanceEvidenceReadCount { get; private set; }
+
     public IReadOnlyCollection<PositionSlotKey> LastRequestedClosedSlots { get; private set; } = [];
 
     public DateTimeOffset? LastAcceptedWalletMessageCreatedAt => lastAcceptedWalletMessageCreatedAt;
@@ -778,6 +780,7 @@ internal sealed class RealtimeTestWorld
             DateTimeOffset? messageCreatedAt,
             CancellationToken cancellationToken = default)
         {
+            world.BalanceEvidenceReadCount++;
             if (userId != world.UserId || exchangeAccountId != world.AccountId)
             {
                 return Task.FromResult<IReadOnlyList<ExchangeRestOrderingInterval>>([]);
