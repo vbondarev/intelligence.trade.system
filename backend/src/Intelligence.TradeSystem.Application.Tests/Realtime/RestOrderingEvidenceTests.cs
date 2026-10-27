@@ -209,6 +209,30 @@ public sealed class RestOrderingEvidenceTests
     }
 
     [Fact]
+    public void Touching_Balance_Evidence_Does_Not_Cover_The_Shared_Boundary()
+    {
+        var accountId = ExchangeAccountId.New();
+        var firstStartedAt = T0.AddSeconds(10);
+        var sharedBoundary = T0.AddSeconds(11);
+        var secondCompletedAt = T0.AddSeconds(12);
+        var intervals = new[]
+        {
+            Interval(accountId, ExchangeRestOrderingKind.Balance, firstStartedAt, sharedBoundary),
+            Interval(accountId, ExchangeRestOrderingKind.Balance, sharedBoundary, secondCompletedAt),
+        };
+
+        RestOrderingDecision.WalletOverlapsBalanceRead(sharedBoundary, sharedBoundary, intervals)
+            .Should()
+            .BeFalse();
+        RestOrderingDecision.WalletOverlapsBalanceRead(firstStartedAt.AddMilliseconds(500), null, intervals)
+            .Should()
+            .BeTrue();
+        RestOrderingDecision.WalletOverlapsBalanceRead(null, sharedBoundary.AddMilliseconds(500), intervals)
+            .Should()
+            .BeTrue();
+    }
+
+    [Fact]
     public async Task Older_position_evidence_does_not_prove_order_after_newer_rest_evidence_is_lost()
     {
         var world = new RealtimeTestWorld();
