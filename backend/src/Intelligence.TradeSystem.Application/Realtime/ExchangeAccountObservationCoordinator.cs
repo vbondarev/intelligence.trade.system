@@ -19,8 +19,16 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// текущей REST-синхронизации.
 /// </para>
 /// <para>
-/// Наблюдение позиции, время которого попадает в окно REST-запроса, могло быть уже отражено этим
-/// снимком; его новизна не доказана, поэтому состояние слота подтверждается scoped REST-наблюдением.
+/// Координатор хранит только последнее принятое локальное окно каждого вида: полную сверку позиций,
+/// scoped-подтверждение для символа и чтение баланса. Полное окно позиций включает границы; scoped-окно
+/// применяется только к своему символу и также требует confirmation для события до его начала;
+/// баланс неоднозначен только внутри строгого интервала успешного чтения. Эти process-local окна
+/// дополняют persisted REST evidence, которое проверяет исторические интервалы и межпроцессный порядок.
+/// Непересечение локального окна само по себе не разрешает прямое применение наблюдения.
+/// </para>
+/// <para>
+/// Наблюдение позиции, время которого попадает в полное окно REST-запроса, могло быть уже отражено
+/// этим снимком; его новизна не доказана, поэтому состояние слота подтверждается scoped REST-наблюдением.
 /// Наблюдение кошелька, попадающее в интервал успешного REST-чтения баланса, требует recovery:
 /// <c>ObservedAt</c> REST-запроса само по себе не доказывает порядок относительно потока. Остальную
 /// новизну относительно принятого капитала определяет <see cref="RealtimeWalletObservationService"/>.
@@ -420,9 +428,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                 var window = RestWindow.FromBounds(startedAt, clock.GetUtcNow());
                 lock (channel.Sync)
                 {
-                    channel.SymbolWindows[position.Symbol] = RestWindow.Merge(
-                        channel.SymbolWindows.GetValueOrDefault(position.Symbol),
-                        window);
+                    channel.SymbolWindows[position.Symbol] = window;
                 }
             }
 
@@ -576,9 +582,9 @@ public sealed class ExchangeAccountObservationCoordinator(
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
-            // Process-local окна дополняют persisted evidence: полное покрытие только при
-            // FullPositionsCompleteAccepted. Partial не расширяет FullSyncWindow. При некорректных
-            // границах чтения — консервативная оболочка (в т.ч. откат часов), без утверждения порядка.
+            // Храним только последнее окно каждого вида. Исторические интервалы проверяются через
+            // persisted evidence; Partial не заменяет FullSyncWindow. Консервативная оболочка при
+            // откате часов защищает локально, но не доказывает достоверный биржевой порядок.
             if (result.FullPositionsCompleteAccepted)
             {
                 var positionsWindow =
@@ -586,16 +592,14 @@ public sealed class ExchangeAccountObservationCoordinator(
                     result.PositionsReadCompletedAt is { } positionsCompleted
                         ? RestWindow.FromBounds(positionsStarted, positionsCompleted)
                         : RestWindow.FromBounds(syncWallClockStartedAt, syncWallClockCompletedAt);
-                channel.FullSyncWindow = RestWindow.Merge(channel.FullSyncWindow, positionsWindow);
+                channel.FullSyncWindow = positionsWindow;
             }
 
             if (result.BalanceReadStartedAt is { } balanceStarted &&
                 result.BalanceReadCompletedAt is { } balanceCompleted &&
                 balanceStarted <= balanceCompleted)
             {
-                channel.BalanceReadWindow = RestWindow.Merge(
-                    channel.BalanceReadWindow,
-                    new RestWindow(balanceStarted, balanceCompleted));
+                channel.BalanceReadWindow = new RestWindow(balanceStarted, balanceCompleted);
             }
 
             channel.AccountUnavailable = result.Outcome is
@@ -945,26 +949,17 @@ public sealed class ExchangeAccountObservationCoordinator(
         /// не создаёт ложной неоднозначности.
         /// </summary>
         public bool ContainsStrictInterior(DateTimeOffset observedAt) =>
-            StartedAt < CompletedAt && observedAt > StartedAt && observedAt < CompletedAt;
+            StartedAt < CompletedAt &&
+            observedAt > StartedAt &&
+            observedAt < CompletedAt;
 
         /// <summary>
         /// Нормализует границы: при откате часов backend <c>CompletedAt</c> может быть раньше
-        /// <c>StartedAt</c>, но интервал неопределённости всё равно должен покрывать оба момента.
+        /// <c>StartedAt</c>, но локальная консервативная защита всё равно должна покрывать оба момента.
+        /// Это не подтверждает достоверность порядка биржевого события и не создаёт persisted evidence.
         /// </summary>
         public static RestWindow FromBounds(DateTimeOffset first, DateTimeOffset second) =>
             first <= second ? new RestWindow(first, second) : new RestWindow(second, first);
-
-        public static RestWindow Merge(RestWindow? previous, RestWindow next)
-        {
-            if (previous is not { } existing)
-            {
-                return next;
-            }
-
-            var startedAt = existing.StartedAt <= next.StartedAt ? existing.StartedAt : next.StartedAt;
-            var completedAt = existing.CompletedAt >= next.CompletedAt ? existing.CompletedAt : next.CompletedAt;
-            return new RestWindow(startedAt, completedAt);
-        }
     }
 
     private sealed class AccountChannel
@@ -975,6 +970,7 @@ public sealed class ExchangeAccountObservationCoordinator(
 
         public Queue<PendingObservation> Pending { get; } = new();
 
+        /// <summary>Последнее локальное scoped-окно каждого символа; история хранится в persisted evidence.</summary>
         public Dictionary<string, RestWindow> SymbolWindows { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public long Generation { get; set; }
@@ -989,10 +985,11 @@ public sealed class ExchangeAccountObservationCoordinator(
         /// </summary>
         public long PersistedRecoveryRequestCount { get; set; }
 
+        /// <summary>Последнее принятое локальное окно полной сверки позиций.</summary>
         public RestWindow? FullSyncWindow { get; set; }
 
         /// <summary>
-        /// Интервал успешного REST-чтения баланса текущего поколения. Неуспешное чтение окно не
+        /// Последнее успешное REST-чтение баланса текущего поколения. Неуспешное чтение окно не
         /// заменяет и не создаёт.
         /// </summary>
         public RestWindow? BalanceReadWindow { get; set; }
