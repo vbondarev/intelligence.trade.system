@@ -332,6 +332,178 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
+    public async Task Supervisor_keeps_heartbeat_and_provider_after_restored_transport_signal()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var restProvider = new TestPrivateProvider { Clock = clock, ObservedAt = clock.GetUtcNow() };
+        var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
+        await using var services = CreateApplicationServices(
+            account,
+            restProvider,
+            clock,
+            realtimeProviderFactory: realtimeProviderFactory);
+        var options = CreateSupervisorOptions(
+            heartbeatInterval: TimeSpan.FromMilliseconds(50),
+            heartbeatStaleAfter: TimeSpan.FromSeconds(2));
+        using var cancellation = new CancellationTokenSource();
+        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options)
+            .RunAsync(cancellation.Token);
+
+        try
+        {
+            var provider = await realtimeProviderFactory.ReadCreatedAsync();
+            await provider.Started.Task.WaitAsync(CompletionTimeout);
+            var initial = await WaitForObservationStateAsync(
+                account,
+                state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
+                    && !state.RecoveryRequired);
+
+            clock.UtcNow = initial.LastHeartbeatAt!.Value.AddSeconds(1);
+            restProvider.ObservedAt = clock.GetUtcNow();
+            provider.Report(RealtimeTransportStatus.Restored, clock.GetUtcNow());
+
+            var restored = await WaitForObservationStateAsync(
+                account,
+                state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
+                    && state.RecoveryRequestEpoch == initial.RecoveryRequestEpoch + 1
+                    && !state.RecoveryRequired);
+            var heartbeat = await WaitForObservationStateAsync(
+                account,
+                state => state.Generation == initial.Generation
+                    && state.LastHeartbeatAt is { } heartbeatAt
+                    && heartbeatAt > initial.LastHeartbeatAt);
+
+            Assert.Equal(restProvider.ObservedAt, restored.LastFullyReconciledAt);
+            Assert.True(heartbeat.IsTransportOperational(clock.GetUtcNow(), options.HeartbeatStaleAfter));
+            Assert.Equal(initial.Generation, heartbeat.Generation);
+            Assert.Equal(1, realtimeProviderFactory.CreatedCount);
+            Assert.Equal(0, provider.DisposeAttempts);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run.WaitAsync(CompletionTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task Supervisor_does_not_repeat_permanent_start_failure_until_credentials_change()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var restProvider = new TestPrivateProvider { Clock = clock, ObservedAt = clock.GetUtcNow() };
+        var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
+        realtimeProviderFactory.FailNextStart(
+            RealtimeTransportStatus.SubscribeFailed,
+            new ExchangeFailure(ExchangeFailureKind.InvalidCredentials, Retryable: false));
+        await using var services = CreateApplicationServices(
+            account,
+            restProvider,
+            clock,
+            realtimeProviderFactory: realtimeProviderFactory);
+        var candidateSource = Assert.IsType<SingleCandidateSource>(
+            services.GetRequiredService<IExchangeAccountSyncCandidateSource>());
+        var options = CreateSupervisorOptions(accountDiscoveryInterval: TimeSpan.FromMilliseconds(20));
+        using var cancellation = new CancellationTokenSource();
+        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options)
+            .RunAsync(cancellation.Token);
+
+        try
+        {
+            var failedProvider = await realtimeProviderFactory.ReadCreatedAsync();
+            await failedProvider.Started.Task.WaitAsync(CompletionTimeout);
+            await failedProvider.Disposed.Task.WaitAsync(CompletionTimeout);
+            var failedState = await WaitForObservationStateAsync(
+                account,
+                state => state.FailureCode == nameof(ExchangeFailureKind.InvalidCredentials));
+
+            var discoveryCount = candidateSource.DiscoveryPassCount;
+            await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 2);
+
+            Assert.Equal(RealtimeObservationTransportStatus.Degraded, failedState.TransportStatus);
+            Assert.Equal(1, realtimeProviderFactory.CreatedCount);
+
+            var credentialStore = Assert.IsType<TestCredentialStore>(
+                services.GetRequiredService<IExchangeAccountCredentialStore>());
+            var discoveryCountBeforeRotation = candidateSource.DiscoveryPassCount;
+            credentialStore.Version = new ConcurrencyVersion(2);
+            await candidateSource.WaitForDiscoveryCountAsync(discoveryCountBeforeRotation + 1);
+            var recoveredProvider = await realtimeProviderFactory.ReadCreatedAsync();
+            await recoveredProvider.Started.Task.WaitAsync(CompletionTimeout);
+
+            var recovered = await WaitForObservationStateAsync(
+                account,
+                state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
+                    && !state.RecoveryRequired);
+
+            Assert.Equal(new ConcurrencyVersion(2), recoveredProvider.CredentialVersion);
+            Assert.True(recovered.Generation > failedState.Generation);
+            Assert.Equal(2, realtimeProviderFactory.CreatedCount);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run.WaitAsync(CompletionTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task Supervisor_retries_transient_start_failure_with_existing_backoff()
+    {
+        var (account, _) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var restProvider = new TestPrivateProvider { Clock = clock, ObservedAt = clock.GetUtcNow() };
+        var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
+        realtimeProviderFactory.FailNextStart(
+            RealtimeTransportStatus.SubscribeFailed,
+            new ExchangeFailure(ExchangeFailureKind.Unavailable, Retryable: true));
+        await using var services = CreateApplicationServices(
+            account,
+            restProvider,
+            clock,
+            realtimeProviderFactory: realtimeProviderFactory);
+        var candidateSource = Assert.IsType<SingleCandidateSource>(
+            services.GetRequiredService<IExchangeAccountSyncCandidateSource>());
+        var options = CreateSupervisorOptions(
+            accountDiscoveryInterval: TimeSpan.FromMilliseconds(20),
+            reconnectInitialDelay: TimeSpan.FromMilliseconds(10));
+        using var cancellation = new CancellationTokenSource();
+        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options)
+            .RunAsync(cancellation.Token);
+
+        try
+        {
+            var failedProvider = await realtimeProviderFactory.ReadCreatedAsync();
+            await failedProvider.Started.Task.WaitAsync(CompletionTimeout);
+            await failedProvider.Disposed.Task.WaitAsync(CompletionTimeout);
+            var discoveryCount = candidateSource.DiscoveryPassCount;
+            await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 1);
+            clock.UtcNow += TimeSpan.FromSeconds(1);
+            discoveryCount = candidateSource.DiscoveryPassCount;
+            await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 1);
+
+            var retryProvider = await realtimeProviderFactory.ReadCreatedAsync();
+            await retryProvider.Started.Task.WaitAsync(CompletionTimeout);
+
+            var connected = await WaitForObservationStateAsync(
+                account,
+                state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
+                    && !state.RecoveryRequired);
+            discoveryCount = candidateSource.DiscoveryPassCount;
+            await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 2);
+
+            Assert.Equal(2, realtimeProviderFactory.CreatedCount);
+            Assert.Equal(RealtimeObservationTransportStatus.Connected, connected.TransportStatus);
+            Assert.Equal(new ConcurrencyVersion(1), retryProvider.CredentialVersion);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run.WaitAsync(CompletionTimeout);
+        }
+    }
+    [Fact]
     public async Task Supervisor_retries_recovery_after_exhausted_postgres_cas_attempts_without_duplicate_epoch()
     {
         var (account, _) = await CreateObservedAccountAsync();
@@ -1081,11 +1253,15 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Channel.CreateUnbounded<TrackingRealtimeProvider>();
         private int createdCount;
         private int nextStartStatus = (int)RealtimeTransportStatus.Subscribed;
+        private ExchangeFailure? nextStartFailure;
 
         public int CreatedCount => Volatile.Read(ref createdCount);
 
-        public void FailNextStart(RealtimeTransportStatus status) =>
+        public void FailNextStart(RealtimeTransportStatus status, ExchangeFailure? failure = null)
+        {
+            Interlocked.Exchange(ref nextStartFailure, failure);
             Interlocked.Exchange(ref nextStartStatus, (int)status);
+        }
 
         public IExchangeRealtimeProvider Create(
             ExchangeId exchange,
@@ -1096,7 +1272,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             var status = (RealtimeTransportStatus)Interlocked.Exchange(
                 ref nextStartStatus,
                 (int)RealtimeTransportStatus.Subscribed);
-            var provider = new TrackingRealtimeProvider(exchangeAccountId, credentials.Version, status);
+            var failure = Interlocked.Exchange(ref nextStartFailure, null);
+            var provider = new TrackingRealtimeProvider(
+                exchangeAccountId,
+                credentials.Version,
+                status,
+                failure);
             Interlocked.Increment(ref createdCount);
             Assert.True(created.Writer.TryWrite(provider));
             return provider;
@@ -1109,7 +1290,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     private sealed class TrackingRealtimeProvider(
         ExchangeAccountId exchangeAccountId,
         ConcurrencyVersion credentialVersion,
-        RealtimeTransportStatus startStatus) : IExchangeRealtimeProvider
+        RealtimeTransportStatus startStatus,
+        ExchangeFailure? startFailure) : IExchangeRealtimeProvider
     {
         private IExchangeRealtimeObserver? observer;
 
@@ -1137,9 +1319,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Volatile.Write(ref this.observer, observer);
-            var failure = startStatus == RealtimeTransportStatus.Subscribed
+            var failure = startFailure ?? (startStatus == RealtimeTransportStatus.Subscribed
                 ? null
-                : new ExchangeFailure(ExchangeFailureKind.Unavailable, Retryable: true);
+                : new ExchangeFailure(ExchangeFailureKind.Unavailable, Retryable: true));
             var state = new RealtimeTransportState(startStatus, T1, failure);
             observer.OnTransportState(state);
             Started.TrySetResult(true);

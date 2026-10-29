@@ -286,9 +286,11 @@ internal static class SettlementMetadataRefreshTestWait
         string symbol)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (!resolver.TryResolve(symbol, out _))
+        await resolver.RefreshIfDueAsync(missingSymbol: true, timeout.Token)
+            .WaitAsync(timeout.Token);
+        if (!resolver.TryResolve(symbol, out _))
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+            throw new TimeoutException($"Обновление не опубликовало подтверждённые метаданные {symbol}.");
         }
     }
 }
