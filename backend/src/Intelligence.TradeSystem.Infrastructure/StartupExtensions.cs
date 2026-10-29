@@ -15,6 +15,7 @@ using Intelligence.TradeSystem.Infrastructure.MarketCaching;
 using Intelligence.TradeSystem.Infrastructure.Persistence;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 using Intelligence.TradeSystem.Infrastructure.RecommendationPolicy;
+using Intelligence.TradeSystem.Infrastructure.Realtime;
 using Intelligence.TradeSystem.Infrastructure.Security;
 using Intelligence.TradeSystem.Application.Market;
 using Intelligence.TradeSystem.Application.Market.Positions;
@@ -166,6 +167,34 @@ public static class StartupExtensions
 
         services.AddSingleton<IExchangeAccountBackgroundSyncSweep, ExchangeAccountBackgroundSyncSweep>();
         services.AddHostedService<ExchangeAccountBackgroundSyncWorker>();
+        return services;
+    }
+
+    public static IServiceCollection AddExchangeRealtimeObservation(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSingleton<
+            IValidateOptions<ExchangeRealtimeObservationOptions>,
+            ExchangeRealtimeObservationOptionsValidator>();
+        services
+            .AddOptions<ExchangeRealtimeObservationOptions>()
+            .Bind(configuration.GetSection(ExchangeRealtimeObservationOptions.SectionName))
+            .ValidateOnStart();
+
+        services.TryAddSingleton<TimeProvider>(_ => TimeProvider.System);
+        services.Replace(ServiceDescriptor.Singleton<ExchangeAccountObservationCoordinator>(
+            serviceProvider => new ExchangeAccountObservationCoordinator(
+                serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                serviceProvider
+                    .GetRequiredService<IOptions<ExchangeRealtimeObservationOptions>>()
+                    .Value
+                    .QueueCapacity)));
+        services.Replace(ServiceDescriptor.Singleton<IExchangeAccountSyncService>(
+            serviceProvider => serviceProvider.GetRequiredService<ExchangeAccountObservationCoordinator>()));
+        services.AddSingleton<ExchangeRealtimeObservationSupervisor>();
+        services.AddHostedService<ExchangeRealtimeObservationWorker>();
         return services;
     }
 

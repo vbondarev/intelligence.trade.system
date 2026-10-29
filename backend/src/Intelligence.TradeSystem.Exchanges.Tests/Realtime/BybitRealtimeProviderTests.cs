@@ -1,3 +1,4 @@
+using Bybit.Net.Enums;
 using Bybit.Net.Objects.Models.V5;
 using CryptoExchange.Net.Objects.Sockets;
 using FluentAssertions;
@@ -6,6 +7,7 @@ using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 using Microsoft.Extensions.Logging;
+using Moq;
 using static Intelligence.TradeSystem.Exchanges.Tests.Realtime.BybitRealtimeTestData;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests.Realtime;
@@ -1411,6 +1413,50 @@ public sealed class BybitRealtimeProviderTests
 
         observer.Positions.Should().HaveCount(2).And.OnlyContain(position =>
             position.Issue == PrivatePositionObservationIssue.SettlementAssetUnconfirmed);
+        await provider.StopAsync();
+    }
+
+    [Fact]
+    public async Task Missing_instrument_refreshes_metadata_without_recreating_provider()
+    {
+        using var harness = new BybitSocketTestHarness();
+        var timeProvider = new ManualTimeProvider(
+            new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
+        var exchangeData = InstrumentMetadata.ExchangeData(("BTCUSDT", "USDT"));
+        using var resolver = InstrumentMetadata.Resolver(exchangeData, timeProvider);
+        var observer = new RecordingObserver();
+        var provider = CreateProvider(harness, resolver);
+        await provider.StartAsync(observer, CancellationToken.None);
+
+        timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        exchangeData
+            .Setup(data => data.GetLinearInverseSymbolsAsync(
+                Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
+            .Callback(() => refreshStarted.TrySetResult())
+            .ReturnsAsync(InstrumentMetadata.Page(
+                null,
+                ("BTCUSDT", "USDT"),
+                ("NEWUSDT", "USDT")));
+
+        harness.Push(PositionMessage(PositionItem(("symbol", "NEWUSDT"))));
+        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+
+        resolver.TryResolve("NEWUSDT", out var settlement).Should().BeTrue();
+        settlement.Should().Be(SettlementAsset.From("USDT"));
+
+        harness.Push(PositionMessage(PositionItem(("symbol", "NEWUSDT"))));
+
+        observer.Positions.Should().HaveCount(2);
+        observer.Positions[0].Kind.Should().Be(PrivatePositionObservationKind.Ambiguous);
+        observer.Positions[0].Issue.Should().Be(PrivatePositionObservationIssue.SettlementAssetUnconfirmed);
+        observer.Positions[1].Kind.Should().Be(PrivatePositionObservationKind.Open);
+        observer.Positions[1].SettlementAsset.Should().Be(SettlementAsset.From("USDT"));
+        exchangeData.Verify(data => data.GetLinearInverseSymbolsAsync(
+            Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+
         await provider.StopAsync();
     }
 

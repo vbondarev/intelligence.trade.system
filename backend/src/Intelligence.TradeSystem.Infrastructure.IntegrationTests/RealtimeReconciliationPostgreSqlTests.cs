@@ -849,7 +849,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         TestPrivateProvider provider,
         TimeProvider? clock = null,
         Func<IRealtimeObservationStateStore, IRealtimeObservationStateStore>? decorateStateStore = null,
-        Func<IExchangeAccountRepository, IExchangeAccountRepository>? decorateAccountRepository = null)
+        Func<IExchangeAccountRepository, IExchangeAccountRepository>? decorateAccountRepository = null,
+        IExchangeRealtimeProviderFactory? realtimeProviderFactory = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(clock ?? new FixedTimeProvider(T1.AddMinutes(1)));
@@ -878,6 +879,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         services.AddSingleton<IPrivateAccountProviderFactory>(new TestPrivateProviderFactory(provider));
         services.AddSingleton<IExchangeAccountSyncCandidateSource>(new SingleCandidateSource(account));
         services.AddApplication();
+        if (realtimeProviderFactory is not null)
+        {
+            services.AddSingleton<IExchangeRealtimeProviderFactory>(realtimeProviderFactory);
+        }
+
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -1078,20 +1084,27 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore
     {
-        private static readonly ExchangeAccountCredential Credential =
-            new(new ExchangeAccountCredentialSecret("integration-key", "integration-secret"), ConcurrencyVersion.Initial);
+        private long _version = ConcurrencyVersion.Initial.Value;
+
+        public ConcurrencyVersion Version
+        {
+            get => new(Interlocked.Read(ref _version));
+            set => Interlocked.Exchange(ref _version, value.Value);
+        }
 
         public Task<ExchangeAccountCredential?> GetAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<ExchangeAccountCredential?>(Credential);
+            Task.FromResult<ExchangeAccountCredential?>(new ExchangeAccountCredential(
+                new ExchangeAccountCredentialSecret("integration-key", "integration-secret"),
+                Version));
 
         public Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<ExchangeAccountCredentialMetadata?>(null);
+            Task.FromResult<ExchangeAccountCredentialMetadata?>(new ExchangeAccountCredentialMetadata(Version));
 
         public Task<ConcurrencyVersion> CreateAsync(
             UserId userId,

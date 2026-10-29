@@ -65,6 +65,87 @@ public sealed class BybitInstrumentSettlementResolverTests
     }
 
     [Fact]
+    public async Task Clock_rollback_does_not_extend_refresh_attempt_cooldown_indefinitely()
+    {
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
+        var exchangeData = InstrumentMetadata.ExchangeData(("BTCUSDT", "USDT"));
+        using var resolver = InstrumentMetadata.Resolver(exchangeData, timeProvider);
+        await resolver.EnsureLoadedAsync();
+
+        timeProvider.Now -= BybitInstrumentSettlementResolver.RefreshInterval;
+        timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+        await resolver.EnsureLoadedAsync();
+
+        VerifyFirstPageRequests(exchangeData, Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Rate_limit_applies_cooldown_and_keeps_the_last_confirmed_snapshot()
+    {
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
+        var exchangeData = InstrumentMetadata.ExchangeData(("BTCUSDT", "USDT"));
+        using var resolver = InstrumentMetadata.Resolver(exchangeData, timeProvider);
+        await resolver.EnsureLoadedAsync();
+        timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+        exchangeData
+            .Setup(data => data.GetLinearInverseSymbolsAsync(
+                Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Failure("10006", ErrorType.SystemError, "rate limited"));
+
+        (await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None))
+            .Should().Be(SettlementMetadataRefreshResult.Failed);
+        resolver.TryResolve("BTCUSDT", out var confirmed).Should().BeTrue();
+        confirmed.Should().Be(SettlementAsset.From("USDT"));
+
+        timeProvider.Advance(BybitInstrumentSettlementResolver.RateLimitCooldown
+            - BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+        (await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None))
+            .Should().Be(SettlementMetadataRefreshResult.Skipped);
+        VerifyFirstPageRequests(exchangeData, Times.Exactly(2));
+
+        exchangeData
+            .Setup(data => data.GetLinearInverseSymbolsAsync(
+                Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(InstrumentMetadata.Page(null, ("BTCUSDT", "USDT"), ("NEWUSDC", "USDC")));
+        timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+
+        (await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None))
+            .Should().Be(SettlementMetadataRefreshResult.Succeeded);
+        resolver.TryResolve("NEWUSDC", out var refreshed).Should().BeTrue();
+        refreshed.Should().Be(SettlementAsset.From("USDC"));
+        VerifyFirstPageRequests(exchangeData, Times.Exactly(3));
+    }
+
+    [Fact]
+    public async Task Concurrent_refresh_signals_share_one_request_and_observe_minimum_interval()
+    {
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
+        var exchangeData = InstrumentMetadata.ExchangeData(("BTCUSDT", "USDT"));
+        using var resolver = InstrumentMetadata.Resolver(exchangeData, timeProvider);
+        await resolver.EnsureLoadedAsync();
+        timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
+
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource<CryptoExchange.Net.Objects.HttpResult<BybitResponse<BybitLinearInverseSymbol>>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        exchangeData
+            .Setup(data => data.GetLinearInverseSymbolsAsync(
+                Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
+            .Callback(() => refreshStarted.TrySetResult())
+            .Returns(() => releaseRefresh.Task);
+
+        var firstRefresh = resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var concurrentRefresh = resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+
+        releaseRefresh.SetResult(InstrumentMetadata.Page(null, ("BTCUSDT", "USDT"), ("NEWUSDC", "USDC")));
+        (await firstRefresh).Should().Be(SettlementMetadataRefreshResult.Succeeded);
+        (await concurrentRefresh).Should().Be(SettlementMetadataRefreshResult.Skipped);
+        VerifyFirstPageRequests(exchangeData, Times.Exactly(2));
+        resolver.TryResolve("NEWUSDC", out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Failed_Refresh_Keeps_Previous_Metadata_And_Logs_Normalized_Failure()
     {
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
@@ -129,7 +210,7 @@ public sealed class BybitInstrumentSettlementResolverTests
         loaded.Should().BeFalse();
         exchangeData.Verify(data => data.GetLinearInverseSymbolsAsync(
             Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, It.IsAny<string?>(), It.IsAny<CancellationToken>()),
-            Times.Exactly(BybitInstrumentSettlementResolver.MaxPages));
+            Times.Exactly(2));
     }
 
     [Fact]

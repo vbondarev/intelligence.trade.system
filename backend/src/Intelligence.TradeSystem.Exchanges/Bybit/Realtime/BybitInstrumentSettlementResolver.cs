@@ -19,6 +19,8 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 public sealed partial class BybitInstrumentSettlementResolver : IDisposable
 {
     internal static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(1);
+    internal static readonly TimeSpan MinimumRefreshAttemptInterval = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan RateLimitCooldown = TimeSpan.FromMinutes(10);
     internal const int PageLimit = 1000;
     internal const int MaxPages = 20;
 
@@ -28,6 +30,8 @@ public sealed partial class BybitInstrumentSettlementResolver : IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private volatile SettlementSnapshot? _snapshot;
+    private long? _lastRefreshAttemptTimestamp;
+    private long? _rateLimitedAtTimestamp;
 
     public BybitInstrumentSettlementResolver(
         ILogger<BybitInstrumentSettlementResolver> logger,
@@ -74,26 +78,45 @@ public sealed partial class BybitInstrumentSettlementResolver : IDisposable
     /// <returns><see langword="true"/>, если доступны хотя бы ранее загруженные метаданные.</returns>
     public async Task<bool> EnsureLoadedAsync(CancellationToken cancellationToken = default)
     {
-        if (IsFresh(_snapshot))
+        await RefreshIfDueAsync(missingSymbol: false, cancellationToken).ConfigureAwait(false);
+        return _snapshot is not null;
+    }
+
+    /// <summary>
+    /// Обновляет подтверждённый снимок по TTL или по сигналу об отсутствующем инструменте.
+    /// </summary>
+    internal async Task<SettlementMetadataRefreshResult> RefreshIfDueAsync(
+        bool missingSymbol,
+        CancellationToken cancellationToken)
+    {
+        if (!IsRefreshDue(missingSymbol))
         {
-            return true;
+            return SettlementMetadataRefreshResult.Skipped;
         }
 
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (IsFresh(_snapshot))
+            if (!IsRefreshDue(missingSymbol) || IsCoolingDown())
             {
-                return true;
+                return SettlementMetadataRefreshResult.Skipped;
             }
 
-            var settlements = await LoadAsync(cancellationToken).ConfigureAwait(false);
-            if (settlements is not null)
+            _lastRefreshAttemptTimestamp = _timeProvider.GetTimestamp();
+            var result = await LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (result.Settlements is null)
             {
-                _snapshot = new SettlementSnapshot(settlements, _timeProvider.GetUtcNow());
+                if (result.FailureKind == ExchangeFailureKind.RateLimited)
+                {
+                    _rateLimitedAtTimestamp = _timeProvider.GetTimestamp();
+                }
+
+                return SettlementMetadataRefreshResult.Failed;
             }
 
-            return _snapshot is not null;
+            _snapshot = new SettlementSnapshot(result.Settlements, _timeProvider.GetUtcNow());
+            _rateLimitedAtTimestamp = null;
+            return SettlementMetadataRefreshResult.Succeeded;
         }
         finally
         {
@@ -110,13 +133,44 @@ public sealed partial class BybitInstrumentSettlementResolver : IDisposable
         }
     }
 
-    private bool IsFresh(SettlementSnapshot? snapshot) =>
-        snapshot is not null
-        && _timeProvider.GetUtcNow() - snapshot.LoadedAt < RefreshInterval;
+    private bool IsRefreshDue(bool missingSymbol) =>
+        missingSymbol || !IsFresh(_snapshot);
 
-    private async Task<Dictionary<string, SettlementAsset>?> LoadAsync(CancellationToken cancellationToken)
+    private bool IsFresh(SettlementSnapshot? snapshot)
+    {
+        if (snapshot is null)
+        {
+            return false;
+        }
+
+        var age = _timeProvider.GetUtcNow() - snapshot.LoadedAt;
+        return age >= TimeSpan.Zero && age < RefreshInterval;
+    }
+
+    private bool IsCoolingDown()
+    {
+        if (_lastRefreshAttemptTimestamp is { } lastAttemptTimestamp)
+        {
+            var elapsed = _timeProvider.GetElapsedTime(lastAttemptTimestamp);
+            if (elapsed >= TimeSpan.Zero && elapsed < MinimumRefreshAttemptInterval)
+            {
+                return true;
+            }
+        }
+
+        if (_rateLimitedAtTimestamp is not { } rateLimitedAtTimestamp)
+        {
+            return false;
+        }
+
+        var rateLimitElapsed = _timeProvider.GetElapsedTime(rateLimitedAtTimestamp);
+        return rateLimitElapsed >= TimeSpan.Zero && rateLimitElapsed < RateLimitCooldown;
+    }
+
+    private async Task<SettlementLoadResult> LoadAsync(CancellationToken cancellationToken)
     {
         var settlements = new Dictionary<string, SettlementAsset>(StringComparer.Ordinal);
+        var seenCursors = new HashSet<string>(StringComparer.Ordinal);
         string? cursor = null;
 
         for (var page = 0; page < MaxPages; page++)
@@ -131,28 +185,88 @@ public sealed partial class BybitInstrumentSettlementResolver : IDisposable
             {
                 BybitExchangeFailureMapper.ThrowIfCancellationRequested(response.Error, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                LogFailure(BybitExchangeFailureMapper.Map(response.Error));
-                return null;
+                var failure = BybitExchangeFailureMapper.Map(response.Error);
+                LogFailure(failure);
+                return SettlementLoadResult.Failed(failure.Kind);
             }
 
-            foreach (var instrument in response.Data?.List ?? [])
+            var data = response.Data;
+            if (data is null)
             {
-                if (!string.IsNullOrWhiteSpace(instrument.Name)
-                    && !string.IsNullOrWhiteSpace(instrument.SettleAsset))
-                {
-                    settlements[instrument.Name] = SettlementAsset.From(instrument.SettleAsset);
-                }
+                LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
             }
 
-            cursor = response.Data?.NextPageCursor;
+            var instruments = data.List;
+            if (instruments is not { Length: > 0 })
+            {
+                LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
+            }
+
+            foreach (var instrument in instruments)
+            {
+                if (string.IsNullOrWhiteSpace(instrument.Name)
+                    || string.IsNullOrWhiteSpace(instrument.SettleAsset))
+                {
+                    continue;
+                }
+
+                SettlementAsset settlementAsset;
+                try
+                {
+                    settlementAsset = SettlementAsset.From(instrument.SettleAsset);
+                }
+                catch (ArgumentException)
+                {
+                    LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                    return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
+                }
+
+                if (settlements.TryGetValue(instrument.Name, out var existing)
+                    && existing != settlementAsset)
+                {
+                    LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                    return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
+                }
+
+                settlements[instrument.Name] = settlementAsset;
+            }
+
+            cursor = data.NextPageCursor;
             if (string.IsNullOrEmpty(cursor))
             {
-                return settlements;
+                if (settlements.Count == 0 || ConflictsWithPublishedSnapshot(settlements))
+                {
+                    LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                    return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
+                }
+
+                return SettlementLoadResult.Succeeded(settlements);
+            }
+
+            if (!seenCursors.Add(cursor))
+            {
+                LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
+                return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
             }
         }
 
         LogFailure(new ExchangeFailure(ExchangeFailureKind.InvalidResponse, Retryable: false));
-        return null;
+        return SettlementLoadResult.Failed(ExchangeFailureKind.InvalidResponse);
+    }
+
+    private bool ConflictsWithPublishedSnapshot(
+        IReadOnlyDictionary<string, SettlementAsset> settlements)
+    {
+        if (_snapshot is not { } snapshot)
+        {
+            return false;
+        }
+
+        return settlements.Any(pair =>
+            snapshot.Settlements.TryGetValue(pair.Key, out var existing)
+            && existing != pair.Value);
     }
 
     private void LogFailure(ExchangeFailure failure) =>
@@ -175,4 +289,15 @@ public sealed partial class BybitInstrumentSettlementResolver : IDisposable
     private sealed record SettlementSnapshot(
         IReadOnlyDictionary<string, SettlementAsset> Settlements,
         DateTimeOffset LoadedAt);
+
+    private sealed record SettlementLoadResult(
+        Dictionary<string, SettlementAsset>? Settlements,
+        ExchangeFailureKind? FailureKind)
+    {
+        public static SettlementLoadResult Succeeded(Dictionary<string, SettlementAsset> settlements) =>
+            new(settlements, null);
+
+        public static SettlementLoadResult Failed(ExchangeFailureKind failureKind) =>
+            new(null, failureKind);
+    }
 }

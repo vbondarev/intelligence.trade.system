@@ -38,7 +38,7 @@ namespace Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 /// другого потока; вложенный вызов провайдера из callback не доставляется и требует REST recovery.
 /// </para>
 /// </remarks>
-internal sealed partial class BybitRealtimeProvider
+internal sealed partial class BybitRealtimeProvider : IAsyncDisposable
 {
     internal const string PositionStream = "position";
     internal const string WalletStream = "wallet";
@@ -67,6 +67,7 @@ internal sealed partial class BybitRealtimeProvider
     private readonly Lock _deliveryGate = new();
     private readonly Dictionary<PositionStreamKey, PositionRevision> _deliveredRevisions = [];
     private IExchangeRealtimeObserver? _observer;
+    private BybitSettlementMetadataRefreshLoop? _metadataRefreshLoop;
     private int _state;
     private int _activeCallbacks;
     private TaskCompletionSource? _callbacksDrained;
@@ -105,6 +106,8 @@ internal sealed partial class BybitRealtimeProvider
 
     private bool IsActive => Volatile.Read(ref _state) is Starting or Running;
 
+    public ValueTask DisposeAsync() => new(StopAsync());
+
     public async Task<RealtimeTransportState> StartAsync(
         IExchangeRealtimeObserver observer,
         CancellationToken cancellationToken)
@@ -124,6 +127,15 @@ internal sealed partial class BybitRealtimeProvider
         try
         {
             await _settlementResolver.EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_state != Starting, this);
+
+                _metadataRefreshLoop = new BybitSettlementMetadataRefreshLoop(
+                    _settlementResolver,
+                    _timeProvider,
+                    _logger);
+            }
 
             var failure = await SubscribeAsync(
                 PositionStream,
@@ -147,6 +159,7 @@ internal sealed partial class BybitRealtimeProvider
                 if (running)
                 {
                     _state = Running;
+                    _metadataRefreshLoop?.Start();
                 }
             }
 
@@ -173,6 +186,7 @@ internal sealed partial class BybitRealtimeProvider
     {
         TaskCompletionSource stopCompletion;
         var callbacksDrained = Task.CompletedTask;
+        BybitSettlementMetadataRefreshLoop? metadataRefreshLoop = null;
         bool ownsStop;
         lock (_gate)
         {
@@ -181,6 +195,8 @@ internal sealed partial class BybitRealtimeProvider
             if (ownsStop)
             {
                 _state = Stopped;
+                metadataRefreshLoop = _metadataRefreshLoop;
+                _metadataRefreshLoop = null;
                 if (_activeCallbacks > 0)
                 {
                     _callbacksDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -197,6 +213,11 @@ internal sealed partial class BybitRealtimeProvider
 
         try
         {
+            if (metadataRefreshLoop is not null)
+            {
+                await metadataRefreshLoop.DisposeAsync().ConfigureAwait(false);
+            }
+
             await callbacksDrained.ConfigureAwait(false);
 
             UpdateSubscription[] subscriptions;
@@ -536,8 +557,16 @@ internal sealed partial class BybitRealtimeProvider
         callbacksDrained?.TrySetResult();
     }
 
-    private SettlementAsset? ResolveSettlement(string symbol) =>
-        _settlementResolver.TryResolve(symbol, out var settlementAsset) ? settlementAsset : null;
+    private SettlementAsset? ResolveSettlement(string symbol)
+    {
+        if (_settlementResolver.TryResolve(symbol, out var settlementAsset))
+        {
+            return settlementAsset;
+        }
+
+        _metadataRefreshLoop?.RequestMissingSymbolRefresh();
+        return null;
+    }
 
     /// <summary>
     /// Помечает точный повтор последней доставленной ревизии позиции, не подтверждая текущую.
