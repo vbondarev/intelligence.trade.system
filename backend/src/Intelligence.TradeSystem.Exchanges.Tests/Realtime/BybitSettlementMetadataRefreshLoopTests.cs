@@ -2,6 +2,8 @@ using Bybit.Net.Enums;
 using Bybit.Net.Interfaces.Clients.V5;
 using Bybit.Net.Objects.Models.V5;
 using FluentAssertions;
+using Intelligence.TradeSystem.Application.Portfolio;
+using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -25,17 +27,13 @@ public sealed class BybitSettlementMetadataRefreshLoopTests
         await resolver.EnsureLoadedAsync();
         timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
         var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<CryptoExchange.Net.Objects.HttpResult<BybitResponse<BybitLinearInverseSymbol>>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         exchangeData
             .Setup(data => data.GetLinearInverseSymbolsAsync(
                 Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
-            .Returns(() =>
-            {
-                signal.TrySetResult();
-                return Task.FromResult(InstrumentMetadata.Page(
-                    null,
-                    ("BTCUSDT", "USDT"),
-                    ("NEWUSDC", "USDC")));
-            });
+            .Callback(() => signal.TrySetResult())
+            .Returns(() => response.Task);
 
         await using var loop = new BybitSettlementMetadataRefreshLoop(
             resolver,
@@ -48,10 +46,15 @@ public sealed class BybitSettlementMetadataRefreshLoopTests
         }
 
         await signal.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+        resolver.TryResolve("NEWUSDC", out _).Should().BeFalse();
+        response.SetResult(InstrumentMetadata.Page(
+            null,
+            ("BTCUSDT", "USDT"),
+            ("NEWUSDC", "USDC")));
 
+        await SettlementMetadataRefreshTestWait.WaitForResolutionAsync(resolver, "NEWUSDC");
         resolver.TryResolve("NEWUSDC", out var settlement).Should().BeTrue();
-        settlement.Value.Should().Be("USDC");
+        settlement.Should().Be(SettlementAsset.From("USDC"));
         exchangeData.Verify(data => data.GetLinearInverseSymbolsAsync(
             Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()),
             Times.Exactly(2));
@@ -66,17 +69,13 @@ public sealed class BybitSettlementMetadataRefreshLoopTests
         await resolver.EnsureLoadedAsync();
 
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<CryptoExchange.Net.Objects.HttpResult<BybitResponse<BybitLinearInverseSymbol>>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         exchangeData
             .Setup(data => data.GetLinearInverseSymbolsAsync(
                 Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
-            .Returns(() =>
-            {
-                refreshStarted.TrySetResult();
-                return Task.FromResult(InstrumentMetadata.Page(
-                    null,
-                    ("BTCUSDT", "USDT"),
-                    ("NEWUSDC", "USDC")));
-            });
+            .Callback(() => refreshStarted.TrySetResult())
+            .Returns(() => response.Task);
 
         await using var loop = new BybitSettlementMetadataRefreshLoop(
             resolver,
@@ -88,10 +87,15 @@ public sealed class BybitSettlementMetadataRefreshLoopTests
             + BybitSettlementMetadataRefreshLoop.MaintenanceInterval);
 
         await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+        resolver.TryResolve("NEWUSDC", out _).Should().BeFalse();
+        response.SetResult(InstrumentMetadata.Page(
+            null,
+            ("BTCUSDT", "USDT"),
+            ("NEWUSDC", "USDC")));
 
+        await SettlementMetadataRefreshTestWait.WaitForResolutionAsync(resolver, "NEWUSDC");
         resolver.TryResolve("NEWUSDC", out var settlement).Should().BeTrue();
-        settlement.Value.Should().Be("USDC");
+        settlement.Should().Be(SettlementAsset.From("USDC"));
         exchangeData.Verify(data => data.GetLinearInverseSymbolsAsync(
             Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()),
             Times.Exactly(2));

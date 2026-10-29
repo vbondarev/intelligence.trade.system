@@ -236,15 +236,16 @@ public sealed class ExchangeRealtimeObservationSupervisor(
         {
             var currentState = await ReadObservationStateAsync(key, cancellationToken)
                 .ConfigureAwait(false);
-            if (currentState is not null
-                && currentState.Value.Generation == active.Generation
-                && (currentState.Value.TransportStatus != RealtimeObservationTransportStatus.Connected
-                    || currentState.Value.IsTransportOperational(
-                        timeProvider.GetUtcNow(),
-                        settings.HeartbeatStaleAfter)))
+            if (currentState is not null && currentState.Value.Generation == active.Generation)
             {
-                retries.Remove(key);
-                return;
+                var now = timeProvider.GetUtcNow();
+                if (currentState.Value.IsTransportOperational(now, settings.HeartbeatStaleAfter)
+                    || active.HasPendingTransportState
+                    || active.IsSdkReconnectInProgress(now, settings.HeartbeatStaleAfter))
+                {
+                    retries.Remove(key);
+                    return;
+                }
             }
         }
 
@@ -363,11 +364,7 @@ public sealed class ExchangeRealtimeObservationSupervisor(
 
             if (transportState.Status != RealtimeTransportStatus.Subscribed)
             {
-                await PersistTransportStateAsync(
-                        session,
-                        transportState,
-                        recoveryRequestCount: 0,
-                        cancellationToken)
+                await PersistInitialTransportStateAsync(session, transportState, cancellationToken)
                     .ConfigureAwait(false);
                 session.BeginStopping();
                 if (await DisposeProviderAsync(session).ConfigureAwait(false))
@@ -379,12 +376,18 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 return;
             }
 
-            await PersistTransportStateAsync(
-                    session,
-                    transportState,
-                    recoveryRequestCount: 0,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (!await PersistInitialTransportStateAsync(session, transportState, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                session.BeginStopping();
+                if (await DisposeProviderAsync(session).ConfigureAwait(false))
+                {
+                    activeAccounts.TryRemove(key, out _);
+                }
+
+                return;
+            }
+
             ExchangeRealtimeObservationTelemetry.RecordProviderStarted();
             ExchangeRealtimeObservationLogMessages.LogProviderStarted(
                 logger,
@@ -473,6 +476,35 @@ public sealed class ExchangeRealtimeObservationSupervisor(
         }
     }
 
+    private async Task<bool> PersistInitialTransportStateAsync(
+        ActiveAccount session,
+        RealtimeTransportState transportState,
+        CancellationToken cancellationToken)
+    {
+        var pending = session.GetPendingTransportState();
+        var stateToPersist = pending?.State ?? transportState;
+        var recoveryRequestCount = pending?.RecoveryRequestCount ?? 0;
+        var saved = await PersistTransportStateAsync(
+                session,
+                stateToPersist,
+                recoveryRequestCount,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (saved)
+        {
+            if (pending is null)
+            {
+                session.MarkTransportStatePersisted(stateToPersist);
+            }
+            else
+            {
+                session.AcknowledgeTransportState(pending);
+            }
+        }
+
+        return saved;
+    }
+
     private async Task<IExchangeRealtimeProvider?> CreateProviderAsync(
         AccountKey key,
         ExchangeAccount account,
@@ -497,23 +529,27 @@ public sealed class ExchangeRealtimeObservationSupervisor(
         CancellationToken cancellationToken)
     {
         var recoverySyncAttempted = false;
-        var (transportState, recoveryRequestCount) = session.TakeTransportState();
-        if (transportState is not null)
+        var pending = session.GetPendingTransportState();
+        if (pending is not null)
         {
             var saved = await PersistTransportStateAsync(
                     session,
-                    transportState,
-                    recoveryRequestCount,
+                    pending.State,
+                    pending.RecoveryRequestCount,
                     cancellationToken)
                 .ConfigureAwait(false);
-            if (saved && (transportState.RecoveryRequired || recoveryRequestCount > 0))
+            if (saved)
             {
-                ExchangeRealtimeObservationTelemetry.RecordRecoveryRequested(
-                    Math.Max(1, recoveryRequestCount));
-                await coordinator
-                    .SynchronizeAsync(session.Key.UserId, session.Key.ExchangeAccountId, cancellationToken)
-                    .ConfigureAwait(false);
-                recoverySyncAttempted = true;
+                session.AcknowledgeTransportState(pending);
+                if (pending.State.RecoveryRequired || pending.RecoveryRequestCount > 0)
+                {
+                    ExchangeRealtimeObservationTelemetry.RecordRecoveryRequested(
+                        Math.Max(1, pending.RecoveryRequestCount));
+                    await coordinator
+                        .SynchronizeAsync(session.Key.UserId, session.Key.ExchangeAccountId, cancellationToken)
+                        .ConfigureAwait(false);
+                    recoverySyncAttempted = true;
+                }
             }
         }
 
@@ -549,7 +585,6 @@ public sealed class ExchangeRealtimeObservationSupervisor(
     {
         var connected = transportState.Status is RealtimeTransportStatus.Subscribed
             or RealtimeTransportStatus.Restored;
-        session.SetTransportConnected(connected);
         var now = timeProvider.GetUtcNow();
         var saved = await UpdateCurrentStateAsync(
                 session.Key,
@@ -996,8 +1031,9 @@ public sealed class ExchangeRealtimeObservationSupervisor(
     {
         private readonly ExchangeRealtimeObservationSupervisor _owner;
         private readonly ExchangeAccountObservationCoordinator _coordinator;
-        private RealtimeTransportState? _latestTransportState;
-        private long _recoveryRequestCount;
+        private TransportStateSignal? _latestTransportSignal;
+        private long _persistedTransportStateVersion;
+        private long _persistedRecoveryRequestCount;
         private long _workVersion;
         private int _scheduled;
         private int _ready;
@@ -1033,6 +1069,20 @@ public sealed class ExchangeRealtimeObservationSupervisor(
         public long FencedGeneration => Interlocked.Read(ref _fencedGeneration);
         public bool IsReady => Volatile.Read(ref _ready) != 0;
         public bool IsTransportConnected => Volatile.Read(ref _transportConnected) != 0;
+        public bool HasPendingTransportState => GetPendingTransportState() is not null;
+
+        public bool IsSdkReconnectInProgress(DateTimeOffset now, TimeSpan staleAfter)
+        {
+            var latest = Volatile.Read(ref _latestTransportSignal);
+            if (latest is null || latest.State.Status != RealtimeTransportStatus.ConnectionLost)
+            {
+                return false;
+            }
+
+            var age = now - latest.ReceivedAt;
+            return age >= TimeSpan.Zero && age < staleAfter;
+        }
+
         public void OnPosition(PrivatePositionObservation observation)
         {
             if (IsStopping)
@@ -1072,14 +1122,24 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 return;
             }
 
-            if (state.RecoveryRequired)
+            var receivedAt = _owner.GetUtcNow();
+            while (true)
             {
-                Interlocked.Increment(ref _recoveryRequestCount);
+                var current = Volatile.Read(ref _latestTransportSignal);
+                var next = new TransportStateSignal(
+                    state,
+                    checked((current?.Version ?? 0) + 1),
+                    checked((current?.RecoveryRequestCount ?? 0) + (state.RecoveryRequired ? 1 : 0)),
+                    receivedAt);
+                if (ReferenceEquals(
+                    Interlocked.CompareExchange(ref _latestTransportSignal, next, current),
+                    current))
+                {
+                    break;
+                }
             }
 
-            Interlocked.Exchange(ref _latestTransportState, state);
-            SetTransportConnected(
-                state.Status is RealtimeTransportStatus.Subscribed or RealtimeTransportStatus.Restored);
+            SetTransportConnected(connected: false);
             RequestWork();
         }
 
@@ -1135,18 +1195,89 @@ public sealed class ExchangeRealtimeObservationSupervisor(
             }
         }
 
-        public (RealtimeTransportState? State, long RecoveryRequestCount) TakeTransportState()
+        public PendingTransportState? GetPendingTransportState()
         {
-            var recoveryRequestCount = Interlocked.Exchange(ref _recoveryRequestCount, 0);
-            var state = Interlocked.Exchange(ref _latestTransportState, null);
-            if (state is null && recoveryRequestCount > 0)
+            var latest = Volatile.Read(ref _latestTransportSignal);
+            if (latest is null)
             {
-                state = new RealtimeTransportState(
-                    RealtimeTransportStatus.MessageRejected,
-                    _owner.GetUtcNow());
+                return null;
             }
 
-            return (state, recoveryRequestCount);
+            var persistedVersion = Interlocked.Read(ref _persistedTransportStateVersion);
+            var persistedRecoveryRequestCount = Interlocked.Read(ref _persistedRecoveryRequestCount);
+            var recoveryRequestCount = Math.Max(
+                0,
+                latest.RecoveryRequestCount - persistedRecoveryRequestCount);
+            if (latest.Version <= persistedVersion && recoveryRequestCount == 0)
+            {
+                return null;
+            }
+
+            var state = latest.Version > persistedVersion
+                ? latest.State
+                : new RealtimeTransportState(RealtimeTransportStatus.MessageRejected, latest.ReceivedAt);
+            return new PendingTransportState(
+                state,
+                recoveryRequestCount,
+                latest.Version,
+                latest.RecoveryRequestCount);
+        }
+
+        public void AcknowledgeTransportState(PendingTransportState pending)
+        {
+            Interlocked.Exchange(ref _persistedTransportStateVersion, pending.Version);
+            Interlocked.Exchange(
+                ref _persistedRecoveryRequestCount,
+                pending.TotalRecoveryRequestCount);
+
+            var latest = Volatile.Read(ref _latestTransportSignal);
+            if (latest?.Version == pending.Version
+                && pending.State.Status is RealtimeTransportStatus.Subscribed or RealtimeTransportStatus.Restored)
+            {
+                SetTransportConnected(connected: true);
+                latest = Volatile.Read(ref _latestTransportSignal);
+                if (latest?.Version != pending.Version)
+                {
+                    SetTransportConnected(connected: false);
+                }
+            }
+        }
+
+        public void MarkTransportStatePersisted(RealtimeTransportState state)
+        {
+            if (state.Status is not (RealtimeTransportStatus.Subscribed or RealtimeTransportStatus.Restored))
+            {
+                return;
+            }
+
+            var latest = Volatile.Read(ref _latestTransportSignal);
+            if (latest is not null
+                && (latest.Version > Interlocked.Read(ref _persistedTransportStateVersion)
+                    || latest.RecoveryRequestCount > Interlocked.Read(ref _persistedRecoveryRequestCount)))
+            {
+                return;
+            }
+
+            SetTransportConnected(connected: true);
+            latest = Volatile.Read(ref _latestTransportSignal);
+            if (latest is not null
+                && (latest.Version > Interlocked.Read(ref _persistedTransportStateVersion)
+                    || latest.RecoveryRequestCount > Interlocked.Read(ref _persistedRecoveryRequestCount)))
+            {
+                SetTransportConnected(connected: false);
+            }
         }
     }
+
+    private sealed record TransportStateSignal(
+        RealtimeTransportState State,
+        long Version,
+        long RecoveryRequestCount,
+        DateTimeOffset ReceivedAt);
+
+    private sealed record PendingTransportState(
+        RealtimeTransportState State,
+        long RecoveryRequestCount,
+        long Version,
+        long TotalRecoveryRequestCount);
 }

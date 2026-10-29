@@ -279,6 +279,20 @@ internal sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
     }
 }
 
+internal static class SettlementMetadataRefreshTestWait
+{
+    public static async Task WaitForResolutionAsync(
+        BybitInstrumentSettlementResolver resolver,
+        string symbol)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!resolver.TryResolve(symbol, out _))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+        }
+    }
+}
+
 internal sealed record CapturedLog(
     LogLevel LogLevel,
     EventId EventId,

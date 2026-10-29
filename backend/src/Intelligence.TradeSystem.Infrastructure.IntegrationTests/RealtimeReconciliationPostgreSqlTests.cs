@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
@@ -1039,12 +1040,45 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
 
     private sealed class SingleCandidateSource(ExchangeAccount account) : IExchangeAccountSyncCandidateSource
     {
+        private readonly Channel<int> discoveryPasses = Channel.CreateBounded<int>(
+            new BoundedChannelOptions(1)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = true,
+            });
+        private int discoveryPassCount;
+
+        public int DiscoveryPassCount => Volatile.Read(ref discoveryPassCount);
+
+        public async Task WaitForDiscoveryCountAsync(int count)
+        {
+            using var timeout = new CancellationTokenSource(CompletionTimeout);
+            while (DiscoveryPassCount < count)
+            {
+                await discoveryPasses.Reader.ReadAsync(timeout.Token);
+            }
+        }
+
         public Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsync(
             ExchangeAccountId? after,
             int limit,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>(
-                after is null ? [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)] : []);
+            GetBatchAsyncCore(after);
+
+        private Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsyncCore(
+            ExchangeAccountId? after)
+        {
+            if (after is not null)
+            {
+                return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>([]);
+            }
+
+            var count = Interlocked.Increment(ref discoveryPassCount);
+            discoveryPasses.Writer.TryWrite(count);
+            return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>(
+                [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)]);
+        }
     }
 
     /// <summary>
@@ -1158,8 +1192,10 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private sealed class TestPrivateProvider(Barrier? positionsBarrier = null) : IPrivateAccountProvider
     {
         private readonly List<OpenPosition> positions = [];
+        private int fullPositionRequestCount;
 
         public DateTimeOffset ObservedAt { get; set; } = T1;
+        public int FullPositionRequestCount => Volatile.Read(ref fullPositionRequestCount);
 
         /// <summary>
         /// Момент REST-снимка позиций независимо от часов backend и <see cref="ObservedAt"/> баланса.
@@ -1219,6 +1255,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             CancellationToken cancellationToken = default)
         {
             PositionRequests.Add(symbol);
+            if (symbol is null)
+            {
+                Interlocked.Increment(ref fullPositionRequestCount);
+            }
+
             // Как BybitPrivateAccountProvider: ObservedAt — начало чтения, до HTTP и mid-request callbacks.
             var observedAt = PositionsObservedAt ?? Clock?.GetUtcNow() ?? ObservedAt;
             positionsBarrier?.SignalAndWait(CompletionTimeout, cancellationToken);

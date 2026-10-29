@@ -1430,19 +1430,23 @@ public sealed class BybitRealtimeProviderTests
 
         timeProvider.Advance(BybitInstrumentSettlementResolver.MinimumRefreshAttemptInterval);
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<CryptoExchange.Net.Objects.HttpResult<BybitResponse<BybitLinearInverseSymbol>>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         exchangeData
             .Setup(data => data.GetLinearInverseSymbolsAsync(
                 Category.Linear, null, null, null, null, BybitInstrumentSettlementResolver.PageLimit, null, It.IsAny<CancellationToken>()))
             .Callback(() => refreshStarted.TrySetResult())
-            .ReturnsAsync(InstrumentMetadata.Page(
-                null,
-                ("BTCUSDT", "USDT"),
-                ("NEWUSDT", "USDT")));
+            .Returns(() => response.Task);
 
         harness.Push(PositionMessage(PositionItem(("symbol", "NEWUSDT"))));
         await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await resolver.RefreshIfDueAsync(missingSymbol: true, CancellationToken.None);
+        resolver.TryResolve("NEWUSDT", out _).Should().BeFalse();
+        response.SetResult(InstrumentMetadata.Page(
+            null,
+            ("BTCUSDT", "USDT"),
+            ("NEWUSDT", "USDT")));
 
+        await SettlementMetadataRefreshTestWait.WaitForResolutionAsync(resolver, "NEWUSDT");
         resolver.TryResolve("NEWUSDT", out var settlement).Should().BeTrue();
         settlement.Should().Be(SettlementAsset.From("USDT"));
 
