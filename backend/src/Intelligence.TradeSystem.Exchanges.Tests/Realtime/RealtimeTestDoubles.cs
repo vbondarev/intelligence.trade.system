@@ -130,9 +130,169 @@ internal sealed class BlockingCallback
 
 internal sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
 {
-    public DateTimeOffset Now { get; set; } = now;
+    private readonly object _sync = new();
+    private readonly List<ManualTimer> _timers = [];
+    private DateTimeOffset _now = now;
+    private long _timestamp = now.UtcDateTime.Ticks;
+
+    public DateTimeOffset Now
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _now;
+            }
+        }
+        set
+        {
+            lock (_sync)
+            {
+                var elapsed = value - _now;
+                _now = value;
+                if (elapsed > TimeSpan.Zero)
+                {
+                    _timestamp += elapsed.Ticks;
+                }
+            }
+        }
+    }
 
     public override DateTimeOffset GetUtcNow() => Now;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override long GetTimestamp()
+    {
+        lock (_sync)
+        {
+            return _timestamp;
+        }
+    }
+
+    public override ITimer CreateTimer(
+        TimerCallback callback,
+        object? state,
+        TimeSpan dueTime,
+        TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state, dueTime, period);
+        lock (_sync)
+        {
+            _timers.Add(timer);
+        }
+
+        return timer;
+    }
+
+    public void Advance(TimeSpan elapsed)
+    {
+        ManualTimer[] timers;
+        lock (_sync)
+        {
+            _now += elapsed;
+            if (elapsed > TimeSpan.Zero)
+            {
+                _timestamp += elapsed.Ticks;
+            }
+
+            timers = [.. _timers];
+        }
+
+        foreach (var timer in timers)
+        {
+            timer.FireIfDue(Now);
+        }
+    }
+
+    private sealed class ManualTimer : ITimer
+    {
+        private readonly ManualTimeProvider _owner;
+        private readonly TimerCallback _callback;
+        private readonly object? _state;
+        private readonly object _sync = new();
+        private DateTimeOffset? _dueAt;
+        private TimeSpan _period;
+        private bool _disposed;
+
+        public ManualTimer(
+            ManualTimeProvider owner,
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            _owner = owner;
+            _callback = callback;
+            _state = state;
+            Change(dueTime, period);
+        }
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            lock (_sync)
+            {
+                if (_disposed)
+                {
+                    return false;
+                }
+
+                _dueAt = dueTime == Timeout.InfiniteTimeSpan
+                    ? null
+                    : _owner.GetUtcNow() + dueTime;
+                _period = period;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_sync)
+            {
+                _disposed = true;
+                _dueAt = null;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+
+        public void FireIfDue(DateTimeOffset now)
+        {
+            lock (_sync)
+            {
+                if (_disposed || _dueAt is not { } dueAt || dueAt > now)
+                {
+                    return;
+                }
+
+                _dueAt = _period == Timeout.InfiniteTimeSpan
+                    ? null
+                    : now + _period;
+            }
+
+            _callback(_state);
+        }
+    }
+}
+
+internal static class SettlementMetadataRefreshTestWait
+{
+    public static async Task WaitForResolutionAsync(
+        BybitInstrumentSettlementResolver resolver,
+        string symbol)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await resolver.RefreshIfDueAsync(missingSymbol: true, timeout.Token)
+            .WaitAsync(timeout.Token);
+        if (!resolver.TryResolve(symbol, out _))
+        {
+            throw new TimeoutException($"Обновление не опубликовало подтверждённые метаданные {symbol}.");
+        }
+    }
 }
 
 internal sealed record CapturedLog(

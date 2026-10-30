@@ -204,6 +204,11 @@ internal static partial class BybitRealtimeObservationMapper
 
         if (position.Quantity == 0m)
         {
+            if (settlementAsset is null)
+            {
+                return Classify(observation, PrivatePositionObservationKind.Ambiguous, PrivatePositionObservationIssue.SettlementAssetUnconfirmed);
+            }
+
             return observation with { Kind = PrivatePositionObservationKind.PotentialClose };
         }
 

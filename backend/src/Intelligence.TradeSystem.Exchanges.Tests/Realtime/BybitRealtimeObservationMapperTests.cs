@@ -110,14 +110,15 @@ public sealed class BybitRealtimeObservationMapperTests
     }
 
     [Fact]
-    public async Task MapPositions_Potential_Close_Does_Not_Require_Confirmed_Settlement()
+    public async Task MapPositions_Zero_Size_Without_Confirmed_Settlement_Is_Ambiguous()
     {
         var update = await CapturePositionsAsync(PositionMessage(
             PositionItem(("size", "0"), ("side", ""), ("symbol", "NEWUSDT"))));
 
         var observation = MapSingle(update);
 
-        observation.Kind.Should().Be(PrivatePositionObservationKind.PotentialClose);
+        observation.Kind.Should().Be(PrivatePositionObservationKind.Ambiguous);
+        observation.Issue.Should().Be(PrivatePositionObservationIssue.SettlementAssetUnconfirmed);
         observation.SettlementAsset.Should().BeNull();
     }
 
