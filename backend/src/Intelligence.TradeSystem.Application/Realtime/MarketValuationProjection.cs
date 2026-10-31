@@ -1,6 +1,7 @@
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.MarketIntelligence.Valuation;
 
 namespace Intelligence.TradeSystem.Application.Realtime;
 
@@ -52,19 +53,8 @@ public static class MarketValuationProjection
 
         var age = calculatedAt - marketPrice.ObservedAt;
         var isFresh = age >= TimeSpan.Zero && age < MarkPriceFreshnessAfter;
-        decimal? indicativePositionValue = null;
-        if (size > 0m)
-        {
-            try
-            {
-                // В Bybit Linear размер позиции выражен в базовом активе, поэтому произведение даёт номинал в settle asset.
-                indicativePositionValue = size * marketPrice.MarkPrice;
-            }
-            catch (OverflowException)
-            {
-                // Не публикуем производное значение, которое невозможно представить как decimal.
-            }
-        }
+        var indicativePositionValue =
+            LinearPositionIndicativeValueCalculator.Calculate(size, marketPrice.MarkPrice);
 
         var freshnessStatus = !isFresh
             ? MarketValuationFreshnessStatus.Stale
