@@ -5,6 +5,7 @@ using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using DomainPositionSide = Intelligence.TradeSystem.Domain.Snapshots.PositionSide;
@@ -213,7 +214,11 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<PositionReadService>();
-                services.AddSingleton(new PositionReadService(positionStore));
+                services.AddSingleton(new PositionReadService(
+                    positionStore,
+                    new MarketMarkPriceService(
+                        Mock.Of<IMarketMarkPriceStore>(),
+                        TimeProvider.System)));
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName,

@@ -59,6 +59,7 @@ public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationF
         serviceProvider.GetRequiredService<IRealtimeObservationStateStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionObservationCursorStore>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IMarketMarkPriceStore>().Should().NotBeNull();
+        serviceProvider.GetRequiredService<IMarketMarkPriceSubscriptionProvider>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IPositionAssessmentRepository>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IRecommendationRepository>().Should().NotBeNull();
         serviceProvider.GetRequiredService<IRecommendationPublicationTransaction>().Should().NotBeNull();

@@ -1,3 +1,4 @@
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Snapshots;
@@ -67,7 +68,12 @@ public sealed record PositionReadListItem(
     decimal? LiquidationPrice,
     DateTimeOffset FirstDetectedAt,
     DateTimeOffset LastObservedAt,
-    DateTimeOffset? ClosedAt);
+    DateTimeOffset? ClosedAt)
+{
+    public ExchangeId ExchangeId { get; init; }
+    public MarketCategory MarketCategory { get; init; }
+    public MarketValuation? MarketValuation { get; init; }
+}
 
 public sealed record PositionReadDetail(
     PositionReadListItem ListItem,

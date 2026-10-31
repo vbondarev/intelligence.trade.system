@@ -18,6 +18,7 @@ public static class StartupExtensions
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddScoped<IPublicMarketDataCollector, PublicMarketDataCollector>();
+        services.AddScoped<MarketMarkPriceService>();
         services.AddScoped<MarketSnapshotService>();
         services.AddScoped<IPublicMarketSnapshotBuilder>(
             serviceProvider => serviceProvider.GetRequiredService<MarketSnapshotService>());
