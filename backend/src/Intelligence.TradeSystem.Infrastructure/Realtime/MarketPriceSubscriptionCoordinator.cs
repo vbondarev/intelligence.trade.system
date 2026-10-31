@@ -193,7 +193,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
                 continue;
             }
 
-            if (state.Lease is not null && state.DisposeTask is null && !state.DisposeFailed)
+            if (state.Lease is not null && state.DisposeTask is null && !state.DisposeUnconfirmed)
             {
                 StartLeaseDisposal(state);
             }
@@ -272,7 +272,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
 
     private void StartLeaseDisposal(SubscriptionState state)
     {
-        if (state.Lease is not { } lease || state.DisposeTask is not null || state.DisposeFailed)
+        if (state.Lease is not { } lease || state.DisposeTask is not null || state.DisposeUnconfirmed)
         {
             return;
         }
@@ -283,7 +283,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
-            state.DisposeFailed = true;
+            state.DisposeUnconfirmed = true;
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
         }
     }
@@ -301,7 +301,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
-            state.DisposeFailed = true;
+            state.DisposeUnconfirmed = true;
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
         }
     }
@@ -486,18 +486,23 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
             {
                 state.SubscribeTask = null;
                 _lateCleanupTasks.Add(DisposeLateSubscriptionAsync(state, subscribeTask));
-            }
-            else if (state.DisposeTask is { } disposeTask)
-            {
-                state.DisposeTask = null;
-                _lateCleanupTasks.Add(ObserveLateDisposalAsync(state, disposeTask));
-            }
-            else
-            {
-                DisposeCancellation(state);
+                continue;
             }
 
-            RemoveSubscriptionState(state);
+            if (state.DisposeTask is { } disposeTask)
+            {
+                state.DisposeTask = null;
+                state.DisposeUnconfirmed = true;
+                LogSubscriptionDisposePendingAtShutdown(logger);
+                _lateCleanupTasks.Add(ObserveLateDisposalAsync(state, disposeTask));
+                continue;
+            }
+
+            if (!state.DisposeUnconfirmed)
+            {
+                DisposeCancellation(state);
+                RemoveSubscriptionState(state);
+            }
         }
     }
 
@@ -520,21 +525,25 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         {
             LogSubscriptionFailed(logger, exception.GetType().Name);
             DisposeCancellation(state);
+            RemoveSubscriptionState(state);
             return;
         }
 
+        state.Lease = lease;
         try
         {
             await lease.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
+            state.DisposeUnconfirmed = true;
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
+            return;
         }
-        finally
-        {
-            DisposeCancellation(state);
-        }
+
+        state.Lease = null;
+        DisposeCancellation(state);
+        RemoveSubscriptionState(state);
     }
 
     private async Task ObserveLateDisposalAsync(SubscriptionState state, Task disposeTask)
@@ -542,14 +551,16 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         try
         {
             await disposeTask.ConfigureAwait(false);
+            state.DisposeTask = null;
+            state.Lease = null;
+            state.DisposeUnconfirmed = false;
+            DisposeCancellation(state);
+            RemoveSubscriptionState(state);
         }
         catch (Exception exception)
         {
+            state.DisposeUnconfirmed = true;
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
-        }
-        finally
-        {
-            DisposeCancellation(state);
         }
     }
 
@@ -586,7 +597,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         public Task<IAsyncDisposable>? SubscribeTask { get; set; }
         public IAsyncDisposable? Lease { get; set; }
         public Task? DisposeTask { get; set; }
-        public bool DisposeFailed { get; set; }
+        public bool DisposeUnconfirmed { get; set; }
         public long StartTimestamp { get; set; }
         public DateTimeOffset? LastPersistedObservedAt { get; set; }
         public long? LastPersistAttemptTimestamp { get; set; }
@@ -616,11 +627,17 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
 
     [LoggerMessage(
         EventId = 1223,
-        Level = LogLevel.Warning,
-        Message = "Не удалось закрыть публичную рыночную подписку. ExceptionType={ExceptionType}")]
+        Level = LogLevel.Error,
+        Message = "Закрытие публичной рыночной подписки не подтверждено; повторное закрытие и новая подписка инструмента заблокированы до завершения процесса. ExceptionType={ExceptionType}")]
     private static partial void LogSubscriptionDisposeFailed(
         ILogger logger,
         string exceptionType);
+
+    [LoggerMessage(
+        EventId = 1226,
+        Level = LogLevel.Error,
+        Message = "Закрытие публичной рыночной подписки не завершилось за ограниченное время остановки; lease сохранён до завершения процесса.")]
+    private static partial void LogSubscriptionDisposePendingAtShutdown(ILogger logger);
 
     [LoggerMessage(
         EventId = 1224,

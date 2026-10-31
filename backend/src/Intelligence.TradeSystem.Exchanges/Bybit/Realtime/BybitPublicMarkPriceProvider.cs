@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Bybit.Net.Interfaces.Clients;
 using Bybit.Net.Objects.Models.V5;
 using CryptoExchange.Net.Objects.Sockets;
@@ -66,10 +67,11 @@ public sealed partial class BybitPublicMarkPriceProvider : IMarketMarkPriceSubsc
             throw new InvalidOperationException("Bybit public mark-price subscription failed.");
         }
 
-        result.Data.ConnectionLost += onFailure;
-        result.Data.ConnectionClosed += onFailure;
-        result.Data.ResubscribingFailed += _ => onFailure();
-        return new SubscriptionLease(result.Data);
+        var subscription = result.Data;
+        subscription.ConnectionLost += onFailure;
+        subscription.ConnectionClosed += onFailure;
+        subscription.ResubscribingFailed += _ => onFailure();
+        return new BybitPublicMarkPriceSubscriptionLease(subscription.CloseAsync);
     }
 
     public ValueTask DisposeAsync()
@@ -104,22 +106,61 @@ public sealed partial class BybitPublicMarkPriceProvider : IMarketMarkPriceSubsc
         }
     }
 
-    private sealed class SubscriptionLease(UpdateSubscription subscription) : IAsyncDisposable
-    {
-        private UpdateSubscription? _subscription = subscription;
-
-        public async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _subscription, null) is { } activeSubscription)
-            {
-                await activeSubscription.CloseAsync().ConfigureAwait(false);
-            }
-        }
-    }
-
     [LoggerMessage(
         EventId = 1020,
         Level = LogLevel.Warning,
         Message = "Обработчик публичного mark price Bybit отклонил сообщение. ExceptionType={ExceptionType}")]
     private static partial void LogMessageRejected(ILogger logger, string exceptionType);
+}
+
+internal sealed class BybitPublicMarkPriceSubscriptionLease(Func<Task> closeAsync) : IAsyncDisposable
+{
+    private readonly Func<Task> _closeAsync = closeAsync
+        ?? throw new ArgumentNullException(nameof(closeAsync));
+    private readonly SemaphoreSlim _disposeSemaphore = new(1, 1);
+    private ExceptionDispatchInfo? _closeFailure;
+    private CloseState _state;
+
+    public async ValueTask DisposeAsync()
+    {
+        await _disposeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_state == CloseState.Closed)
+            {
+                return;
+            }
+
+            if (_state == CloseState.Unconfirmed)
+            {
+                _closeFailure!.Throw();
+                return;
+            }
+
+            _state = CloseState.Closing;
+            try
+            {
+                await _closeAsync().ConfigureAwait(false);
+                _state = CloseState.Closed;
+            }
+            catch (Exception exception)
+            {
+                _closeFailure = ExceptionDispatchInfo.Capture(exception);
+                _state = CloseState.Unconfirmed;
+                throw;
+            }
+        }
+        finally
+        {
+            _disposeSemaphore.Release();
+        }
+    }
+
+    private enum CloseState
+    {
+        NotRequested,
+        Closing,
+        Closed,
+        Unconfirmed,
+    }
 }

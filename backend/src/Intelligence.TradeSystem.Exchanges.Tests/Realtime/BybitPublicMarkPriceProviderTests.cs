@@ -9,6 +9,113 @@ namespace Intelligence.TradeSystem.Exchanges.Tests.Realtime;
 public sealed class BybitPublicMarkPriceProviderTests
 {
     [Fact]
+    public async Task Does_not_retry_an_unconfirmed_close_or_report_it_as_successful()
+    {
+        var closeCalls = 0;
+        var exception = new InvalidOperationException("close failed");
+        var lease = new BybitPublicMarkPriceSubscriptionLease(() =>
+        {
+            closeCalls++;
+            throw exception;
+        });
+
+        var firstAttempt = () => lease.DisposeAsync().AsTask();
+        await firstAttempt.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("close failed");
+
+        var secondAttempt = () => lease.DisposeAsync().AsTask();
+        await secondAttempt.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("close failed");
+
+        closeCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Serializes_concurrent_close_calls_and_treats_success_as_idempotent()
+    {
+        var closeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closeCalls = 0;
+        var activeCloseCalls = 0;
+        var maximumConcurrentCloseCalls = 0;
+        var lease = new BybitPublicMarkPriceSubscriptionLease(async () =>
+        {
+            Interlocked.Increment(ref closeCalls);
+            var concurrentCalls = Interlocked.Increment(ref activeCloseCalls);
+            UpdateMaximum(ref maximumConcurrentCloseCalls, concurrentCalls);
+            closeStarted.TrySetResult();
+            try
+            {
+                await releaseClose.Task.ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeCloseCalls);
+            }
+        });
+
+        var firstDispose = lease.DisposeAsync().AsTask();
+        await closeStarted.Task;
+        var secondDispose = lease.DisposeAsync().AsTask();
+
+        closeCalls.Should().Be(1);
+        secondDispose.IsCompleted.Should().BeFalse();
+
+        releaseClose.TrySetResult();
+        await Task.WhenAll(firstDispose, secondDispose);
+        await lease.DisposeAsync();
+
+        closeCalls.Should().Be(1);
+        maximumConcurrentCloseCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Keeps_an_asynchronously_failed_close_unconfirmed_without_retrying()
+    {
+        var closeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failClose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closeCalls = 0;
+        var exception = new InvalidOperationException("asynchronous close failed");
+        var lease = new BybitPublicMarkPriceSubscriptionLease(async () =>
+        {
+            Interlocked.Increment(ref closeCalls);
+            closeStarted.TrySetResult();
+            await failClose.Task.ConfigureAwait(false);
+            throw exception;
+        });
+
+        var firstDispose = lease.DisposeAsync().AsTask();
+        await closeStarted.Task;
+        firstDispose.IsCompleted.Should().BeFalse();
+        failClose.TrySetResult();
+
+        var firstAttempt = () => firstDispose;
+        await firstAttempt.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("asynchronous close failed");
+
+        var secondAttempt = () => lease.DisposeAsync().AsTask();
+        await secondAttempt.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("asynchronous close failed");
+
+        closeCalls.Should().Be(1);
+    }
+
+    private static void UpdateMaximum(ref int maximum, int value)
+    {
+        var current = Volatile.Read(ref maximum);
+        while (value > current)
+        {
+            var observed = Interlocked.CompareExchange(ref maximum, value, current);
+            if (observed == current)
+            {
+                return;
+            }
+
+            current = observed;
+        }
+    }
+
+    [Fact]
     public async Task Subscribes_to_the_public_linear_ticker_and_normalizes_updates()
     {
         using var harness = new BybitSocketTestHarness(authenticated: false);

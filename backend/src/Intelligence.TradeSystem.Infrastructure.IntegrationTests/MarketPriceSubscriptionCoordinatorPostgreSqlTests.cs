@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
@@ -351,6 +352,7 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             await Task.Delay(TimeSpan.FromMilliseconds(5_300));
 
             Assert.Equal(1, provider.SubscribeCountFor(symbol));
+            Assert.Equal(1, oldLease.DisposeCallCount);
             Assert.Equal(1, provider.ActiveLeaseCountFor(symbol));
 
             releaseDisposal.TrySetResult();
@@ -367,6 +369,128 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         finally
         {
             await coordinator.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Unconfirmed_lease_closure_blocks_resubscription_and_isolates_other_symbols()
+    {
+        var asyncFailureSymbol = $"A{Guid.NewGuid():N}".ToUpperInvariant();
+        var syncFailureSymbol = $"B{Guid.NewGuid():N}".ToUpperInvariant();
+        var healthySymbol = $"C{Guid.NewGuid():N}".ToUpperInvariant();
+        await CreatePositionAsync(asyncFailureSymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+        await CreatePositionAsync(syncFailureSymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+        await CreatePositionAsync(healthySymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+
+        var store = new RecordingMarketMarkPriceStore();
+        var provider = new ControlledMarketMarkPriceSubscriptionProvider();
+        await using var serviceProvider = CreateServices(store).BuildServiceProvider();
+        var coordinator = CreateCoordinator(serviceProvider, provider);
+
+        await coordinator.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(
+                () => provider.SubscribeCountFor(asyncFailureSymbol) == 1
+                    && provider.SubscribeCountFor(syncFailureSymbol) == 1
+                    && provider.SubscribeCountFor(healthySymbol) == 1);
+
+            var asyncFailureAttempt = provider.AttemptFor(asyncFailureSymbol, attemptNumber: 1);
+            var asyncFailureLease = asyncFailureAttempt.Complete(
+                disposalFailure: new InvalidOperationException("asynchronous close failure"));
+            var syncFailureAttempt = provider.AttemptFor(syncFailureSymbol, attemptNumber: 1);
+            var syncFailureLease = syncFailureAttempt.Complete(
+                disposalFailure: new InvalidOperationException("synchronous close failure"),
+                throwSynchronously: true);
+            var healthyAttempt = provider.AttemptFor(healthySymbol, attemptNumber: 1);
+            healthyAttempt.Complete();
+
+            asyncFailureAttempt.Emit(
+                CreateObservation(asyncFailureSymbol, 50m, DateTimeOffset.UtcNow));
+            await WaitUntilAsync(() => store.LatestPrice(asyncFailureSymbol)?.MarkPrice == 50m);
+
+            asyncFailureAttempt.FailStream();
+            syncFailureAttempt.FailStream();
+            await WaitUntilAsync(() =>
+                asyncFailureLease.DisposeRequested.Task.IsCompleted
+                && syncFailureLease.DisposeRequested.Task.IsCompleted);
+
+            healthyAttempt.Emit(CreateObservation(healthySymbol, 100m, DateTimeOffset.UtcNow));
+            await WaitUntilAsync(() => store.LatestPrice(healthySymbol)?.MarkPrice == 100m);
+
+            await Task.Delay(TimeSpan.FromMilliseconds(5_300));
+
+            Assert.Equal(1, provider.SubscribeCountFor(asyncFailureSymbol));
+            Assert.Equal(1, provider.SubscribeCountFor(syncFailureSymbol));
+            Assert.Equal(1, asyncFailureLease.DisposeCallCount);
+            Assert.Equal(1, syncFailureLease.DisposeCallCount);
+            Assert.Equal(1, provider.ActiveLeaseCountFor(asyncFailureSymbol));
+            Assert.Equal(1, provider.ActiveLeaseCountFor(syncFailureSymbol));
+
+            asyncFailureAttempt.Emit(
+                CreateObservation(asyncFailureSymbol, 500m, DateTimeOffset.UtcNow.AddSeconds(1)));
+            syncFailureAttempt.Emit(
+                CreateObservation(syncFailureSymbol, 500m, DateTimeOffset.UtcNow.AddSeconds(1)));
+            healthyAttempt.Emit(CreateObservation(healthySymbol, 110m, DateTimeOffset.UtcNow.AddSeconds(1)));
+
+            await WaitUntilAsync(() => store.LatestPrice(healthySymbol)?.MarkPrice == 110m);
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+
+            Assert.Equal(50m, store.LatestPrice(asyncFailureSymbol)!.MarkPrice);
+            Assert.Null(store.LatestPrice(syncFailureSymbol));
+            Assert.Equal(1, provider.SubscribeCountFor(asyncFailureSymbol));
+            Assert.Equal(1, provider.SubscribeCountFor(syncFailureSymbol));
+        }
+        finally
+        {
+            await coordinator.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Shutdown_with_unconfirmed_close_is_bounded_and_keeps_late_callbacks_fenced()
+    {
+        var symbol = $"U{Guid.NewGuid():N}".ToUpperInvariant();
+        await CreatePositionAsync(symbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+
+        var store = new RecordingMarketMarkPriceStore();
+        var provider = new ControlledMarketMarkPriceSubscriptionProvider();
+        await using var serviceProvider = CreateServices(store).BuildServiceProvider();
+        var coordinator = CreateCoordinator(serviceProvider, provider);
+
+        await coordinator.StartAsync(CancellationToken.None);
+        var stopped = false;
+        try
+        {
+            await WaitUntilAsync(() => provider.SubscribeCountFor(symbol) == 1);
+
+            var attempt = provider.AttemptFor(symbol, attemptNumber: 1);
+            var lease = attempt.Complete(
+                disposalFailure: new InvalidOperationException("close failed at shutdown"),
+                throwSynchronously: true);
+            attempt.FailStream();
+            await WaitUntilAsync(() => lease.DisposeRequested.Task.IsCompleted);
+
+            var shutdown = Stopwatch.StartNew();
+            await coordinator.StopAsync(CancellationToken.None);
+            shutdown.Stop();
+            stopped = true;
+
+            Assert.True(shutdown.Elapsed < TimeSpan.FromSeconds(7));
+            Assert.Equal(1, lease.DisposeCallCount);
+            Assert.Equal(1, provider.SubscribeCountFor(symbol));
+            Assert.Equal(1, provider.ActiveLeaseCountFor(symbol));
+
+            attempt.Emit(CreateObservation(symbol, 500m, DateTimeOffset.UtcNow));
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+            Assert.Null(store.LatestPrice(symbol));
+        }
+        finally
+        {
+            if (!stopped)
+            {
+                await coordinator.StopAsync(CancellationToken.None);
+            }
         }
     }
 
@@ -838,11 +962,17 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
 
             public CancellationToken CancellationToken { get; } = cancellationToken;
 
-            public ControlledLease Complete() => Complete(null);
-
-            public ControlledLease Complete(Task? disposalGate)
+            public ControlledLease Complete(
+                Task? disposalGate = null,
+                Exception? disposalFailure = null,
+                bool throwSynchronously = false)
             {
-                var lease = new ControlledLease(symbol, provider, disposalGate);
+                var lease = new ControlledLease(
+                    symbol,
+                    provider,
+                    disposalGate,
+                    disposalFailure,
+                    throwSynchronously);
                 provider.RegisterLease(symbol);
                 if (!Completion.TrySetResult(lease))
                 {
@@ -863,9 +993,12 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         public sealed class ControlledLease(
             string symbol,
             ControlledMarketMarkPriceSubscriptionProvider provider,
-            Task? disposalGate) : IAsyncDisposable
+            Task? disposalGate,
+            Exception? disposalFailure,
+            bool throwSynchronously) : IAsyncDisposable
         {
             private int _disposeStarted;
+            private int _disposeCallCount;
             private int _disposed;
 
             public TaskCompletionSource DisposeRequested { get; } =
@@ -873,17 +1006,35 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
 
             public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
-            public async ValueTask DisposeAsync()
+            public int DisposeCallCount => Volatile.Read(ref _disposeCallCount);
+
+            public ValueTask DisposeAsync()
             {
+                Interlocked.Increment(ref _disposeCallCount);
+                DisposeRequested.TrySetResult();
                 if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
                 {
-                    return;
+                    return ValueTask.CompletedTask;
                 }
 
-                DisposeRequested.TrySetResult();
+                if (throwSynchronously && disposalFailure is not null)
+                {
+                    throw disposalFailure;
+                }
+
+                return DisposeCoreAsync();
+            }
+
+            private async ValueTask DisposeCoreAsync()
+            {
                 if (disposalGate is not null)
                 {
                     await disposalGate.ConfigureAwait(false);
+                }
+
+                if (disposalFailure is not null)
+                {
+                    throw disposalFailure;
                 }
 
                 if (Interlocked.Exchange(ref _disposed, 1) == 0)
