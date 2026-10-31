@@ -388,33 +388,45 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         var key = state.Symbol;
         var candidate = new PendingMarkPrice(state.Generation, price);
 
-        while (Volatile.Read(ref state.IsActive) != 0)
-        {
-            if (!_latestPrices.TryGetValue(key, out var current))
-            {
-                if (_latestPrices.TryAdd(key, candidate))
-                {
-                    break;
-                }
-
-                continue;
-            }
-
-            if (current.Generation != state.Generation || current.Price.ObservedAt >= observedAt)
-            {
-                return;
-            }
-
-            if (_latestPrices.TryUpdate(key, candidate, current))
-            {
-                break;
-            }
-        }
+        TryStorePendingPrice(_latestPrices, state, candidate);
 
         if (Volatile.Read(ref state.IsActive) == 0)
         {
             RemovePendingPrice(key, state.Generation);
         }
+    }
+
+    internal static bool TryStorePendingPrice(
+        ConcurrentDictionary<string, PendingMarkPrice> latestPrices,
+        SubscriptionState state,
+        PendingMarkPrice candidate)
+    {
+        while (Volatile.Read(ref state.IsActive) != 0)
+        {
+            if (!latestPrices.TryGetValue(state.Symbol, out var current))
+            {
+                if (latestPrices.TryAdd(state.Symbol, candidate))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (current.Generation > candidate.Generation
+                || (current.Generation == candidate.Generation
+                    && current.Price.ObservedAt >= candidate.Price.ObservedAt))
+            {
+                return false;
+            }
+
+            if (latestPrices.TryUpdate(state.Symbol, candidate, current))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task PersistDuePricesAsync(CancellationToken cancellationToken)
@@ -566,15 +578,23 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
 
     private void RemovePendingPrice(string symbol, long generation)
     {
-        if (_latestPrices.TryGetValue(symbol, out var current)
+        RemovePendingPrice(_latestPrices, symbol, generation);
+    }
+
+    internal static void RemovePendingPrice(
+        ConcurrentDictionary<string, PendingMarkPrice> latestPrices,
+        string symbol,
+        long generation)
+    {
+        if (latestPrices.TryGetValue(symbol, out var current)
             && current.Generation == generation)
         {
-            ((ICollection<KeyValuePair<string, PendingMarkPrice>>)_latestPrices)
+            ((ICollection<KeyValuePair<string, PendingMarkPrice>>)latestPrices)
                 .Remove(new KeyValuePair<string, PendingMarkPrice>(symbol, current));
         }
     }
 
-    private enum SubscriptionLifecycle
+    internal enum SubscriptionLifecycle
     {
         Starting,
         Active,
@@ -582,7 +602,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         Failed,
     }
 
-    private sealed class SubscriptionState(string symbol, long generation)
+    internal sealed class SubscriptionState(string symbol, long generation)
     {
         public string Symbol { get; } = symbol;
         public long Generation { get; } = generation;
@@ -603,7 +623,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         public long? LastPersistAttemptTimestamp { get; set; }
     }
 
-    private sealed record PendingMarkPrice(long Generation, MarketMarkPrice Price);
+    internal sealed record PendingMarkPrice(long Generation, MarketMarkPrice Price);
 
     [LoggerMessage(
         EventId = 1220,

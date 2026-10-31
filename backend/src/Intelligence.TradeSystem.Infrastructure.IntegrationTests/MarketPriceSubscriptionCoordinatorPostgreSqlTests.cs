@@ -21,6 +21,180 @@ namespace Intelligence.TradeSystem.Infrastructure.IntegrationTests;
 public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSqlFixture fixture)
 {
     [Fact]
+    public void New_generation_replaces_pending_price_even_when_its_observation_is_older()
+    {
+        var symbol = $"G{Guid.NewGuid():N}".ToUpperInvariant();
+        var latestPrices = new ConcurrentDictionary<string, MarketPriceSubscriptionCoordinator.PendingMarkPrice>(
+            StringComparer.Ordinal);
+        var generationOne = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 1);
+        var generationTwo = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 2);
+        var t1 = new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero);
+        var t2 = t1.AddMinutes(1);
+        var previous = CreatePendingMarkPrice(symbol, 1, 100m, t2);
+
+        Assert.True(latestPrices.TryAdd(symbol, previous));
+
+        var candidate = CreatePendingMarkPrice(symbol, 2, 200m, t1);
+        var accepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            generationTwo,
+            candidate);
+
+        Assert.True(accepted);
+        var stored = Assert.Single(latestPrices);
+        Assert.Equal(symbol, stored.Key);
+        Assert.Equal(2, stored.Value.Generation);
+        Assert.Equal(200m, stored.Value.Price.MarkPrice);
+        Assert.Equal(t1, stored.Value.Price.ObservedAt);
+        Assert.Equal(1, generationOne.Generation);
+    }
+
+    [Fact]
+    public async Task Delayed_previous_generation_cannot_replace_newer_generation()
+    {
+        var symbol = $"G{Guid.NewGuid():N}".ToUpperInvariant();
+        var latestPrices = new ConcurrentDictionary<string, MarketPriceSubscriptionCoordinator.PendingMarkPrice>(
+            StringComparer.Ordinal);
+        var generationOne = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 1);
+        var generationTwo = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 2);
+        var t1 = new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero);
+        var t2 = t1.AddMinutes(1);
+        var g1Ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowG1 = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delayedG1Write = Task.Run(async () =>
+        {
+            g1Ready.TrySetResult(true);
+            await allowG1.Task;
+            return MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+                latestPrices,
+                generationOne,
+                CreatePendingMarkPrice(symbol, 1, 100m, t2));
+        });
+
+        await g1Ready.Task;
+        var g2Accepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            generationTwo,
+            CreatePendingMarkPrice(symbol, 2, 200m, t1));
+        allowG1.TrySetResult(true);
+        var g1Accepted = await delayedG1Write;
+
+        Assert.True(g2Accepted);
+        Assert.False(g1Accepted);
+        var stored = Assert.Single(latestPrices);
+        Assert.Equal(2, stored.Value.Generation);
+        Assert.Equal(200m, stored.Value.Price.MarkPrice);
+        Assert.Equal(t1, stored.Value.Price.ObservedAt);
+        Assert.True(t2 > stored.Value.Price.ObservedAt);
+    }
+
+    [Fact]
+    public void Same_generation_replaces_only_with_a_strictly_later_observation()
+    {
+        var symbol = $"G{Guid.NewGuid():N}".ToUpperInvariant();
+        var state = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 7);
+        var observedAt = new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero);
+
+        var latestPrices = new ConcurrentDictionary<string, MarketPriceSubscriptionCoordinator.PendingMarkPrice>(
+            StringComparer.Ordinal)
+        {
+            [symbol] = CreatePendingMarkPrice(symbol, 7, 100m, observedAt),
+        };
+        var newerAccepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            state,
+            CreatePendingMarkPrice(symbol, 7, 200m, observedAt.AddSeconds(1)));
+        var equalAccepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            state,
+            CreatePendingMarkPrice(symbol, 7, 300m, observedAt.AddSeconds(1)));
+        var olderAccepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            state,
+            CreatePendingMarkPrice(symbol, 7, 400m, observedAt));
+
+        Assert.True(newerAccepted);
+        Assert.False(equalAccepted);
+        Assert.False(olderAccepted);
+        Assert.Equal(7, latestPrices[symbol].Generation);
+        Assert.Equal(200m, latestPrices[symbol].Price.MarkPrice);
+        Assert.Equal(observedAt.AddSeconds(1), latestPrices[symbol].Price.ObservedAt);
+    }
+
+    [Fact]
+    public async Task Concurrent_pending_price_writes_keep_the_highest_generation_and_observation()
+    {
+        const int writerCount = 64;
+        var symbol = $"G{Guid.NewGuid():N}".ToUpperInvariant();
+        var latestPrices = new ConcurrentDictionary<string, MarketPriceSubscriptionCoordinator.PendingMarkPrice>(
+            StringComparer.Ordinal);
+        var startWriters = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allWritersReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyCount = 0;
+        var origin = new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero);
+        var writes = Enumerable.Range(0, writerCount)
+            .Select(index => Task.Run(async () =>
+            {
+                if (Interlocked.Increment(ref readyCount) == writerCount)
+                {
+                    allWritersReady.TrySetResult(true);
+                }
+
+                await startWriters.Task;
+                var generation = index % 8 + 1;
+                var state = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, generation);
+                var candidate = CreatePendingMarkPrice(
+                    symbol,
+                    generation,
+                    index + 1,
+                    origin.AddTicks(index));
+                return MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+                    latestPrices,
+                    state,
+                    candidate);
+            }))
+            .ToArray();
+
+        await allWritersReady.Task;
+        startWriters.TrySetResult(true);
+        await Task.WhenAll(writes);
+
+        var stored = Assert.Single(latestPrices);
+        Assert.Equal(symbol, stored.Key);
+        Assert.Equal(8, stored.Value.Generation);
+        Assert.Equal(64m, stored.Value.Price.MarkPrice);
+        Assert.Equal(origin.AddTicks(63), stored.Value.Price.ObservedAt);
+    }
+
+    [Fact]
+    public void Inactive_generation_cannot_write_or_remove_a_newer_generation_price()
+    {
+        var symbol = $"G{Guid.NewGuid():N}".ToUpperInvariant();
+        var latestPrices = new ConcurrentDictionary<string, MarketPriceSubscriptionCoordinator.PendingMarkPrice>(
+            StringComparer.Ordinal);
+        var generationOne = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 1);
+        var generationTwo = new MarketPriceSubscriptionCoordinator.SubscriptionState(symbol, 2);
+        Volatile.Write(ref generationOne.IsActive, 0);
+
+        var inactiveWriteAccepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            generationOne,
+            CreatePendingMarkPrice(symbol, 1, 100m, DateTimeOffset.UtcNow));
+        var generationTwoAccepted = MarketPriceSubscriptionCoordinator.TryStorePendingPrice(
+            latestPrices,
+            generationTwo,
+            CreatePendingMarkPrice(symbol, 2, 200m, DateTimeOffset.UtcNow.AddSeconds(-1)));
+
+        MarketPriceSubscriptionCoordinator.RemovePendingPrice(latestPrices, symbol, generationOne.Generation);
+
+        Assert.False(inactiveWriteAccepted);
+        Assert.True(generationTwoAccepted);
+        var stored = Assert.Single(latestPrices);
+        Assert.Equal(2, stored.Value.Generation);
+        Assert.Equal(200m, stored.Value.Price.MarkPrice);
+    }
+
+    [Fact]
     public async Task Shares_symbol_subscription_bounds_price_persistence_and_recovers_failed_stream()
     {
         var symbol = $"T{Guid.NewGuid():N}".ToUpperInvariant();
@@ -712,6 +886,24 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             ObservedAt = observedAt,
             ReceivedAt = observedAt,
         };
+
+    private static MarketPriceSubscriptionCoordinator.PendingMarkPrice CreatePendingMarkPrice(
+        string symbol,
+        long generation,
+        decimal markPrice,
+        DateTimeOffset observedAt) =>
+        new(
+            generation,
+            new MarketMarkPrice
+            {
+                Exchange = ExchangeId.Bybit,
+                Category = MarketCategory.Linear,
+                Symbol = InstrumentId.From(symbol),
+                MarkPrice = markPrice,
+                ObservedAt = observedAt,
+                ReceivedAt = observedAt,
+                Source = MarketMarkPriceSource.PublicTicker,
+            });
 
     private static async Task WaitUntilAsync(
         Func<bool> condition,
