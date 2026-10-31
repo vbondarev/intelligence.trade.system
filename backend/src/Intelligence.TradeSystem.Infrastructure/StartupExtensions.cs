@@ -195,6 +195,7 @@ public static class StartupExtensions
             serviceProvider => serviceProvider.GetRequiredService<ExchangeAccountObservationCoordinator>()));
         services.AddSingleton<ExchangeRealtimeObservationSupervisor>();
         services.AddHostedService<ExchangeRealtimeObservationWorker>();
+        services.AddHostedService<MarketPriceSubscriptionCoordinator>();
         return services;
     }
 
