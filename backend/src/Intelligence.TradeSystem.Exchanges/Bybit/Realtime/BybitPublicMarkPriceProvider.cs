@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using Bybit.Net.Interfaces.Clients;
 using Bybit.Net.Objects.Models.V5;
+using CryptoExchange.Net.Objects;
 using CryptoExchange.Net.Objects.Sockets;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
@@ -52,26 +53,63 @@ public sealed partial class BybitPublicMarkPriceProvider : IMarketMarkPriceSubsc
         }
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var result = await _client.V5LinearApi.SubscribeToTickerUpdatesAsync(
-            symbol.Value,
-            update => HandleUpdate(update, onObservation),
+        var result = await SubscribeToTickerUpdatesAsync(
+            symbol,
+            onObservation,
             cancellationToken).ConfigureAwait(false);
         if (!result.Success || result.Data is null)
         {
             if (result.Data is { } rejectedSubscription)
             {
-                await rejectedSubscription.CloseAsync().ConfigureAwait(false);
+                var rejectedLease = new BybitPublicMarkPriceSubscriptionLease(
+                    rejectedSubscription.CloseAsync);
+                try
+                {
+                    await rejectedLease.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    throw new MarketPriceSubscriptionStartUnconfirmedException(
+                        exception,
+                        rejectedLease);
+                }
+            }
+
+            if (result.Data is null)
+            {
+                throw new MarketPriceSubscriptionStartUnconfirmedException();
             }
 
             throw new InvalidOperationException("Bybit public mark-price subscription failed.");
         }
 
         var subscription = result.Data;
-        subscription.ConnectionLost += onFailure;
-        subscription.ConnectionClosed += onFailure;
-        subscription.ResubscribingFailed += _ => onFailure();
-        return new BybitPublicMarkPriceSubscriptionLease(subscription.CloseAsync);
+        var lease = new BybitPublicMarkPriceSubscriptionLease(subscription.CloseAsync);
+        try
+        {
+            subscription.ConnectionLost += onFailure;
+            subscription.ConnectionClosed += onFailure;
+            subscription.ResubscribingFailed += _ => onFailure();
+            return lease;
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                await lease.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new MarketPriceSubscriptionStartUnconfirmedException(
+                    cleanupException,
+                    lease);
+            }
+
+            ExceptionDispatchInfo.Capture(exception).Throw();
+            throw;
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -103,6 +141,26 @@ public sealed partial class BybitPublicMarkPriceProvider : IMarketMarkPriceSubsc
         catch (Exception exception)
         {
             LogMessageRejected(_logger, exception.GetType().Name);
+        }
+    }
+
+    private async Task<WebSocketResult<UpdateSubscription>>
+        SubscribeToTickerUpdatesAsync(
+            InstrumentId symbol,
+            Action<MarketMarkPriceObservation> onObservation,
+            CancellationToken cancellationToken)
+    {
+            var api = _client.V5LinearApi;
+            try
+            {
+                return await api.SubscribeToTickerUpdatesAsync(
+                    symbol.Value,
+                    update => HandleUpdate(update, onObservation),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            throw new MarketPriceSubscriptionStartUnconfirmedException(exception);
         }
     }
 

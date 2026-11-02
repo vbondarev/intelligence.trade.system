@@ -157,6 +157,12 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
+            if (exception is MarketPriceSubscriptionStartUnconfirmedException unconfirmedException)
+            {
+                MarkStartUnconfirmed(state, unconfirmedException);
+                return;
+            }
+
             state.Lifecycle = SubscriptionLifecycle.Failed;
             Deactivate(state);
             RemovePendingPrice(state.Symbol, state.Generation);
@@ -193,7 +199,10 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
                 continue;
             }
 
-            if (state.Lease is not null && state.DisposeTask is null && !state.DisposeUnconfirmed)
+            if (state.Lease is not null
+                && state.DisposeTask is null
+                && !state.DisposeUnconfirmed
+                && !state.StartUnconfirmed)
             {
                 StartLeaseDisposal(state);
             }
@@ -202,7 +211,9 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
             {
                 CompleteLeaseDisposal(state);
             }
-            else if (state.Lease is null && state.DisposeTask is null)
+            else if (state.Lease is null
+                     && state.DisposeTask is null
+                     && !state.StartUnconfirmed)
             {
                 DisposeCancellation(state);
                 RemoveSubscriptionState(state);
@@ -234,6 +245,10 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
             RemovePendingPrice(state.Symbol, state.Generation);
             StartLeaseDisposal(state);
         }
+        catch (MarketPriceSubscriptionStartUnconfirmedException exception)
+        {
+            MarkStartUnconfirmed(state, exception);
+        }
         catch (Exception exception)
         {
             state.Lifecycle = SubscriptionLifecycle.Failed;
@@ -243,6 +258,24 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
             DisposeCancellation(state);
             RemoveSubscriptionState(state);
         }
+    }
+
+    private void MarkStartUnconfirmed(
+        SubscriptionState state,
+        MarketPriceSubscriptionStartUnconfirmedException exception)
+    {
+        state.Lifecycle = SubscriptionLifecycle.Stopping;
+        Deactivate(state);
+        RemovePendingPrice(state.Symbol, state.Generation);
+        state.StartUnconfirmed = true;
+        if (exception.UnconfirmedLease is { } lease)
+        {
+            state.Lease = lease;
+            state.DisposeUnconfirmed = true;
+        }
+
+        LogSubscriptionStartUnconfirmed(logger, exception.GetType().Name);
+        DisposeCancellation(state);
     }
 
     private void BeginStopping(SubscriptionState state)
@@ -510,7 +543,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
                 continue;
             }
 
-            if (!state.DisposeUnconfirmed)
+            if (!state.DisposeUnconfirmed && !state.StartUnconfirmed)
             {
                 DisposeCancellation(state);
                 RemoveSubscriptionState(state);
@@ -535,6 +568,12 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
+            if (exception is MarketPriceSubscriptionStartUnconfirmedException unconfirmedException)
+            {
+                MarkStartUnconfirmed(state, unconfirmedException);
+                return;
+            }
+
             LogSubscriptionFailed(logger, exception.GetType().Name);
             DisposeCancellation(state);
             RemoveSubscriptionState(state);
@@ -617,6 +656,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         public Task<IAsyncDisposable>? SubscribeTask { get; set; }
         public IAsyncDisposable? Lease { get; set; }
         public Task? DisposeTask { get; set; }
+        public bool StartUnconfirmed { get; set; }
         public bool DisposeUnconfirmed { get; set; }
         public long StartTimestamp { get; set; }
         public DateTimeOffset? LastPersistedObservedAt { get; set; }
@@ -644,6 +684,14 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         Level = LogLevel.Warning,
         Message = "Не удалось подписаться на публичный mark price; будет выполнена повторная попытка. ExceptionType={ExceptionType}")]
     private static partial void LogSubscriptionFailed(ILogger logger, string exceptionType);
+
+    [LoggerMessage(
+        EventId = 1227,
+        Level = LogLevel.Error,
+        Message = "Первоначальное создание публичной рыночной подписки завершилось неопределённо; повторная подписка инструмента заблокирована до завершения процесса. ExceptionType={ExceptionType}")]
+    private static partial void LogSubscriptionStartUnconfirmed(
+        ILogger logger,
+        string exceptionType);
 
     [LoggerMessage(
         EventId = 1223,

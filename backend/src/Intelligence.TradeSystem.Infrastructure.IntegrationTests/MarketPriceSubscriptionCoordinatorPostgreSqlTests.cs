@@ -756,6 +756,111 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
     }
 
     [Fact]
+    public async Task Keeps_unconfirmed_failed_starts_blocked_without_disrupting_other_symbols()
+    {
+        var noLeaseSymbol = $"N{Guid.NewGuid():N}".ToUpperInvariant();
+        var unconfirmedLeaseSymbol = $"L{Guid.NewGuid():N}".ToUpperInvariant();
+        var healthySymbol = $"H{Guid.NewGuid():N}".ToUpperInvariant();
+        await CreatePositionAsync(noLeaseSymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+        await CreatePositionAsync(unconfirmedLeaseSymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+        await CreatePositionAsync(healthySymbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+
+        var store = new RecordingMarketMarkPriceStore();
+        var provider = new ControlledMarketMarkPriceSubscriptionProvider();
+        var loggerProvider = new CapturingLoggerProvider();
+        var services = CreateServices(store);
+        services.AddLogging(logging => logging.AddProvider(loggerProvider));
+        await using var serviceProvider = services.BuildServiceProvider();
+        var coordinator = CreateCoordinator(serviceProvider, provider);
+        var unconfirmedLease = new CountingAsyncDisposable();
+
+        await coordinator.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(
+                () => provider.SubscribeCountFor(noLeaseSymbol) == 1
+                    && provider.SubscribeCountFor(unconfirmedLeaseSymbol) == 1
+                    && provider.SubscribeCountFor(healthySymbol) == 1);
+
+            var noLeaseAttempt = provider.AttemptFor(noLeaseSymbol, attemptNumber: 1);
+            noLeaseAttempt.Fail(new MarketPriceSubscriptionStartUnconfirmedException());
+
+            var unconfirmedLeaseAttempt = provider.AttemptFor(
+                unconfirmedLeaseSymbol,
+                attemptNumber: 1);
+            unconfirmedLeaseAttempt.Fail(new MarketPriceSubscriptionStartUnconfirmedException(
+                unconfirmedLease: unconfirmedLease));
+
+            await WaitUntilAsync(() => loggerProvider.EventCount(1227) == 2);
+            noLeaseAttempt.Emit(CreateObservation(
+                noLeaseSymbol,
+                90m,
+                DateTimeOffset.UtcNow));
+            unconfirmedLeaseAttempt.Emit(CreateObservation(
+                unconfirmedLeaseSymbol,
+                91m,
+                DateTimeOffset.UtcNow));
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+
+            var healthyAttempt = provider.AttemptFor(healthySymbol, attemptNumber: 1);
+            healthyAttempt.Complete();
+            healthyAttempt.Emit(CreateObservation(
+                healthySymbol,
+                100m,
+                DateTimeOffset.UtcNow));
+            await WaitUntilAsync(() => store.LatestPrice(healthySymbol)?.MarkPrice == 100m);
+
+            await Task.Delay(TimeSpan.FromMilliseconds(5_300));
+
+            Assert.Equal(1, provider.SubscribeCountFor(noLeaseSymbol));
+            Assert.Equal(1, provider.SubscribeCountFor(unconfirmedLeaseSymbol));
+            Assert.Equal(1, provider.SubscribeCountFor(healthySymbol));
+            Assert.Equal(0, unconfirmedLease.DisposeCallCount);
+            Assert.Null(store.LatestPrice(noLeaseSymbol));
+            Assert.Null(store.LatestPrice(unconfirmedLeaseSymbol));
+            Assert.Equal(100m, store.LatestPrice(healthySymbol)!.MarkPrice);
+        }
+        finally
+        {
+            await coordinator.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(0, unconfirmedLease.DisposeCallCount);
+    }
+
+    [Fact]
+    public async Task Does_not_retry_when_a_timed_out_attempt_later_fails_unconfirmed()
+    {
+        var symbol = $"T{Guid.NewGuid():N}".ToUpperInvariant();
+        await CreatePositionAsync(symbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+
+        var store = new RecordingMarketMarkPriceStore();
+        var provider = new ControlledMarketMarkPriceSubscriptionProvider();
+        await using var serviceProvider = CreateServices(store).BuildServiceProvider();
+        var coordinator = CreateCoordinator(serviceProvider, provider);
+
+        await coordinator.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => provider.SubscribeCountFor(symbol) == 1);
+            var attempt = provider.AttemptFor(symbol, attemptNumber: 1);
+            await WaitUntilAsync(
+                () => attempt.CancellationToken.IsCancellationRequested,
+                TimeSpan.FromSeconds(12));
+
+            attempt.Fail(new MarketPriceSubscriptionStartUnconfirmedException());
+            await Task.Delay(TimeSpan.FromMilliseconds(5_300));
+
+            Assert.Equal(1, provider.SubscribeCountFor(symbol));
+            Assert.Null(store.LatestPrice(symbol));
+        }
+        finally
+        {
+            await coordinator.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task Shutdown_cancels_pending_attempts_and_disposes_late_leases()
     {
         var activeSymbol = $"A{Guid.NewGuid():N}".ToUpperInvariant();
@@ -870,6 +975,49 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             provider,
             TimeProvider.System,
             serviceProvider.GetRequiredService<ILogger<MarketPriceSubscriptionCoordinator>>());
+
+    private sealed class CountingAsyncDisposable : IAsyncDisposable
+    {
+        private int _disposeCallCount;
+
+        public int DisposeCallCount => Volatile.Read(ref _disposeCallCount);
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref _disposeCallCount);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<EventId> _events = new();
+
+        public int EventCount(int eventId) => _events.Count(item => item.Id == eventId);
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(_events);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(ConcurrentQueue<EventId> events) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull =>
+                null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                events.Enqueue(eventId);
+        }
+    }
 
     private static MarketMarkPriceObservation CreateObservation(
         string symbol,

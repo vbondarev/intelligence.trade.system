@@ -1,8 +1,16 @@
+using Bybit.Net.Interfaces.Clients;
+using Bybit.Net.Interfaces.Clients.V5;
+using Bybit.Net.Objects.Models.V5;
+using CryptoExchange.Net.Objects;
+using CryptoExchange.Net.Objects.Errors;
+using CryptoExchange.Net.Objects.Sockets;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Exchanges.Bybit.Realtime;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace Intelligence.TradeSystem.Exchanges.Tests.Realtime;
 
@@ -28,6 +36,23 @@ public sealed class BybitPublicMarkPriceProviderTests
             .WithMessage("close failed");
 
         closeCalls.Should().Be(1);
+    }
+
+    private static IBybitSocketClient CreateClientReturning(
+        WebSocketResult<UpdateSubscription> result)
+    {
+        var linearApi = new Mock<IBybitSocketClientLinearApi>();
+        linearApi
+            .Setup(api => api.SubscribeToTickerUpdatesAsync(
+                It.IsAny<string>(),
+                It.IsAny<Action<DataEvent<BybitLinearTickerUpdate>>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+
+        var client = new Mock<IBybitSocketClient>();
+        client.SetupGet(socketClient => socketClient.V5LinearApi)
+            .Returns(linearApi.Object);
+        return client.Object;
     }
 
     [Fact]
@@ -159,7 +184,114 @@ public sealed class BybitPublicMarkPriceProviderTests
             _ => { },
             () => { });
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        var exception = await act.Should()
+            .ThrowAsync<MarketPriceSubscriptionStartUnconfirmedException>();
+        exception.Which.UnconfirmedLease.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Preserves_uncertainty_when_the_sdk_internal_cleanup_fails()
+    {
+        using var harness = new BybitSocketTestHarness(
+            authenticated: false,
+            subscribeSucceeds: false);
+        harness.FailClose = true;
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        await using var provider = new BybitPublicMarkPriceProvider(
+            harness.Client,
+            loggerFactory.CreateLogger<BybitPublicMarkPriceProvider>());
+
+        var act = () => provider.SubscribeAsync(
+            InstrumentId.From("BTCUSDT"),
+            _ => { },
+            () => { });
+
+        var exception = await act.Should()
+            .ThrowAsync<MarketPriceSubscriptionStartUnconfirmedException>();
+        exception.Which.InnerException.Should().BeOfType<InvalidOperationException>();
+        exception.Which.UnconfirmedLease.Should().BeNull();
+        harness.CloseAttempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Treats_success_without_subscription_data_as_unconfirmed()
+    {
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var client = CreateClientReturning(
+            new WebSocketResult<UpdateSubscription>("Bybit", null, null));
+        await using var provider = new BybitPublicMarkPriceProvider(
+            client,
+            loggerFactory.CreateLogger<BybitPublicMarkPriceProvider>());
+
+        var act = () => provider.SubscribeAsync(
+            InstrumentId.From("BTCUSDT"),
+            _ => { },
+            () => { });
+
+        var exception = await act.Should()
+            .ThrowAsync<MarketPriceSubscriptionStartUnconfirmedException>();
+        exception.Which.UnconfirmedLease.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Closes_a_rejected_subscription_before_returning_a_retryable_failure()
+    {
+        using var harness = new BybitSocketTestHarness(authenticated: false);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var subscription = await harness.Client.V5LinearApi.SubscribeToTickerUpdatesAsync(
+            "BTCUSDT",
+            _ => { });
+        var result = new WebSocketResult<UpdateSubscription>(
+            "Bybit",
+            subscription.Data,
+            new ServerError(ErrorType.Unknown, "test failure", null!)
+            {
+                Message = "test failure",
+            });
+        await using var provider = new BybitPublicMarkPriceProvider(
+            CreateClientReturning(result),
+            loggerFactory.CreateLogger<BybitPublicMarkPriceProvider>());
+
+        var act = () => provider.SubscribeAsync(
+            InstrumentId.From("BTCUSDT"),
+            _ => { },
+            () => { });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Bybit public mark-price subscription failed.");
+        harness.CloseAttempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Returns_the_unconfirmed_lease_when_a_rejected_subscription_cannot_be_closed()
+    {
+        using var harness = new BybitSocketTestHarness(authenticated: false);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var subscription = await harness.Client.V5LinearApi.SubscribeToTickerUpdatesAsync(
+            "BTCUSDT",
+            _ => { });
+        harness.FailClose = true;
+        var result = new WebSocketResult<UpdateSubscription>(
+            "Bybit",
+            subscription.Data,
+            new ServerError(ErrorType.Unknown, "test failure", null!)
+            {
+                Message = "test failure",
+            });
+        await using var provider = new BybitPublicMarkPriceProvider(
+            CreateClientReturning(result),
+            loggerFactory.CreateLogger<BybitPublicMarkPriceProvider>());
+
+        var act = () => provider.SubscribeAsync(
+            InstrumentId.From("BTCUSDT"),
+            _ => { },
+            () => { });
+
+        var exception = await act.Should()
+            .ThrowAsync<MarketPriceSubscriptionStartUnconfirmedException>();
+        exception.Which.UnconfirmedLease.Should().NotBeNull();
+        exception.Which.InnerException.Should().BeOfType<InvalidOperationException>();
+        harness.CloseAttempts.Should().Be(1);
     }
 
     [Fact]
