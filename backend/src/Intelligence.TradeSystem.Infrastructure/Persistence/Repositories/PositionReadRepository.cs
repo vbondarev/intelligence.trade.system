@@ -103,7 +103,11 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
                 row.LiquidationPrice,
                 row.FirstDetectedAt,
                 row.LastObservedAt,
-                row.ClosedAt))
+                row.ClosedAt)
+            {
+                ExchangeId = row.ExchangeId,
+                MarketCategory = row.MarketCategory,
+            })
             .ToArray();
 
         PositionReadCursor? nextCursor = hasMore && items.Length > 0
@@ -181,35 +185,38 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
 
         var row = await dbContext.Positions
             .AsNoTracking()
-            .Where(position =>
-                position.Id == positionId.Value &&
-                dbContext.ExchangeAccounts.Any(account =>
-                    account.Id == position.ExchangeAccountId &&
-                    account.UserId == userId.Value))
-            .Select(position => new
-            {
-                position.Id,
-                position.ExchangeAccountId,
-                position.InstrumentId,
-                position.SettlementAsset,
-                position.PositionSide,
-                position.TrackingState,
-                position.Size,
-                position.AverageEntryPrice,
-                position.MarkPrice,
-                position.PositionValue,
-                position.UnrealizedPnl,
-                position.Leverage,
-                position.LiquidationPrice,
-                position.FirstDetectedAt,
-                position.LastObservedAt,
-                position.ClosedAt,
-                position.MarketCategory,
-                position.BreakEvenPrice,
-                position.TakeProfit,
-                position.StopLoss,
-                position.TrailingStop,
-            })
+            .Where(position => position.Id == positionId.Value)
+            .Join(
+                dbContext.ExchangeAccounts
+                    .AsNoTracking()
+                    .Where(account => account.UserId == userId.Value),
+                position => position.ExchangeAccountId,
+                account => account.Id,
+                (position, account) => new
+                {
+                    position.Id,
+                    position.ExchangeAccountId,
+                    account.ExchangeId,
+                    position.InstrumentId,
+                    position.SettlementAsset,
+                    position.PositionSide,
+                    position.TrackingState,
+                    position.Size,
+                    position.AverageEntryPrice,
+                    position.MarkPrice,
+                    position.PositionValue,
+                    position.UnrealizedPnl,
+                    position.Leverage,
+                    position.LiquidationPrice,
+                    position.FirstDetectedAt,
+                    position.LastObservedAt,
+                    position.ClosedAt,
+                    position.MarketCategory,
+                    position.BreakEvenPrice,
+                    position.TakeProfit,
+                    position.StopLoss,
+                    position.TrailingStop,
+                })
             .SingleOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -234,7 +241,11 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
             row.LiquidationPrice,
             row.FirstDetectedAt,
             row.LastObservedAt,
-            row.ClosedAt);
+            row.ClosedAt)
+        {
+            ExchangeId = row.ExchangeId,
+            MarketCategory = row.MarketCategory,
+        };
 
         return new PositionReadDetail(
             listItem,
@@ -253,29 +264,36 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
         }
     }
 
-    private static IQueryable<PositionReadRow> SelectListRows(
+    private IQueryable<PositionReadRow> SelectListRows(
         IQueryable<PositionEntity> positions) =>
-        positions.Select(position => new PositionReadRow(
-            position.Id,
-            position.ExchangeAccountId,
-            position.InstrumentId,
-            position.SettlementAsset,
-            position.PositionSide,
-            position.TrackingState,
-            position.Size,
-            position.AverageEntryPrice,
-            position.MarkPrice,
-            position.PositionValue,
-            position.UnrealizedPnl,
-            position.Leverage,
-            position.LiquidationPrice,
-            position.FirstDetectedAt,
-            position.LastObservedAt,
-            position.ClosedAt));
+        positions.Join(
+            dbContext.ExchangeAccounts.AsNoTracking(),
+            position => position.ExchangeAccountId,
+            account => account.Id,
+            (position, account) => new PositionReadRow(
+                position.Id,
+                position.ExchangeAccountId,
+                account.ExchangeId,
+                position.InstrumentId,
+                position.SettlementAsset,
+                position.PositionSide,
+                position.TrackingState,
+                position.Size,
+                position.AverageEntryPrice,
+                position.MarkPrice,
+                position.PositionValue,
+                position.UnrealizedPnl,
+                position.Leverage,
+                position.LiquidationPrice,
+                position.FirstDetectedAt,
+                position.LastObservedAt,
+                position.ClosedAt,
+                position.MarketCategory));
 
     private sealed record PositionReadRow(
         Guid Id,
         Guid ExchangeAccountId,
+        ExchangeId ExchangeId,
         string InstrumentId,
         string SettlementAsset,
         PositionSide PositionSide,
@@ -289,5 +307,6 @@ public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPo
         decimal? LiquidationPrice,
         DateTimeOffset FirstDetectedAt,
         DateTimeOffset LastObservedAt,
-        DateTimeOffset? ClosedAt);
+        DateTimeOffset? ClosedAt,
+        MarketCategory MarketCategory);
 }

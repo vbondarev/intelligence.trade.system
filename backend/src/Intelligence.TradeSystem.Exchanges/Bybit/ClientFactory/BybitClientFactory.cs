@@ -49,4 +49,7 @@ public static class BybitClientFactory
             options.OutputOriginalData = true;
         });
     }
+
+    public static IBybitSocketClient CreatePublicSocketClient() =>
+        new BybitSocketClient(static _ => { });
 }

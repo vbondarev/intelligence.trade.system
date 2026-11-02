@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Intelligence.TradeSystem.Application.Assessments;
 using Intelligence.TradeSystem.Application.Recommendations;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Domain.Recommendations;
 using Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
@@ -121,6 +122,7 @@ public sealed class RecommendationPolicyConfigurationTests
         services.AddLogging();
         services.AddSingleton<RecommendationPolicy>();
         services.AddSingleton<RecommendationStabilityPolicy>();
+        services.AddScoped<MarketMarkPriceService>();
 
         services.AddInfrastructure(
             CreateConfiguration());

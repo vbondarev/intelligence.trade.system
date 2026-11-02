@@ -22,6 +22,9 @@ public static class StartupExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<BybitInstrumentSettlementResolver>();
         services.AddSingleton<IExchangeRealtimeProviderFactory, BybitRealtimeProviderFactory>();
+        services.AddSingleton<BybitPublicMarkPriceProvider>();
+        services.AddSingleton<IMarketMarkPriceSubscriptionProvider>(
+            serviceProvider => serviceProvider.GetRequiredService<BybitPublicMarkPriceProvider>());
         services.AddScoped<IBybitRestClient>(serviceProvider =>
             BybitClientFactory.CreatePublicClient());
         services.AddScoped<BybitPublicMarketProvider>();
