@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.State;
@@ -9,7 +10,7 @@ public sealed class RealtimeObservationProcessingTelemetryTests
     [Fact]
     public void Processing_metrics_use_bounded_outcomes_and_do_not_publish_identifiers()
     {
-        var measurements = new List<(string Name, Dictionary<string, string?> Tags)>();
+        var measurements = new ConcurrentQueue<(string Name, Dictionary<string, string?> Tags)>();
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
         {
@@ -19,9 +20,9 @@ public sealed class RealtimeObservationProcessingTelemetryTests
             }
         };
         listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
-            measurements.Add((instrument.Name, ToDictionary(tags))));
+            measurements.Enqueue((instrument.Name, ToDictionary(tags))));
         listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) =>
-            measurements.Add((instrument.Name, ToDictionary(tags))));
+            measurements.Enqueue((instrument.Name, ToDictionary(tags))));
         listener.Start();
 
         var completedAt = new DateTimeOffset(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
@@ -47,28 +48,29 @@ public sealed class RealtimeObservationProcessingTelemetryTests
             "recovery",
             "committed");
 
-        measurements.Should().Contain(measurement =>
+        var capturedMeasurements = measurements.ToArray();
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.observations.apply.outcomes"
-            && measurement.Tags["stream"] == "position"
-            && measurement.Tags["outcome"] == "applied");
-        measurements.Should().Contain(measurement =>
+            && HasTag(measurement.Tags, "stream", "position")
+            && HasTag(measurement.Tags, "outcome", "applied"));
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.observations.creation_to_commit.duration"
-            && measurement.Tags["stream"] == "position");
-        measurements.Should().Contain(measurement =>
+            && HasTag(measurement.Tags, "stream", "position"));
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.observations.creation_time_unavailable"
-            && measurement.Tags["stream"] == "wallet");
-        measurements.Should().Contain(measurement =>
+            && HasTag(measurement.Tags, "stream", "wallet"));
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.observations.receive_time_unavailable"
-            && measurement.Tags["stream"] == "wallet");
-        measurements.Should().Contain(measurement =>
+            && HasTag(measurement.Tags, "stream", "wallet"));
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.observations.apply.outcomes"
-            && measurement.Tags["stream"] == "wallet"
-            && measurement.Tags["outcome"] == "failed");
-        measurements.Should().Contain(measurement =>
+            && HasTag(measurement.Tags, "stream", "wallet")
+            && HasTag(measurement.Tags, "outcome", "failed"));
+        capturedMeasurements.Should().Contain(measurement =>
             measurement.Name == "exchange.realtime.reconciliation.duration"
-            && measurement.Tags["kind"] == "recovery"
-            && measurement.Tags["outcome"] == "committed");
-        var tagKeys = measurements.SelectMany(measurement => measurement.Tags.Keys).ToArray();
+            && HasTag(measurement.Tags, "kind", "recovery")
+            && HasTag(measurement.Tags, "outcome", "committed"));
+        var tagKeys = capturedMeasurements.SelectMany(measurement => measurement.Tags.Keys).ToArray();
         foreach (var forbiddenKey in new[]
                  {
                      "userId",
@@ -87,4 +89,10 @@ public sealed class RealtimeObservationProcessingTelemetryTests
     private static Dictionary<string, string?> ToDictionary(
         ReadOnlySpan<KeyValuePair<string, object?>> tags) =>
         tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+
+    private static bool HasTag(
+        Dictionary<string, string?> tags,
+        string key,
+        string expectedValue) =>
+        tags.TryGetValue(key, out var actualValue) && actualValue == expectedValue;
 }

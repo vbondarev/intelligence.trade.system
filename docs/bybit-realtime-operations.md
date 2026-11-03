@@ -168,7 +168,16 @@ recovery. Commit не является моментом REST-доступнос�
 [RealtimeRestVisibleLatencyPostgreSqlTests.cs](../backend/src/Intelligence.TradeSystem.Infrastructure.IntegrationTests/RealtimeRestVisibleLatencyPostgreSqlTests.cs)
 применяет контролируемые приватные observations к PostgreSQL и получает
 первое подтверждение через HTTP `GET /api/v1/positions` в `WebApplicationFactory`.
-Прогон от 2 ноября 2026 года использовал 20 synthetic observations:
-nearest-rank p95 — 236,14 мс, максимум — 1114,39 мс. Он подтверждает методику и
-серверный REST-visible pipeline, но не использует сообщения реального Bybit;
-поэтому `AC-12` остаётся `NOT_VERIFIED`.
+Локальный прогон 3 ноября 2026 года использовал 20 synthetic position
+observations: все 20 получили outcome `applied` и REST-подтверждение;
+nearest-rank p95 — 332,01 мс, максимум — 1617,81 мс. Воспроизвести его можно
+командой:
+
+```powershell
+dotnet test backend/src/Intelligence.TradeSystem.Infrastructure.IntegrationTests/Intelligence.TradeSystem.Infrastructure.IntegrationTests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~RealtimeRestVisibleLatencyPostgreSqlTests.Private_position_observations_become_visible_through_rest_and_measure_nearest_rank_p95" --logger "console;verbosity=detailed"
+```
+
+Этот synthetic сценарий проверяет только серверный REST-visible pipeline. Он не
+подключается к Bybit и не моделирует дубликаты, пропуски или REST-only recovery,
+поэтому не подтверждает полноту реальной доставки или характеристики
+биржевого транспорта; `AC-12` остаётся `NOT_VERIFIED`.
