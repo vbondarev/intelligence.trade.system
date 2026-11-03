@@ -8,7 +8,9 @@ using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.State;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
+using Intelligence.TradeSystem.Domain.Snapshots;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -32,6 +34,16 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
     {
         var userId = UserId.New();
         var accountId = ExchangeAccountId.New();
+        var positions = Enumerable.Range(0, 3)
+            .Select(_ => new PositionMarketValuationInput(
+                PositionId.New(),
+                ExchangeId.Bybit,
+                MarketCategory.Inverse,
+                "BTCUSD",
+                SettlementAsset.From("USDT"),
+                PositionTrackingState.Active,
+                1m))
+            .ToArray();
         var store = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
         store.Setup(x => x.GetLatestAsync(userId, accountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PortfolioReadResult(true, new PortfolioReadSummary(
@@ -59,8 +71,11 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
                 [
                     new PortfolioExposureReadSummary(SettlementAsset.From("USDC"), 50m, 50m, 0m),
                     new PortfolioExposureReadSummary(SettlementAsset.From("USDT"), null, null, 30m),
-                ])));
-        using var client = CreateClient(userId, store.Object);
+                ])
+            {
+                SnapshotPositionIds = positions.Select(position => position.Id).ToArray(),
+            }));
+        using var client = CreateClient(userId, store.Object, positions);
 
         using var response = await client.GetAsync(
             $"/api/v1/exchange-accounts/{accountId.Value}/portfolio");
@@ -82,7 +97,7 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().Contain("\"currentPositionCount\":3");
         raw.Should().Contain("\"settlementAsset\":\"USDC\"");
-        raw.Should().NotContainAny("\"positions\"", "staleAfter");
+        raw.Should().NotContainAny("\"positions\"", "staleAfter", "snapshotPositionIds");
         store.VerifyAll();
     }
 
@@ -171,7 +186,10 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
         store.VerifyNoOtherCalls();
     }
 
-    private HttpClient CreateClient(UserId userId, IPortfolioReadStore store)
+    private HttpClient CreateClient(
+        UserId userId,
+        IPortfolioReadStore store,
+        IReadOnlyList<PositionMarketValuationInput>? positions = null)
     {
         var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
         observationStore.Setup(x => x.GetAsync(
@@ -179,12 +197,13 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
                 It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Versioned<RealtimeObservationState>?)null);
+        var valuationInputs = positions ?? [];
         var positionStore = new Mock<IPositionReadStore>(MockBehavior.Strict);
         positionStore.Setup(x => x.GetMarketValuationInputsByAccountAsync(
                 userId,
                 It.IsAny<ExchangeAccountId>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+            .ReturnsAsync(valuationInputs);
         var readService = new PortfolioReadService(
             store,
             new RealtimeObservationReadService(

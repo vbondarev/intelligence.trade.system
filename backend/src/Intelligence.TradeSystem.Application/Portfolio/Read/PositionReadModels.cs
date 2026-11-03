@@ -120,6 +120,8 @@ public sealed record PortfolioReadSummary(
 
     public PortfolioMarketValuationFreshness ValuationFreshness { get; init; } =
         new(MarketValuationFreshnessStatus.Unknown, null);
+
+    public IReadOnlyList<PositionId>? SnapshotPositionIds { get; init; }
 }
 
 /// <summary>

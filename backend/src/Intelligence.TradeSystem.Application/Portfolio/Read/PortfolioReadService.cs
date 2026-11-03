@@ -29,10 +29,17 @@ public sealed class PortfolioReadService(
         var positions = await positionReadStore
             .GetMarketValuationInputsByAccountAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
+        var currentPositionIds = positions.Select(position => position.Id).ToArray();
+        var snapshotPositionIds = summary.SnapshotPositionIds;
+        var positionSetsMatch = snapshotPositionIds is not null
+            && snapshotPositionIds.Count == currentPositionIds.Length
+            && snapshotPositionIds.Distinct().Count() == snapshotPositionIds.Count
+            && currentPositionIds.Distinct().Count() == currentPositionIds.Length
+            && snapshotPositionIds.ToHashSet().SetEquals(currentPositionIds);
         var valuationFreshness = await marketMarkPriceService
             .GetPortfolioFreshnessAsync(
                 positions,
-                summary.PositionsFullyReconciled,
+                summary.PositionsFullyReconciled && positionSetsMatch,
                 cancellationToken)
             .ConfigureAwait(false);
         var factualFreshness = RealtimeFreshnessProjection.ProjectFactualFreshness(
