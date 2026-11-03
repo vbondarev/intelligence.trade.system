@@ -134,6 +134,30 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
     }
 
     [Fact]
+    public async Task Batch_observation_state_read_is_scoped_to_the_user_and_omits_missing_states()
+    {
+        var first = await CreateSavedAccountAsync();
+        var second = await CreateSavedAccountAsync(first.UserId);
+        var withoutState = await CreateSavedAccountAsync(first.UserId);
+        var foreign = await CreateSavedAccountAsync();
+
+        await StartObservationAsync(first);
+        await StartObservationAsync(second);
+        await StartObservationAsync(foreign);
+
+        await using var context = fixture.CreateContext();
+        var states = await new RealtimeObservationStateStore(context).GetForAccountsAsync(
+            first.UserId,
+            [first.Id, second.Id, withoutState.Id, foreign.Id, ExchangeAccountId.New()]);
+
+        Assert.Equal(2, states.Count);
+        Assert.Contains(first.Id, states.Keys);
+        Assert.Contains(second.Id, states.Keys);
+        Assert.DoesNotContain(withoutState.Id, states.Keys);
+        Assert.DoesNotContain(foreign.Id, states.Keys);
+    }
+
+    [Fact]
     public async Task Cursors_of_two_symbols_in_one_account_are_stored_and_advanced_independently()
     {
         var account = await CreateSavedAccountAsync();
@@ -882,11 +906,11 @@ public sealed class RealtimeObservationPersistencePostgreSqlTests(PostgreSqlFixt
         await AssertMarkPricesAsync([symbol], 3m, BaseTime.AddSeconds(2));
     }
 
-    private async Task<ExchangeAccount> CreateSavedAccountAsync()
+    private async Task<ExchangeAccount> CreateSavedAccountAsync(UserId? userId = null)
     {
         var account = ExchangeAccount.Create(
             ExchangeAccountId.New(),
-            UserId.New(),
+            userId ?? UserId.New(),
             ExchangeId.Bybit,
             ExchangeAccountProviderIdentity.From($"provider-{Guid.NewGuid():N}"),
             "Основной",

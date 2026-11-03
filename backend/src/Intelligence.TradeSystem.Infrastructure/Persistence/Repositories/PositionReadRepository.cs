@@ -9,6 +9,53 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 
 public sealed class PositionReadRepository(TradeSystemDbContext dbContext) : IPositionReadStore
 {
+    public async Task<IReadOnlyList<PositionMarketValuationInput>> GetMarketValuationInputsByAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureUserId(userId);
+        if (exchangeAccountId == default)
+        {
+            throw new ArgumentException("ExchangeAccountId must be initialized.", nameof(exchangeAccountId));
+        }
+
+        var rows = await dbContext.Positions
+            .AsNoTracking()
+            .Where(position =>
+                position.ExchangeAccountId == exchangeAccountId.Value
+                && position.TrackingState != PositionTrackingState.Closed)
+            .Join(
+                dbContext.ExchangeAccounts
+                    .AsNoTracking()
+                    .Where(account => account.UserId == userId.Value),
+                position => position.ExchangeAccountId,
+                account => account.Id,
+                (position, account) => new
+                {
+                    position.Id,
+                    account.ExchangeId,
+                    position.MarketCategory,
+                    position.InstrumentId,
+                    position.SettlementAsset,
+                    position.TrackingState,
+                    position.Size,
+                })
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return rows
+            .Select(row => new PositionMarketValuationInput(
+                PositionId.FromGuid(row.Id),
+                row.ExchangeId,
+                row.MarketCategory,
+                row.InstrumentId,
+                SettlementAsset.From(row.SettlementAsset),
+                row.TrackingState,
+                row.Size))
+            .ToArray();
+    }
+
     public async Task<PositionReadPage> ListAsync(
         UserId userId,
         PositionReadQuery query,

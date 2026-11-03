@@ -6,6 +6,7 @@ using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
 using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using DomainPositionSide = Intelligence.TradeSystem.Domain.Snapshots.PositionSide;
@@ -176,21 +177,52 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
     {
         var userId = UserId.New();
         var detail = CreateDetail();
+        var observedAt = DateTimeOffset.UtcNow;
         var store = new Mock<IPositionReadStore>(MockBehavior.Strict);
         store.Setup(x => x.GetByIdAsync(
                 userId,
                 detail.ListItem.Id,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(detail);
-        using var client = CreateClient(userId, store.Object);
+        var markPriceStore = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        markPriceStore.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.Is<IReadOnlyCollection<InstrumentId>>(symbols =>
+                    symbols.Count == 1 && symbols.Contains(InstrumentId.From("BTCPERP"))),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new MarketMarkPrice
+                {
+                    Exchange = ExchangeId.Bybit,
+                    Category = MarketCategory.Linear,
+                    Symbol = InstrumentId.From("BTCPERP"),
+                    MarkPrice = 120m,
+                    ObservedAt = observedAt,
+                    ReceivedAt = observedAt,
+                    Source = MarketMarkPriceSource.PublicTicker,
+                },
+            ]);
+        using var client = CreateClient(userId, store.Object, markPriceStore.Object);
 
         using var response = await client.GetAsync($"/api/v1/positions/{detail.ListItem.Id.Value}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<PositionResponse>(V1JsonSerializerOptions.Default);
+        body!.MarketValuation.Should().NotBeNull();
+        body.MarketValuation!.MarkPrice.Should().Be(120m);
+        body.MarketValuation.IndicativePositionValue.Should().Be(120m);
+        body.MarketValuation.SettlementAsset.Should().Be("USDC");
+        body.MarketValuation.Source.Should().Be("publicTicker");
+        body.MarketValuation.FreshnessStatus.Should().Be(MarketValuationFreshnessStatusV1.Fresh);
         var raw = await response.Content.ReadAsStringAsync();
         raw.Should().Contain("\"marketCategory\":\"linear\"");
         raw.Should().Contain("\"settlementAsset\":\"USDC\"");
+        raw.Should().Contain("\"marketValuation\"");
         raw.Should().NotContainAny("positionIdx", "changes", "timeline", "assessment", "recommendation");
+        store.VerifyAll();
+        markPriceStore.VerifyAll();
     }
 
     [Fact]
@@ -207,7 +239,10 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
     }
 
-    private HttpClient CreateClient(UserId userId, IPositionReadStore positionStore)
+    private HttpClient CreateClient(
+        UserId userId,
+        IPositionReadStore positionStore,
+        IMarketMarkPriceStore? marketMarkPriceStore = null)
     {
         var factory = _factory.WithWebHostBuilder(builder =>
         {
@@ -217,7 +252,7 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
                 services.AddSingleton(new PositionReadService(
                     positionStore,
                     new MarketMarkPriceService(
-                        Mock.Of<IMarketMarkPriceStore>(),
+                        marketMarkPriceStore ?? Mock.Of<IMarketMarkPriceStore>(),
                         TimeProvider.System)));
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
@@ -250,7 +285,11 @@ public sealed class PositionsControllerTests : IClassFixture<ApiWebApplicationFa
             50m,
             new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 9, 20, 10, 5, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 9, 20, 10, 5, 0, TimeSpan.Zero));
+            new DateTimeOffset(2026, 9, 20, 10, 5, 0, TimeSpan.Zero))
+        {
+            ExchangeId = ExchangeId.Bybit,
+            MarketCategory = MarketCategory.Linear,
+        };
     }
 
     private static PositionReadDetail CreateDetail()

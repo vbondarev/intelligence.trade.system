@@ -1,3 +1,5 @@
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
+
 namespace Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
 
 /// <summary>Текущая сводка портфеля одного биржевого аккаунта.</summary>
@@ -25,4 +27,11 @@ public sealed record PortfolioResponse(
     bool IsComplete,
     bool IsFresh,
     int CurrentPositionCount,
-    IReadOnlyList<PortfolioExposureResponse> Exposures);
+    IReadOnlyList<PortfolioExposureResponse> Exposures)
+{
+    public FactualFreshnessResponse FactualFreshness { get; init; } =
+        new(FactualFreshnessStatusV1.Unknown, null);
+
+    public ValuationFreshnessResponse ValuationFreshness { get; init; } =
+        new(MarketValuationFreshnessStatusV1.Unknown, null);
+}

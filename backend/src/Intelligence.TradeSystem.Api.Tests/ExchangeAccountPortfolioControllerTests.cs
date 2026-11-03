@@ -1,9 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using Intelligence.TradeSystem.Api.Contracts.V1.Portfolio;
+using Intelligence.TradeSystem.Api.Contracts.V1.Positions;
 using Intelligence.TradeSystem.Api.Serialization;
 using Intelligence.TradeSystem.Api.Tests.Support;
+using Intelligence.TradeSystem.Application.Concurrency;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
@@ -69,6 +73,9 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
         body.TotalUnrealizedPnl.Should().Be(10m);
         body.LargestPositionId.Should().BeNull();
         body.CurrentPositionCount.Should().Be(3);
+        body.FactualFreshness.Status.Should().Be(FactualFreshnessStatusV1.Unknown);
+        body.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatusV1.NotApplicable);
+        body.ValuationFreshness.CalculatedAt.Should().NotBeNull();
         body.Exposures.Should().Equal(
             new PortfolioExposureResponse("USDC", 50m, 50m, 0m),
             new PortfolioExposureResponse("USDT", null, null, 30m));
@@ -166,12 +173,36 @@ public sealed class ExchangeAccountPortfolioControllerTests : IClassFixture<ApiW
 
     private HttpClient CreateClient(UserId userId, IPortfolioReadStore store)
     {
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        observationStore.Setup(x => x.GetAsync(
+                userId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<RealtimeObservationState>?)null);
+        var positionStore = new Mock<IPositionReadStore>(MockBehavior.Strict);
+        positionStore.Setup(x => x.GetMarketValuationInputsByAccountAsync(
+                userId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        var readService = new PortfolioReadService(
+            store,
+            new RealtimeObservationReadService(
+                observationStore.Object,
+                new RealtimeObservationReadOptions
+                {
+                    HeartbeatStaleAfter = TimeSpan.FromMinutes(1),
+                },
+                TimeProvider.System),
+            positionStore.Object,
+            new MarketMarkPriceService(Mock.Of<IMarketMarkPriceStore>(), TimeProvider.System),
+            TimeProvider.System);
         var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<PortfolioReadService>();
-                services.AddSingleton(new PortfolioReadService(store));
+                services.AddSingleton(readService);
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName,

@@ -1370,6 +1370,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         IRealtimeObservationStateStore inner,
         GenerationAdvanceFailureGate failureGate) : IRealtimeObservationStateStore
     {
+        public Task<IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>> GetForAccountsAsync(
+            UserId userId,
+            IReadOnlyCollection<ExchangeAccountId> exchangeAccountIds,
+            CancellationToken cancellationToken = default) =>
+            inner.GetForAccountsAsync(userId, exchangeAccountIds, cancellationToken);
+
         public Task<Versioned<RealtimeObservationState>?> GetAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
@@ -1481,6 +1487,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         IRealtimeObservationStateStore inner,
         TransportStateSaveGate saveGate) : IRealtimeObservationStateStore
     {
+        public Task<IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>> GetForAccountsAsync(
+            UserId userId,
+            IReadOnlyCollection<ExchangeAccountId> exchangeAccountIds,
+            CancellationToken cancellationToken = default) =>
+            inner.GetForAccountsAsync(userId, exchangeAccountIds, cancellationToken);
+
         public async Task<Versioned<RealtimeObservationState>?> GetAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,

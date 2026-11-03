@@ -2,7 +2,9 @@ using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Users;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +20,7 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Authorize(Policy = "TradeUser")]
 public sealed class ExchangeAccountSyncController(
     IExchangeAccountSyncService syncService,
+    RealtimeObservationReadService realtimeObservationReadService,
     ICurrentUserContext currentUserContext) : ControllerBase
 {
     [HttpPost("{id}/sync")]
@@ -35,11 +38,21 @@ public sealed class ExchangeAccountSyncController(
         {
             ExchangeAccountSyncOutcome.Synchronized or ExchangeAccountSyncOutcome.AlreadyApplied or
                 ExchangeAccountSyncOutcome.Superseded when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+                Ok(await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountSyncOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountSyncOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
         };
+    }
+
+    private async Task<ExchangeAccountResponse> ToResponseAsync(
+        ExchangeAccount account,
+        CancellationToken cancellationToken)
+    {
+        var observation = await realtimeObservationReadService
+            .GetAsync(currentUserContext.UserId, account.Id, cancellationToken)
+            .ConfigureAwait(false);
+        return ExchangeAccountMapper.ToResponse(account, observation);
     }
 
     private ObjectResult Error(ApiErrorDescriptor descriptor, string? detail = null) =>

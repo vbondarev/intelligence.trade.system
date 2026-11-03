@@ -365,6 +365,7 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 credentialVersion,
                 provider);
             activeAccounts[key] = session;
+            ExchangeRealtimeObservationTelemetry.RecordProviderSessionStarted();
             var transportState = await provider.StartAsync(session, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -591,13 +592,14 @@ public sealed class ExchangeRealtimeObservationSupervisor(
     {
         var connected = transportState.Status is RealtimeTransportStatus.Subscribed
             or RealtimeTransportStatus.Restored;
+        var observationStatus = MapTransportStatus(transportState.Status);
         var now = timeProvider.GetUtcNow();
         var saved = await UpdateCurrentStateAsync(
                 session.Key,
                 session.Generation,
                 current => current with
                 {
-                    TransportStatus = MapTransportStatus(transportState.Status),
+                    TransportStatus = observationStatus,
                     LastConnectedAt = connected ? transportState.OccurredAt : current.LastConnectedAt,
                     LastHeartbeatAt = connected ? now : null,
                     RecoveryRequired = current.RecoveryRequired
@@ -611,6 +613,11 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+
+        if (saved)
+        {
+            ExchangeRealtimeObservationTelemetry.RecordTransportStatus(observationStatus);
+        }
 
         if (saved && (transportState.RecoveryRequired || recoveryRequestCount > 0))
         {
@@ -1108,6 +1115,7 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 return;
             }
 
+            ExchangeRealtimeObservationTelemetry.RecordPositionObservationReceived();
             if (!_coordinator.TryEnqueue(Key.UserId, Generation, observation))
             {
                 ExchangeRealtimeObservationTelemetry.RecordDroppedSignal();
@@ -1124,6 +1132,7 @@ public sealed class ExchangeRealtimeObservationSupervisor(
                 return;
             }
 
+            ExchangeRealtimeObservationTelemetry.RecordWalletObservationReceived();
             if (!_coordinator.TryEnqueue(Key.UserId, Generation, observation))
             {
                 ExchangeRealtimeObservationTelemetry.RecordDroppedSignal();

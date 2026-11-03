@@ -226,12 +226,16 @@ public sealed class ExchangeAccountObservationCoordinator(
             }
 
             RealtimeObservationApplyResult result;
+            var applyStartedAt = clock.GetTimestamp();
             try
             {
                 result = await ApplyAsync(userId, channel, next, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
+                RealtimeObservationProcessingTelemetry.ObservationFailed(
+                    next.Position is not null,
+                    clock.GetElapsedTime(applyStartedAt));
                 lock (channel.Sync)
                 {
                     channel.RecoveryRequests++;
@@ -241,6 +245,13 @@ public sealed class ExchangeAccountObservationCoordinator(
                 throw;
             }
 
+            RealtimeObservationProcessingTelemetry.ObservationProcessed(
+                next.Position is not null,
+                result.Outcome,
+                clock.GetElapsedTime(applyStartedAt),
+                GetMessageCreatedAt(next),
+                GetReceivedAt(next),
+                clock.GetUtcNow());
             processedObservations++;
             results.Add(result);
             switch (result.Outcome)
@@ -457,12 +468,24 @@ public sealed class ExchangeAccountObservationCoordinator(
             .ConfigureAwait(false);
     }
 
+    private static DateTimeOffset? GetMessageCreatedAt(PendingObservation pending) =>
+        pending.Position?.MessageCreatedAt ?? pending.Wallet?.MessageCreatedAt;
+
+    private static DateTimeOffset GetReceivedAt(PendingObservation pending) =>
+        pending.Position is { } position
+            ? position.ReceivedAt
+            : pending.Wallet?.ReceivedAt
+                ?? throw new InvalidOperationException("Pending observation has no received timestamp.");
+
     private async Task<ExchangeAccountSyncResult> SynchronizeUnderGateAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         AccountChannel channel,
         CancellationToken cancellationToken)
     {
+        var startedAt = clock.GetTimestamp();
+        var kind = "reconciliation";
+        var outcome = "failed";
         try
         {
             await LearnPersistedGenerationAsync(userId, exchangeAccountId, channel, cancellationToken)
@@ -476,6 +499,10 @@ public sealed class ExchangeAccountObservationCoordinator(
                 generation = channel.Generation;
                 recoveryRequestsAtStart = channel.RecoveryRequests;
                 recoveryRequested = channel.HasUnhandledRecoveryRequest;
+            }
+            if (recoveryRequested)
+            {
+                kind = "recovery";
             }
 
             // Epoch фиксируется до REST IO: локальный новый запрос сначала регистрируется, затем
@@ -504,7 +531,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                     .ConfigureAwait(false);
             }
 
-            return await SynchronizeAndRecordAsync(
+            var result = await SynchronizeAndRecordAsync(
                     userId,
                     exchangeAccountId,
                     channel,
@@ -513,11 +540,20 @@ public sealed class ExchangeAccountObservationCoordinator(
                     epochAtStart,
                     cancellationToken)
                 .ConfigureAwait(false);
+            outcome = result.FullReconciliationCommitted ? "committed" : "incomplete";
+            return result;
         }
         catch
         {
             await TryPersistUnhandledRecoveryAsync(userId, exchangeAccountId, channel).ConfigureAwait(false);
             throw;
+        }
+        finally
+        {
+            RealtimeObservationProcessingTelemetry.ReconciliationCompleted(
+                clock.GetElapsedTime(startedAt),
+                kind,
+                outcome);
         }
     }
 

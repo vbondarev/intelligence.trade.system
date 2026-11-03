@@ -341,9 +341,11 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
 
         foreach (var positionSchema in new[] { "PositionResponse", "PositionListItemResponse" })
         {
-            schemas.GetProperty(positionSchema).GetProperty("properties")
-                .GetProperty("settlementAsset").GetProperty("type").GetString()
+            var properties = schemas.GetProperty(positionSchema).GetProperty("properties");
+            properties.GetProperty("settlementAsset").GetProperty("type").GetString()
                 .Should().Contain("string");
+            GetReferenceName(properties.GetProperty("marketValuation"))
+                .Should().Be("PositionMarketValuationResponse");
         }
 
         var portfolioProperties = schemas.GetProperty("PortfolioResponse").GetProperty("properties");
@@ -352,6 +354,49 @@ public sealed class V1OpenApiContractTests : IClassFixture<ApiWebApplicationFact
         var exposures = portfolioProperties.GetProperty("exposures");
         exposures.GetProperty("type").GetString().Should().Contain("array");
         GetReferenceName(exposures.GetProperty("items")).Should().Be("PortfolioExposureResponse");
+        GetReferenceName(portfolioProperties.GetProperty("factualFreshness"))
+            .Should().Be("FactualFreshnessResponse");
+        GetReferenceName(portfolioProperties.GetProperty("valuationFreshness"))
+            .Should().Be("ValuationFreshnessResponse");
+
+        var realtimeObservation = schemas.GetProperty("RealtimeObservationResponse");
+        realtimeObservation.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().Equal("status", "lastConnectedAt", "lastHeartbeatAt", "reasonCode");
+        AssertNullableProperty(realtimeObservation, "lastConnectedAt");
+        AssertNullableProperty(realtimeObservation, "lastHeartbeatAt");
+        AssertNullableProperty(realtimeObservation, "reasonCode");
+        AssertDateTimeOffsetProperty(realtimeObservation, "lastConnectedAt");
+        AssertDateTimeOffsetProperty(realtimeObservation, "lastHeartbeatAt");
+
+        var factualFreshness = schemas.GetProperty("FactualFreshnessResponse");
+        factualFreshness.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().Equal("status", "lastFullyReconciledAt");
+        AssertNullableProperty(factualFreshness, "lastFullyReconciledAt");
+        AssertDateTimeOffsetProperty(factualFreshness, "lastFullyReconciledAt");
+
+        var valuationFreshness = schemas.GetProperty("ValuationFreshnessResponse");
+        valuationFreshness.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().Equal("status", "calculatedAt");
+        AssertNullableProperty(valuationFreshness, "calculatedAt");
+        AssertDateTimeOffsetProperty(valuationFreshness, "calculatedAt");
+
+        var marketValuation = schemas.GetProperty("PositionMarketValuationResponse");
+        marketValuation.GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().Equal(
+                "markPrice",
+                "indicativePositionValue",
+                "settlementAsset",
+                "source",
+                "observedAt",
+                "calculatedAt",
+                "freshnessStatus");
+        AssertNullableProperty(marketValuation, "markPrice");
+        AssertNullableProperty(marketValuation, "indicativePositionValue");
+        AssertNullableProperty(marketValuation, "settlementAsset");
+        AssertNullableProperty(marketValuation, "source");
+        AssertNullableProperty(marketValuation, "observedAt");
+        AssertDateTimeOffsetProperty(marketValuation, "observedAt");
+        AssertDateTimeOffsetProperty(marketValuation, "calculatedAt");
 
         var exposureSchema = schemas.GetProperty("PortfolioExposureResponse");
         exposureSchema.GetProperty("properties").EnumerateObject().Select(property => property.Name)

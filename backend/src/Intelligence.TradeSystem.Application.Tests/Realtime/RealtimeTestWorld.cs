@@ -1119,6 +1119,26 @@ internal sealed class RealtimeTestWorld
 
     private sealed class StateStore(RealtimeTestWorld world) : IRealtimeObservationStateStore
     {
+        public Task<IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>> GetForAccountsAsync(
+            UserId userId,
+            IReadOnlyCollection<ExchangeAccountId> exchangeAccountIds,
+            CancellationToken cancellationToken = default)
+        {
+            world.BeforeStateRead?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>> states =
+                userId == world.UserId
+                && exchangeAccountIds.Contains(world.AccountId)
+                && world.state is { } state
+                    ? new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>
+                    {
+                        [world.AccountId] = state,
+                    }
+                    : new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>();
+            return Task.FromResult(states);
+        }
+
         public Task<Versioned<RealtimeObservationState>?> GetAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,

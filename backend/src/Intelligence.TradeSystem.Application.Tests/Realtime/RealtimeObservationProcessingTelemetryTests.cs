@@ -1,0 +1,90 @@
+using System.Diagnostics.Metrics;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.State;
+
+namespace Intelligence.TradeSystem.Application.Tests.Realtime;
+
+public sealed class RealtimeObservationProcessingTelemetryTests
+{
+    [Fact]
+    public void Processing_metrics_use_bounded_outcomes_and_do_not_publish_identifiers()
+    {
+        var measurements = new List<(string Name, Dictionary<string, string?> Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == RealtimeObservationProcessingTelemetry.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
+            measurements.Add((instrument.Name, ToDictionary(tags))));
+        listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) =>
+            measurements.Add((instrument.Name, ToDictionary(tags))));
+        listener.Start();
+
+        var completedAt = new DateTimeOffset(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
+        RealtimeObservationProcessingTelemetry.ObservationProcessed(
+            isPosition: true,
+            RealtimeObservationApplyOutcome.Applied,
+            TimeSpan.FromMilliseconds(8),
+            completedAt.AddSeconds(-1),
+            completedAt.AddMilliseconds(-500),
+            completedAt);
+        RealtimeObservationProcessingTelemetry.ObservationFailed(
+            isPosition: false,
+            TimeSpan.FromMilliseconds(4));
+        RealtimeObservationProcessingTelemetry.ObservationProcessed(
+            isPosition: false,
+            RealtimeObservationApplyOutcome.Applied,
+            TimeSpan.FromMilliseconds(5),
+            messageCreatedAt: null,
+            receivedAt: completedAt.AddMilliseconds(10),
+            completedAt: completedAt);
+        RealtimeObservationProcessingTelemetry.ReconciliationCompleted(
+            TimeSpan.FromMilliseconds(12),
+            "recovery",
+            "committed");
+
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.observations.apply.outcomes"
+            && measurement.Tags["stream"] == "position"
+            && measurement.Tags["outcome"] == "applied");
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.observations.creation_to_commit.duration"
+            && measurement.Tags["stream"] == "position");
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.observations.creation_time_unavailable"
+            && measurement.Tags["stream"] == "wallet");
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.observations.receive_time_unavailable"
+            && measurement.Tags["stream"] == "wallet");
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.observations.apply.outcomes"
+            && measurement.Tags["stream"] == "wallet"
+            && measurement.Tags["outcome"] == "failed");
+        measurements.Should().Contain(measurement =>
+            measurement.Name == "exchange.realtime.reconciliation.duration"
+            && measurement.Tags["kind"] == "recovery"
+            && measurement.Tags["outcome"] == "committed");
+        var tagKeys = measurements.SelectMany(measurement => measurement.Tags.Keys).ToArray();
+        foreach (var forbiddenKey in new[]
+                 {
+                     "userId",
+                     "user_id",
+                     "exchangeAccountId",
+                     "exchange_account_id",
+                     "symbol",
+                     "exception",
+                     "credentials",
+                 })
+        {
+            tagKeys.Should().NotContain(forbiddenKey);
+        }
+    }
+
+    private static Dictionary<string, string?> ToDictionary(
+        ReadOnlySpan<KeyValuePair<string, object?>> tags) =>
+        tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+}

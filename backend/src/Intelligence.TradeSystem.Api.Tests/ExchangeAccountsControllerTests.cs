@@ -7,6 +7,8 @@ using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -55,7 +57,53 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(V1JsonSerializerOptions.Default);
         body!.Items.Should().ContainSingle(x => x.Id == account.Id.Value);
+        body.Items[0].RealtimeObservation.Status.Should().Be(RealtimeObservationStatusV1.Unknown);
         service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task List_projects_the_batch_read_observation_state()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var now = DateTimeOffset.UtcNow;
+        var observation = new RealtimeObservationState
+        {
+            ExchangeAccountId = account.Id,
+            Generation = 1,
+            TransportStatus = RealtimeObservationTransportStatus.Connected,
+            LastConnectedAt = now.AddSeconds(-1),
+            LastHeartbeatAt = now,
+            LastFullyReconciledAt = now.AddMinutes(-1),
+            RecoveryRequired = false,
+        };
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[account]);
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        observationStore.Setup(x => x.GetForAccountsAsync(
+                userId,
+                It.Is<IReadOnlyCollection<ExchangeAccountId>>(ids =>
+                    ids.Count == 1 && ids.Contains(account.Id)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>
+            {
+                [account.Id] = new(observation, ConcurrencyVersion.Initial),
+            });
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.GetAsync(ManagementRoute);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(
+            V1JsonSerializerOptions.Default);
+        var projected = body!.Items.Should().ContainSingle().Which.RealtimeObservation;
+        projected.Status.Should().Be(RealtimeObservationStatusV1.Connected);
+        projected.LastConnectedAt.Should().Be(observation.LastConnectedAt);
+        projected.LastHeartbeatAt.Should().Be(observation.LastHeartbeatAt);
+        projected.ReasonCode.Should().BeNull();
+        service.VerifyAll();
+        observationStore.VerifyAll();
     }
 
     [Fact]
@@ -904,8 +952,10 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     private HttpClient CreateClient(
         UserId userId,
         IExchangeAccountService service,
-        IExchangeAccountSyncService? syncService = null)
+        IExchangeAccountSyncService? syncService = null,
+        Mock<IRealtimeObservationStateStore>? observationStore = null)
     {
+        var stateStore = observationStore ?? CreateEmptyObservationStore(userId);
         var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
@@ -914,6 +964,8 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
                 services.AddSingleton(service);
                 services.RemoveAll<IExchangeAccountSyncService>();
                 services.AddSingleton(syncService ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict).Object);
+                services.RemoveAll<IRealtimeObservationStateStore>();
+                services.AddSingleton(stateStore.Object);
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName, _ => { });
@@ -923,6 +975,22 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(TestAuthenticationHandler.UserIdHeader, userId.Value.ToString());
         return client;
+    }
+
+    private static Mock<IRealtimeObservationStateStore> CreateEmptyObservationStore(UserId userId)
+    {
+        var store = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                userId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<RealtimeObservationState>?)null);
+        store.Setup(x => x.GetForAccountsAsync(
+                userId,
+                It.IsAny<IReadOnlyCollection<ExchangeAccountId>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>());
+        return store;
     }
 
     private static ExchangeAccount CreateAccount(
