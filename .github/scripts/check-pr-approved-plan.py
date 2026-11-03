@@ -25,7 +25,7 @@ ISSUE_CLOSE_START = re.compile(r"^Closes\b", re.IGNORECASE)
 FENCE_START = re.compile(r"^\s*(`{3,}|~{3,})")
 PLAN_FIELD_LINE = re.compile(r"^Approved Implementation Plan:\s*(.*?)\s*$")
 BASE_AMENDMENT_LINK_LINE = re.compile(
-    r"^Base Approved Implementation Plan:\s*(.*?)\s*$"
+    r"^(?:Base Approved Implementation Plan:|\*\*Base Approved Implementation Plan:\*\*)\s*(.*?)\s*$"
 )
 COMMENT_ID_FRAGMENT = re.compile(r"^issuecomment-([1-9][0-9]*)$")
 API_VERSION = "2022-11-28"
