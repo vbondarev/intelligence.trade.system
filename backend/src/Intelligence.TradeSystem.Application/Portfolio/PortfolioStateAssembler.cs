@@ -9,6 +9,8 @@ namespace Intelligence.TradeSystem.Application.Portfolio;
 /// </summary>
 public static class PortfolioStateAssembler
 {
+    private const int StoredCapitalScale = 18;
+
     public static PortfolioState Assemble(
         AccountBalance? balance,
         DateTimeOffset? balanceObservedAt,
@@ -48,6 +50,22 @@ public static class PortfolioStateAssembler
             balance.TotalWalletBalance,
             balance.TotalPerpUnrealizedPnl);
     }
+
+    internal static bool HasSameCapitalValues(PortfolioCapitalState accepted, PortfolioCapitalState observed) =>
+        SameStoredValue(accepted.TotalEquity, observed.TotalEquity) &&
+        SameStoredValue(accepted.AvailableCapital, observed.AvailableCapital) &&
+        SameStoredValue(accepted.TotalWalletBalance, observed.TotalWalletBalance) &&
+        SameStoredValue(accepted.AccountUnrealizedPnl, observed.AccountUnrealizedPnl);
+
+    /// <summary>
+    /// Сравнивает значения с точностью хранения капитала (18 знаков после запятой): принятое значение
+    /// могло быть округлено при сохранении.
+    /// </summary>
+    private static bool SameStoredValue(decimal? accepted, decimal? observed) =>
+        accepted is { } left && observed is { } right
+            ? decimal.Round(left, StoredCapitalScale, MidpointRounding.AwayFromZero) ==
+              decimal.Round(right, StoredCapitalScale, MidpointRounding.AwayFromZero)
+            : accepted is null && observed is null;
 
     public static PortfolioState AssembleWithCapital(
         PortfolioCapitalState capital,

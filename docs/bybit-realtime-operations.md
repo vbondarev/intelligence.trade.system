@@ -116,6 +116,7 @@ REST-сверку и проверить её результат. Не меняй
 |---|---|
 | `exchange.realtime.providers.active` | Текущие активные приватные observers |
 | `exchange.realtime.transport.status_updates` | Успешно сохранённые обновления от transport signals в `PersistTransportStateAsync`. Tag `status` отражает нормализованный статус наблюдения |
+| `exchange.realtime.transport.gap_signals` | Сигналы о возможном пропуске, принятые supervisor. Unit `{signal}`. Tags `worker=exchange-realtime-observation`, `exchange=Bybit`, `reason=connection_lost` или `reason=message_rejected` |
 | `exchange.realtime.observations.received` | Входящие события; tag `stream` (`position`/`wallet`) |
 | `exchange.realtime.observation.signals.dropped` | Отказы постановки наблюдений в очередь на границе supervisor |
 | `exchange.realtime.recoveries.requested` | Запросы полной REST-сверки |
@@ -152,9 +153,28 @@ Meter `Intelligence.TradeSystem.Application.Realtime` дополняет эти 
   `kind=recovery` отражает локальный запрос или сохранённый `RecoveryRequired`
   того же поколения в снимке, прочитанном перед REST-запросом.
 
-Счётчики описывают события, наблюдаемые backend. По ним нельзя определить
-полноту доставки от Bybit или число бизнес-изменений, восстановленных только
-через REST.
+Сигнал о возможном пропуске учитывается при получении `ConnectionLost` или
+`MessageRejected` после регистрации pending state. Повтор сохранения этого
+состояния и callback `Restored` счётчик не увеличивают.
+
+В meter `Intelligence.TradeSystem.Application.Realtime` счётчик
+`exchange.realtime.rest.applied_changes` учитывает изменения, сохранённые из
+account-wide REST-снимка. Unit `{change}`. Допустимы только tags
+`resource=position|wallet` и `kind=recovery|reconciliation`. Счётчик
+публикуется после commit REST-транзакции, до отдельного подтверждения recovery
+epoch. Сверка без изменений, откат и проигранная попытка записи его не
+увеличивают. Если принят только один из ресурсов, учитывается только он.
+
+Для `position` учитываются открытие, увеличение, уменьшение, изменение и
+закрытие позиции. Первичное обнаружение тоже может увеличить счётчик.
+Для `wallet` учитывается изменение известных значений капитала. Обновление
+только времени наблюдения и первое заполнение капитала счётчик не увеличивают.
+Вид `recovery` включает и стартовую сверку при установленном `RecoveryRequired`.
+
+Эти счётчики описывают разные наблюдаемые факты. Сигнал о возможном пропуске
+может сопровождать несколько изменений или ни одного. Сверка может сохранить
+изменение без транспортного сигнала. Сумма счётчиков не даёт числа пропущенных
+биржевых сообщений и не измеряет полноту доставки от Bybit.
 
 Метрики не содержат `UserId`, `ExchangeAccountId`, `symbol`, credentials,
 сырые payload, текст исключения или произвольные идентификаторы. Нулевые/пустые
@@ -243,6 +263,27 @@ recovery. Commit не является моментом REST-доступнос�
 телеметрия, а также обязательная проверка полноты обработки, ошибок,
 пропусков и восстановления по AC-13. Перенос AC-12 не подтверждает
 эксплуатационный SLO и не ослабляет корректность REST reconciliation.
+
+### Контролируемый пропуск и восстановление через REST (AC-13)
+
+В [PostgreSQL-сценарии supervisor](../backend/src/Intelligence.TradeSystem.Infrastructure.IntegrationTests/RealtimeReconciliationPostgreSqlTests.Supervisor.cs)
+после начального commit известны размер позиции 1 и капитал 1000. Размер 2
+и капитал 1100 доступны только в следующем полном REST-снимке. Сценарий
+посылает один `ConnectionLost` и не доставляет position или wallet
+observations для двух изменений. После commit он проверяет оба сохранённых
+значения, отсутствие входящих наблюдений и WS apply, одно измерение
+`gap_signals` и по одному измерению `rest.applied_changes` для `position`
+и `wallet` с `kind=recovery`. Следующий `Restored` запускает сверку с теми же
+значениями и не увеличивает новые счётчики.
+
+Воспроизведение из корня репозитория с Docker/Testcontainers:
+
+```powershell
+dotnet test backend/src/Intelligence.TradeSystem.Infrastructure.IntegrationTests/Intelligence.TradeSystem.Infrastructure.IntegrationTests.csproj --configuration Release --filter "FullyQualifiedName~Supervisor_keeps_healthy_and_sdk_reconnecting_session_and_runs_rest_recovery_after_restored" --logger "console;verbosity=detailed"
+```
+
+Известный объём пропуска задаётся тестовыми данными. Эксплуатационные
+метрики отражают наблюдаемый сигнал и сохранённые изменения по отдельности.
 
 ### Проверка PR-6
 

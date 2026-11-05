@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
 
 namespace Intelligence.TradeSystem.Infrastructure.Realtime;
@@ -27,6 +28,9 @@ internal static class ExchangeRealtimeObservationTelemetry
     private static readonly Counter<long> TransportStatusUpdates = Meter.CreateCounter<long>(
         "exchange.realtime.transport.status_updates",
         unit: "{update}");
+    private static readonly Counter<long> TransportGapSignals = Meter.CreateCounter<long>(
+        "exchange.realtime.transport.gap_signals",
+        unit: "{signal}");
     private static readonly Counter<long> ObservationsReceived = Meter.CreateCounter<long>(
         "exchange.realtime.observations.received",
         unit: "{observation}");
@@ -104,6 +108,28 @@ internal static class ExchangeRealtimeObservationTelemetry
             { "status", ToTransportStatusTag(status) },
         };
         TransportStatusUpdates.Add(1, tags);
+    }
+
+    public static void RecordTransportGapSignal(RealtimeTransportStatus status)
+    {
+        var reason = status switch
+        {
+            RealtimeTransportStatus.ConnectionLost => "connection_lost",
+            RealtimeTransportStatus.MessageRejected => "message_rejected",
+            _ => null,
+        };
+        if (reason is null)
+        {
+            return;
+        }
+
+        var tags = new TagList
+        {
+            { "worker", WorkerName },
+            { "exchange", "Bybit" },
+            { "reason", reason },
+        };
+        TransportGapSignals.Add(1, tags);
     }
 
     public static void RecordPositionObservationReceived() =>

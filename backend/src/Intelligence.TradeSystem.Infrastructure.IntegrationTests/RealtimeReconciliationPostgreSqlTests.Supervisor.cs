@@ -945,18 +945,53 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var (account, _) = await CreateObservedAccountAsync();
         var clock = new MutableTimeProvider(T1.AddMinutes(1));
         var restProvider = new TestPrivateProvider { Clock = clock, ObservedAt = clock.GetUtcNow() };
+        restProvider.SetPosition(OpenPosition(size: 1m));
         var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
         var capture = new AsyncLocal<bool>();
         var reconciliations = Channel.CreateUnbounded<(object? Kind, object? Outcome, double Duration)>();
+        var restChanges = new ConcurrentQueue<(string Resource, string Kind, long Count)>();
+        var gapSignals = new ConcurrentQueue<(string Reason, long Count)>();
+        var websocketMeasurements = new ConcurrentQueue<string>();
+        const string restApplied = "exchange.realtime.rest.applied_changes";
+        const string transportGaps = "exchange.realtime.transport.gap_signals";
+        const string received = "exchange.realtime.observations.received";
+        const string applied = "exchange.realtime.observations.apply.outcomes";
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
         {
-            if (instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime"
-                && instrument.Name == "exchange.realtime.reconciliation.duration")
+            if ((instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime"
+                    && instrument.Name is "exchange.realtime.reconciliation.duration" or restApplied or applied)
+                || (instrument.Meter.Name == ExchangeRealtimeObservationTelemetry.MeterName
+                    && instrument.Name is transportGaps or received))
             {
                 meterListener.EnableMeasurementEvents(instrument);
             }
         };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (!capture.Value)
+            {
+                return;
+            }
+
+            var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+            if (instrument.Name == restApplied)
+            {
+                restChanges.Enqueue((
+                    Assert.IsType<string>(dimensions["resource"]),
+                    Assert.IsType<string>(dimensions["kind"]),
+                    value));
+            }
+            else if (instrument.Name == transportGaps)
+            {
+                Assert.Equal("{signal}", instrument.Unit);
+                gapSignals.Enqueue((Assert.IsType<string>(dimensions["reason"]), value));
+            }
+            else
+            {
+                websocketMeasurements.Enqueue(instrument.Name);
+            }
+        });
         listener.SetMeasurementEventCallback<double>((_, duration, tags, _) =>
         {
             if (capture.Value)
@@ -1006,7 +1041,16 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             var initialMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
             Assert.Equal("recovery", initialMetric.Kind);
             Assert.Equal("committed", initialMetric.Outcome);
+            var initialPortfolio = await LatestPortfolioAsync(account);
+            Assert.Equal(1m, Assert.Single(initialPortfolio.Positions).Size);
+            Assert.Equal(1_000m, initialPortfolio.Capital.TotalEquity);
+            Assert.Equal(("position", "recovery", 1L), Assert.Single(restChanges));
+            restChanges.Clear();
 
+            // Два известных изменения доступны только в REST-снимке. WS callbacks для них отсутствуют.
+            restProvider.ClearPositions();
+            restProvider.SetPosition(OpenPosition(size: 2m));
+            restProvider.Balance = restProvider.Balance with { TotalEquity = 1_100m };
             clock.UtcNow = T1.AddMinutes(2);
             restProvider.ObservedAt = clock.GetUtcNow();
             provider.Report(RealtimeTransportStatus.ConnectionLost, clock.GetUtcNow());
@@ -1016,6 +1060,16 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                     && state.RecoveryRequestEpoch == initial.RecoveryRequestEpoch + 1
                     && !state.RecoveryRequired);
             var connectionLostMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
+            var recoveredPortfolio = await LatestPortfolioAsync(account);
+            Assert.Equal(2m, Assert.Single(recoveredPortfolio.Positions).Size);
+            Assert.Equal(1_100m, recoveredPortfolio.Capital.TotalEquity);
+            Assert.Equal(("connection_lost", 1L), Assert.Single(gapSignals));
+            Assert.Collection(
+                restChanges,
+                change => Assert.Equal(("position", "recovery", 1L), change),
+                change => Assert.Equal(("wallet", "recovery", 1L), change));
+            Assert.Empty(websocketMeasurements);
+            restChanges.Clear();
 
             discoveryCount = candidateSource.DiscoveryPassCount;
             await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 1);
@@ -1037,6 +1091,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(initial.Generation, restored.Generation);
             Assert.Equal(restProvider.ObservedAt, restored.LastFullyReconciledAt);
             Assert.Equal(3, restProvider.FullPositionRequestCount);
+            Assert.Equal(("connection_lost", 1L), Assert.Single(gapSignals));
+            Assert.Empty(restChanges);
+            Assert.Empty(websocketMeasurements);
 
             discoveryCount = candidateSource.DiscoveryPassCount;
             await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 2);

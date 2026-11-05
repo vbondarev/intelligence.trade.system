@@ -1152,6 +1152,7 @@ public sealed class ExchangeRealtimeObservationSupervisor(
             var receivedAt = _owner.GetUtcNow();
             var signal = _transportState.Publish(state, receivedAt);
             _transportState.MarkPending(signal);
+            ExchangeRealtimeObservationTelemetry.RecordTransportGapSignal(state.Status);
             RequestWork();
         }
 

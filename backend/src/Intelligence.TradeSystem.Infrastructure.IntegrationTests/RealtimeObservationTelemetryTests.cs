@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
+using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Infrastructure.Realtime;
 using Xunit;
@@ -42,6 +43,10 @@ public sealed class RealtimeObservationTelemetryTests
         ExchangeRealtimeObservationTelemetry.RecordWalletObservationReceived();
         ExchangeRealtimeObservationTelemetry.RecordTransportStatus(
             RealtimeObservationTransportStatus.Degraded);
+        ExchangeRealtimeObservationTelemetry.RecordTransportGapSignal(RealtimeTransportStatus.ConnectionLost);
+        ExchangeRealtimeObservationTelemetry.RecordTransportGapSignal(RealtimeTransportStatus.MessageRejected);
+        ExchangeRealtimeObservationTelemetry.RecordTransportGapSignal(RealtimeTransportStatus.Restored);
+        ExchangeRealtimeObservationTelemetry.RecordTransportGapSignal(RealtimeTransportStatus.Subscribed);
         ExchangeRealtimeObservationTelemetry.RecordPublicSubscriptionStartUnconfirmed();
         ExchangeRealtimeObservationTelemetry.RecordPublicSubscriptionDisposeUnconfirmed();
         ExchangeRealtimeObservationTelemetry.RecordProtectedPublicSubscription();
@@ -79,6 +84,20 @@ public sealed class RealtimeObservationTelemetryTests
             measurement.Name == "exchange.realtime.public_subscription.start_unconfirmed");
         Assert.Contains(testMeasurements, measurement =>
             measurement.Name == "exchange.realtime.public_subscription.dispose_unconfirmed");
+        var gapSignals = testMeasurements
+            .Where(measurement => measurement.Name == "exchange.realtime.transport.gap_signals")
+            .ToArray();
+        Assert.Collection(
+            gapSignals,
+            measurement => Assert.Equal("connection_lost", measurement.Tags["reason"]),
+            measurement => Assert.Equal("message_rejected", measurement.Tags["reason"]));
+        Assert.All(gapSignals, measurement =>
+        {
+            Assert.Equal(1L, measurement.LongValue);
+            Assert.Equal(3, measurement.Tags.Count);
+            Assert.Equal("exchange-realtime-observation", measurement.Tags["worker"]);
+            Assert.Equal("Bybit", measurement.Tags["exchange"]);
+        });
         var tagKeys = testMeasurements.SelectMany(measurement => measurement.Tags.Keys).ToArray();
         Assert.DoesNotContain(tagKeys, key => key is
             "userId" or "user_id" or "exchangeAccountId" or "exchange_account_id"

@@ -33,6 +33,10 @@ internal static class RealtimeObservationProcessingTelemetry
         "exchange.realtime.reconciliation.duration",
         unit: "ms");
 
+    private static readonly Counter<long> RestAppliedChanges = Meter.CreateCounter<long>(
+        "exchange.realtime.rest.applied_changes",
+        unit: "{change}");
+
     public static void QueueDiscarded(int count, string reason)
     {
         if (count > 0)
@@ -91,6 +95,19 @@ internal static class RealtimeObservationProcessingTelemetry
             { "outcome", outcome },
         };
         ReconciliationDuration.Record(duration.TotalMilliseconds, tags);
+    }
+
+    public static void RestChangesApplied(int positionChanges, bool walletChange, string kind)
+    {
+        if (positionChanges > 0)
+        {
+            RestAppliedChanges.Add(positionChanges, new TagList { { "resource", "position" }, { "kind", kind } });
+        }
+
+        if (walletChange)
+        {
+            RestAppliedChanges.Add(1, new TagList { { "resource", "wallet" }, { "kind", kind } });
+        }
     }
 
     private static void RecordReceiveToCommit(

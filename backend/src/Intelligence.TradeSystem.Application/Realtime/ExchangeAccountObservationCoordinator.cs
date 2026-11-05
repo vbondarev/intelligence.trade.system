@@ -565,6 +565,7 @@ public sealed class ExchangeAccountObservationCoordinator(
                     generation,
                     recoveryRequestsAtStart,
                     epochAtStart,
+                    kind,
                     cancellationToken)
                 .ConfigureAwait(false);
             outcome = result.FullReconciliationCommitted ? "committed" : "incomplete";
@@ -632,6 +633,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         long generation,
         long recoveryRequestsAtStart,
         long? epochAtStart,
+        string kind,
         CancellationToken cancellationToken)
     {
         var syncWallClockStartedAt = clock.GetUtcNow();
@@ -645,6 +647,11 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
 
         var syncWallClockCompletedAt = clock.GetUtcNow();
+        RealtimeObservationProcessingTelemetry.RestChangesApplied(
+            result.RestAppliedPositionChanges,
+            result.RestAppliedWalletChange,
+            kind);
+
         bool eventsMayBeMissing;
         lock (channel.Sync)
         {
