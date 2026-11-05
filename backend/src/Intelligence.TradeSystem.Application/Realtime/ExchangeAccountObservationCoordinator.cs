@@ -651,6 +651,10 @@ public sealed class ExchangeAccountObservationCoordinator(
             result.RestAppliedPositionChanges,
             result.RestAppliedWalletChange,
             kind);
+        RealtimeObservationProcessingTelemetry.RestOnlyChangesApplied(
+            result.RestOnlyAppliedPositionChanges,
+            result.RestOnlyAppliedWalletChange,
+            kind);
 
         bool eventsMayBeMissing;
         lock (channel.Sync)

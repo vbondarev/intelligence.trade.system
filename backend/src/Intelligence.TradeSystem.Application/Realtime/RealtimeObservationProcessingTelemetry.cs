@@ -36,6 +36,9 @@ internal static class RealtimeObservationProcessingTelemetry
     private static readonly Counter<long> RestAppliedChanges = Meter.CreateCounter<long>(
         "exchange.realtime.rest.applied_changes",
         unit: "{change}");
+    private static readonly Counter<long> RestOnlyAppliedChanges = Meter.CreateCounter<long>(
+        "exchange.realtime.rest_only.applied_changes",
+        unit: "{change}");
 
     public static void QueueDiscarded(int count, string reason)
     {
@@ -108,6 +111,14 @@ internal static class RealtimeObservationProcessingTelemetry
         {
             RestAppliedChanges.Add(1, new TagList { { "resource", "wallet" }, { "kind", kind } });
         }
+    }
+
+    public static void RestOnlyChangesApplied(int positionChanges, bool walletChange, string kind)
+    {
+        if (positionChanges > 0)
+            RestOnlyAppliedChanges.Add(positionChanges, new TagList { { "resource", "position" }, { "kind", kind } });
+        if (walletChange)
+            RestOnlyAppliedChanges.Add(1, new TagList { { "resource", "wallet" }, { "kind", kind } });
     }
 
     private static void RecordReceiveToCommit(

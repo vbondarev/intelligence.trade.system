@@ -117,6 +117,7 @@ REST-сверку и проверить её результат. Не меняй
 | `exchange.realtime.providers.active` | Текущие активные приватные observers |
 | `exchange.realtime.transport.status_updates` | Успешно сохранённые обновления от transport signals в `PersistTransportStateAsync`. Tag `status` отражает нормализованный статус наблюдения |
 | `exchange.realtime.transport.gap_signals` | Сигналы о возможном пропуске, принятые supervisor. Unit `{signal}`. Tags `worker=exchange-realtime-observation`, `exchange=Bybit`, `reason=connection_lost` или `reason=message_rejected` |
+| `exchange.realtime.rest_only.applied_changes` | Сохранённые REST бизнес-изменения после исходной полной сверки. Unit `{change}`; tags `resource=position`/`wallet`, `kind=recovery`/`reconciliation` |
 | `exchange.realtime.observations.received` | Входящие события; tag `stream` (`position`/`wallet`) |
 | `exchange.realtime.observation.signals.dropped` | Отказы постановки наблюдений в очередь на границе supervisor |
 | `exchange.realtime.recoveries.requested` | Запросы полной REST-сверки |
@@ -175,6 +176,15 @@ epoch. Сверка без изменений, откат и проигранн�
 может сопровождать несколько изменений или ни одного. Сверка может сохранить
 изменение без транспортного сигнала. Сумма счётчиков не даёт числа пропущенных
 биржевых сообщений и не измеряет полноту доставки от Bybit.
+
+`rest_only.applied_changes` учитывает изменения после ранее успешной полной
+синхронизации при наличии сохранённого портфельного снимка до текущей попытки.
+Первая сверка не входит в этот показатель. `recovery` обозначает сверку с
+запросом восстановления, `reconciliation` — прочую сверку. Частичная сверка
+может сохранить изменение, не подтвердив завершение recovery. Локально
+отброшенные observations и сигналы возможного транспортного пропуска учитываются
+отдельно. Сумма метрик не определяет число недоставленных сообщений Bybit и
+не подтверждает AC-12.
 
 Метрики не содержат `UserId`, `ExchangeAccountId`, `symbol`, credentials,
 сырые payload, текст исключения или произвольные идентификаторы. Нулевые/пустые

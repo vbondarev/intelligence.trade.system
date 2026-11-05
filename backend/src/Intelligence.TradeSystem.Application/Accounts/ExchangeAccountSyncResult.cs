@@ -61,6 +61,8 @@ public sealed record ExchangeAccountSyncResult(
 
     internal int RestAppliedPositionChanges { get; init; }
     internal bool RestAppliedWalletChange { get; init; }
+    internal int RestOnlyAppliedPositionChanges { get; init; }
+    internal bool RestOnlyAppliedWalletChange { get; init; }
 
     public static ExchangeAccountSyncResult Synchronized(
         ExchangeAccount account,

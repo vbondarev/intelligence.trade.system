@@ -950,9 +950,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var capture = new AsyncLocal<bool>();
         var reconciliations = Channel.CreateUnbounded<(object? Kind, object? Outcome, double Duration)>();
         var restChanges = new ConcurrentQueue<(string Resource, string Kind, long Count)>();
+        var restOnlyChanges = new ConcurrentQueue<(string Resource, string Kind, long Count)>();
         var gapSignals = new ConcurrentQueue<(string Reason, long Count)>();
         var websocketMeasurements = new ConcurrentQueue<string>();
         const string restApplied = "exchange.realtime.rest.applied_changes";
+        const string restOnly = "exchange.realtime.rest_only.applied_changes";
         const string transportGaps = "exchange.realtime.transport.gap_signals";
         const string received = "exchange.realtime.observations.received";
         const string applied = "exchange.realtime.observations.apply.outcomes";
@@ -960,7 +962,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         listener.InstrumentPublished = (instrument, meterListener) =>
         {
             if ((instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime"
-                    && instrument.Name is "exchange.realtime.reconciliation.duration" or restApplied or applied)
+                    && instrument.Name is "exchange.realtime.reconciliation.duration" or restApplied or restOnly or applied)
                 || (instrument.Meter.Name == ExchangeRealtimeObservationTelemetry.MeterName
                     && instrument.Name is transportGaps or received))
             {
@@ -975,9 +977,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             }
 
             var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
-            if (instrument.Name == restApplied)
+            if (instrument.Name == restApplied || instrument.Name == restOnly)
             {
-                restChanges.Enqueue((
+                Assert.Equal("{change}", instrument.Unit);
+                Assert.Equal(2, dimensions.Count);
+                (instrument.Name == restApplied ? restChanges : restOnlyChanges).Enqueue((
                     Assert.IsType<string>(dimensions["resource"]),
                     Assert.IsType<string>(dimensions["kind"]),
                     value));
@@ -1045,6 +1049,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(1m, Assert.Single(initialPortfolio.Positions).Size);
             Assert.Equal(1_000m, initialPortfolio.Capital.TotalEquity);
             Assert.Equal(("position", "recovery", 1L), Assert.Single(restChanges));
+            Assert.Empty(restOnlyChanges);
             restChanges.Clear();
 
             // Два известных изменения доступны только в REST-снимке. WS callbacks для них отсутствуют.
@@ -1068,8 +1073,12 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 restChanges,
                 change => Assert.Equal(("position", "recovery", 1L), change),
                 change => Assert.Equal(("wallet", "recovery", 1L), change));
+            Assert.Collection(restOnlyChanges,
+                change => Assert.Equal(("position", "recovery", 1L), change),
+                change => Assert.Equal(("wallet", "recovery", 1L), change));
             Assert.Empty(websocketMeasurements);
             restChanges.Clear();
+            restOnlyChanges.Clear();
 
             discoveryCount = candidateSource.DiscoveryPassCount;
             await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 1);
@@ -1093,6 +1102,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(3, restProvider.FullPositionRequestCount);
             Assert.Equal(("connection_lost", 1L), Assert.Single(gapSignals));
             Assert.Empty(restChanges);
+            Assert.Empty(restOnlyChanges);
             Assert.Empty(websocketMeasurements);
 
             discoveryCount = candidateSource.DiscoveryPassCount;
