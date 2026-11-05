@@ -10,7 +10,9 @@ public sealed class RealtimeObservationProcessingTelemetryTests
     [Fact]
     public void Processing_metrics_use_bounded_outcomes_and_do_not_publish_identifiers()
     {
+        var capture = new AsyncLocal<bool> { Value = true };
         var measurements = new ConcurrentQueue<(string Name, Dictionary<string, string?> Tags)>();
+        var discards = new List<(long Count, string? Unit, string? Reason)>();
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
         {
@@ -19,10 +21,26 @@ public sealed class RealtimeObservationProcessingTelemetryTests
                 meterListener.EnableMeasurementEvents(instrument);
             }
         };
-        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
-            measurements.Enqueue((instrument.Name, ToDictionary(tags))));
+        listener.SetMeasurementEventCallback<long>((instrument, count, tags, _) =>
+        {
+            if (capture.Value)
+            {
+                var dimensions = ToDictionary(tags);
+                measurements.Enqueue((instrument.Name, dimensions));
+                if (instrument.Name == "exchange.realtime.observations.queue.discarded")
+                {
+                    Assert.Single(dimensions);
+                    discards.Add((count, instrument.Unit, dimensions["reason"]));
+                }
+            }
+        });
         listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) =>
-            measurements.Enqueue((instrument.Name, ToDictionary(tags))));
+        {
+            if (capture.Value)
+            {
+                measurements.Enqueue((instrument.Name, ToDictionary(tags)));
+            }
+        });
         listener.Start();
 
         var completedAt = new DateTimeOffset(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
@@ -47,6 +65,15 @@ public sealed class RealtimeObservationProcessingTelemetryTests
             TimeSpan.FromMilliseconds(12),
             "recovery",
             "committed");
+        RealtimeObservationProcessingTelemetry.QueueDiscarded(0, "recovery_required");
+        RealtimeObservationProcessingTelemetry.QueueDiscarded(2, "recovery_required");
+        RealtimeObservationProcessingTelemetry.QueueDiscarded(1, "generation_superseded");
+        RealtimeObservationProcessingTelemetry.QueueDiscarded(3, "account_unavailable");
+
+        Assert.Equal(
+            [(2L, "{observation}", "recovery_required"), (1L, "{observation}", "generation_superseded"),
+                (3L, "{observation}", "account_unavailable")],
+            discards);
 
         var capturedMeasurements = measurements.ToArray();
         capturedMeasurements.Should().Contain(measurement =>

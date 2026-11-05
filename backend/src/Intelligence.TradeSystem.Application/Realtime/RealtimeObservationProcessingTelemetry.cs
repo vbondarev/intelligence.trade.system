@@ -11,6 +11,9 @@ internal static class RealtimeObservationProcessingTelemetry
     private static readonly Counter<long> ApplyOutcomes = Meter.CreateCounter<long>(
         "exchange.realtime.observations.apply.outcomes",
         unit: "{observation}");
+    private static readonly Counter<long> DiscardedQueuedObservations = Meter.CreateCounter<long>(
+        "exchange.realtime.observations.queue.discarded",
+        unit: "{observation}");
     private static readonly Histogram<double> ApplyDuration = Meter.CreateHistogram<double>(
         "exchange.realtime.observations.apply.duration",
         unit: "ms");
@@ -29,6 +32,14 @@ internal static class RealtimeObservationProcessingTelemetry
     private static readonly Histogram<double> ReconciliationDuration = Meter.CreateHistogram<double>(
         "exchange.realtime.reconciliation.duration",
         unit: "ms");
+
+    public static void QueueDiscarded(int count, string reason)
+    {
+        if (count > 0)
+        {
+            DiscardedQueuedObservations.Add(count, new KeyValuePair<string, object?>("reason", reason));
+        }
+    }
 
     public static void ObservationProcessed(
         bool isPosition,

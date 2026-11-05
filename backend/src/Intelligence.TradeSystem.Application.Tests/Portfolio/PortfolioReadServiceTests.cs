@@ -43,6 +43,7 @@ public sealed class PortfolioReadServiceTests
                 CreatePosition(PositionId.New()),
             ]);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
     }
 
@@ -53,6 +54,7 @@ public sealed class PortfolioReadServiceTests
             CreateSummary() with { SnapshotPositionIds = [PositionId.New()] },
             [CreatePosition(PositionId.New())]);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
     }
 
@@ -71,6 +73,7 @@ public sealed class PortfolioReadServiceTests
                 CreatePosition(PositionId.New()) with { SettlementAsset = SettlementAsset.From("BTC") },
             ]);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
     }
 
@@ -85,6 +88,7 @@ public sealed class PortfolioReadServiceTests
                 CreatePosition(positionId),
             ]);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
     }
 
@@ -95,6 +99,7 @@ public sealed class PortfolioReadServiceTests
             CreateSummary() with { SnapshotPositionIds = [PositionId.New()] },
             []);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Unknown);
     }
 
@@ -105,6 +110,7 @@ public sealed class PortfolioReadServiceTests
             CreateSummary(currentPositionCount: 0) with { SnapshotPositionIds = [] },
             []);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Fresh);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.NotApplicable);
     }
 
@@ -115,7 +121,81 @@ public sealed class PortfolioReadServiceTests
             CreateSummary(),
             [CreatePosition(PositionId.New())]);
 
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Fresh);
         projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Fact]
+    public async Task GetLatest_marks_factual_freshness_degraded_when_current_scope_loses_one_id()
+    {
+        var retainedId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary(currentPositionCount: 2) with { SnapshotPositionIds = [retainedId, PositionId.New()] },
+            [CreatePosition(retainedId)]);
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetLatest_keeps_unknown_when_reconciliation_history_is_unavailable(bool hasState)
+    {
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [PositionId.New()] },
+            [CreatePosition(PositionId.New())],
+            state => hasState ? state with { LastFullyReconciledAt = null } : null);
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Unknown);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Theory]
+    [InlineData(RealtimeObservationTransportStatus.Connected, true)]
+    [InlineData(RealtimeObservationTransportStatus.Reconnecting, false)]
+    public async Task GetLatest_keeps_degraded_priority_during_recovery_or_transport_failure(
+        RealtimeObservationTransportStatus status,
+        bool recoveryRequired)
+    {
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [PositionId.New()], IsFresh = false },
+            [CreatePosition(PositionId.New())],
+            state => state with { TransportStatus = status, RecoveryRequired = recoveryRequired });
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Fact]
+    public async Task GetLatest_keeps_stale_factual_freshness_when_ids_match_and_snapshot_is_stale()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId], IsFresh = false },
+            [CreatePosition(positionId)]);
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Stale);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Fresh);
+    }
+
+    [Theory]
+    [InlineData(false, MarketValuationFreshnessStatus.Unknown)]
+    [InlineData(true, MarketValuationFreshnessStatus.Stale)]
+    public async Task GetLatest_keeps_factual_freshness_when_market_price_is_unavailable_or_stale(
+        bool hasPrice,
+        MarketValuationFreshnessStatus expectedValuation)
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            prices: symbols => hasPrice
+                ? symbols.Select(symbol => CreateFreshPrice(symbol) with { ObservedAt = Now.AddHours(-1) }).ToArray()
+                : []);
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Fresh);
+        projected.ValuationFreshness.Status.Should().Be(expectedValuation);
     }
 
     [Fact]
@@ -177,7 +257,9 @@ public sealed class PortfolioReadServiceTests
 
     private static async Task<PortfolioReadSummary> GetLatestSummaryAsync(
         PortfolioReadSummary summary,
-        IReadOnlyCollection<PositionMarketValuationInput> positions)
+        IReadOnlyCollection<PositionMarketValuationInput> positions,
+        Func<RealtimeObservationState, RealtimeObservationState?>? configureState = null,
+        Func<InstrumentId[], MarketMarkPrice[]>? prices = null)
     {
         var state = new RealtimeObservationState
         {
@@ -189,12 +271,15 @@ public sealed class PortfolioReadServiceTests
             LastFullyReconciledAt = Now.AddMinutes(-1),
             RecoveryRequired = false,
         };
+        var observation = configureState is null ? state : configureState(state);
         var portfolioStore = new Mock<IPortfolioReadStore>(MockBehavior.Strict);
         portfolioStore.Setup(x => x.GetLatestAsync(TestUserId, AccountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PortfolioReadResult(true, summary));
         var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
         observationStore.Setup(x => x.GetAsync(TestUserId, AccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Versioned<RealtimeObservationState>(state, ConcurrencyVersion.Initial));
+            .ReturnsAsync(observation is null
+                ? null
+                : new Versioned<RealtimeObservationState>(observation, ConcurrencyVersion.Initial));
         var positionStore = new Mock<IPositionReadStore>(MockBehavior.Strict);
         positionStore.Setup(x => x.GetMarketValuationInputsByAccountAsync(
                 TestUserId,
@@ -215,7 +300,7 @@ public sealed class PortfolioReadServiceTests
                     It.Is<IReadOnlyCollection<InstrumentId>>(actual =>
                         actual.Count == symbols.Length && actual.ToHashSet().SetEquals(symbols)),
                     It.IsAny<CancellationToken>()))
-                .ReturnsAsync(symbols.Select(CreateFreshPrice).ToArray());
+                .ReturnsAsync(prices?.Invoke(symbols) ?? symbols.Select(CreateFreshPrice).ToArray());
         }
 
         var service = new PortfolioReadService(
@@ -249,7 +334,14 @@ public sealed class PortfolioReadServiceTests
                 Times.Once);
         }
 
-        return Assert.IsType<PortfolioReadSummary>(result.Summary);
+        var projected = Assert.IsType<PortfolioReadSummary>(result.Summary);
+        projected.FactualFreshness.LastFullyReconciledAt.Should().Be(observation?.LastFullyReconciledAt);
+        projected.Should().Be(summary with
+        {
+            FactualFreshness = projected.FactualFreshness,
+            ValuationFreshness = projected.ValuationFreshness,
+        });
+        return projected;
     }
 
     private static bool IsValuationApplicable(PositionMarketValuationInput position) =>

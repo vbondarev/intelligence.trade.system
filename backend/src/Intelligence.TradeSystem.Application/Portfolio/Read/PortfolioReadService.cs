@@ -42,8 +42,11 @@ public sealed class PortfolioReadService(
                 summary.PositionsFullyReconciled && positionSetsMatch,
                 cancellationToken)
             .ConfigureAwait(false);
+        var factualSummary = snapshotPositionIds is not null && !positionSetsMatch
+            ? summary with { PositionsFullyReconciled = false }
+            : summary;
         var factualFreshness = RealtimeFreshnessProjection.ProjectFactualFreshness(
-            summary,
+            factualSummary,
             observation,
             timeProvider.GetUtcNow());
 

@@ -115,18 +115,28 @@ REST-сверку и проверить её результат. Не меняй
 | Метрика | Назначение и допустимые tags |
 |---|---|
 | `exchange.realtime.providers.active` | Текущие активные приватные observers |
-| `exchange.realtime.transport.status_updates` | Сохранённые переходы состояния; tag `status` |
+| `exchange.realtime.transport.status_updates` | Успешно сохранённые обновления от transport signals в `PersistTransportStateAsync`. Tag `status` отражает нормализованный статус наблюдения |
 | `exchange.realtime.observations.received` | Входящие события; tag `stream` (`position`/`wallet`) |
-| `exchange.realtime.observation.signals.dropped` | Потерянные сигналы очереди |
+| `exchange.realtime.observation.signals.dropped` | Отказы постановки наблюдений в очередь на границе supervisor |
 | `exchange.realtime.recoveries.requested` | Запросы полной REST-сверки |
 | `exchange.realtime.heartbeats.written` | Сохранённые heartbeat |
 | `exchange.realtime.public_subscription.start_unconfirmed` | Неопределённый результат создания публичной подписки |
 | `exchange.realtime.public_subscription.dispose_unconfirmed` | Неподтверждённое освобождение публичной подписки |
 | `exchange.realtime.public_subscription.protected_degraded` | Число инструментов в защищённой деградации текущего процесса |
 
-Meter `Intelligence.TradeSystem.Application.Realtime` дополняет их исходами
-применения и длительностями:
+Счётчик обновлений транспорта охватывает сохранение сигналов и не служит
+полным журналом жизненного цикла. Он не включает все пути `Initializing`,
+`Stopped` и внутренней деградации. Сигналы могут объединяться до сохранения,
+поэтому отдельный callback не всегда отражается в счётчике. Повторное
+сохранение одного статуса не обязательно означает переход между состояниями.
 
+Meter `Intelligence.TradeSystem.Application.Realtime` дополняет эти сигналы
+учётом очистки очереди, исходов применения и длительности операций:
+
+- `exchange.realtime.observations.queue.discarded` считает наблюдения, которые
+  координатор принял в очередь, а затем отбросил без применения. Единственный
+  tag `reason` принимает значения `recovery_required`, `generation_superseded`
+  и `account_unavailable`;
 - `exchange.realtime.observations.apply.outcomes` и
   `exchange.realtime.observations.apply.duration` имеют только bounded tags
   `stream` и `outcome`;
@@ -137,8 +147,14 @@ Meter `Intelligence.TradeSystem.Application.Realtime` дополняет их и
   изменения, для которых нельзя достоверно использовать `MessageCreatedAt`;
 - `exchange.realtime.observations.receive_time_unavailable` отмечает применённые
   изменения с отсутствующим или недостоверным временем получения;
-- `exchange.realtime.reconciliation.duration` имеет bounded tags `kind` и
-  `outcome`.
+- `exchange.realtime.reconciliation.duration` измеряет длительность REST-сверки
+  и фиксирует её вид и исход в bounded tags `kind` и `outcome`. Метка
+  `kind=recovery` отражает локальный запрос или сохранённый `RecoveryRequired`
+  того же поколения в снимке, прочитанном перед REST-запросом.
+
+Счётчики описывают события, наблюдаемые backend. По ним нельзя определить
+полноту доставки от Bybit или число бизнес-изменений, восстановленных только
+через REST.
 
 Метрики не содержат `UserId`, `ExchangeAccountId`, `symbol`, credentials,
 сырые payload, текст исключения или произвольные идентификаторы. Нулевые/пустые

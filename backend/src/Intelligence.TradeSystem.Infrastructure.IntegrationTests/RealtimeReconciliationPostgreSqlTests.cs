@@ -1038,6 +1038,23 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
+    private sealed class OneShotBarrier
+    {
+        private readonly TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitForEntryAsync(CancellationToken cancellationToken) =>
+            entered.Task.WaitAsync(CompletionTimeout, cancellationToken);
+
+        public void Release() => released.TrySetResult();
+
+        public Task PauseAsync(CancellationToken cancellationToken)
+        {
+            entered.SetResult();
+            return released.Task.WaitAsync(CompletionTimeout, cancellationToken);
+        }
+    }
+
     private sealed class SingleCandidateSource(ExchangeAccount account) : IExchangeAccountSyncCandidateSource
     {
         private readonly Channel<int> discoveryPasses = Channel.CreateBounded<int>(
@@ -1048,8 +1065,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 SingleWriter = true,
             });
         private int discoveryPassCount;
+        private OneShotBarrier? nextBatchBarrier;
 
         public int DiscoveryPassCount => Volatile.Read(ref discoveryPassCount);
+
+        public void PauseNextBatch(OneShotBarrier barrier) => Interlocked.Exchange(ref nextBatchBarrier, barrier);
 
         public async Task WaitForDiscoveryCountAsync(int count)
         {
@@ -1060,24 +1080,24 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             }
         }
 
-        public Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsync(
+        public async Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsync(
             ExchangeAccountId? after,
             int limit,
-            CancellationToken cancellationToken = default) =>
-            GetBatchAsyncCore(after);
-
-        private Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsyncCore(
-            ExchangeAccountId? after)
+            CancellationToken cancellationToken = default)
         {
             if (after is not null)
             {
-                return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>([]);
+                return [];
             }
 
             var count = Interlocked.Increment(ref discoveryPassCount);
             discoveryPasses.Writer.TryWrite(count);
-            return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>(
-                [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)]);
+            if (Interlocked.Exchange(ref nextBatchBarrier, null) is { } barrier)
+            {
+                await barrier.PauseAsync(cancellationToken);
+            }
+
+            return [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)];
         }
     }
 
@@ -1119,6 +1139,10 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore
     {
         private long _version = ConcurrencyVersion.Initial.Value;
+        private OneShotBarrier? nextMetadataBarrier;
+
+        public void PauseNextMetadata(OneShotBarrier barrier) =>
+            Interlocked.Exchange(ref nextMetadataBarrier, barrier);
 
         public ConcurrencyVersion Version
         {
@@ -1134,11 +1158,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 new ExchangeAccountCredentialSecret("integration-key", "integration-secret"),
                 Version));
 
-        public Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
+        public async Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<ExchangeAccountCredentialMetadata?>(new ExchangeAccountCredentialMetadata(Version));
+            CancellationToken cancellationToken = default)
+        {
+            var metadata = new ExchangeAccountCredentialMetadata(Version);
+            if (Interlocked.Exchange(ref nextMetadataBarrier, null) is { } barrier)
+            {
+                await barrier.PauseAsync(cancellationToken);
+            }
+
+            return metadata;
+        }
 
         public Task<ConcurrencyVersion> CreateAsync(
             UserId userId,

@@ -194,6 +194,10 @@ expired) не являются отдельными timeline events. Следу�
 - `factualFreshness.status` — `unknown`, `fresh`, `stale` или `degraded`.
   `lastFullyReconciledAt` берётся из сохранённого состояния успешной полной
   REST-сверки; он не вычисляется из `calculatedAt` или `lastSyncedAt`.
+  Если при раздельном чтении доступный набор `PositionId` снимка расходится
+  с текущим составом позиций, фактическая свежесть проецируется как для
+  неподтверждённого состава. Прежний порядок приоритетов статусов и значение
+  `isFresh` сохраняются.
 - `valuationFreshness.status` — `unknown`, `fresh`, `partial`, `stale` или
   `notApplicable`. `calculatedAt` — время оценки публичных рыночных данных при
   чтении и не заменяет время формирования сохранённого снимка портфеля.

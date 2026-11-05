@@ -176,12 +176,14 @@ public sealed class ExchangeAccountObservationCoordinator(
         {
             PendingObservation? next;
             var recoveryRequested = false;
+            var discardedForRecovery = 0;
             lock (channel.Sync)
             {
                 if (channel.HasUnhandledRecoveryRequest)
                 {
                     // Сверка охватывает все события, сформированные до её начала, поэтому
                     // ожидающие наблюдения не применяются поверх её результата.
+                    discardedForRecovery = channel.Pending.Count;
                     channel.Pending.Clear();
                     recoveryRequested = true;
                     next = null;
@@ -194,6 +196,7 @@ public sealed class ExchangeAccountObservationCoordinator(
 
             if (next is null)
             {
+                RealtimeObservationProcessingTelemetry.QueueDiscarded(discardedForRecovery, "recovery_required");
                 if (!recoveryReported)
                 {
                     results.Add(RealtimeObservationApplyResult.RecoveryRequired(
@@ -276,10 +279,12 @@ public sealed class ExchangeAccountObservationCoordinator(
                     break;
                 case RealtimeObservationApplyOutcome.GenerationSuperseded:
                 case RealtimeObservationApplyOutcome.AccountUnavailable:
+                    var discardedAfterApply = 0;
                     lock (channel.Sync)
                     {
                         if (channel.Generation == next.Generation)
                         {
+                            discardedAfterApply = channel.Pending.Count;
                             channel.Pending.Clear();
                         }
 
@@ -289,6 +294,11 @@ public sealed class ExchangeAccountObservationCoordinator(
                         }
                     }
 
+                    RealtimeObservationProcessingTelemetry.QueueDiscarded(
+                        discardedAfterApply,
+                        result.Outcome == RealtimeObservationApplyOutcome.GenerationSuperseded
+                            ? "generation_superseded"
+                            : "account_unavailable");
                     break;
             }
         }
@@ -360,6 +370,8 @@ public sealed class ExchangeAccountObservationCoordinator(
 
     private bool TryEnqueue(AccountChannel channel, PendingObservation pending)
     {
+        int discarded;
+        bool enqueued;
         lock (channel.Sync)
         {
             if (pending.Generation < channel.Generation)
@@ -367,30 +379,35 @@ public sealed class ExchangeAccountObservationCoordinator(
                 return false;
             }
 
-            AdvanceGeneration(channel, pending.Generation);
-            if (channel.Pending.Count >= capacity)
+            discarded = AdvanceGeneration(channel, pending.Generation);
+            enqueued = channel.Pending.Count < capacity;
+            if (enqueued)
+            {
+                channel.Pending.Enqueue(pending);
+            }
+            else
             {
                 channel.RecoveryRequests++;
-                return false;
             }
-
-            channel.Pending.Enqueue(pending);
-            return true;
         }
+
+        RealtimeObservationProcessingTelemetry.QueueDiscarded(discarded, "generation_superseded");
+        return enqueued;
     }
 
     /// <summary>Переводит канал на более новое поколение; вызывается под блокировкой канала.</summary>
-    private static void AdvanceGeneration(AccountChannel channel, long generation)
+    private static int AdvanceGeneration(AccountChannel channel, long generation)
     {
         if (generation <= channel.Generation)
         {
-            return;
+            return 0;
         }
 
         // Новое поколение начинается с собственной стартовой сверки; наблюдения прежнего
         // поколения к нему не относятся.
         var recoveryWasRequired = channel.HasUnhandledRecoveryRequest;
         channel.Generation = generation;
+        var discarded = channel.Pending.Count;
         channel.Pending.Clear();
         channel.FullSyncWindow = null;
         channel.BalanceReadWindow = null;
@@ -404,6 +421,8 @@ public sealed class ExchangeAccountObservationCoordinator(
             // Успешная сверка старого поколения не доказывает полноту нового.
             channel.RecoveryRequests++;
         }
+
+        return discarded;
     }
 
     private async Task<RealtimeObservationApplyResult> ApplyAsync(
@@ -523,12 +542,20 @@ public sealed class ExchangeAccountObservationCoordinator(
                         .ConfigureAwait(false);
                 }
 
-                epochAtStart ??= await ReadRecoveryRequestEpochAsync(
-                        userId,
-                        exchangeAccountId,
-                        generation,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                if (epochAtStart is null)
+                {
+                    var snapshot = await ReadRecoveryRequestSnapshotAsync(
+                            userId,
+                            exchangeAccountId,
+                            generation,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    epochAtStart = snapshot.Epoch;
+                    if (snapshot.RecoveryRequired)
+                    {
+                        kind = "recovery";
+                    }
+                }
             }
 
             var result = await SynchronizeAndRecordAsync(
@@ -578,10 +605,11 @@ public sealed class ExchangeAccountObservationCoordinator(
 
         if (persisted is not null)
         {
+            int discarded;
             lock (channel.Sync)
             {
                 var previousGeneration = channel.Generation;
-                AdvanceGeneration(channel, persisted.Value.Generation);
+                discarded = AdvanceGeneration(channel, persisted.Value.Generation);
                 // Только при смене поколения: persisted уже требует recovery нового generation
                 // (AdvanceGenerationAsync), а локальный перенос необработанного запроса не создаёт
                 // дополнительный epoch. Новый loss того же поколения по-прежнему увеличивает epoch.
@@ -592,6 +620,8 @@ public sealed class ExchangeAccountObservationCoordinator(
                     channel.PersistedRecoveryRequestCount = channel.RecoveryRequests;
                 }
             }
+
+            RealtimeObservationProcessingTelemetry.QueueDiscarded(discarded, "generation_superseded");
         }
     }
 
@@ -742,7 +772,7 @@ public sealed class ExchangeAccountObservationCoordinator(
         }
     }
 
-    private async Task<long?> ReadRecoveryRequestEpochAsync(
+    private async Task<(long? Epoch, bool RecoveryRequired)> ReadRecoveryRequestSnapshotAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,
         long generation,
@@ -754,8 +784,8 @@ public sealed class ExchangeAccountObservationCoordinator(
             .GetAsync(userId, exchangeAccountId, cancellationToken)
             .ConfigureAwait(false);
         return current is { Value.Generation: var currentGeneration } && currentGeneration == generation
-            ? current.Value.RecoveryRequestEpoch
-            : null;
+            ? (current.Value.RecoveryRequestEpoch, current.Value.RecoveryRequired)
+            : (null, false);
     }
 
     /// <summary>

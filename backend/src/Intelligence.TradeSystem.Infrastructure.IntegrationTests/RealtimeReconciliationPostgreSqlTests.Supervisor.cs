@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Threading.Channels;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
@@ -180,7 +182,14 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
-    public async Task Supervisor_removes_stopped_session_when_generation_state_is_gone()
+    public Task Supervisor_removes_stopped_session_when_generation_state_is_gone() =>
+        VerifyStoppedSessionWhenGenerationStateIsGoneAsync(staleDescriptor: false);
+
+    [Fact]
+    public Task Supervisor_stops_original_session_after_stale_descriptor_advance_fails() =>
+        VerifyStoppedSessionWhenGenerationStateIsGoneAsync(staleDescriptor: true);
+
+    private async Task VerifyStoppedSessionWhenGenerationStateIsGoneAsync(bool staleDescriptor)
     {
         var (account, _) = await CreateObservedAccountAsync();
         var clock = new FixedTimeProvider(T1.AddMinutes(1));
@@ -228,9 +237,54 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
                     && !state.RecoveryRequired);
 
-            stateStoreFailure.FailNextAdvance();
-            await using (var scope = services.CreateAsyncScope())
+            var candidateSource = Assert.IsType<SingleCandidateSource>(
+                services.GetRequiredService<IExchangeAccountSyncCandidateSource>());
+            var barrier = new OneShotBarrier();
+            if (staleDescriptor)
             {
+                var credentials = Assert.IsType<TestCredentialStore>(
+                    services.GetRequiredService<IExchangeAccountCredentialStore>());
+                credentials.PauseNextMetadata(barrier);
+            }
+            else
+            {
+                candidateSource.PauseNextBatch(barrier);
+            }
+
+            try
+            {
+                await barrier.WaitForEntryAsync(cancellation.Token);
+                stateStoreFailure.FailNextAdvance();
+                await DisableAccountAndDeleteObservationStateAsync();
+            }
+            finally
+            {
+                barrier.Release();
+            }
+
+            await provider.Disposed.Task.WaitAsync(CompletionTimeout, cancellation.Token);
+            await candidateSource.WaitForDiscoveryCountAsync(candidateSource.DiscoveryPassCount + 2);
+            AssertAdvanceAndDisposal(provider);
+            await using var readScope = services.CreateAsyncScope();
+            var savedState = await readScope.ServiceProvider.GetRequiredService<IRealtimeObservationStateStore>()
+                .GetAsync(account.UserId, account.Id, cancellation.Token);
+            if (staleDescriptor)
+            {
+                Assert.NotNull(savedState);
+                Assert.Equal(RealtimeObservationTransportStatus.Stopped, savedState.Value.TransportStatus);
+            }
+            else
+            {
+                Assert.Null(savedState);
+            }
+
+            cancellation.Cancel();
+            await run.WaitAsync(CompletionTimeout);
+            AssertAdvanceAndDisposal(provider);
+
+            async Task DisableAccountAndDeleteObservationStateAsync()
+            {
+                await using var scope = services.CreateAsyncScope();
                 var context = scope.ServiceProvider.GetRequiredService<TradeSystemDbContext>();
                 var repository = scope.ServiceProvider.GetRequiredService<IExchangeAccountRepository>();
                 await using var transaction = await context.Database.BeginTransactionAsync();
@@ -245,17 +299,25 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 await transaction.CommitAsync();
             }
 
-            await provider.Disposed.Task.WaitAsync(CompletionTimeout);
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
-
-            Assert.Equal(1, stateStoreFailure.FailuresObserved);
-            Assert.Equal(2, stateStoreFailure.AdvanceCalls);
-            Assert.Equal(1, provider.DisposeAttempts);
         }
         finally
         {
             cancellation.Cancel();
             await run.WaitAsync(CompletionTimeout);
+        }
+
+        void AssertAdvanceAndDisposal(TrackingRealtimeProvider provider)
+        {
+            RealtimeObservationTransportStatus[] expected = staleDescriptor
+                ? [RealtimeObservationTransportStatus.Initializing, RealtimeObservationTransportStatus.Initializing,
+                    RealtimeObservationTransportStatus.Stopped]
+                : [RealtimeObservationTransportStatus.Initializing, RealtimeObservationTransportStatus.Stopped];
+            Assert.Equal(expected, stateStoreFailure.AdvanceStatuses);
+            Assert.Equal(expected.Length, stateStoreFailure.AdvanceCalls);
+            Assert.Equal(1, stateStoreFailure.FailuresObserved);
+            Assert.Equal(expected[1], Assert.Single(stateStoreFailure.FailedStatuses));
+            Assert.Equal(1, realtimeProviderFactory.CreatedCount);
+            Assert.Equal(1, provider.DisposeAttempts);
         }
     }
 
@@ -619,6 +681,117 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
     }
 
     [Fact]
+    public async Task Supervisor_accounts_for_enqueue_rejection_and_queued_discard_during_recovery()
+    {
+        const string receivedMetric = "exchange.realtime.observations.received";
+        const string droppedMetric = "exchange.realtime.observation.signals.dropped";
+        const string discardedMetric = "exchange.realtime.observations.queue.discarded";
+        const string applyMetric = "exchange.realtime.observations.apply.outcomes";
+        const string reconciliationMetric = "exchange.realtime.reconciliation.duration";
+
+        var (account, _) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var restProvider = new TestPrivateProvider { Clock = clock };
+        var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
+        var observationsReported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseInitialRest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        restProvider.BeforePositionsResponse = async () =>
+        {
+            restProvider.BeforePositionsResponse = null;
+            var provider = await realtimeProviderFactory.ReadCreatedAsync();
+            var observedAt = clock.GetUtcNow();
+            provider.Report(CloseObservation(account, observedAt, 20));
+            provider.Report(CloseObservation(account, observedAt, 21));
+            observationsReported.SetResult();
+            await releaseInitialRest.Task.WaitAsync(CompletionTimeout);
+        };
+
+        var capture = new AsyncLocal<bool>();
+        var counters = new ConcurrentQueue<(string Name, long Value, Dictionary<string, object?> Tags)>();
+        var recoveryCommitted = new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if ((instrument.Meter.Name == ExchangeRealtimeObservationTelemetry.MeterName
+                    && instrument.Name is receivedMetric or droppedMetric)
+                || (instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime"
+                    && instrument.Name is discardedMetric or applyMetric or reconciliationMetric))
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (capture.Value)
+            {
+                counters.Enqueue((instrument.Name, value, tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value)));
+            }
+        });
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+        {
+            // Стартовая сверка тоже может иметь kind=recovery. Переполнение обрабатывает вторая.
+            if (capture.Value && instrument.Name == reconciliationMetric && restProvider.FullPositionRequestCount == 2)
+            {
+                var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+                if (Equals(dimensions.GetValueOrDefault("kind"), "recovery")
+                    && Equals(dimensions.GetValueOrDefault("outcome"), "committed"))
+                {
+                    recoveryCommitted.TrySetResult(value);
+                }
+            }
+        });
+        listener.Start();
+
+        await using var services = CreateApplicationServices(
+            account,
+            restProvider,
+            clock,
+            realtimeProviderFactory: realtimeProviderFactory);
+        var options = CreateSupervisorOptions();
+        options.QueueCapacity = 1;
+        var coordinator = new ExchangeAccountObservationCoordinator(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            clock,
+            options.QueueCapacity);
+        using var cancellation = new CancellationTokenSource();
+        capture.Value = true;
+        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options, coordinator)
+            .RunAsync(cancellation.Token);
+
+        try
+        {
+            await observationsReported.Task.WaitAsync(CompletionTimeout);
+            clock.UtcNow = T1.AddMinutes(2);
+            releaseInitialRest.SetResult();
+
+            Assert.True(await recoveryCommitted.Task.WaitAsync(CompletionTimeout) >= 0);
+            Assert.False((await ReadObservationStateAsync(account)).RecoveryRequired);
+            Assert.Empty(await coordinator.ProcessPendingAsync(account.UserId, account.Id)
+                .WaitAsync(CompletionTimeout));
+            Assert.Equal(2, restProvider.FullPositionRequestCount);
+            Assert.Equal(2L, counters
+                .Where(measurement => measurement.Name == receivedMetric
+                    && Equals(measurement.Tags.GetValueOrDefault("stream"), "position"))
+                .Sum(measurement => measurement.Value));
+            Assert.Equal(1L, counters
+                .Where(measurement => measurement.Name == droppedMetric)
+                .Sum(measurement => measurement.Value));
+            Assert.DoesNotContain(counters, measurement => measurement.Name == applyMetric);
+            var discarded = Assert.Single(counters, measurement => measurement.Name == discardedMetric);
+            Assert.Equal(1L, discarded.Value);
+            var reason = Assert.Single(discarded.Tags);
+            Assert.Equal("reason", reason.Key);
+            Assert.Equal("recovery_required", reason.Value);
+        }
+        finally
+        {
+            releaseInitialRest.TrySetResult();
+            cancellation.Cancel();
+            await run.WaitAsync(CompletionTimeout);
+        }
+    }
+
+    [Fact]
     public async Task Supervisor_rest_recovery_does_not_confirm_a_later_transport_request()
     {
         var (account, _) = await CreateObservedAccountAsync();
@@ -773,6 +946,30 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var clock = new MutableTimeProvider(T1.AddMinutes(1));
         var restProvider = new TestPrivateProvider { Clock = clock, ObservedAt = clock.GetUtcNow() };
         var realtimeProviderFactory = new TrackingRealtimeProviderFactory();
+        var capture = new AsyncLocal<bool>();
+        var reconciliations = Channel.CreateUnbounded<(object? Kind, object? Outcome, double Duration)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime"
+                && instrument.Name == "exchange.realtime.reconciliation.duration")
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<double>((_, duration, tags, _) =>
+        {
+            if (capture.Value)
+            {
+                var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+                reconciliations.Writer.TryWrite((
+                    dimensions.GetValueOrDefault("kind"),
+                    dimensions.GetValueOrDefault("outcome"),
+                    duration));
+            }
+        });
+        listener.Start();
+
         await using var services = CreateApplicationServices(
             account,
             restProvider,
@@ -781,8 +978,13 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         var candidateSource = Assert.IsType<SingleCandidateSource>(
             services.GetRequiredService<IExchangeAccountSyncCandidateSource>());
         var options = CreateSupervisorOptions();
+        var coordinator = new ExchangeAccountObservationCoordinator(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            clock,
+            options.QueueCapacity);
         using var cancellation = new CancellationTokenSource();
-        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options)
+        capture.Value = true;
+        var run = CreateSupervisor(services, realtimeProviderFactory, clock, options, coordinator)
             .RunAsync(cancellation.Token);
 
         try
@@ -801,6 +1003,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(initial.Generation, stillHealthy.Generation);
             Assert.Equal(1, realtimeProviderFactory.CreatedCount);
             Assert.Equal(1, restProvider.FullPositionRequestCount);
+            var initialMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
+            Assert.Equal("recovery", initialMetric.Kind);
+            Assert.Equal("committed", initialMetric.Outcome);
 
             clock.UtcNow = T1.AddMinutes(2);
             restProvider.ObservedAt = clock.GetUtcNow();
@@ -810,6 +1015,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 state => state.TransportStatus == RealtimeObservationTransportStatus.Reconnecting
                     && state.RecoveryRequestEpoch == initial.RecoveryRequestEpoch + 1
                     && !state.RecoveryRequired);
+            var connectionLostMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
 
             discoveryCount = candidateSource.DiscoveryPassCount;
             await candidateSource.WaitForDiscoveryCountAsync(discoveryCount + 1);
@@ -826,6 +1032,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
                 state => state.TransportStatus == RealtimeObservationTransportStatus.Connected
                     && state.RecoveryRequestEpoch == reconnecting.RecoveryRequestEpoch + 1
                     && !state.RecoveryRequired);
+            var restoredMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
 
             Assert.Equal(initial.Generation, restored.Generation);
             Assert.Equal(restProvider.ObservedAt, restored.LastFullyReconciledAt);
@@ -839,6 +1046,25 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             Assert.Equal(3, restProvider.FullPositionRequestCount);
             Assert.Equal(1, realtimeProviderFactory.CreatedCount);
             Assert.Equal(0, provider.DisposeAttempts);
+
+            Assert.Equal("recovery", restoredMetric.Kind);
+            Assert.Equal("committed", restoredMetric.Outcome);
+            Assert.True(restoredMetric.Duration >= 0);
+            Assert.Equal("recovery", connectionLostMetric.Kind);
+            Assert.Equal("committed", connectionLostMetric.Outcome);
+            Assert.True(connectionLostMetric.Duration >= 0);
+
+            clock.UtcNow = T1.AddMinutes(4);
+            restProvider.ObservedAt = clock.GetUtcNow();
+            var ordinarySync = await coordinator.SynchronizeAsync(account.UserId, account.Id, cancellation.Token)
+                .WaitAsync(CompletionTimeout);
+            Assert.True(ordinarySync.FullReconciliationCommitted);
+            var ordinaryMetric = await reconciliations.Reader.ReadAsync().AsTask().WaitAsync(CompletionTimeout);
+            Assert.Equal("reconciliation", ordinaryMetric.Kind);
+            Assert.Equal("committed", ordinaryMetric.Outcome);
+            Assert.True(ordinaryMetric.Duration >= 0);
+            Assert.Equal(4, restProvider.FullPositionRequestCount);
+            Assert.False(reconciliations.Reader.TryRead(out _));
         }
         finally
         {
@@ -1232,9 +1458,10 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         ServiceProvider services,
         TrackingRealtimeProviderFactory realtimeProviderFactory,
         TimeProvider clock,
-        ExchangeRealtimeObservationOptions options)
+        ExchangeRealtimeObservationOptions options,
+        ExchangeAccountObservationCoordinator? coordinator = null)
     {
-        var coordinator = new ExchangeAccountObservationCoordinator(
+        coordinator ??= new ExchangeAccountObservationCoordinator(
             services.GetRequiredService<IServiceScopeFactory>(),
             clock,
             options.QueueCapacity);
@@ -1313,6 +1540,9 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
         public void Report(RealtimeTransportStatus status, DateTimeOffset occurredAt) =>
             Volatile.Read(ref observer)?.OnTransportState(new RealtimeTransportState(status, occurredAt));
 
+        public void Report(PrivatePositionObservation observation) =>
+            Volatile.Read(ref observer)?.OnPosition(observation);
+
         public Task<RealtimeTransportState> StartAsync(
             IExchangeRealtimeObserver observer,
             CancellationToken cancellationToken = default)
@@ -1343,6 +1573,8 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
 
     private sealed class GenerationAdvanceFailureGate
     {
+        private readonly ConcurrentQueue<RealtimeObservationTransportStatus> advanceStatuses = new();
+        private readonly ConcurrentQueue<RealtimeObservationTransportStatus> failedStatuses = new();
         private int failNext;
         private int advanceCalls;
         private int failuresObserved;
@@ -1352,15 +1584,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
 
         public void FailNextAdvance() => Interlocked.Exchange(ref failNext, 1);
 
-        public void RecordAdvance() => Interlocked.Increment(ref advanceCalls);
+        public RealtimeObservationTransportStatus[] AdvanceStatuses => advanceStatuses.ToArray();
+        public RealtimeObservationTransportStatus[] FailedStatuses => failedStatuses.ToArray();
 
-        public bool TryFailAdvance()
+        public bool RecordAdvance(RealtimeObservationTransportStatus status)
         {
+            advanceStatuses.Enqueue(status);
+            Interlocked.Increment(ref advanceCalls);
             if (Interlocked.Exchange(ref failNext, 0) == 0)
             {
                 return false;
             }
 
+            failedStatuses.Enqueue(status);
             Interlocked.Increment(ref failuresObserved);
             return true;
         }
@@ -1388,8 +1624,7 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests
             RealtimeObservationTransportStatus status,
             CancellationToken cancellationToken = default)
         {
-            failureGate.RecordAdvance();
-            return failureGate.TryFailAdvance()
+            return failureGate.RecordAdvance(status)
                 ? Task.FromException<Versioned<RealtimeObservationState>>(
                     new InvalidOperationException("Искусственный сбой смены поколения."))
                 : inner.AdvanceGenerationAsync(userId, exchangeAccountId, status, cancellationToken);
