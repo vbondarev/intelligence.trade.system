@@ -9,6 +9,7 @@ using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
@@ -22,8 +23,15 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
     RealtimeObservationReadService realtimeObservationReadService,
-    ICurrentUserContext currentUserContext) : ControllerBase
+    ICurrentUserContext currentUserContext,
+    ILogger<ExchangeAccountsController> logger) : ControllerBase
 {
+    private static readonly Action<ILogger, string, Exception?> RealtimeObservationReadFailed =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(0, "RealtimeObservationReadFailed"),
+            "Не удалось получить realtime-наблюдение для ответа биржевого аккаунта. Тип исключения: {ExceptionType}");
+
     [HttpGet]
     [ProducesResponseType(typeof(ExchangeAccountListResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ExchangeAccountListResponse>> List(CancellationToken cancellationToken)
@@ -173,9 +181,19 @@ public sealed class ExchangeAccountsController(
         ExchangeAccount account,
         CancellationToken cancellationToken)
     {
-        var observation = await realtimeObservationReadService
-            .GetAsync(currentUserContext.UserId, account.Id, cancellationToken)
-            .ConfigureAwait(false);
+        RealtimeObservationReadModel observation;
+        try
+        {
+            observation = await realtimeObservationReadService
+                .GetAsync(currentUserContext.UserId, account.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            RealtimeObservationReadFailed(logger, exception.GetType().Name, null);
+            observation = RealtimeObservationReadModel.Unknown;
+        }
+
         return ExchangeAccountMapper.ToResponse(account, observation);
     }
 

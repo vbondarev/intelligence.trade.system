@@ -21,4 +21,16 @@ public sealed record RealtimeObservationReadModel(
     bool HasState,
     bool RecoveryRequired,
     bool IsTransportOperational,
-    RealtimeObservationTransportStatus? TransportStatus);
+    RealtimeObservationTransportStatus? TransportStatus)
+{
+    public static RealtimeObservationReadModel Unknown { get; } = new(
+        RealtimeObservationReadStatus.Unknown,
+        null,
+        null,
+        null,
+        null,
+        false,
+        false,
+        false,
+        null);
+}
