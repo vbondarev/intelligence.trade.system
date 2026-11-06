@@ -7,6 +7,8 @@ using Intelligence.TradeSystem.Api.Tests.Support;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
 using Intelligence.TradeSystem.Application.Concurrency;
+using Intelligence.TradeSystem.Application.Realtime;
+using Intelligence.TradeSystem.Application.Realtime.State;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Intelligence.TradeSystem.Domain.Portfolio;
@@ -41,6 +43,21 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     public ExchangeAccountsControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
+    public void Realtime_observation_unknown_model_has_no_claimed_state()
+    {
+        RealtimeObservationReadModel.Unknown.Should().Be(new RealtimeObservationReadModel(
+            RealtimeObservationReadStatus.Unknown,
+            null,
+            null,
+            null,
+            null,
+            false,
+            false,
+            false,
+            null));
+    }
+
+    [Fact]
     public async Task List_returns_only_the_current_users_accounts_in_an_items_envelope()
     {
         var userId = UserId.New();
@@ -55,7 +72,85 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(V1JsonSerializerOptions.Default);
         body!.Items.Should().ContainSingle(x => x.Id == account.Id.Value);
+        body.Items[0].RealtimeObservation.Status.Should().Be(RealtimeObservationStatusV1.Unknown);
         service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task List_projects_the_batch_read_observation_state()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var now = DateTimeOffset.UtcNow;
+        var observation = new RealtimeObservationState
+        {
+            ExchangeAccountId = account.Id,
+            Generation = 1,
+            TransportStatus = RealtimeObservationTransportStatus.Connected,
+            LastConnectedAt = now.AddSeconds(-1),
+            LastHeartbeatAt = now,
+            LastFullyReconciledAt = now.AddMinutes(-1),
+            RecoveryRequired = false,
+        };
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[account]);
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        observationStore.Setup(x => x.GetForAccountsAsync(
+                userId,
+                It.Is<IReadOnlyCollection<ExchangeAccountId>>(ids =>
+                    ids.Count == 1 && ids.Contains(account.Id)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>
+            {
+                [account.Id] = new(observation, ConcurrencyVersion.Initial),
+            });
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.GetAsync(ManagementRoute);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountListResponse>(
+            V1JsonSerializerOptions.Default);
+        var projected = body!.Items.Should().ContainSingle().Which.RealtimeObservation;
+        projected.Status.Should().Be(RealtimeObservationStatusV1.Connected);
+        projected.LastConnectedAt.Should().Be(observation.LastConnectedAt);
+        projected.LastHeartbeatAt.Should().Be(observation.LastHeartbeatAt);
+        projected.ReasonCode.Should().BeNull();
+        service.VerifyAll();
+        observationStore.VerifyAll();
+    }
+
+    [Fact]
+    public async Task List_does_not_mask_an_observation_store_failure()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ListAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ExchangeAccount>)[account]);
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        observationStore.Setup(x => x.GetForAccountsAsync(
+                userId,
+                It.IsAny<IReadOnlyCollection<ExchangeAccountId>>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("private observation diagnostic"));
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.GetAsync(ManagementRoute);
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("private observation diagnostic");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("internal_error");
+        service.Verify(x => x.ListAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetForAccountsAsync(
+            userId,
+            It.IsAny<IReadOnlyCollection<ExchangeAccountId>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -111,6 +206,119 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         response.Headers.Location.Should().BeNull();
         service.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountConnectionOutcome.Connected, HttpStatusCode.Created)]
+    [InlineData(ExchangeAccountConnectionOutcome.Reconnected, HttpStatusCode.OK)]
+    public async Task Connect_preserves_success_when_observation_read_fails(
+        ExchangeAccountConnectionOutcome outcome,
+        HttpStatusCode expectedStatus)
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome == ExchangeAccountConnectionOutcome.Connected
+                ? ExchangeAccountConnectionResult.Connected(account)
+                : ExchangeAccountConnectionResult.Reconnected(account));
+        Exception readFailure = outcome == ExchangeAccountConnectionOutcome.Connected
+            ? new TimeoutException("private observation timeout diagnostic")
+            : new InvalidOperationException("unexpected private observation diagnostic");
+        var observationStore = CreateFailingObservationStore(userId, readFailure);
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(expectedStatus);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        AssertAccountResponse(body!, account);
+        AssertUnknownObservation(body!.RealtimeObservation);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny(
+            "private observation", "unexpected private", "api-key", "api-secret", "apiKey", "apiSecret",
+            "provider-account", "providerIdentity", "providerAccountId");
+        service.Verify(x => x.ConnectAsync(
+            userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, account.Id, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Connect_uses_the_connected_observation_when_the_read_succeeds()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var now = DateTimeOffset.UtcNow;
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Connected(account));
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        observationStore.Setup(x => x.GetAsync(userId, account.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Versioned<RealtimeObservationState>(
+                new RealtimeObservationState
+                {
+                    ExchangeAccountId = account.Id,
+                    Generation = 1,
+                    TransportStatus = RealtimeObservationTransportStatus.Connected,
+                    LastConnectedAt = now.AddSeconds(-1),
+                    LastHeartbeatAt = now,
+                    LastFullyReconciledAt = now.AddMinutes(-1),
+                    RecoveryRequired = false,
+                },
+                ConcurrencyVersion.Initial));
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        body!.RealtimeObservation.Status.Should().Be(RealtimeObservationStatusV1.Connected);
+        body.RealtimeObservation.LastConnectedAt.Should().Be(now.AddSeconds(-1));
+        body.RealtimeObservation.LastHeartbeatAt.Should().Be(now);
+        AssertAccountResponse(body, account);
+        service.Verify(x => x.ConnectAsync(
+            userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, account.Id, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Connect_business_error_keeps_its_problem_details_without_reading_observation()
+    {
+        var userId = UserId.New();
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.ConnectAsync(
+                userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ExchangeAccountConnectionResult.Failed(ExchangeAccountConnectionOutcome.AlreadyExists));
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PostAsJsonAsync(
+            ManagementRoute,
+            new { displayName = "Основной", exchange = "bybit", apiKey = "api-key", apiSecret = "api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("exchange_account_already_exists");
+        service.Verify(x => x.ConnectAsync(
+            userId, ExchangeId.Bybit, "Основной", It.IsAny<ExchangeAccountCredentialSecret>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -365,6 +573,33 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         service.VerifyAll();
     }
 
+    [Fact]
+    public async Task Verify_preserves_success_when_observation_read_fails()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.VerifyAsync(userId, accountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountVerificationResult(ExchangeAccountVerificationOutcome.Succeeded, account));
+        var observationStore = CreateFailingObservationStore(
+            userId, new InvalidOperationException("private verification observation diagnostic"));
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PostAsync($"{ManagementRoute}/{accountId.Value}/verify", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        AssertAccountResponse(body!, account);
+        AssertUnknownObservation(body!.RealtimeObservation);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("private verification observation", "provider-account");
+        service.Verify(x => x.VerifyAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
+    }
+
     [Theory]
     [InlineData(ExchangeAccountVerificationOutcome.NotFound, HttpStatusCode.NotFound)]
     [InlineData(ExchangeAccountVerificationOutcome.AccountDisabled, HttpStatusCode.Conflict)]
@@ -455,6 +690,40 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         service.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Rotate_preserves_success_when_observation_read_fails()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId);
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RotateCredentialsAsync(
+                userId, accountId, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExchangeAccountCredentialRotationResult(
+                ExchangeAccountCredentialRotationOutcome.Succeeded, account));
+        var observationStore = CreateFailingObservationStore(
+            userId, new InvalidOperationException("private rotation observation diagnostic"));
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PutAsJsonAsync(
+            $"{ManagementRoute}/{accountId.Value}/credentials",
+            new { apiKey = "new-api-key", apiSecret = "new-api-secret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        AssertAccountResponse(body!, account);
+        AssertUnknownObservation(body!.RealtimeObservation);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny(
+            "private rotation observation", "new-api-key", "new-api-secret", "new-apiKey", "new-apiSecret",
+            "provider-account");
+        service.Verify(x => x.RotateCredentialsAsync(
+            userId, accountId, It.IsAny<ExchangeAccountCredentialSecret>(), It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
     }
 
     [Theory]
@@ -563,6 +832,78 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         using var response = await client.PostAsync($"/api/v1/exchange-accounts/{accountId.Value}/sync", null);
 
         response.StatusCode.Should().Be(expectedStatus);
+    }
+
+    [Theory]
+    [InlineData(ExchangeAccountSyncOutcome.Synchronized)]
+    [InlineData(ExchangeAccountSyncOutcome.AlreadyApplied)]
+    [InlineData(ExchangeAccountSyncOutcome.Superseded)]
+    public async Task Sync_preserves_success_when_observation_read_fails(ExchangeAccountSyncOutcome outcome)
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId);
+        var result = outcome switch
+        {
+            ExchangeAccountSyncOutcome.Synchronized => ExchangeAccountSyncResult.Synchronized(
+                account,
+                PortfolioState.Create(
+                    accountId, [], new PortfolioCapitalState(100m, 80m, DateTimeOffset.UtcNow, 100m),
+                    DateTimeOffset.UtcNow, TimeSpan.FromMinutes(5))),
+            ExchangeAccountSyncOutcome.AlreadyApplied => ExchangeAccountSyncResult.AlreadyApplied(account),
+            ExchangeAccountSyncOutcome.Superseded => ExchangeAccountSyncResult.Superseded(account),
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome)),
+        };
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync.Setup(x => x.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+        var observationStore = CreateFailingObservationStore(
+            userId, new TimeoutException("private sync observation diagnostic"));
+        using var client = CreateClient(
+            userId,
+            new Mock<IExchangeAccountService>(MockBehavior.Strict).Object,
+            sync.Object,
+            observationStore);
+
+        using var response = await client.PostAsync($"{SyncRoute}/{accountId.Value}/sync", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        AssertAccountResponse(body!, account);
+        AssertUnknownObservation(body!.RealtimeObservation);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("private sync observation", "provider-account");
+        sync.Verify(x => x.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        sync.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Sync_business_exception_is_not_replaced_by_observation_fallback()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var sync = new Mock<IExchangeAccountSyncService>(MockBehavior.Strict);
+        sync.Setup(x => x.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("private sync diagnostic"));
+        var observationStore = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        using var client = CreateClient(
+            userId,
+            new Mock<IExchangeAccountService>(MockBehavior.Strict).Object,
+            sync.Object,
+            observationStore);
+
+        using var response = await client.PostAsync($"{SyncRoute}/{accountId.Value}/sync", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("private sync diagnostic");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Extensions["code"]!.ToString().Should().Be("internal_error");
+        sync.Verify(x => x.SynchronizeAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        sync.VerifyNoOtherCalls();
+        observationStore.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -753,6 +1094,36 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     }
 
     [Fact]
+    public async Task Rename_preserves_success_when_observation_read_fails()
+    {
+        var userId = UserId.New();
+        var accountId = ExchangeAccountId.New();
+        var account = CreateAccount(userId, accountId, "Новое имя");
+        var service = new Mock<IExchangeAccountService>(MockBehavior.Strict);
+        service.Setup(x => x.RenameAsync(userId, accountId, "Новое имя", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+        var observationStore = CreateFailingObservationStore(
+            userId, new InvalidOperationException("private rename observation diagnostic"));
+        using var client = CreateClient(userId, service.Object, observationStore: observationStore);
+
+        using var response = await client.PatchAsJsonAsync(
+            $"{ManagementRoute}/{accountId.Value}",
+            new { displayName = "Новое имя" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ExchangeAccountResponse>(V1JsonSerializerOptions.Default);
+        AssertAccountResponse(body!, account);
+        body!.DisplayName.Should().Be("Новое имя");
+        AssertUnknownObservation(body.RealtimeObservation);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContainAny("private rename observation", "provider-account");
+        service.Verify(x => x.RenameAsync(userId, accountId, "Новое имя", It.IsAny<CancellationToken>()), Times.Once);
+        service.VerifyNoOtherCalls();
+        observationStore.Verify(x => x.GetAsync(userId, accountId, It.IsAny<CancellationToken>()), Times.Once);
+        observationStore.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Rename_of_a_disabled_account_returns_200_and_keeps_the_disabled_status()
     {
         var userId = UserId.New();
@@ -904,8 +1275,10 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
     private HttpClient CreateClient(
         UserId userId,
         IExchangeAccountService service,
-        IExchangeAccountSyncService? syncService = null)
+        IExchangeAccountSyncService? syncService = null,
+        Mock<IRealtimeObservationStateStore>? observationStore = null)
     {
+        var stateStore = observationStore ?? CreateEmptyObservationStore(userId);
         var factory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
@@ -914,6 +1287,8 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
                 services.AddSingleton(service);
                 services.RemoveAll<IExchangeAccountSyncService>();
                 services.AddSingleton(syncService ?? new Mock<IExchangeAccountSyncService>(MockBehavior.Strict).Object);
+                services.RemoveAll<IRealtimeObservationStateStore>();
+                services.AddSingleton(stateStore.Object);
                 services.AddAuthentication(TestAuthenticationHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
                         TestAuthenticationHandler.SchemeName, _ => { });
@@ -923,6 +1298,55 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(TestAuthenticationHandler.UserIdHeader, userId.Value.ToString());
         return client;
+    }
+
+    private static Mock<IRealtimeObservationStateStore> CreateEmptyObservationStore(UserId userId)
+    {
+        var store = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                userId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Versioned<RealtimeObservationState>?)null);
+        store.Setup(x => x.GetForAccountsAsync(
+                userId,
+                It.IsAny<IReadOnlyCollection<ExchangeAccountId>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>());
+        return store;
+    }
+
+    private static Mock<IRealtimeObservationStateStore> CreateFailingObservationStore(
+        UserId userId,
+        Exception exception)
+    {
+        var store = new Mock<IRealtimeObservationStateStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                userId,
+                It.IsAny<ExchangeAccountId>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(exception);
+        return store;
+    }
+
+    private static void AssertAccountResponse(ExchangeAccountResponse response, ExchangeAccount account)
+    {
+        response.Id.Should().Be(account.Id.Value);
+        response.DisplayName.Should().Be(account.DisplayName);
+        response.Exchange.Should().Be(ExchangeProvider.Bybit);
+        response.ConnectionStatus.Should().Be(ExchangeAccountStatus.Connected);
+        response.Capabilities.Should().Equal(
+            ExchangeAccountCapability.ReadBalance,
+            ExchangeAccountCapability.ReadPositions);
+        response.LastSyncedAt.Should().Be(account.LastSyncedAt);
+    }
+
+    private static void AssertUnknownObservation(RealtimeObservationResponse observation)
+    {
+        observation.Status.Should().Be(RealtimeObservationStatusV1.Unknown);
+        observation.LastConnectedAt.Should().BeNull();
+        observation.LastHeartbeatAt.Should().BeNull();
+        observation.ReasonCode.Should().BeNull();
     }
 
     private static ExchangeAccount CreateAccount(

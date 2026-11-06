@@ -31,7 +31,10 @@ internal static class PositionMapper
         item.FirstDetectedAt,
         item.LastObservedAt,
         item.ClosedAt,
-        item.SettlementAsset.Value);
+        item.SettlementAsset.Value)
+        {
+            MarketValuation = MarketValuationMapper.ToResponse(item.MarketValuation),
+        };
 
     public static PositionResponse ToResponse(PositionReadDetail detail)
     {
@@ -57,6 +60,9 @@ internal static class PositionMapper
             detail.TakeProfit,
             detail.StopLoss,
             detail.TrailingStop,
-            item.SettlementAsset.Value);
+            item.SettlementAsset.Value)
+        {
+            MarketValuation = MarketValuationMapper.ToResponse(item.MarketValuation),
+        };
     }
 }

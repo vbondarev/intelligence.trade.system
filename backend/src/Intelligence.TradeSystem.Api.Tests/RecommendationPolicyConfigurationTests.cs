@@ -123,6 +123,11 @@ public sealed class RecommendationPolicyConfigurationTests
         services.AddSingleton<RecommendationPolicy>();
         services.AddSingleton<RecommendationStabilityPolicy>();
         services.AddScoped<MarketMarkPriceService>();
+        services.AddScoped<RealtimeObservationReadService>();
+        services.AddSingleton(new RealtimeObservationReadOptions
+        {
+            HeartbeatStaleAfter = TimeSpan.FromMinutes(1),
+        });
 
         services.AddInfrastructure(
             CreateConfiguration());

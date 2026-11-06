@@ -26,6 +26,8 @@ public static class Extensions
         "Intelligence.TradeSystem.Infrastructure.MarketCaching";
     private const string RealtimeObservationTelemetryName =
         "Intelligence.TradeSystem.Infrastructure.Realtime";
+    private const string RealtimeProcessingTelemetryName =
+        "Intelligence.TradeSystem.Application.Realtime";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -72,7 +74,8 @@ public static class Extensions
                     .AddMeter(BackgroundSyncTelemetryName)
                     .AddMeter(ApplicationEventsTelemetryName)
                     .AddMeter(PublicMarketSnapshotCacheTelemetryName)
-                    .AddMeter(RealtimeObservationTelemetryName);
+                    .AddMeter(RealtimeObservationTelemetryName)
+                    .AddMeter(RealtimeProcessingTelemetryName);
             })
             .WithTracing(tracing =>
             {

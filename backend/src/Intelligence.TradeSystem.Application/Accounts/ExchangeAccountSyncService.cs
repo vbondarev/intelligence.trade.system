@@ -121,6 +121,9 @@ public sealed class ExchangeAccountSyncService(
             // Совпадают с критерием FullPositionsComplete evidence внутри успешной транзакции.
             var positionsAreCurrent = false;
             var positionsFullyReconciled = false;
+            var restAppliedPositionChanges = 0;
+            var restAppliedWalletChange = false;
+            var hadBaseline = false;
 
             try
             {
@@ -206,6 +209,7 @@ public sealed class ExchangeAccountSyncService(
                                     exchangeAccountId,
                                     persistenceCancellationToken)
                                 .ConfigureAwait(false);
+                            hadBaseline = currentAccount.LastSyncedAt is not null && previousPortfolioState is not null;
 
                             persistenceCancellationToken.ThrowIfCancellationRequested();
 
@@ -330,6 +334,17 @@ public sealed class ExchangeAccountSyncService(
                                     balanceObservation.ObservedAt)
                                 : previousPortfolioState?.Capital
                                     ?? new PortfolioCapitalState(null, null, null);
+                            if (positionsAreCurrent && IsAcceptedPositionsStatus(normalizedPositionsObservation.Status))
+                            {
+                                restAppliedPositionChanges = reconciliation.Changes.Count(change => change.Kind is
+                                    PositionChangeKind.New or PositionChangeKind.Increased or PositionChangeKind.Reduced
+                                    or PositionChangeKind.Updated or PositionChangeKind.Closed);
+                            }
+
+                            restAppliedWalletChange = acceptRestBalance
+                                && previousPortfolioState?.Capital is { ObservedAt: not null } previousCapital
+                                && !PortfolioStateAssembler.HasSameCapitalValues(previousCapital, capital);
+
                             var calculatedAt = PortfolioStateCalculatedAt.Resolve(
                                 capital.ObservedAt is { } capitalObservedAt && capitalObservedAt > freshnessEvaluatedAt
                                     ? capitalObservedAt
@@ -537,7 +552,9 @@ public sealed class ExchangeAccountSyncService(
                         normalizedPositionsObservation,
                         positionsReadCompletedAt,
                         positionsAreCurrent,
-                        positionsFullyReconciled);
+                        positionsFullyReconciled,
+                        restAppliedPositionChanges,
+                        restAppliedWalletChange, hadBaseline);
                 }
 
                 return AttachAcceptedResourceEvidence(
@@ -549,7 +566,9 @@ public sealed class ExchangeAccountSyncService(
                     normalizedPositionsObservation,
                     positionsReadCompletedAt,
                     positionsAreCurrent,
-                    positionsFullyReconciled);
+                    positionsFullyReconciled,
+                    restAppliedPositionChanges,
+                    restAppliedWalletChange, hadBaseline);
             }
 
             if (attemptResult.Outcome == ExchangeAccountSyncOutcome.ExchangeUnavailable)
@@ -575,7 +594,9 @@ public sealed class ExchangeAccountSyncService(
                     normalizedPositionsObservation,
                     positionsReadCompletedAt,
                     positionsAreCurrent,
-                    positionsFullyReconciled);
+                    positionsFullyReconciled,
+                    restAppliedPositionChanges,
+                    restAppliedWalletChange, hadBaseline);
             }
 
             return attemptResult;
@@ -927,7 +948,10 @@ public sealed class ExchangeAccountSyncService(
         OpenPositionsObservation positionsObservation,
         DateTimeOffset positionsReadCompletedAt,
         bool positionsAreCurrent,
-        bool positionsFullyReconciled)
+        bool positionsFullyReconciled,
+        int restAppliedPositionChanges,
+        bool restAppliedWalletChange,
+        bool hadBaseline)
     {
         var balanceRead = ResolveAcceptedBalanceReadWindow(
             hasFreshBalance,
@@ -952,7 +976,13 @@ public sealed class ExchangeAccountSyncService(
             .WithAcceptedPositionsRead(
                 positionsRead?.StartedAt,
                 positionsRead?.CompletedAt,
-                fullPositionsComplete);
+                fullPositionsComplete) with
+            {
+                RestAppliedPositionChanges = restAppliedPositionChanges,
+                RestAppliedWalletChange = restAppliedWalletChange,
+                RestOnlyAppliedPositionChanges = hadBaseline ? restAppliedPositionChanges : 0,
+                RestOnlyAppliedWalletChange = hadBaseline && restAppliedWalletChange,
+            };
     }
 
     /// <summary>

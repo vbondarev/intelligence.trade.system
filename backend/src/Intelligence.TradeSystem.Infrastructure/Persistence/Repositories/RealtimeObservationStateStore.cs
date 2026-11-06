@@ -14,6 +14,49 @@ namespace Intelligence.TradeSystem.Infrastructure.Persistence.Repositories;
 internal sealed class RealtimeObservationStateStore(TradeSystemDbContext dbContext)
     : IRealtimeObservationStateStore
 {
+    public async Task<IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>> GetForAccountsAsync(
+        UserId userId,
+        IReadOnlyCollection<ExchangeAccountId> exchangeAccountIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == default)
+        {
+            throw new ArgumentException("UserId must be initialized.", nameof(userId));
+        }
+
+        ArgumentNullException.ThrowIfNull(exchangeAccountIds);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (exchangeAccountIds.Any(accountId => accountId == default))
+        {
+            throw new ArgumentException(
+                "Exchange account ids must be initialized.",
+                nameof(exchangeAccountIds));
+        }
+
+        var accountIds = exchangeAccountIds
+            .Select(accountId => accountId.Value)
+            .Distinct()
+            .ToArray();
+        if (accountIds.Length == 0)
+        {
+            return new Dictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>();
+        }
+
+        var entities = await dbContext.ExchangeRealtimeObservations
+            .AsNoTracking()
+            .Where(observation =>
+                accountIds.Contains(observation.ExchangeAccountId) &&
+                dbContext.ExchangeAccounts.Any(account =>
+                    account.Id == observation.ExchangeAccountId &&
+                    account.UserId == userId.Value))
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return entities.ToDictionary(
+            entity => ExchangeAccountId.FromGuid(entity.ExchangeAccountId),
+            ToVersioned);
+    }
+
     public async Task<Versioned<RealtimeObservationState>?> GetAsync(
         UserId userId,
         ExchangeAccountId exchangeAccountId,

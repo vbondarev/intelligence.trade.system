@@ -411,7 +411,15 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
             [
                 new PortfolioExposureResponse("USDC", 50m, 50m, 0m),
                 new PortfolioExposureResponse("USDT", null, 100m, null),
-            ]);
+            ])
+        {
+            FactualFreshness = new(
+                FactualFreshnessStatusV1.Fresh,
+                DateTimeOffset.UnixEpoch),
+            ValuationFreshness = new(
+                MarketValuationFreshnessStatusV1.Partial,
+                DateTimeOffset.UnixEpoch),
+        };
 
         using var json = JsonDocument.Parse(
             JsonSerializer.Serialize(response, V1JsonSerializerOptions.Default));
@@ -419,6 +427,12 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
 
         root.GetProperty("totalUnrealizedPnl").GetDecimal().Should().Be(-12.5m);
         root.GetProperty("currentPositionCount").GetInt32().Should().Be(3);
+        root.GetProperty("factualFreshness").GetProperty("status").GetString().Should().Be("fresh");
+        root.GetProperty("factualFreshness").GetProperty("lastFullyReconciledAt")
+            .GetDateTimeOffset().Should().Be(DateTimeOffset.UnixEpoch);
+        root.GetProperty("valuationFreshness").GetProperty("status").GetString().Should().Be("partial");
+        root.GetProperty("valuationFreshness").GetProperty("calculatedAt")
+            .GetDateTimeOffset().Should().Be(DateTimeOffset.UnixEpoch);
         var exposures = root.GetProperty("exposures").EnumerateArray().ToArray();
         exposures.Select(exposure => exposure.GetProperty("settlementAsset").GetString())
             .Should().Equal("USDC", "USDT");
@@ -429,7 +443,7 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public void V1_position_contract_serializes_settlement_asset_as_string()
+    public void V1_position_contract_serializes_settlement_asset_and_market_valuation()
     {
         var response = new PositionListItemResponse(
             Guid.NewGuid(),
@@ -447,12 +461,26 @@ public sealed class V1ApiContractTests : IClassFixture<ApiWebApplicationFactory>
             DateTimeOffset.UnixEpoch,
             DateTimeOffset.UnixEpoch,
             null,
-            "USDC");
+            "USDC")
+        {
+            MarketValuation = new PositionMarketValuationResponse(
+                70_000m,
+                14_000m,
+                "USDC",
+                "publicTicker",
+                DateTimeOffset.UnixEpoch,
+                DateTimeOffset.UnixEpoch,
+                MarketValuationFreshnessStatusV1.Fresh),
+        };
 
         using var json = JsonDocument.Parse(
             JsonSerializer.Serialize(response, V1JsonSerializerOptions.Default));
 
-        json.RootElement.GetProperty("settlementAsset").GetString().Should().Be("USDC");
+        var root = json.RootElement;
+        root.GetProperty("settlementAsset").GetString().Should().Be("USDC");
+        root.GetProperty("marketValuation").GetProperty("source").GetString().Should().Be("publicTicker");
+        root.GetProperty("marketValuation").GetProperty("freshnessStatus").GetString().Should().Be("fresh");
+        root.GetProperty("marketValuation").GetProperty("indicativePositionValue").GetDecimal().Should().Be(14_000m);
     }
 
     [Theory]

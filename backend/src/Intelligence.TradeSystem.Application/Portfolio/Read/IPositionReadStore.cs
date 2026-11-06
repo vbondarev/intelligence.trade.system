@@ -4,6 +4,11 @@ namespace Intelligence.TradeSystem.Application.Portfolio.Read;
 
 public interface IPositionReadStore
 {
+    Task<IReadOnlyList<PositionMarketValuationInput>> GetMarketValuationInputsByAccountAsync(
+        UserId userId,
+        ExchangeAccountId exchangeAccountId,
+        CancellationToken cancellationToken = default);
+
     Task<PositionReadPage> ListAsync(
         UserId userId,
         PositionReadQuery query,

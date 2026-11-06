@@ -21,4 +21,7 @@ public sealed record PositionListItemResponse(
     DateTimeOffset FirstDetectedAt,
     DateTimeOffset LastObservedAt,
     DateTimeOffset? ClosedAt,
-    string SettlementAsset);
+    string SettlementAsset)
+{
+    public PositionMarketValuationResponse? MarketValuation { get; init; }
+}

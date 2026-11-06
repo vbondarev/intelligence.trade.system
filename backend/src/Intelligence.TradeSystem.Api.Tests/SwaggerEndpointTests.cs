@@ -220,11 +220,23 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
         var accountSchema = schemas.GetProperty("ExchangeAccountResponse");
         var accountProperties = accountSchema.GetProperty("properties");
         accountProperties.EnumerateObject().Select(x => x.Name)
-            .Should().Equal("id", "displayName", "exchange", "connectionStatus", "capabilities", "lastSyncedAt");
+            .Should().Equal(
+                "id",
+                "displayName",
+                "exchange",
+                "connectionStatus",
+                "capabilities",
+                "lastSyncedAt",
+                "realtimeObservation");
         accountProperties.GetProperty("displayName").GetProperty("type").GetString().Should().Be("string");
         var lastSyncedAtSchema = accountProperties.GetProperty("lastSyncedAt");
         lastSyncedAtSchema.TryGetProperty("nullable", out var nullable).Should().BeTrue();
         nullable.GetBoolean().Should().BeTrue();
+        accountProperties.GetProperty("realtimeObservation").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/RealtimeObservationResponse");
+        schemas.GetProperty("RealtimeObservationStatusV1").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("unknown", "initializing", "connected", "reconnecting", "degraded", "stopped");
 
         // Response schemas (не request bodies, которые принимают apiKey/apiSecret для передачи
         // credentials) никогда не должны раскрывать secrets или внутренние credential diagnostics.
@@ -332,13 +344,20 @@ public sealed class SwaggerEndpointTests : IClassFixture<ApiWebApplicationFactor
         var portfolioProperties = portfolioSchema.GetProperty("properties");
         portfolioProperties.TryGetProperty("positions", out _).Should().BeFalse();
         portfolioProperties.TryGetProperty("staleAfter", out _).Should().BeFalse();
+        portfolioProperties.GetProperty("factualFreshness").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/FactualFreshnessResponse");
+        portfolioProperties.GetProperty("valuationFreshness").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/ValuationFreshnessResponse");
         portfolioProperties.GetProperty("capital").GetProperty("$ref").GetString()
             .Should().Be("#/components/schemas/PortfolioCapitalResponse");
+        positionProperties.GetProperty("marketValuation").GetProperty("$ref").GetString()
+            .Should().Be("#/components/schemas/PositionMarketValuationResponse");
         AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "averageEntryPrice");
         AssertNullableProperty(f03Schemas.GetProperty("PositionListItemResponse"), "closedAt");
         AssertNullableProperty(positionSchema, "markPrice");
         AssertNullableProperty(positionSchema, "breakEvenPrice");
         AssertNullableProperty(positionSchema, "closedAt");
+        AssertNullableProperty(f03Schemas.GetProperty("PositionMarketValuationResponse"), "source");
         AssertNullableProperty(portfolioSchema, "grossExposure");
         AssertNullableProperty(portfolioSchema, "largestPositionId");
         var capitalSchema = f03Schemas.GetProperty("PortfolioCapitalResponse");

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Diagnostics.Metrics;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
@@ -32,6 +33,64 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(30);
     private static readonly SettlementAsset Usdt = SettlementAsset.From("USDT");
     private static readonly SettlementAsset Usdc = SettlementAsset.From("USDC");
+
+    [Fact]
+    public async Task Scoped_rest_counts_committed_other_hedge_slot_change()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var rest = new TestPrivateProvider { Clock = clock };
+        rest.SetPosition(OpenPosition(side: PositionSide.Long, positionIdx: 1));
+        rest.SetPosition(OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        await using var services = CreateApplicationServices(account, rest, clock);
+        var coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        Assert.True((await coordinator.SynchronizeAsync(account.UserId, account.Id)).FullReconciliationCommitted);
+        int beforeChanges;
+        int beforeEvents;
+        Guid shortPositionId;
+        await using (var context = fixture.CreateContext())
+        {
+            var baselinePositions = await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id);
+            shortPositionId = Assert.Single(baselinePositions, p => p.Value.ExchangePositionKey.PositionIdx == 2).Value.Id.Value;
+            beforeChanges = await context.PositionChanges.CountAsync(change => change.PositionId == shortPositionId);
+            beforeEvents = await CountOutboxAsync(context, account, ApplicationEventTypes.PositionChanged);
+        }
+
+        var measurements = new List<(string Resource, string Kind, long Value)>();
+        var capture = new AsyncLocal<bool>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime" &&
+                instrument.Name == "exchange.realtime.rest_only.applied_changes")
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (!capture.Value)
+                return;
+            Assert.Equal("{change}", instrument.Unit);
+            var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+            Assert.Equal(2, dimensions.Count);
+            measurements.Add((Assert.IsType<string>(dimensions["resource"]), Assert.IsType<string>(dimensions["kind"]), value));
+        });
+        listener.Start();
+        capture.Value = true;
+        rest.ClearPositions();
+        rest.SetPosition(OpenPosition(side: PositionSide.Long, positionIdx: 1));
+        rest.SetPosition(OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        clock.UtcNow = clock.UtcNow.AddSeconds(3);
+        var close = CloseObservation(account, clock.UtcNow.AddSeconds(-1), 10) with { PositionIdx = 1 };
+        Assert.True(coordinator.TryEnqueue(account.UserId, generation, close));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(account.UserId, account.Id)).ConfirmedByRest);
+        Assert.Equal(("position", "reconciliation", 1L), Assert.Single(measurements));
+        Assert.Equal("BTCUSDT", rest.PositionRequests.Last());
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Equal(2m, Assert.Single(positions, p => p.Value.ExchangePositionKey.PositionIdx == 2).Value.Size);
+        Assert.Equal(beforeChanges + 1, await verification.PositionChanges.CountAsync(change => change.PositionId == shortPositionId));
+        Assert.Equal(beforeEvents + 1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+    }
 
     [Fact]
     public async Task Stream_open_persists_position_cursor_portfolio_and_outbox_together()
@@ -1038,6 +1097,23 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
+    private sealed class OneShotBarrier
+    {
+        private readonly TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitForEntryAsync(CancellationToken cancellationToken) =>
+            entered.Task.WaitAsync(CompletionTimeout, cancellationToken);
+
+        public void Release() => released.TrySetResult();
+
+        public Task PauseAsync(CancellationToken cancellationToken)
+        {
+            entered.SetResult();
+            return released.Task.WaitAsync(CompletionTimeout, cancellationToken);
+        }
+    }
+
     private sealed class SingleCandidateSource(ExchangeAccount account) : IExchangeAccountSyncCandidateSource
     {
         private readonly Channel<int> discoveryPasses = Channel.CreateBounded<int>(
@@ -1048,8 +1124,11 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 SingleWriter = true,
             });
         private int discoveryPassCount;
+        private OneShotBarrier? nextBatchBarrier;
 
         public int DiscoveryPassCount => Volatile.Read(ref discoveryPassCount);
+
+        public void PauseNextBatch(OneShotBarrier barrier) => Interlocked.Exchange(ref nextBatchBarrier, barrier);
 
         public async Task WaitForDiscoveryCountAsync(int count)
         {
@@ -1060,24 +1139,24 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
             }
         }
 
-        public Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsync(
+        public async Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsync(
             ExchangeAccountId? after,
             int limit,
-            CancellationToken cancellationToken = default) =>
-            GetBatchAsyncCore(after);
-
-        private Task<IReadOnlyList<ExchangeAccountSyncCandidate>> GetBatchAsyncCore(
-            ExchangeAccountId? after)
+            CancellationToken cancellationToken = default)
         {
             if (after is not null)
             {
-                return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>([]);
+                return [];
             }
 
             var count = Interlocked.Increment(ref discoveryPassCount);
             discoveryPasses.Writer.TryWrite(count);
-            return Task.FromResult<IReadOnlyList<ExchangeAccountSyncCandidate>>(
-                [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)]);
+            if (Interlocked.Exchange(ref nextBatchBarrier, null) is { } barrier)
+            {
+                await barrier.PauseAsync(cancellationToken);
+            }
+
+            return [new ExchangeAccountSyncCandidate(account.UserId, account.Id, null)];
         }
     }
 
@@ -1119,6 +1198,10 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private sealed class TestCredentialStore : IExchangeAccountCredentialStore
     {
         private long _version = ConcurrencyVersion.Initial.Value;
+        private OneShotBarrier? nextMetadataBarrier;
+
+        public void PauseNextMetadata(OneShotBarrier barrier) =>
+            Interlocked.Exchange(ref nextMetadataBarrier, barrier);
 
         public ConcurrencyVersion Version
         {
@@ -1134,11 +1217,19 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
                 new ExchangeAccountCredentialSecret("integration-key", "integration-secret"),
                 Version));
 
-        public Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
+        public async Task<ExchangeAccountCredentialMetadata?> GetMetadataAsync(
             UserId userId,
             ExchangeAccountId exchangeAccountId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<ExchangeAccountCredentialMetadata?>(new ExchangeAccountCredentialMetadata(Version));
+            CancellationToken cancellationToken = default)
+        {
+            var metadata = new ExchangeAccountCredentialMetadata(Version);
+            if (Interlocked.Exchange(ref nextMetadataBarrier, null) is { } barrier)
+            {
+                await barrier.PauseAsync(cancellationToken);
+            }
+
+            return metadata;
+        }
 
         public Task<ConcurrencyVersion> CreateAsync(
             UserId userId,

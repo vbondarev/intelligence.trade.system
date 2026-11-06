@@ -113,7 +113,16 @@ public sealed record PortfolioReadSummary(
     bool IsComplete,
     bool IsFresh,
     int CurrentPositionCount,
-    IReadOnlyList<PortfolioExposureReadSummary> Exposures);
+    IReadOnlyList<PortfolioExposureReadSummary> Exposures)
+{
+    public FactualFreshnessReadModel FactualFreshness { get; init; } =
+        new(FactualFreshnessStatus.Unknown, null);
+
+    public PortfolioMarketValuationFreshness ValuationFreshness { get; init; } =
+        new(MarketValuationFreshnessStatus.Unknown, null);
+
+    public IReadOnlyList<PositionId>? SnapshotPositionIds { get; init; }
+}
 
 /// <summary>
 /// Экспозиция позиций снимка портфеля в пределах одного актива расчёта.

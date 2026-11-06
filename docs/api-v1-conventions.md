@@ -178,6 +178,48 @@ expired) не являются отдельными timeline events. Следу�
   Эти значения не являются суммой в одном `settlementAsset` и не нормализованы
   в USD; settlement-aware клиенты и Web client их не используют.
 
+## Свежесть realtime-наблюдения и рыночной оценки
+
+`ExchangeAccountResponse.realtimeObservation` описывает состояние приватного
+транспорта, а не полноту сохранённых фактов. Его `status` принимает значения
+`unknown`, `initializing`, `connected`, `reconnecting`, `degraded` и `stopped`.
+Свежий heartbeat необходим для `connected`; при устаревшем heartbeat статус
+становится `degraded`, а `reasonCode` получает `heartbeat_stale`, если нет
+сохранённой нормализованной причины. Отсутствие событий позиции не считается
+ошибкой транспорта.
+
+`PortfolioResponse.factualFreshness` и `valuationFreshness` независимы друг от
+друга и от прежнего `isFresh`:
+
+- `factualFreshness.status` — `unknown`, `fresh`, `stale` или `degraded`.
+  `lastFullyReconciledAt` берётся из сохранённого состояния успешной полной
+  REST-сверки; он не вычисляется из `calculatedAt` или `lastSyncedAt`.
+  Если при раздельном чтении доступный набор `PositionId` снимка расходится
+  с текущим составом позиций, фактическая свежесть проецируется как для
+  неподтверждённого состава. Прежний порядок приоритетов статусов и значение
+  `isFresh` сохраняются.
+- `valuationFreshness.status` — `unknown`, `fresh`, `partial`, `stale` или
+  `notApplicable`. `calculatedAt` — время оценки публичных рыночных данных при
+  чтении и не заменяет время формирования сохранённого снимка портфеля.
+- `valuationFreshness` оценивает полный подтверждённый набор незакрытых позиций
+  аккаунта, а не текущую страницу cursor pagination. Статус не является
+  денежным агрегатом: стоимость разных `settlementAsset` не складывается.
+
+`PositionResponse.marketValuation` и
+`PositionListItemResponse.marketValuation` публикуют существующую read-time
+оценку из публичной mark price. `indicativePositionValue` выражается в
+`settlementAsset` и не заменяет биржевые `positionValue`, `markPrice` или
+`unrealizedPnl`. `source` для доступной оценки равен `publicTicker`.
+`freshnessStatus` принимает значения `unknown`, `fresh`, `partial`, `stale` и
+`notApplicable`. При отсутствии цены числовые поля и источник равны `null`;
+при устаревшей цене последнее подтверждённое значение может сохраняться, но
+не обозначается свежим. Для закрытой или неподдерживаемой позиции live-оценка
+не синтезируется.
+
+Все перечисленные поля аддитивны. Свежесть рыночной оценки не подтверждает
+актуальность приватного состояния, а фактическое realtime-обновление не
+меняет прежнюю семантику `isFresh` и не запускает повторную `evaluation`.
+
 ## Границы миграции
 
 `/api/v1/me/exchange-accounts` является канонической v1-границей управления

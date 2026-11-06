@@ -27,3 +27,7 @@ public sealed record MarketValuation(
     DateTimeOffset? ObservedAt,
     DateTimeOffset CalculatedAt,
     MarketValuationFreshnessStatus FreshnessStatus);
+
+public sealed record PortfolioMarketValuationFreshness(
+    MarketValuationFreshnessStatus Status,
+    DateTimeOffset? CalculatedAt);

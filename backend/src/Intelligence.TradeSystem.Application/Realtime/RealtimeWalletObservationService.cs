@@ -41,7 +41,6 @@ public sealed class RealtimeWalletObservationService(
     TimeProvider? timeProvider = null)
 {
     private const int MaxPersistenceAttempts = 3;
-    private const int StoredCapitalScale = 18;
     private static readonly TimeSpan PortfolioStaleAfter = TimeSpan.FromMinutes(5);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
@@ -333,7 +332,7 @@ public sealed class RealtimeWalletObservationService(
             {
                 // Одинаковый MessageCreatedAt сам по себе не доказывает идентичность сообщений Bybit;
                 // повтор подтверждаем совпадением всех финансовых значений.
-                return acceptedCapital is not null && HasSameValues(acceptedCapital, observedCapital)
+                return acceptedCapital is not null && PortfolioStateAssembler.HasSameCapitalValues(acceptedCapital, observedCapital)
                     ? RealtimeObservationApplyResult.Duplicate()
                     : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
             }
@@ -359,7 +358,7 @@ public sealed class RealtimeWalletObservationService(
         {
             if (acceptedWalletExchangeAt is null && normalizedObservedAt == normalizedCapitalAt)
             {
-                return HasSameValues(acceptedCapital, observedCapital)
+                return PortfolioStateAssembler.HasSameCapitalValues(acceptedCapital, observedCapital)
                     ? RealtimeObservationApplyResult.Duplicate()
                     : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
             }
@@ -410,7 +409,7 @@ public sealed class RealtimeWalletObservationService(
             // Равное backend-время без биржевого cursor: повтор только при совпадении значений.
             if (acceptedWalletExchangeAt is null)
             {
-                return HasSameValues(acceptedCapital, observedCapital)
+                return PortfolioStateAssembler.HasSameCapitalValues(acceptedCapital, observedCapital)
                     ? RealtimeObservationApplyResult.Duplicate()
                     : RealtimeObservationApplyResult.RecoveryRequired(RealtimeObservationApplyResult.BalanceConflict);
             }
@@ -482,22 +481,6 @@ public sealed class RealtimeWalletObservationService(
                 cancellationToken)
             .ConfigureAwait(false);
     }
-
-    private static bool HasSameValues(PortfolioCapitalState accepted, PortfolioCapitalState observed) =>
-        SameStoredValue(accepted.TotalEquity, observed.TotalEquity) &&
-        SameStoredValue(accepted.AvailableCapital, observed.AvailableCapital) &&
-        SameStoredValue(accepted.TotalWalletBalance, observed.TotalWalletBalance) &&
-        SameStoredValue(accepted.AccountUnrealizedPnl, observed.AccountUnrealizedPnl);
-
-    /// <summary>
-    /// Сравнивает значения с точностью хранения капитала (18 знаков после запятой): принятое значение
-    /// могло быть округлено при сохранении.
-    /// </summary>
-    private static bool SameStoredValue(decimal? accepted, decimal? observed) =>
-        accepted is { } left && observed is { } right
-            ? decimal.Round(left, StoredCapitalScale, MidpointRounding.AwayFromZero) ==
-              decimal.Round(right, StoredCapitalScale, MidpointRounding.AwayFromZero)
-            : accepted is null && observed is null;
 
     private static bool HasSamePositionWatermark(
         IReadOnlyCollection<PositionVersionWatermark> expected,

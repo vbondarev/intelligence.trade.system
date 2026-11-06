@@ -264,14 +264,25 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         SubscriptionState state,
         MarketPriceSubscriptionStartUnconfirmedException exception)
     {
+        var alreadyProtected = state.StartUnconfirmed || state.DisposeUnconfirmed;
         state.Lifecycle = SubscriptionLifecycle.Stopping;
         Deactivate(state);
         RemovePendingPrice(state.Symbol, state.Generation);
-        state.StartUnconfirmed = true;
+        if (!state.StartUnconfirmed)
+        {
+            state.StartUnconfirmed = true;
+            ExchangeRealtimeObservationTelemetry.RecordPublicSubscriptionStartUnconfirmed();
+        }
+
         if (exception.UnconfirmedLease is { } lease)
         {
             state.Lease = lease;
-            state.DisposeUnconfirmed = true;
+            MarkDisposeUnconfirmed(state);
+        }
+
+        if (!alreadyProtected)
+        {
+            ExchangeRealtimeObservationTelemetry.RecordProtectedPublicSubscription();
         }
 
         LogSubscriptionStartUnconfirmed(logger, exception.GetType().Name);
@@ -316,7 +327,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
-            state.DisposeUnconfirmed = true;
+            MarkDisposeUnconfirmed(state);
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
         }
     }
@@ -334,7 +345,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
-            state.DisposeUnconfirmed = true;
+            MarkDisposeUnconfirmed(state);
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
         }
     }
@@ -537,7 +548,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
             if (state.DisposeTask is { } disposeTask)
             {
                 state.DisposeTask = null;
-                state.DisposeUnconfirmed = true;
+                MarkDisposeUnconfirmed(state);
                 LogSubscriptionDisposePendingAtShutdown(logger);
                 _lateCleanupTasks.Add(ObserveLateDisposalAsync(state, disposeTask));
                 continue;
@@ -587,7 +598,7 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         }
         catch (Exception exception)
         {
-            state.DisposeUnconfirmed = true;
+            MarkDisposeUnconfirmed(state);
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
             return;
         }
@@ -602,16 +613,37 @@ public sealed partial class MarketPriceSubscriptionCoordinator(
         try
         {
             await disposeTask.ConfigureAwait(false);
+            var wasProtected = state.StartUnconfirmed || state.DisposeUnconfirmed;
             state.DisposeTask = null;
             state.Lease = null;
             state.DisposeUnconfirmed = false;
+            if (wasProtected && !state.StartUnconfirmed)
+            {
+                ExchangeRealtimeObservationTelemetry.RecordProtectedPublicSubscriptionReleased();
+            }
+
             DisposeCancellation(state);
             RemoveSubscriptionState(state);
         }
         catch (Exception exception)
         {
-            state.DisposeUnconfirmed = true;
+            MarkDisposeUnconfirmed(state);
             LogSubscriptionDisposeFailed(logger, exception.GetType().Name);
+        }
+    }
+
+    private static void MarkDisposeUnconfirmed(SubscriptionState state)
+    {
+        var alreadyProtected = state.StartUnconfirmed || state.DisposeUnconfirmed;
+        if (!state.DisposeUnconfirmed)
+        {
+            state.DisposeUnconfirmed = true;
+            ExchangeRealtimeObservationTelemetry.RecordPublicSubscriptionDisposeUnconfirmed();
+        }
+
+        if (!alreadyProtected)
+        {
+            ExchangeRealtimeObservationTelemetry.RecordProtectedPublicSubscription();
         }
     }
 
