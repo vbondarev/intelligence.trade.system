@@ -117,7 +117,6 @@ REST-сверку и проверить её результат. Не меняй
 | `exchange.realtime.providers.active` | Текущие активные приватные observers |
 | `exchange.realtime.transport.status_updates` | Успешно сохранённые обновления от transport signals в `PersistTransportStateAsync`. Tag `status` отражает нормализованный статус наблюдения |
 | `exchange.realtime.transport.gap_signals` | Сигналы о возможном пропуске, принятые supervisor. Unit `{signal}`. Tags `worker=exchange-realtime-observation`, `exchange=Bybit`, `reason=connection_lost` или `reason=message_rejected` |
-| `exchange.realtime.rest_only.applied_changes` | Сохранённые REST бизнес-изменения после исходной полной сверки. Unit `{change}`; tags `resource=position`/`wallet`, `kind=recovery`/`reconciliation` |
 | `exchange.realtime.observations.received` | Входящие события; tag `stream` (`position`/`wallet`) |
 | `exchange.realtime.observation.signals.dropped` | Отказы постановки наблюдений в очередь на границе supervisor |
 | `exchange.realtime.recoveries.requested` | Запросы полной REST-сверки |
@@ -135,6 +134,9 @@ REST-сверку и проверить её результат. Не меняй
 Meter `Intelligence.TradeSystem.Application.Realtime` дополняет эти сигналы
 учётом очистки очереди, исходов применения и длительности операций:
 
+- `exchange.realtime.rest_only.applied_changes` учитывает сохранённые REST бизнес-изменения
+  после исходной полной сверки. Unit `{change}`; tags `resource=position|wallet`,
+  `kind=recovery|reconciliation`;
 - `exchange.realtime.observations.queue.discarded` считает наблюдения, которые
   координатор принял в очередь, а затем отбросил без применения. Единственный
   tag `reason` принимает значения `recovery_required`, `generation_superseded`
@@ -185,6 +187,13 @@ epoch. Сверка без изменений, откат и проигранн�
 отброшенные observations и сигналы возможного транспортного пропуска учитываются
 отдельно. Сумма метрик не определяет число недоставленных сообщений Bybit и
 не подтверждает AC-12.
+
+Показатель включает account-wide синхронизацию и scoped REST confirmation
+позиции. Scoped confirmation всегда записывает `kind=reconciliation`: одно
+входящее observation может привести к нескольким сохранённым изменениям
+физических слотов символа. Тест PostgreSQL
+`RealtimeReconciliationPostgreSqlTests.Scoped_rest_counts_committed_other_hedge_slot_change`
+проверяет применение изменения соседнего hedge-слота через scoped REST.
 
 Метрики не содержат `UserId`, `ExchangeAccountId`, `symbol`, credentials,
 сырые payload, текст исключения или произвольные идентификаторы. Нулевые/пустые

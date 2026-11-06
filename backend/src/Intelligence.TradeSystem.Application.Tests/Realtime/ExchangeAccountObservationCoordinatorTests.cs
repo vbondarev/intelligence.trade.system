@@ -1538,6 +1538,134 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         Assert.Single(metrics.RestOnlyChanges);
     }
 
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public async Task Scoped_rest_counts_a_change_in_the_other_hedge_slot(bool changeLong, long expected)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        var shortPosition = OpenPosition(side: PositionSide.Short, positionIdx: 2);
+        world.Provider.ReplaceExchangePositions(longPosition, shortPosition);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        if (changeLong)
+            longPosition = OpenPosition(size: 3m, side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        var observation = world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, observation));
+        var result = Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+        Assert.True(result.ConfirmedByRest);
+        Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Equal(("position", "reconciliation", expected), Assert.Single(metrics.RestOnlyChanges));
+        Assert.Equal("BTCUSDT", world.Provider.PositionRequests.Last());
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 11, positionIdx: 1)));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+        Assert.Single(metrics.RestOnlyChanges);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Single(metrics.RestOnlyChanges);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Scoped_rest_counts_only_committed_retry(bool failCommit)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        var eventsBefore = world.Events.Count;
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            if (failCommit)
+                world.CommitFailuresToInject = 1;
+            else
+                world.CursorConflictsToInject = 1;
+        };
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1)));
+        if (failCommit)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+            Assert.Empty(metrics.RestOnlyChanges);
+            Assert.Equal(1m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+            Assert.Equal(eventsBefore, world.Events.Count);
+        }
+        else
+        {
+            Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+            Assert.Equal(0, world.CursorConflictsToInject);
+            Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+            Assert.Equal(("position", "reconciliation", 1L), Assert.Single(metrics.RestOnlyChanges));
+        }
+    }
+
+    [Fact]
+    public async Task Scoped_rest_without_baseline_and_direct_ws_do_not_count_rest_only()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1, longPosition)));
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.Null(world.Account.LastSyncedAt);
+        Assert.NotNull(world.LatestPortfolio);
+        Assert.Empty(metrics.RestOnlyChanges);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        world.Clock.UtcNow = T0.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.CloseObservation(T0.AddSeconds(2), 2, positionIdx: 1)));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+        Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Empty(metrics.RestOnlyChanges);
+    }
+
+    [Fact]
+    public async Task Incomplete_scoped_rest_does_not_count_a_change()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        var requests = 0;
+        world.Provider.OnPositionsRequest = () => world.Provider.Status = ++requests == 1
+            ? OpenPositionsObservationStatus.Partial : OpenPositionsObservationStatus.Failed;
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1)));
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.Contains(results, result => result.Outcome == RealtimeObservationApplyOutcome.RecoveryRequired);
+        Assert.Equal(1m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Empty(metrics.RestOnlyChanges);
+    }
+
     private sealed class ProcessingMetrics : IDisposable
     {
         private static readonly AsyncLocal<ProcessingMetrics?> ActiveCapture = new();

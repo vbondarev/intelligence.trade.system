@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Diagnostics.Metrics;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Access;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
@@ -32,6 +33,64 @@ public sealed partial class RealtimeReconciliationPostgreSqlTests(PostgreSqlFixt
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(30);
     private static readonly SettlementAsset Usdt = SettlementAsset.From("USDT");
     private static readonly SettlementAsset Usdc = SettlementAsset.From("USDC");
+
+    [Fact]
+    public async Task Scoped_rest_counts_committed_other_hedge_slot_change()
+    {
+        var (account, generation) = await CreateObservedAccountAsync();
+        var clock = new MutableTimeProvider(T1.AddMinutes(1));
+        var rest = new TestPrivateProvider { Clock = clock };
+        rest.SetPosition(OpenPosition(side: PositionSide.Long, positionIdx: 1));
+        rest.SetPosition(OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        await using var services = CreateApplicationServices(account, rest, clock);
+        var coordinator = services.GetRequiredService<ExchangeAccountObservationCoordinator>();
+        Assert.True((await coordinator.SynchronizeAsync(account.UserId, account.Id)).FullReconciliationCommitted);
+        int beforeChanges;
+        int beforeEvents;
+        Guid shortPositionId;
+        await using (var context = fixture.CreateContext())
+        {
+            var baselinePositions = await new PositionRepository(context).GetByExchangeAccountAsync(account.UserId, account.Id);
+            shortPositionId = Assert.Single(baselinePositions, p => p.Value.ExchangePositionKey.PositionIdx == 2).Value.Id.Value;
+            beforeChanges = await context.PositionChanges.CountAsync(change => change.PositionId == shortPositionId);
+            beforeEvents = await CountOutboxAsync(context, account, ApplicationEventTypes.PositionChanged);
+        }
+
+        var measurements = new List<(string Resource, string Kind, long Value)>();
+        var capture = new AsyncLocal<bool>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == "Intelligence.TradeSystem.Application.Realtime" &&
+                instrument.Name == "exchange.realtime.rest_only.applied_changes")
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (!capture.Value)
+                return;
+            Assert.Equal("{change}", instrument.Unit);
+            var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+            Assert.Equal(2, dimensions.Count);
+            measurements.Add((Assert.IsType<string>(dimensions["resource"]), Assert.IsType<string>(dimensions["kind"]), value));
+        });
+        listener.Start();
+        capture.Value = true;
+        rest.ClearPositions();
+        rest.SetPosition(OpenPosition(side: PositionSide.Long, positionIdx: 1));
+        rest.SetPosition(OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        clock.UtcNow = clock.UtcNow.AddSeconds(3);
+        var close = CloseObservation(account, clock.UtcNow.AddSeconds(-1), 10) with { PositionIdx = 1 };
+        Assert.True(coordinator.TryEnqueue(account.UserId, generation, close));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(account.UserId, account.Id)).ConfirmedByRest);
+        Assert.Equal(("position", "reconciliation", 1L), Assert.Single(measurements));
+        Assert.Equal("BTCUSDT", rest.PositionRequests.Last());
+        await using var verification = fixture.CreateContext();
+        var positions = await new PositionRepository(verification).GetByExchangeAccountAsync(account.UserId, account.Id);
+        Assert.Equal(2m, Assert.Single(positions, p => p.Value.ExchangePositionKey.PositionIdx == 2).Value.Size);
+        Assert.Equal(beforeChanges + 1, await verification.PositionChanges.CountAsync(change => change.PositionId == shortPositionId));
+        Assert.Equal(beforeEvents + 1, await CountOutboxAsync(verification, account, ApplicationEventTypes.PositionChanged));
+    }
 
     [Fact]
     public async Task Stream_open_persists_position_cursor_portfolio_and_outbox_together()

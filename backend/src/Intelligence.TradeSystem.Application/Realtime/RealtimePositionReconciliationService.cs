@@ -765,7 +765,7 @@ public sealed class RealtimePositionReconciliationService(
 
                             var positions = trackedPositions.Concat(reconciliation.NewPositions).ToArray();
                             var positionsById = positions.ToDictionary(position => position.Id);
-                            await PersistDerivedStateAsync(
+                            var hadBaseline = await PersistDerivedStateAsync(
                                     userId,
                                     generation,
                                     prepared,
@@ -796,7 +796,14 @@ public sealed class RealtimePositionReconciliationService(
                                     .ConfigureAwait(false);
                             }
 
-                            result = RealtimeObservationApplyResult.Applied(confirmedByRest: true);
+                            result = RealtimeObservationApplyResult.Applied(confirmedByRest: true) with
+                            {
+                                ScopedRestOnlyAppliedPositionChanges = hadBaseline
+                                    ? reconciliation.Changes.Count(change => change.Kind is
+                                        PositionChangeKind.New or PositionChangeKind.Increased or PositionChangeKind.Reduced
+                                        or PositionChangeKind.Updated or PositionChangeKind.Closed)
+                                    : 0,
+                            };
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -893,7 +900,7 @@ public sealed class RealtimePositionReconciliationService(
         return (new LockedState(account.Value, cursor, positions), null);
     }
 
-    private async Task PersistDerivedStateAsync(
+    private async Task<bool> PersistDerivedStateAsync(
         UserId userId,
         long generation,
         PreparedObservation prepared,
@@ -955,6 +962,7 @@ public sealed class RealtimePositionReconciliationService(
         await applicationEventOutbox
             .AddRangeAsync(applicationEvents, cancellationToken)
             .ConfigureAwait(false);
+        return locked.Account.LastSyncedAt is not null && previous is not null;
     }
 
     private Task<ConcurrencyVersion> SaveCursorAsync(

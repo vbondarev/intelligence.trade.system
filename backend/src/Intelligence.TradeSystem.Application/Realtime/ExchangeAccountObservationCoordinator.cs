@@ -462,6 +462,9 @@ public sealed class ExchangeAccountObservationCoordinator(
                 }
             }
 
+            RealtimeObservationProcessingTelemetry.RestOnlyChangesApplied(
+                result.ScopedRestOnlyAppliedPositionChanges, false, "reconciliation");
+
             return result;
         }
 
