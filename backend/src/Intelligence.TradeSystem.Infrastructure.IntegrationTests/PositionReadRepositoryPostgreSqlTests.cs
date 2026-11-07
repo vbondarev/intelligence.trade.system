@@ -56,6 +56,13 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         Assert.Contains("exchange_account_id", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LIMIT", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("OFFSET", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+
+        var repository = new PositionReadRepository(context);
+        var foreignInputs = await repository.GetMarketValuationInputsByAccountAsync(userId, foreign.Id);
+        Assert.Empty(foreignInputs);
+
+        var ownerInputs = await repository.GetMarketValuationInputsByAccountAsync(foreign.UserId, foreign.Id);
+        Assert.Equal(foreignPosition.Id, Assert.Single(ownerInputs).Id);
     }
 
     [Fact]
