@@ -40,6 +40,12 @@ payload биржи или credentials. `connected` сам по себе не о�
 аккаунта, а не по странице списка, и не суммирует денежные значения в разных
 активах расчёта.
 
+После потери приватных событий свежая публичная mark price не подтверждает
+полноту аккаунта. До восстановления подтверждённого состава
+`valuationFreshness = partial` или `unknown` — ожидаемое безопасное поведение.
+Успешное REST recovery может вновь разрешить `fresh` или `notApplicable`, если
+остальные условия соблюдены.
+
 `GET /api/v1/positions` и `GET /api/v1/positions/{id}` могут содержать
 `marketValuation`. `indicativePositionValue` выражается в `settlementAsset`;
 это отдельная оценка из `publicTicker`, а не замена фактических полей позиции.

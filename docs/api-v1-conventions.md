@@ -205,6 +205,12 @@ expired) не являются отдельными timeline events. Следу�
   аккаунта, а не текущую страницу cursor pagination. Статус не является
   денежным агрегатом: стоимость разных `settlementAsset` не складывается.
 
+Совпадающие сохранённые `PositionId` сами по себе не подтверждают полноту
+состава при `RecoveryRequired`, `reconnecting` или `degraded`. При
+неподтверждённом составе и наличии известных применимых позиций
+`valuationFreshness.status` равен `partial`; если таких позиций нет — `unknown`.
+Это правило не переопределяет позиционную `marketValuation` и прежнее `isFresh`.
+
 `PositionResponse.marketValuation` и
 `PositionListItemResponse.marketValuation` публикуют существующую read-time
 оценку из публичной mark price. `indicativePositionValue` выражается в

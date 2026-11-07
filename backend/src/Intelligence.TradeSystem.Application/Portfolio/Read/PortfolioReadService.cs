@@ -36,10 +36,19 @@ public sealed class PortfolioReadService(
             && snapshotPositionIds.Distinct().Count() == snapshotPositionIds.Count
             && currentPositionIds.Distinct().Count() == currentPositionIds.Length
             && snapshotPositionIds.ToHashSet().SetEquals(currentPositionIds);
+        var compositionMayBeIncomplete =
+            observation.RecoveryRequired
+            || observation.Status is
+                RealtimeObservationReadStatus.Degraded
+                or RealtimeObservationReadStatus.Reconnecting;
+        var compositionConfirmed =
+            summary.PositionsFullyReconciled
+            && positionSetsMatch
+            && !compositionMayBeIncomplete;
         var valuationFreshness = await marketMarkPriceService
             .GetPortfolioFreshnessAsync(
                 positions,
-                summary.PositionsFullyReconciled && positionSetsMatch,
+                compositionConfirmed,
                 cancellationToken)
             .ConfigureAwait(false);
         var factualSummary = snapshotPositionIds is not null && !positionSetsMatch

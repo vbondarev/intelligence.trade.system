@@ -33,6 +33,110 @@ public sealed class PortfolioReadServiceTests
     }
 
     [Fact]
+    public async Task GetLatest_marks_valuation_partial_when_recovery_is_required_and_position_ids_match()
+    {
+        var positionId = PositionId.New();
+        var summary = CreateSummary() with { SnapshotPositionIds = [positionId] };
+        var projected = await GetLatestSummaryAsync(
+            summary,
+            [CreatePosition(positionId)],
+            state => state with { RecoveryRequired = true });
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+        projected.IsFresh.Should().Be(summary.IsFresh);
+        projected.PositionsFullyReconciled.Should().Be(summary.PositionsFullyReconciled);
+    }
+
+    [Fact]
+    public async Task GetLatest_marks_valuation_partial_when_transport_is_reconnecting_and_position_ids_match()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            state => state with { TransportStatus = RealtimeObservationTransportStatus.Reconnecting });
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Fact]
+    public async Task GetLatest_marks_valuation_partial_when_transport_is_degraded_and_position_ids_match()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            state => state with { TransportStatus = RealtimeObservationTransportStatus.Degraded });
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Fact]
+    public async Task GetLatest_marks_valuation_partial_when_connected_heartbeat_is_stale_and_position_ids_match()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            state => state with { LastHeartbeatAt = Now.AddSeconds(-61) });
+
+        projected.FactualFreshness.Status.Should().Be(FactualFreshnessStatus.Degraded);
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+    }
+
+    [Fact]
+    public async Task GetLatest_returns_unknown_for_empty_position_set_when_recovery_is_required()
+    {
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary(currentPositionCount: 0) with { SnapshotPositionIds = [] },
+            [],
+            state => state with { RecoveryRequired = true });
+
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Unknown);
+    }
+
+    [Fact]
+    public async Task GetLatest_returns_unknown_when_only_unsupported_positions_remain_and_recovery_is_required()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [
+                CreatePosition(positionId) with { SettlementAsset = SettlementAsset.From("BTC") },
+            ],
+            state => state with { RecoveryRequired = true });
+
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Unknown);
+    }
+
+    [Fact]
+    public async Task GetLatest_marks_valuation_fresh_after_recovery_is_cleared_and_position_ids_match()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            state => state with { RecoveryRequired = false });
+
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Fresh);
+    }
+
+    [Fact]
+    public async Task GetLatest_keeps_valuation_fresh_while_transport_is_initializing_after_reconciliation()
+    {
+        var positionId = PositionId.New();
+        var projected = await GetLatestSummaryAsync(
+            CreateSummary() with { SnapshotPositionIds = [positionId] },
+            [CreatePosition(positionId)],
+            state => state with { TransportStatus = RealtimeObservationTransportStatus.Initializing });
+
+        projected.ValuationFreshness.Status.Should().Be(MarketValuationFreshnessStatus.Fresh);
+    }
+
+    [Fact]
     public async Task GetLatest_marks_fresh_prices_partial_when_current_position_set_has_additional_ids()
     {
         var snapshotPositionId = PositionId.New();
