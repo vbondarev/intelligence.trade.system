@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Intelligence.TradeSystem.Api.Controllers;
 using Intelligence.TradeSystem.Application.Portfolio.Read;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Application.Accounts;
 using Xunit;
@@ -20,10 +21,12 @@ public sealed class ExchangeAccountControllerArchitectureTests
             .ToArray();
 
         parameters.Should().Contain(typeof(IExchangeAccountService));
+        parameters.Should().Contain(typeof(RealtimeObservationReadService));
         parameters.Should().Contain(typeof(ICurrentUserContext));
         parameters.Should().NotContain(typeof(IExchangeAccountSyncService));
         parameters.Should().NotContain(typeof(PortfolioReadService));
         parameters.Should().NotContain(typeof(IPortfolioReadStore));
+        parameters.Should().NotContain(typeof(IRealtimeObservationStateStore));
     }
 
     [Fact]
@@ -37,10 +40,12 @@ public sealed class ExchangeAccountControllerArchitectureTests
             .ToArray();
 
         parameters.Should().Contain(typeof(IExchangeAccountSyncService));
+        parameters.Should().Contain(typeof(RealtimeObservationReadService));
         parameters.Should().Contain(typeof(ICurrentUserContext));
         parameters.Should().NotContain(typeof(IExchangeAccountService));
         parameters.Should().NotContain(typeof(PortfolioReadService));
         parameters.Should().NotContain(typeof(IPortfolioReadStore));
+        parameters.Should().NotContain(typeof(IRealtimeObservationStateStore));
     }
 
     [Fact]

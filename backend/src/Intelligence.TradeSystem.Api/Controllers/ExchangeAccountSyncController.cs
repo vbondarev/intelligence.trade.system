@@ -2,10 +2,13 @@ using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
 using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application.Accounts;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Users;
+using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
@@ -18,8 +21,16 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Authorize(Policy = "TradeUser")]
 public sealed class ExchangeAccountSyncController(
     IExchangeAccountSyncService syncService,
-    ICurrentUserContext currentUserContext) : ControllerBase
+    RealtimeObservationReadService realtimeObservationReadService,
+    ICurrentUserContext currentUserContext,
+    ILogger<ExchangeAccountSyncController> logger) : ControllerBase
 {
+    private static readonly Action<ILogger, string, Exception?> RealtimeObservationReadFailed =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(0, "RealtimeObservationReadFailed"),
+            "Не удалось получить realtime-наблюдение для ответа биржевого аккаунта. Тип исключения: {ExceptionType}");
+
     [HttpPost("{id}/sync")]
     [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -35,11 +46,31 @@ public sealed class ExchangeAccountSyncController(
         {
             ExchangeAccountSyncOutcome.Synchronized or ExchangeAccountSyncOutcome.AlreadyApplied or
                 ExchangeAccountSyncOutcome.Superseded when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+                Ok(await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountSyncOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountSyncOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
         };
+    }
+
+    private async Task<ExchangeAccountResponse> ToResponseAsync(
+        ExchangeAccount account,
+        CancellationToken cancellationToken)
+    {
+        RealtimeObservationReadModel observation;
+        try
+        {
+            observation = await realtimeObservationReadService
+                .GetAsync(currentUserContext.UserId, account.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            RealtimeObservationReadFailed(logger, exception.GetType().Name, null);
+            observation = RealtimeObservationReadModel.Unknown;
+        }
+
+        return ExchangeAccountMapper.ToResponse(account, observation);
     }
 
     private ObjectResult Error(ApiErrorDescriptor descriptor, string? detail = null) =>

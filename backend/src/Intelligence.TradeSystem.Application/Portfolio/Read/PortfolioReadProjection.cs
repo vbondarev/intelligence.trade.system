@@ -39,7 +39,10 @@ public static class PortfolioReadProjection
             state.IsComplete,
             state.IsFreshAt(asOf),
             state.Positions.Count,
-            ProjectExposures(state.Positions));
+            ProjectExposures(state.Positions))
+        {
+            SnapshotPositionIds = state.Positions.Select(position => position.PositionId).ToArray(),
+        };
     }
 
     /// <summary>

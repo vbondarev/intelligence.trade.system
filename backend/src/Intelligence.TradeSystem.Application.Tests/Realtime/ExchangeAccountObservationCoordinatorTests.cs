@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Events;
 using Intelligence.TradeSystem.Application.Realtime;
@@ -130,6 +131,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Newer_Generation_Discards_Buffered_Observations_Of_Previous_Generation()
     {
+        using var metrics = new ProcessingMetrics();
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
         var coordinator = provider.GetRequiredService<ExchangeAccountObservationCoordinator>();
@@ -138,6 +140,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.AdvanceGeneration();
         coordinator.TryEnqueue(world.UserId, 2, world.OpenObservation(T0.AddSeconds(1), 2)).Should().BeTrue();
         coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0.AddSeconds(2), 3)).Should().BeFalse();
+        Assert.Equal(("generation_superseded", 1L), Assert.Single(metrics.Discards));
 
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
@@ -157,6 +160,79 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         (await coordinator.ProcessPendingAsync(world.UserId, world.AccountId))
             .Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.Applied);
         world.Cursor("BTCUSDT")!.LastProviderSequence.Should().Be(2);
+        Assert.Equal(("generation_superseded", 1L), Assert.Single(metrics.Discards));
+    }
+
+    [Fact]
+    public async Task Synchronization_discards_only_buffer_from_generation_superseded_in_persisted_state()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)));
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0)));
+        world.AdvanceGeneration();
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        Assert.True(sync.FullReconciliationCommitted);
+        Assert.Equal(("generation_superseded", 2L), Assert.Single(metrics.Discards));
+        Assert.Empty(metrics.ApplyOutcomes);
+        Assert.Empty(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+
+        var nextOpenAt = world.Clock.UtcNow.AddSeconds(1);
+        var observation = world.OpenObservation(nextOpenAt, 2);
+        world.Provider.SetExchangePosition(observation.Position!);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 2, observation));
+        world.Clock.UtcNow = nextOpenAt.AddSeconds(1);
+
+        var applied = Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+        Assert.Equal(RealtimeObservationApplyOutcome.Applied, applied.Outcome);
+        Assert.True(applied.ConfirmedByRest);
+        world.Provider.PositionRequests.Should().Equal(null, "BTCUSDT");
+        Assert.Equal(("generation_superseded", 2L), Assert.Single(metrics.Discards));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Superseded_apply_counts_only_the_old_queue_and_preserves_any_new_buffer(bool enqueueNewGeneration)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1)));
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.WalletObservation(T0)));
+        world.BeforeTransactionExecuteAsync = _ =>
+        {
+            world.BeforeTransactionExecuteAsync = null;
+            world.AdvanceGeneration();
+            if (enqueueNewGeneration)
+            {
+                Assert.True(coordinator.TryEnqueue(world.UserId, 2, world.WalletObservation(T0)));
+            }
+
+            return Task.CompletedTask;
+        };
+
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+
+        Assert.Equal(RealtimeObservationApplyOutcome.GenerationSuperseded, results[0].Outcome);
+        Assert.Equal(("generation_superseded", 1L), Assert.Single(metrics.Discards));
+        if (enqueueNewGeneration)
+        {
+            Assert.Equal(2, results.Count);
+            Assert.Equal(RealtimeObservationApplyOutcome.RecoveryRequired, results[1].Outcome);
+            Assert.Equal([("position", "generation_superseded"), ("wallet", "recovery_required")],
+                metrics.ApplyOutcomes);
+        }
+        else
+        {
+            Assert.Single(results);
+            Assert.Equal(("position", "generation_superseded"), Assert.Single(metrics.ApplyOutcomes));
+        }
     }
 
     [Fact]
@@ -860,7 +936,9 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Recovery_Is_Not_Acknowledged_When_The_Full_Sync_Transaction_Fails_To_Commit()
     {
+        using var metrics = new ProcessingMetrics();
         var world = new RealtimeTestWorld(recoveryRequired: true);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
@@ -870,12 +948,14 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
             () => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
 
         world.Portfolios.Should().BeEmpty();
+        Assert.Empty(metrics.RestChanges);
         world.Account.LastAppliedPositionsObservationAt.Should().BeNull();
         world.State!.RecoveryRequired.Should().BeTrue();
         world.State.LastFullyReconciledAt.Should().BeNull();
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.State!.RecoveryRequired.Should().BeFalse();
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestChanges));
     }
 
     [Fact]
@@ -978,7 +1058,9 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Failed_Reconciled_Write_Does_Not_Acknowledge_Recovery()
     {
+        using var metrics = new ProcessingMetrics();
         var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         RequestRecoveryByOverflow(world, coordinator);
@@ -997,10 +1079,12 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
 
         world.Portfolios.Should().NotBeEmpty("the REST transaction committed before the state write failed");
         world.State!.RecoveryRequired.Should().BeTrue();
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestChanges));
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
         await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
         world.State!.RecoveryRequired.Should().BeFalse();
         world.Provider.PositionRequests.Should().Equal([null, null]);
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestChanges));
     }
 
     [Fact]
@@ -1145,6 +1229,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Disabled_Account_Channel_Is_Released_After_Pending_Observations_Are_Drained()
     {
+        using var metrics = new ProcessingMetrics();
         var world = new RealtimeTestWorld();
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
@@ -1160,6 +1245,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
 
         results.Should().ContainSingle().Which.Outcome.Should().Be(RealtimeObservationApplyOutcome.AccountUnavailable);
+        Assert.Equal(("position", "account_unavailable"), Assert.Single(metrics.ApplyOutcomes));
+        Assert.Equal(("account_unavailable", 1L), Assert.Single(metrics.Discards));
         coordinator.ChannelCount.Should().Be(0);
     }
 
@@ -1272,7 +1359,8 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Startup_Sync_Without_Stream_Observations_Reconciles_The_Persisted_Generation()
     {
-        var world = new RealtimeTestWorld();
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
         using var provider = world.CreateServiceProvider();
         var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
         var syncAt = world.Clock.UtcNow;
@@ -1284,6 +1372,375 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         world.State.RecoveryRequired.Should().BeFalse();
         world.State.LastFullyReconciledAt.Should().Be(syncAt);
         coordinator.ChannelCount.Should().Be(1, "the observed account keeps its REST windows");
+        Assert.Equal(("recovery", "committed"), Assert.Single(metrics.Reconciliations));
+    }
+
+    [Fact]
+    public async Task Synchronization_does_not_classify_recovery_from_a_different_generation()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        var stateReads = 0;
+        world.BeforeStateRead = () =>
+        {
+            if (++stateReads == 2)
+            {
+                world.AdvanceGeneration();
+            }
+        };
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        Assert.True(sync.FullReconciliationCommitted);
+        Assert.Equal(2, world.State!.Generation);
+        Assert.True(world.State.RecoveryRequired);
+        Assert.Equal(("reconciliation", "committed"), Assert.Single(metrics.Reconciliations));
+    }
+
+    [Theory]
+    [InlineData(false, "incomplete")]
+    [InlineData(true, "failed")]
+    public async Task Persisted_recovery_retains_flag_when_synchronization_is_unsuccessful(
+        bool throws,
+        string expectedOutcome)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        world.Provider.Status = OpenPositionsObservationStatus.Failed;
+        if (throws)
+        {
+            world.Provider.OnPositionsRequest = () => throw new InvalidOperationException("Искусственный сбой REST.");
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                coordinator.SynchronizeAsync(world.UserId, world.AccountId));
+        }
+        else
+        {
+            var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+            Assert.False(sync.FullReconciliationCommitted);
+        }
+
+        Assert.True(world.State!.RecoveryRequired);
+        Assert.Equal(("recovery", expectedOutcome), Assert.Single(metrics.Reconciliations));
+    }
+
+    [Fact]
+    public async Task Rest_changes_are_counted_once_when_persistence_retries_after_account_cas_conflict()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld(recoveryRequired: true);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.AccountSaveConflictsToInject = 1;
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+
+        var sync = await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+
+        Assert.True(sync.FullReconciliationCommitted);
+        Assert.Equal(2, world.TransactionAttempts);
+        Assert.Equal(0, world.AccountSaveConflictsToInject);
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestChanges));
+    }
+
+    [Fact]
+    public async Task Rest_only_changes_require_baseline_and_include_regular_sync()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        Assert.Equal(("position", "reconciliation", 1L), Assert.Single(metrics.RestChanges));
+        Assert.Empty(metrics.RestOnlyChanges);
+
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Equal(("position", "reconciliation", 1L), Assert.Single(metrics.RestOnlyChanges));
+
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Single(metrics.RestOnlyChanges);
+    }
+
+    [Fact]
+    public async Task Rest_only_changes_are_counted_after_commit_and_not_duplicated_by_retry()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        world.CommitFailuresToInject = 1;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.SynchronizeAsync(world.UserId, world.AccountId));
+        Assert.Empty(metrics.RestOnlyChanges);
+
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        world.AccountSaveConflictsToInject = 1;
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Equal(("position", "reconciliation", 1L), Assert.Single(metrics.RestOnlyChanges));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Single(metrics.RestOnlyChanges);
+    }
+
+    [Fact]
+    public async Task Rest_only_partial_sync_counts_changes_without_confirming_recovery()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Provider.Status = OpenPositionsObservationStatus.Partial;
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        RequestRecoveryByOverflow(world, coordinator);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.True(world.State!.RecoveryRequired);
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestOnlyChanges));
+        Assert.Contains(("recovery", "incomplete"), metrics.Reconciliations);
+    }
+
+    [Fact]
+    public async Task Rest_only_change_survives_failed_recovery_confirmation_without_double_counting()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        world.Provider.SetExchangePosition(OpenPosition(size: 1m));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 1);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Provider.SetExchangePosition(OpenPosition(size: 2m));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        RequestRecoveryByOverflow(world, coordinator);
+        world.BeforeStateSave = state =>
+        {
+            if (!state.RecoveryRequired)
+            {
+                world.BeforeStateSave = null;
+                world.StateSaveFailuresToInject = 1;
+            }
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestOnlyChanges));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(2);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.False(world.State!.RecoveryRequired);
+        Assert.Single(metrics.RestOnlyChanges);
+    }
+
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public async Task Scoped_rest_counts_a_change_in_the_other_hedge_slot(bool changeLong, long expected)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        var shortPosition = OpenPosition(side: PositionSide.Short, positionIdx: 2);
+        world.Provider.ReplaceExchangePositions(longPosition, shortPosition);
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        if (changeLong)
+            longPosition = OpenPosition(size: 3m, side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        var observation = world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, observation));
+        var result = Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+        Assert.True(result.ConfirmedByRest);
+        Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Equal(("position", "reconciliation", expected), Assert.Single(metrics.RestOnlyChanges));
+        Assert.Equal("BTCUSDT", world.Provider.PositionRequests.Last());
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 11, positionIdx: 1)));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+        Assert.Single(metrics.RestOnlyChanges);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        await coordinator.SynchronizeAsync(world.UserId, world.AccountId);
+        Assert.Single(metrics.RestOnlyChanges);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Scoped_rest_counts_only_committed_retry(bool failCommit)
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        var eventsBefore = world.Events.Count;
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        world.Provider.OnPositionsRequest = () =>
+        {
+            world.Provider.OnPositionsRequest = null;
+            if (failCommit)
+                world.CommitFailuresToInject = 1;
+            else
+                world.CursorConflictsToInject = 1;
+        };
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1)));
+        if (failCommit)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ProcessPendingAsync(world.UserId, world.AccountId));
+            Assert.Empty(metrics.RestOnlyChanges);
+            Assert.Equal(1m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+            Assert.Equal(eventsBefore, world.Events.Count);
+        }
+        else
+        {
+            Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+            Assert.Equal(0, world.CursorConflictsToInject);
+            Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+            Assert.Equal(("position", "reconciliation", 1L), Assert.Single(metrics.RestOnlyChanges));
+        }
+    }
+
+    [Fact]
+    public async Task Scoped_rest_without_baseline_and_direct_ws_do_not_count_rest_only()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.OpenObservation(T0, 1, longPosition)));
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.Null(world.Account.LastSyncedAt);
+        Assert.NotNull(world.LatestPortfolio);
+        Assert.Empty(metrics.RestOnlyChanges);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        world.Clock.UtcNow = T0.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1, world.CloseObservation(T0.AddSeconds(2), 2, positionIdx: 1)));
+        Assert.True(Assert.Single(await coordinator.ProcessPendingAsync(world.UserId, world.AccountId)).ConfirmedByRest);
+        Assert.Equal(2m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Empty(metrics.RestOnlyChanges);
+    }
+
+    [Fact]
+    public async Task Incomplete_scoped_rest_does_not_count_a_change()
+    {
+        using var metrics = new ProcessingMetrics();
+        var world = new RealtimeTestWorld();
+        var longPosition = OpenPosition(side: PositionSide.Long, positionIdx: 1);
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(side: PositionSide.Short, positionIdx: 2));
+        using var provider = world.CreateServiceProvider();
+        var coordinator = CreateCoordinator(world, provider, bufferCapacity: 2);
+        await EstablishReconciledGenerationAsync(world, coordinator);
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(1);
+        await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        metrics.RestOnlyChanges.Clear();
+        world.Provider.ReplaceExchangePositions(longPosition, OpenPosition(size: 2m, side: PositionSide.Short, positionIdx: 2));
+        var requests = 0;
+        world.Provider.OnPositionsRequest = () => world.Provider.Status = ++requests == 1
+            ? OpenPositionsObservationStatus.Partial : OpenPositionsObservationStatus.Failed;
+        world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(3);
+        Assert.True(coordinator.TryEnqueue(world.UserId, 1,
+            world.CloseObservation(world.Clock.UtcNow.AddSeconds(-1), 10, positionIdx: 1)));
+        var results = await coordinator.ProcessPendingAsync(world.UserId, world.AccountId);
+        Assert.Contains(results, result => result.Outcome == RealtimeObservationApplyOutcome.RecoveryRequired);
+        Assert.Equal(1m, world.ActivePositions.Single(p => p.ExchangePositionKey.PositionIdx == 2).Size);
+        Assert.Empty(metrics.RestOnlyChanges);
+    }
+
+    private sealed class ProcessingMetrics : IDisposable
+    {
+        private static readonly AsyncLocal<ProcessingMetrics?> ActiveCapture = new();
+        private readonly MeterListener listener = new();
+
+        public List<(string Reason, long Count)> Discards { get; } = [];
+        public List<(string Stream, string Outcome)> ApplyOutcomes { get; } = [];
+        public List<(string Kind, string Outcome)> Reconciliations { get; } = [];
+        public List<(string Resource, string Kind, long Count)> RestChanges { get; } = [];
+        public List<(string Resource, string Kind, long Count)> RestOnlyChanges { get; } = [];
+
+        public ProcessingMetrics()
+        {
+            const string discarded = "exchange.realtime.observations.queue.discarded";
+            const string applied = "exchange.realtime.observations.apply.outcomes";
+            const string reconciled = "exchange.realtime.reconciliation.duration";
+            const string restApplied = "exchange.realtime.rest.applied_changes";
+            const string restOnly = "exchange.realtime.rest_only.applied_changes";
+            listener.InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == RealtimeObservationProcessingTelemetry.MeterName
+                    && instrument.Name is discarded or applied or reconciled or restApplied or restOnly)
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            };
+            listener.SetMeasurementEventCallback<long>((instrument, count, tags, _) =>
+            {
+                if (ActiveCapture.Value != this)
+                {
+                    return;
+                }
+
+                var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+                if (instrument.Name == discarded)
+                {
+                    Assert.Equal("{observation}", instrument.Unit);
+                    Assert.Single(dimensions);
+                    Discards.Add((Assert.IsType<string>(dimensions["reason"]), count));
+                }
+                else if (instrument.Name == restApplied || instrument.Name == restOnly)
+                {
+                    Assert.Equal("{change}", instrument.Unit);
+                    Assert.Equal(2, dimensions.Count);
+                    (instrument.Name == restApplied ? RestChanges : RestOnlyChanges).Add((Assert.IsType<string>(dimensions["resource"]),
+                        Assert.IsType<string>(dimensions["kind"]), count));
+                }
+                else
+                {
+                    Assert.Equal(1L, count);
+                    Assert.Equal(2, dimensions.Count);
+                    ApplyOutcomes.Add((Assert.IsType<string>(dimensions["stream"]),
+                        Assert.IsType<string>(dimensions["outcome"])));
+                }
+            });
+            listener.SetMeasurementEventCallback<double>((_, duration, tags, _) =>
+            {
+                if (ActiveCapture.Value == this)
+                {
+                    var dimensions = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value);
+                    Assert.Equal(2, dimensions.Count);
+                    Assert.True(duration >= 0);
+                    Reconciliations.Add((Assert.IsType<string>(dimensions["kind"]),
+                        Assert.IsType<string>(dimensions["outcome"])));
+                }
+            });
+            ActiveCapture.Value = this;
+            listener.Start();
+        }
+
+        public void Dispose()
+        {
+            ActiveCapture.Value = null;
+            listener.Dispose();
+        }
     }
 
     [Fact]
@@ -2234,6 +2691,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
     [Fact]
     public async Task Failed_balance_with_complete_positions_records_full_sync_window_without_committing_recovery()
     {
+        using var metrics = new ProcessingMetrics();
         var world = new RealtimeTestWorld(recoveryRequired: true);
         world.Provider.SetExchangePosition(OpenPosition(size: 2m));
         using var provider = world.CreateServiceProvider();
@@ -2253,6 +2711,7 @@ public sealed partial class ExchangeAccountObservationCoordinatorTests
         sync.AcceptedPositionsObservation.Should().BeTrue();
         sync.FullPositionsCompleteAccepted.Should().BeTrue();
         sync.FullReconciliationCommitted.Should().BeFalse();
+        Assert.Equal(("position", "recovery", 1L), Assert.Single(metrics.RestChanges));
         world.RestOrderingIntervals.Should().Contain(interval =>
             interval.Kind == ExchangeRestOrderingKind.FullPositionsComplete);
         world.State!.LastFullyReconciledAt.Should().BeNull();

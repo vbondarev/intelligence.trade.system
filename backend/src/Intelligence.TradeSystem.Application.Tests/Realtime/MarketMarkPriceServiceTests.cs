@@ -70,6 +70,140 @@ public sealed class MarketMarkPriceServiceTests
     }
 
     [Fact]
+    public async Task Portfolio_freshness_reads_shared_instrument_once_for_all_settlement_assets()
+    {
+        var observedAt = new DateTimeOffset(2026, 10, 31, 0, 0, 0, TimeSpan.Zero);
+        var positions = new[]
+        {
+            CreateValuationInput("BTCUSDT", "USDT", 0.5m),
+            CreateValuationInput("BTCUSDT", "USDC", 0.25m),
+        };
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.Is<IReadOnlyCollection<InstrumentId>>(symbols =>
+                    symbols.Count == 1 && symbols.Contains(InstrumentId.From("BTCUSDT"))),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreatePrice(observedAt, 40_000m)]);
+        var service = new MarketMarkPriceService(
+            store.Object,
+            new MutableTimeProvider(observedAt.AddSeconds(1)));
+
+        var freshness = await service.GetPortfolioFreshnessAsync(positions, positionsFullyReconciled: true);
+
+        freshness.Status.Should().Be(MarketValuationFreshnessStatus.Fresh);
+        freshness.CalculatedAt.Should().Be(observedAt.AddSeconds(1));
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Portfolio_freshness_is_partial_when_position_composition_is_incomplete()
+    {
+        var observedAt = new DateTimeOffset(2026, 10, 31, 0, 0, 0, TimeSpan.Zero);
+        var position = CreateValuationInput("BTCUSDT", "USDT", 0.5m);
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.IsAny<IReadOnlyCollection<InstrumentId>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreatePrice(observedAt, 40_000m)]);
+        var service = new MarketMarkPriceService(
+            store.Object,
+            new MutableTimeProvider(observedAt.AddSeconds(1)));
+
+        var freshness = await service.GetPortfolioFreshnessAsync([position], positionsFullyReconciled: false);
+
+        freshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Portfolio_freshness_is_not_applicable_only_for_a_complete_empty_scope()
+    {
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        var service = new MarketMarkPriceService(store.Object, TimeProvider.System);
+
+        var complete = await service.GetPortfolioFreshnessAsync([], positionsFullyReconciled: true);
+        var incomplete = await service.GetPortfolioFreshnessAsync([], positionsFullyReconciled: false);
+
+        complete.Status.Should().Be(MarketValuationFreshnessStatus.NotApplicable);
+        incomplete.Status.Should().Be(MarketValuationFreshnessStatus.Unknown);
+        store.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Portfolio_freshness_is_partial_for_mixed_fresh_and_unknown_positions()
+    {
+        var observedAt = new DateTimeOffset(2026, 10, 31, 0, 0, 0, TimeSpan.Zero);
+        var positions = new[]
+        {
+            CreateValuationInput("BTCUSDT", "USDT", 0.5m),
+            CreateValuationInput("ETHUSDT", "USDC", 1m),
+        };
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.Is<IReadOnlyCollection<InstrumentId>>(symbols =>
+                    symbols.Count == 2
+                    && symbols.Contains(InstrumentId.From("BTCUSDT"))
+                    && symbols.Contains(InstrumentId.From("ETHUSDT"))),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreatePrice(observedAt, 40_000m)]);
+        var service = new MarketMarkPriceService(
+            store.Object,
+            new MutableTimeProvider(observedAt.AddSeconds(1)));
+
+        var freshness = await service.GetPortfolioFreshnessAsync(positions, positionsFullyReconciled: true);
+
+        freshness.Status.Should().Be(MarketValuationFreshnessStatus.Partial);
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Portfolio_freshness_is_unknown_when_no_supported_position_has_a_price()
+    {
+        var position = CreateValuationInput("BTCUSDT", "USDT", 0.5m);
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.IsAny<IReadOnlyCollection<InstrumentId>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        var service = new MarketMarkPriceService(store.Object, TimeProvider.System);
+
+        var freshness = await service.GetPortfolioFreshnessAsync([position], positionsFullyReconciled: true);
+
+        freshness.Status.Should().Be(MarketValuationFreshnessStatus.Unknown);
+        store.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Portfolio_freshness_is_stale_when_every_supported_price_is_stale()
+    {
+        var observedAt = new DateTimeOffset(2026, 10, 31, 0, 0, 0, TimeSpan.Zero);
+        var position = CreateValuationInput("BTCUSDT", "USDT", 0.5m);
+        var store = new Mock<IMarketMarkPriceStore>(MockBehavior.Strict);
+        store.Setup(x => x.GetAsync(
+                ExchangeId.Bybit,
+                MarketCategory.Linear,
+                It.IsAny<IReadOnlyCollection<InstrumentId>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreatePrice(observedAt, 40_000m)]);
+        var service = new MarketMarkPriceService(
+            store.Object,
+            new MutableTimeProvider(observedAt.AddSeconds(6)));
+
+        var freshness = await service.GetPortfolioFreshnessAsync([position], positionsFullyReconciled: true);
+
+        freshness.Status.Should().Be(MarketValuationFreshnessStatus.Stale);
+        store.VerifyAll();
+    }
+
+    [Fact]
     public async Task Read_freshness_transitions_from_fresh_to_stale_to_fresh_without_mutating_the_position()
     {
         var observedAt = new DateTimeOffset(2026, 10, 31, 0, 0, 0, TimeSpan.Zero);
@@ -132,6 +266,19 @@ public sealed class MarketMarkPriceServiceTests
             ExchangeId = ExchangeId.Bybit,
             MarketCategory = MarketCategory.Linear,
         };
+
+    private static PositionMarketValuationInput CreateValuationInput(
+        string symbol,
+        string settlementAsset,
+        decimal size) =>
+        new(
+            PositionId.New(),
+            ExchangeId.Bybit,
+            MarketCategory.Linear,
+            symbol,
+            SettlementAsset.From(settlementAsset),
+            PositionTrackingState.Active,
+            size);
 
     private static MarketMarkPrice CreatePrice(DateTimeOffset observedAt, decimal price) =>
         new()

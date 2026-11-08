@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Realtime.Observations;
 using Intelligence.TradeSystem.Application.Realtime.State;
@@ -560,6 +561,7 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         var provider = new ControlledMarketMarkPriceSubscriptionProvider();
         await using var serviceProvider = CreateServices(store).BuildServiceProvider();
         var coordinator = CreateCoordinator(serviceProvider, provider);
+        using var metrics = new PublicSubscriptionMetrics();
 
         await coordinator.StartAsync(CancellationToken.None);
         try
@@ -584,10 +586,18 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             await WaitUntilAsync(() => store.LatestPrice(asyncFailureSymbol)?.MarkPrice == 50m);
 
             asyncFailureAttempt.FailStream();
+            await WaitUntilAsync(() => metrics.Sum(PublicSubscriptionMetrics.Protected) == 1);
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(0, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(new long[] { 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
             syncFailureAttempt.FailStream();
             await WaitUntilAsync(() =>
                 asyncFailureLease.DisposeRequested.Task.IsCompleted
                 && syncFailureLease.DisposeRequested.Task.IsCompleted);
+            await WaitUntilAsync(() => metrics.Sum(PublicSubscriptionMetrics.Protected) == 2);
+            Assert.Equal(0, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(new long[] { 1, 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
 
             healthyAttempt.Emit(CreateObservation(healthySymbol, 100m, DateTimeOffset.UtcNow));
             await WaitUntilAsync(() => store.LatestPrice(healthySymbol)?.MarkPrice == 100m);
@@ -614,6 +624,10 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             Assert.Null(store.LatestPrice(syncFailureSymbol));
             Assert.Equal(1, provider.SubscribeCountFor(asyncFailureSymbol));
             Assert.Equal(1, provider.SubscribeCountFor(syncFailureSymbol));
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.Protected));
+            Assert.Equal(new long[] { 1, 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
+            metrics.AssertTags();
         }
         finally
         {
@@ -729,6 +743,7 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         var provider = new ControlledMarketMarkPriceSubscriptionProvider();
         await using var serviceProvider = CreateServices(store).BuildServiceProvider();
         var coordinator = CreateCoordinator(serviceProvider, provider);
+        using var metrics = new PublicSubscriptionMetrics();
 
         await coordinator.StartAsync(CancellationToken.None);
         try
@@ -748,11 +763,14 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             await WaitUntilAsync(() => store.LatestPrice(symbol)?.MarkPrice == 120m);
             Assert.Equal(observedAt, store.LatestPrice(symbol)!.ObservedAt);
             Assert.Equal(1, provider.ActiveLeaseCountFor(symbol));
+            Assert.Empty(metrics.All());
         }
         finally
         {
             await coordinator.StopAsync(CancellationToken.None);
         }
+
+        Assert.Empty(metrics.All());
     }
 
     [Fact]
@@ -773,6 +791,7 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         await using var serviceProvider = services.BuildServiceProvider();
         var coordinator = CreateCoordinator(serviceProvider, provider);
         var unconfirmedLease = new CountingAsyncDisposable();
+        using var metrics = new PublicSubscriptionMetrics();
 
         await coordinator.StartAsync(CancellationToken.None);
         try
@@ -784,6 +803,9 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
 
             var noLeaseAttempt = provider.AttemptFor(noLeaseSymbol, attemptNumber: 1);
             noLeaseAttempt.Fail(new MarketPriceSubscriptionStartUnconfirmedException());
+            await WaitUntilAsync(() => metrics.Sum(PublicSubscriptionMetrics.Protected) == 1);
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(0, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
 
             var unconfirmedLeaseAttempt = provider.AttemptFor(
                 unconfirmedLeaseSymbol,
@@ -792,6 +814,10 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
                 unconfirmedLease: unconfirmedLease));
 
             await WaitUntilAsync(() => loggerProvider.EventCount(1227) == 2);
+            await WaitUntilAsync(() => metrics.Sum(PublicSubscriptionMetrics.Protected) == 2);
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(new long[] { 1, 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
             noLeaseAttempt.Emit(CreateObservation(
                 noLeaseSymbol,
                 90m,
@@ -819,6 +845,11 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             Assert.Null(store.LatestPrice(noLeaseSymbol));
             Assert.Null(store.LatestPrice(unconfirmedLeaseSymbol));
             Assert.Equal(100m, store.LatestPrice(healthySymbol)!.MarkPrice);
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(2, metrics.Sum(PublicSubscriptionMetrics.Protected));
+            Assert.Equal(new long[] { 1, 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
+            metrics.AssertTags();
         }
         finally
         {
@@ -826,6 +857,52 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
         }
 
         Assert.Equal(0, unconfirmedLease.DisposeCallCount);
+    }
+
+    [Fact]
+    public async Task Late_disposal_after_shutdown_releases_the_protected_metric_once()
+    {
+        var symbol = $"M{Guid.NewGuid():N}".ToUpperInvariant();
+        await CreatePositionAsync(symbol, "USDT", ExchangeAccountConnectionStatus.Connected);
+        var store = new RecordingMarketMarkPriceStore();
+        var provider = new ControlledMarketMarkPriceSubscriptionProvider();
+        await using var services = CreateServices(store).BuildServiceProvider();
+        var coordinator = CreateCoordinator(services, provider);
+        var releaseDisposal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var metrics = new PublicSubscriptionMetrics();
+        var stopped = false;
+        await coordinator.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => provider.SubscribeCountFor(symbol) == 1);
+            var attempt = provider.AttemptFor(symbol, 1);
+            var lease = attempt.Complete(releaseDisposal.Task);
+            await WaitUntilAsync(() => provider.ActiveLeaseCountFor(symbol) == 1);
+            attempt.FailStream();
+            await WaitUntilAsync(() => lease.DisposeRequested.Task.IsCompleted);
+
+            await coordinator.StopAsync(CancellationToken.None);
+            stopped = true;
+            await WaitUntilAsync(() => metrics.Sum(PublicSubscriptionMetrics.Protected) == 1);
+            Assert.Equal(0, metrics.Sum(PublicSubscriptionMetrics.Start));
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(new long[] { 1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
+
+            releaseDisposal.TrySetResult();
+            await WaitUntilAsync(() => lease.IsDisposed && metrics.Values(PublicSubscriptionMetrics.Protected).Length == 2);
+            Assert.Equal(new long[] { 1, -1 }, metrics.Values(PublicSubscriptionMetrics.Protected));
+            Assert.Equal(1, metrics.Sum(PublicSubscriptionMetrics.DisposeMetric));
+            Assert.Equal(1, lease.DisposeCallCount);
+            metrics.AssertTags();
+        }
+        finally
+        {
+            releaseDisposal.TrySetResult();
+            if (!stopped)
+            {
+                await coordinator.StopAsync(CancellationToken.None);
+            }
+        }
     }
 
     [Fact]
@@ -975,6 +1052,64 @@ public sealed class MarketPriceSubscriptionCoordinatorPostgreSqlTests(PostgreSql
             provider,
             TimeProvider.System,
             serviceProvider.GetRequiredService<ILogger<MarketPriceSubscriptionCoordinator>>());
+
+    private sealed class PublicSubscriptionMetrics : IDisposable
+    {
+        public const string Start = "exchange.realtime.public_subscription.start_unconfirmed";
+        public const string DisposeMetric = "exchange.realtime.public_subscription.dispose_unconfirmed";
+        public const string Protected = "exchange.realtime.public_subscription.protected_degraded";
+        private readonly AsyncLocal<bool> capture = new();
+        private readonly ConcurrentQueue<(string Name, long Value, KeyValuePair<string, object?>[] Tags)> measurements = new();
+        private readonly MeterListener listener = new();
+
+        public PublicSubscriptionMetrics()
+        {
+            capture.Value = true;
+            listener.InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == ExchangeRealtimeObservationTelemetry.MeterName
+                    && instrument.Name is Start or DisposeMetric or Protected)
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            };
+            listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            {
+                if (capture.Value)
+                {
+                    measurements.Enqueue((instrument.Name, value, tags.ToArray()));
+                }
+            });
+            listener.Start();
+        }
+
+        public long[] Values(string name) => measurements
+            .Where(measurement => measurement.Name == name)
+            .Select(measurement => measurement.Value)
+            .ToArray();
+
+        public long Sum(string name) => Values(name).Sum();
+
+        public (string Name, long Value, KeyValuePair<string, object?>[] Tags)[] All() => measurements.ToArray();
+
+        public void AssertTags()
+        {
+            Assert.NotEmpty(measurements);
+            Assert.All(measurements, measurement =>
+            {
+                var tags = measurement.Tags.ToDictionary(tag => tag.Key, tag => tag.Value);
+                Assert.Equal(2, tags.Count);
+                Assert.Equal("exchange-realtime-observation", tags["worker"]);
+                Assert.Equal("Bybit", tags["exchange"]);
+            });
+        }
+
+        public void Dispose()
+        {
+            capture.Value = false;
+            listener.Dispose();
+        }
+    }
 
     private sealed class CountingAsyncDisposable : IAsyncDisposable
     {

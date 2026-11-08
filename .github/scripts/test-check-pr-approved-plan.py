@@ -175,6 +175,48 @@ class PullRequestPlanValidatorTests(TestCase):
         )
         self.assertIn("1 amendment(s)", result)
 
+    def test_markdown_bold_amendment_base_permalink_is_valid(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}",
+            f"**Base Approved Implementation Plan:** {BASE_PERMALINK}",
+            1,
+        )
+        result = validate_pull_request(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            REPOSITORY,
+            make_issue(),
+            [make_base_plan(), amendment],
+        )
+        self.assertIn("1 amendment(s)", result)
+
+    def test_plain_and_markdown_bold_base_fields_cannot_be_duplicated(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        amendment["body"] = (
+            str(amendment["body"])
+            + f"\n**Base Approved Implementation Plan:** {BASE_PERMALINK}\n"
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
+    def test_markdown_bold_base_field_still_rejects_wrong_issue(self) -> None:
+        amendment_id = BASE_COMMENT_ID + 1
+        amendment = make_amendment(amendment_id)
+        incorrect = BASE_PERMALINK.replace("/165#", "/164#")
+        amendment["body"] = str(amendment["body"]).replace(
+            f"Base Approved Implementation Plan: {BASE_PERMALINK}",
+            f"**Base Approved Implementation Plan:** {incorrect}",
+            1,
+        )
+        self.assert_invalid(
+            make_body(amendment_permalinks=[issue_permalink(amendment_id)]),
+            [make_base_plan(), amendment],
+        )
+
     def test_valid_base_with_multiple_amendments(self) -> None:
         ids = [BASE_COMMENT_ID + 1, BASE_COMMENT_ID + 2]
         result = validate_pull_request(

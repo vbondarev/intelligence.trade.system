@@ -59,6 +59,11 @@ public sealed record ExchangeAccountSyncResult(
     /// </summary>
     public bool FullPositionsCompleteAccepted { get; private init; }
 
+    internal int RestAppliedPositionChanges { get; init; }
+    internal bool RestAppliedWalletChange { get; init; }
+    internal int RestOnlyAppliedPositionChanges { get; init; }
+    internal bool RestOnlyAppliedWalletChange { get; init; }
+
     public static ExchangeAccountSyncResult Synchronized(
         ExchangeAccount account,
         PortfolioState portfolioState) =>

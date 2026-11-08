@@ -1,21 +1,49 @@
 using Intelligence.TradeSystem.Api.Contracts.V1.ExchangeAccounts;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Domain;
+using Intelligence.TradeSystem.Domain.Identity;
 
 namespace Intelligence.TradeSystem.Api.Mappers;
 
 internal static class ExchangeAccountMapper
 {
     public static ExchangeAccountListResponse ToListResponse(
-        IReadOnlyList<ExchangeAccount> accounts) =>
-        new(accounts.Select(ToResponse).ToArray());
+        IReadOnlyList<ExchangeAccount> accounts,
+        IReadOnlyDictionary<ExchangeAccountId, RealtimeObservationReadModel> observations) =>
+        new(accounts
+            .Select(account => ToResponse(account, observations[account.Id]))
+            .ToArray());
 
-    public static ExchangeAccountResponse ToResponse(ExchangeAccount account) => new(
-        account.Id.Value,
-        account.DisplayName,
-        ToWireProvider(account.ExchangeId),
-        ToWireStatus(account.ConnectionStatus),
-        ToWireCapabilities(account.Capabilities),
-        account.LastSyncedAt);
+    public static ExchangeAccountResponse ToResponse(
+        ExchangeAccount account,
+        RealtimeObservationReadModel observation) =>
+        new(
+            account.Id.Value,
+            account.DisplayName,
+            ToWireProvider(account.ExchangeId),
+            ToWireStatus(account.ConnectionStatus),
+            ToWireCapabilities(account.Capabilities),
+            account.LastSyncedAt)
+        {
+            RealtimeObservation = new(
+                ToWireStatus(observation.Status),
+                observation.LastConnectedAt,
+                observation.LastHeartbeatAt,
+                observation.ReasonCode),
+        };
+
+    private static RealtimeObservationStatusV1 ToWireStatus(
+        RealtimeObservationReadStatus status) => status switch
+    {
+        RealtimeObservationReadStatus.Unknown => RealtimeObservationStatusV1.Unknown,
+        RealtimeObservationReadStatus.Initializing => RealtimeObservationStatusV1.Initializing,
+        RealtimeObservationReadStatus.Connected => RealtimeObservationStatusV1.Connected,
+        RealtimeObservationReadStatus.Reconnecting => RealtimeObservationStatusV1.Reconnecting,
+        RealtimeObservationReadStatus.Degraded => RealtimeObservationStatusV1.Degraded,
+        RealtimeObservationReadStatus.Stopped => RealtimeObservationStatusV1.Stopped,
+        _ => throw new NotSupportedException(
+            $"Observation status '{status}' is not mapped to a v1 wire contract."),
+    };
 
     private static ExchangeProvider ToWireProvider(ExchangeId exchangeId) => exchangeId switch
     {

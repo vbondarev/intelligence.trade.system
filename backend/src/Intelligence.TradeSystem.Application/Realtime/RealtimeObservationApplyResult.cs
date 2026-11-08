@@ -60,6 +60,8 @@ public sealed record RealtimeObservationApplyResult
     /// </summary>
     public bool ConfirmedByRest { get; }
 
+    internal int ScopedRestOnlyAppliedPositionChanges { get; init; }
+
     public static RealtimeObservationApplyResult Applied(bool confirmedByRest = false) =>
         new(RealtimeObservationApplyOutcome.Applied, null, confirmedByRest);
 

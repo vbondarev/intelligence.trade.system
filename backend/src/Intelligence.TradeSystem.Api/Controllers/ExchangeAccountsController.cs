@@ -3,11 +3,13 @@ using Intelligence.TradeSystem.Api.Errors;
 using Intelligence.TradeSystem.Api.Mappers;
 using Intelligence.TradeSystem.Application.Accounts;
 using Intelligence.TradeSystem.Application.Accounts.Credentials;
+using Intelligence.TradeSystem.Application.Realtime;
 using Intelligence.TradeSystem.Application.Users;
 using Intelligence.TradeSystem.Domain;
 using Intelligence.TradeSystem.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Intelligence.TradeSystem.Api.Controllers;
 
@@ -20,14 +22,30 @@ namespace Intelligence.TradeSystem.Api.Controllers;
 [Authorize(Policy = "TradeUser")]
 public sealed class ExchangeAccountsController(
     IExchangeAccountService accountService,
-    ICurrentUserContext currentUserContext) : ControllerBase
+    RealtimeObservationReadService realtimeObservationReadService,
+    ICurrentUserContext currentUserContext,
+    ILogger<ExchangeAccountsController> logger) : ControllerBase
 {
+    private static readonly Action<ILogger, string, Exception?> RealtimeObservationReadFailed =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(0, "RealtimeObservationReadFailed"),
+            "Не удалось получить realtime-наблюдение для ответа биржевого аккаунта. Тип исключения: {ExceptionType}");
+
     [HttpGet]
     [ProducesResponseType(typeof(ExchangeAccountListResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ExchangeAccountListResponse>> List(CancellationToken cancellationToken) =>
-        Ok(ExchangeAccountMapper.ToListResponse(await accountService.ListAsync(
-            currentUserContext.UserId,
-            cancellationToken).ConfigureAwait(false)));
+    public async Task<ActionResult<ExchangeAccountListResponse>> List(CancellationToken cancellationToken)
+    {
+        var userId = currentUserContext.UserId;
+        var accounts = await accountService.ListAsync(userId, cancellationToken).ConfigureAwait(false);
+        var observations = await realtimeObservationReadService.GetForAccountsAsync(
+                userId,
+                accounts.Select(account => account.Id).ToArray(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return Ok(ExchangeAccountMapper.ToListResponse(accounts, observations));
+    }
 
     [HttpPost]
     [ProducesResponseType(typeof(ExchangeAccountResponse), StatusCodes.Status200OK)]
@@ -53,9 +71,9 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountConnectionOutcome.Connected when result.Account is not null =>
                 StatusCode(
                     StatusCodes.Status201Created,
-                    ExchangeAccountMapper.ToResponse(result.Account)),
+                    await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountConnectionOutcome.Reconnected when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+                Ok(await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountConnectionOutcome.AlreadyExists => Error(ApiErrorDescriptors.ExchangeAccountAlreadyExists),
             ExchangeAccountConnectionOutcome.InvalidCredentials => Error(ApiErrorDescriptors.ExchangeCredentialsInvalid),
             ExchangeAccountConnectionOutcome.PermissionsRejected => Error(ApiErrorDescriptors.ExchangePermissionsRejected),
@@ -80,7 +98,9 @@ public sealed class ExchangeAccountsController(
             return BadRequestProblem(displayNameError);
         var account = await accountService.RenameAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id),
             request.DisplayName.Trim(), cancellationToken).ConfigureAwait(false);
-        return account is null ? NotFoundProblem() : Ok(ExchangeAccountMapper.ToResponse(account));
+        return account is null
+            ? NotFoundProblem()
+            : Ok(await ToResponseAsync(account, cancellationToken).ConfigureAwait(false));
     }
 
     [HttpPost("{id}/verify")]
@@ -112,7 +132,7 @@ public sealed class ExchangeAccountsController(
         return result.Outcome switch
         {
             ExchangeAccountCredentialRotationOutcome.Succeeded when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+                Ok(await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountCredentialRotationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountCredentialRotationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             ExchangeAccountCredentialRotationOutcome.ProviderIdentityMismatch =>
@@ -145,7 +165,7 @@ public sealed class ExchangeAccountsController(
         return result.Outcome switch
         {
             ExchangeAccountVerificationOutcome.Succeeded when result.Account is not null =>
-                Ok(ExchangeAccountMapper.ToResponse(result.Account)),
+                Ok(await ToResponseAsync(result.Account, cancellationToken).ConfigureAwait(false)),
             ExchangeAccountVerificationOutcome.NotFound => NotFoundProblem(),
             ExchangeAccountVerificationOutcome.AccountDisabled => Error(ApiErrorDescriptors.ExchangeAccountDisabled),
             ExchangeAccountVerificationOutcome.ProviderIdentityMismatch =>
@@ -155,6 +175,26 @@ public sealed class ExchangeAccountsController(
             ExchangeAccountVerificationOutcome.UnsupportedExchange => BadRequestProblem("The exchange is not supported."),
             _ => Error(ApiErrorDescriptors.ExchangeUnavailable),
         };
+    }
+
+    private async Task<ExchangeAccountResponse> ToResponseAsync(
+        ExchangeAccount account,
+        CancellationToken cancellationToken)
+    {
+        RealtimeObservationReadModel observation;
+        try
+        {
+            observation = await realtimeObservationReadService
+                .GetAsync(currentUserContext.UserId, account.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            RealtimeObservationReadFailed(logger, exception.GetType().Name, null);
+            observation = RealtimeObservationReadModel.Unknown;
+        }
+
+        return ExchangeAccountMapper.ToResponse(account, observation);
     }
 
     private static string? ValidateDisplayName(string? displayName)

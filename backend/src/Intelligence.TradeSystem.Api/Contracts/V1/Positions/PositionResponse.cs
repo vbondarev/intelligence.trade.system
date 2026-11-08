@@ -26,4 +26,7 @@ public sealed record PositionResponse(
     decimal? TakeProfit,
     decimal? StopLoss,
     decimal? TrailingStop,
-    string SettlementAsset);
+    string SettlementAsset)
+{
+    public PositionMarketValuationResponse? MarketValuation { get; init; }
+}

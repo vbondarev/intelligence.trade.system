@@ -70,6 +70,18 @@ public static class StartupExtensions
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(
                     typeof(TradeSystemDbContext).Assembly.GetName().Name)));
 
+        services.TryAddSingleton<RealtimeObservationReadOptions>(_ =>
+        {
+            var observationOptions = configuration
+                .GetSection(ExchangeRealtimeObservationOptions.SectionName)
+                .Get<ExchangeRealtimeObservationOptions>()
+                ?? new ExchangeRealtimeObservationOptions();
+            return new RealtimeObservationReadOptions
+            {
+                HeartbeatStaleAfter = observationOptions.HeartbeatStaleAfter,
+            };
+        });
+
         services.AddSingleton(keyRing);
         services.AddSingleton<IExchangeCredentialProtector, AesGcmExchangeCredentialProtector>();
         services.TryAddSingleton<TimeProvider>(_ => TimeProvider.System);
@@ -181,7 +193,6 @@ public static class StartupExtensions
             .AddOptions<ExchangeRealtimeObservationOptions>()
             .Bind(configuration.GetSection(ExchangeRealtimeObservationOptions.SectionName))
             .ValidateOnStart();
-
         services.TryAddSingleton<TimeProvider>(_ => TimeProvider.System);
         services.Replace(ServiceDescriptor.Singleton<ExchangeAccountObservationCoordinator>(
             serviceProvider => new ExchangeAccountObservationCoordinator(

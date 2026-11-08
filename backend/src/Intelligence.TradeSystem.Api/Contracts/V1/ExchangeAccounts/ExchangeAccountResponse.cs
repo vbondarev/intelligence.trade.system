@@ -7,4 +7,8 @@ public sealed record ExchangeAccountResponse(
     ExchangeProvider Exchange,
     ExchangeAccountStatus ConnectionStatus,
     IReadOnlyList<ExchangeAccountCapability> Capabilities,
-    DateTimeOffset? LastSyncedAt);
+    DateTimeOffset? LastSyncedAt)
+{
+    public RealtimeObservationResponse RealtimeObservation { get; init; } =
+        new(RealtimeObservationStatusV1.Unknown, null, null, null);
+}

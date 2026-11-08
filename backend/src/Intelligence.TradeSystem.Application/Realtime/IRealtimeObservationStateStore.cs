@@ -14,6 +14,15 @@ namespace Intelligence.TradeSystem.Application.Realtime;
 /// </remarks>
 public interface IRealtimeObservationStateStore
 {
+    /// <summary>
+    /// Читает состояния запрошенных аккаунтов одним user-scoped запросом. Отсутствующий ключ
+    /// означает, что состояние для принадлежащего пользователю аккаунта ещё не сохранялось.
+    /// </summary>
+    Task<IReadOnlyDictionary<ExchangeAccountId, Versioned<RealtimeObservationState>>> GetForAccountsAsync(
+        UserId userId,
+        IReadOnlyCollection<ExchangeAccountId> exchangeAccountIds,
+        CancellationToken cancellationToken = default);
+
     /// <returns>Состояние и его версия; <see langword="null"/>, если состояние не сохранялось.</returns>
     Task<Versioned<RealtimeObservationState>?> GetAsync(
         UserId userId,

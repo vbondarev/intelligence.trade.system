@@ -19,6 +19,53 @@ public sealed class PositionReadRepositoryPostgreSqlTests(PostgreSqlFixture fixt
         new(2026, 9, 20, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task Market_valuation_inputs_are_user_scoped_unpaged_and_exclude_closed_positions()
+    {
+        var userId = UserId.New();
+        var account = CreateAccount(userId);
+        var foreign = CreateAccount(UserId.New());
+        var positions = Enumerable.Range(0, 55)
+            .Select(index => CreatePosition(
+                account.Id,
+                $"S{index}USDT",
+                T0.AddSeconds(-index)))
+            .ToArray();
+        var closed = CreatePosition(account.Id, "CLOSEDUSDT", T0.AddMinutes(-2));
+        closed.Close(T0.AddMinutes(-1));
+        var foreignPosition = CreatePosition(foreign.Id, "FOREIGNUSDT", T0.AddMinutes(1));
+        await Persist(account, [.. positions, closed]);
+        await Persist(foreign, [foreignPosition]);
+
+        var capture = new CommandCaptureInterceptor();
+        await using var context = CreateCapturedContext(capture);
+        var inputs = await new PositionReadRepository(context)
+            .GetMarketValuationInputsByAccountAsync(userId, account.Id);
+
+        Assert.Equal(positions.Length, inputs.Count);
+        Assert.Equal(
+            positions.Select(position => position.Id).OrderBy(id => id.Value),
+            inputs.Select(input => input.Id).OrderBy(id => id.Value));
+        Assert.All(inputs, input =>
+        {
+            Assert.Equal(ExchangeId.Bybit, input.ExchangeId);
+            Assert.Equal(MarketCategory.Linear, input.MarketCategory);
+            Assert.Equal(PositionTrackingState.Active, input.TrackingState);
+        });
+        Assert.Single(capture.Commands);
+        Assert.Contains("user_id", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exchange_account_id", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LIMIT", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("OFFSET", capture.Commands[0], StringComparison.OrdinalIgnoreCase);
+
+        var repository = new PositionReadRepository(context);
+        var foreignInputs = await repository.GetMarketValuationInputsByAccountAsync(userId, foreign.Id);
+        Assert.Empty(foreignInputs);
+
+        var ownerInputs = await repository.GetMarketValuationInputsByAccountAsync(foreign.UserId, foreign.Id);
+        Assert.Equal(foreignPosition.Id, Assert.Single(ownerInputs).Id);
+    }
+
+    [Fact]
     public async Task List_is_user_scoped_and_applies_database_side_filters_and_cursor_order()
     {
         var owner = CreateAccount(UserId.New());

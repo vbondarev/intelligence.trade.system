@@ -130,12 +130,29 @@ public sealed class PortfolioReadProjectionTests
 
         fresh.TotalUnrealizedPnl.Should().Be(-77m);
         fresh.CurrentPositionCount.Should().Be(2);
+        fresh.SnapshotPositionIds.Should().Equal(usdt.Id, usdc.Id);
         fresh.Exposures.Should().Equal(
             Exposure("USDC", 50m, 0m, 50m),
             Exposure("USDT", 100m, 100m, 0m));
         fresh.IsFresh.Should().BeTrue();
         stale.IsFresh.Should().BeFalse();
         state.IsFresh.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Project_confirms_an_empty_snapshot_with_an_empty_position_id_list()
+    {
+        var state = PortfolioState.Create(
+            Account,
+            [],
+            new PortfolioCapitalState(1000m, 800m, T0),
+            T0.AddMinutes(1),
+            TimeSpan.FromMinutes(5));
+
+        var summary = PortfolioReadProjection.Project(state, T0.AddMinutes(1));
+
+        summary.SnapshotPositionIds.Should().NotBeNull();
+        summary.SnapshotPositionIds.Should().BeEmpty();
     }
 
     [Fact]
