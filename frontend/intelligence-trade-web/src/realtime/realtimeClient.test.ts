@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RealtimeInvalidation, RealtimeState } from './realtimeTypes';
 
-const fakes = vi.hoisted(() => ({ failStart: false, connections: [] as Array<{
+const fakes = vi.hoisted(() => ({ failStart: false, starts: [] as Array<() => Promise<void>>, connections: [] as Array<{
   handlers: Map<string, (payload?: never) => void>;
   close?: () => void;
   start: ReturnType<typeof vi.fn>;
@@ -18,7 +18,7 @@ vi.mock('@microsoft/signalr', () => ({
       const fake = {
         handlers: new Map<string, (payload?: never) => void>(),
         close: undefined as (() => void) | undefined,
-        start: vi.fn().mockImplementation(() => fakes.failStart ? Promise.reject(new Error('offline')) : Promise.resolve()),
+        start: vi.fn().mockImplementation(fakes.starts[fakes.connections.length] ?? (() => fakes.failStart ? Promise.reject(new Error('offline')) : Promise.resolve())),
         stop: vi.fn().mockResolvedValue(undefined),
         on(name: string, handler: (payload?: never) => void) { this.handlers.set(name, handler); },
         onclose(handler: () => void) { this.close = handler; },
@@ -33,7 +33,7 @@ vi.unmock('./realtimeClient');
 import { createRealtimeClient } from './realtimeClient';
 
 describe('realtime transport', () => {
-  beforeEach(() => { fakes.connections.length = 0; fakes.failStart = false; vi.useFakeTimers(); });
+  beforeEach(() => { fakes.connections.length = 0; fakes.starts.length = 0; fakes.failStart = false; vi.useFakeTimers(); });
   afterEach(() => vi.useRealTimers());
 
   it('recovers after ready and forwards only valid invalidations', async () => {
@@ -90,4 +90,102 @@ describe('realtime transport', () => {
     expect(vi.getTimerCount()).toBe(0);
     await client.stop();
   });
+  it.each([false, true])('T01/T02: ожидает pending retry перед stop (initial failure: %s)', async (initialFailure) => {
+    let finishStart!: () => void;
+    let finishStop!: () => void;
+    const pendingStart = new Promise<void>((resolve) => { finishStart = resolve; });
+    const pendingStop = new Promise<void>((resolve) => { finishStop = resolve; });
+    fakes.starts.push(
+      () => initialFailure ? Promise.reject(new Error('offline')) : Promise.resolve(),
+      () => pendingStart,
+    );
+    const client = createRealtimeClient(() => {}, () => {}, async () => true);
+    await client.start();
+    if (!initialFailure) fakes.connections[0]!.close?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    const retry = fakes.connections[1]!;
+    expect(retry.start).toHaveBeenCalledOnce();
+    retry.stop.mockReturnValue(pendingStop);
+    let stopped = false;
+    const stopping = client.stop().then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(retry.stop).not.toHaveBeenCalled();
+    expect(stopped).toBe(false);
+    finishStart();
+    await vi.waitFor(() => expect(retry.stop).toHaveBeenCalledOnce());
+    expect(stopped).toBe(false);
+    finishStop();
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(retry.stop).toHaveBeenCalledOnce();
+  });
+
+  it('T03: отклонение pending retry завершает disposal без нового retry', async () => {
+    let rejectStart!: (error: Error) => void;
+    const pendingStart = new Promise<void>((_, reject) => { rejectStart = reject; });
+    fakes.starts.push(() => Promise.reject(new Error('offline')), () => pendingStart);
+    const states: RealtimeState[] = [];
+    const client = createRealtimeClient((state) => states.push(state), () => {}, async () => true);
+    await client.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    const retry = fakes.connections[1]!;
+    expect(retry.start).toHaveBeenCalledOnce();
+    const stopping = client.stop();
+    expect(retry.stop).not.toHaveBeenCalled();
+    rejectStart(new Error('retry failed'));
+    await stopping;
+    await vi.advanceTimersByTimeAsync(200000);
+    expect(fakes.connections).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(states).not.toContain('ready');
+  });
+
+  it('T04: отменяет таймер до повторного подключения', async () => {
+    fakes.starts.push(() => Promise.reject(new Error('offline')));
+    const client = createRealtimeClient(() => {}, () => {}, async () => true);
+    await client.start();
+    expect(vi.getTimerCount()).toBe(1);
+    await client.stop();
+    await vi.advanceTimersByTimeAsync(200000);
+    expect(fakes.connections).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('T05: игнорирует callbacks после начала disposal', async () => {
+    let finishStart!: () => void;
+    fakes.starts.push(() => Promise.resolve(), () => new Promise<void>((resolve) => { finishStart = resolve; }));
+    const states: RealtimeState[] = [];
+    const events: RealtimeInvalidation[] = [];
+    const client = createRealtimeClient((state) => states.push(state), (event) => events.push(event), async () => true);
+    await client.start();
+    fakes.connections[0]!.close?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    const retry = fakes.connections[1]!;
+    const stopping = client.stop();
+    const count = states.length;
+    retry.handlers.get('bff.realtime.ready')?.();
+    retry.handlers.get('position.updated')?.({ positionId: 'late' } as never);
+    retry.close?.();
+    finishStart();
+    await stopping;
+    await vi.advanceTimersByTimeAsync(200000);
+    expect(states).toHaveLength(count);
+    expect(states).not.toContain('ready');
+    expect(events).toEqual([]);
+    expect(fakes.connections).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('T06: ошибка stop распространяется и не запускает retry', async () => {
+    const client = createRealtimeClient(() => {}, () => {}, async () => true);
+    await client.start();
+    const connection = fakes.connections[0]!;
+    connection.stop.mockRejectedValue(new Error('stop failed'));
+    await expect(client.stop()).rejects.toThrow('stop failed');
+    connection.close?.();
+    await vi.advanceTimersByTimeAsync(200000);
+    expect(fakes.connections).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });

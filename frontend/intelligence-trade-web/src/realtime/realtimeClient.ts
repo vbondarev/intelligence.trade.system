@@ -12,6 +12,7 @@ export function createRealtimeClient(
   checkSession: (signal: AbortSignal) => Promise<boolean>,
 ) {
   let connection: HubConnection | null = null;
+  let inFlightHubStart: Promise<void> | null = null;
   let disposed = false;
   let retries = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -74,14 +75,18 @@ export function createRealtimeClient(
       connection = null;
       void disconnected();
     });
+    let attempt: Promise<void> | null = null;
     try {
-      await current.start();
-      if (disposed) await current.stop();
+      attempt = current.start();
+      inFlightHubStart = attempt;
+      await attempt;
     } catch {
       if (connection === current) {
         connection = null;
         await disconnected();
       }
+    } finally {
+      if (inFlightHubStart === attempt) inFlightHubStart = null;
     }
   }
 
@@ -90,6 +95,10 @@ export function createRealtimeClient(
     abort.abort();
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
+    const pendingStart = inFlightHubStart;
+    if (pendingStart !== null) {
+      try { await pendingStart; } catch { /* Ошибка запуска не отменяет очистку. */ }
+    }
     const current = connection;
     connection = null;
     if (current !== null) await current.stop();
