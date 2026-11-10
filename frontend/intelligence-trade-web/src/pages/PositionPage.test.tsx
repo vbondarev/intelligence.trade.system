@@ -732,3 +732,45 @@ describe('realtime evaluation invalidation', () => {
     expect(urls(requests, positionUrl())).toHaveLength(1);
   });
 });
+
+
+describe('recovery of a pending position read', () => {
+  it('replaces a hung GET and ignores the late response without posting', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++calls === 1 ? slow.promise : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, marketUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, candlesUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await act(async () => slow.resolve(jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'STALEUSDT' }))));
+    expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});
+
+
+describe('recovery of pending timeline', () => {
+  it('keeps a closed history lazy and replaces a hung open history read', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [timelineUrl()]: () => ++calls === 1 ? slow.promise : jsonResponse(firstTimelinePage()),
+    }));
+    await findTitle(/BTCUSDT/);
+    act(() => emitRealtime({ type: 'recovery' }));
+    expect(calls).toBe(0);
+    await userEvent.click(screen.getByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(screen.getByRole('list', { name: 'События истории позиции' })).toBeInTheDocument());
+    await act(async () => slow.resolve(jsonResponse(timelinePageFixture([]))));
+    expect(screen.getByRole('list', { name: 'События истории позиции' })).toBeInTheDocument();
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});

@@ -849,3 +849,51 @@ describe('realtime pagination consistency', () => {
     expect(calls).toBe(3);
   });
 });
+
+
+describe('recovery of a pending positions page', () => {
+  it('keeps account and filter, drops the old cursor and ignores a late response', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderHome(`/app?account=${MAIN_ID}&side=long`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID, '&side=long')]: () => {
+        calls += 1;
+        if (calls === 1) return page([position()], 'old-cursor');
+        if (calls === 2) return slow.promise;
+        return page([position({ id: 'new', symbol: 'SOLUSDT' })]);
+      },
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
+    await waitFor(() => expect(calls).toBe(2));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    expect(calls).toBe(3);
+    await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
+    expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
+    expect(searchParams().get('account')).toBe(MAIN_ID);
+    expect(searchParams().get('side')).toBe('long');
+    expect(requests.some((request) => request.url.includes('cursor=old-cursor'))).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('recovery of closed positions', () => {
+  it('retains the selected account, closed mode and filter', async () => {
+    const closed = position({ trackingState: 'closed', closedAt: '2026-10-06T12:00:00Z', unrealizedPnl: null });
+    const url = positionsUrl(MAIN_ID, '&trackingState=closed&side=long');
+    const requests = renderHome(`/app?account=${MAIN_ID}&view=closed&side=long`, {
+      ...accountRoutes([mainAccount]),
+      [url]: () => page([closed]),
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(urls(requests, url)).toHaveLength(2));
+    expect(searchParams().get('account')).toBe(MAIN_ID);
+    expect(searchParams().get('view')).toBe('closed');
+    expect(searchParams().get('side')).toBe('long');
+    expect(screen.getByRole('button', { name: 'Закрытые' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});

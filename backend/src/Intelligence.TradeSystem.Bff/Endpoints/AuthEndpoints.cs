@@ -163,7 +163,7 @@ internal static partial class AuthEndpoints
         var authentication = await httpContext.AuthenticateAsync(BffAuthenticationExtensions.SessionScheme);
         if (!authentication.Succeeded
             || authentication.Ticket is null
-            || !HasActiveLogoutIntent(authentication.Ticket.Properties, timeProvider))
+            || !InMemoryAuthenticationTicketStore.HasActiveLogoutIntent(authentication.Ticket.Properties, timeProvider))
         {
             // Без подтверждённого POST /bff/auth/logout переход по ссылке не завершает session.
             return Results.LocalRedirect("/");
@@ -173,10 +173,6 @@ internal static partial class AuthEndpoints
             new AuthenticationProperties { RedirectUri = "/" },
             [BffAuthenticationExtensions.SessionScheme, BffAuthenticationExtensions.OidcScheme]);
     }
-
-    private static bool HasActiveLogoutIntent(AuthenticationProperties properties, TimeProvider timeProvider) =>
-        InMemoryAuthenticationTicketStore.TryGetLogoutIntentExpiry(properties, out var expiresAt)
-        && expiresAt > timeProvider.GetUtcNow();
 
     [LoggerMessage(Level = LogLevel.Information, Message = "API повторно отклонил обновлённый access token; BFF session завершена.")]
     private static partial void LogSessionRejectedByApi(ILogger logger);

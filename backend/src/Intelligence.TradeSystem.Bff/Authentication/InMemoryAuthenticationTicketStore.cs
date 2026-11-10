@@ -72,8 +72,8 @@ internal sealed class InMemoryAuthenticationTicketStore(
 
             // Копия, прочитанная до POST /bff/auth/logout, не должна стереть подтверждённый
             // logout intent: иначе logout/complete отклонит уже подтверждённый logout.
-            if (TryGetLogoutIntentExpiry(existing.Properties, out var storedIntent)
-                && storedIntent > timeProvider.GetUtcNow()
+            if (HasActiveLogoutIntent(existing.Properties, timeProvider)
+                && TryGetLogoutIntentExpiry(existing.Properties, out var storedIntent)
                 && (!TryGetLogoutIntentExpiry(copy.Properties, out var incomingIntent) || incomingIntent < storedIntent))
             {
                 copy.Properties.Items[LogoutIntentItem] = existing.Properties.Items[LogoutIntentItem];
@@ -120,7 +120,7 @@ internal sealed class InMemoryAuthenticationTicketStore(
         lock (gate)
         {
             if (TryGetLiveTicket(key, out var ticket)
-                && !TryGetLogoutIntentExpiry(ticket.Properties, out _))
+                && !HasActiveLogoutIntent(ticket.Properties, timeProvider))
             {
                 cache.Remove(CacheKey(key));
                 removed = true;
@@ -138,6 +138,9 @@ internal sealed class InMemoryAuthenticationTicketStore(
 
     internal static void SetTokenGeneration(AuthenticationProperties properties, long generation) =>
         properties.Items[TokenGenerationItem] = generation.ToString(CultureInfo.InvariantCulture);
+
+    internal static bool HasActiveLogoutIntent(AuthenticationProperties properties, TimeProvider timeProvider) =>
+        TryGetLogoutIntentExpiry(properties, out var expiresAt) && expiresAt > timeProvider.GetUtcNow();
 
     internal static bool TryGetLogoutIntentExpiry(AuthenticationProperties properties, out DateTimeOffset expiresAt)
     {

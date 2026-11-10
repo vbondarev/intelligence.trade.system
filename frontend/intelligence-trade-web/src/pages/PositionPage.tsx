@@ -156,11 +156,10 @@ export function PositionPage() {
   }, [rawInterval, interval, setSearchParams, location.state]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const generation = ++positionGeneration.current;
-      const isCurrent = () => generation === positionGeneration.current && !controller.signal.aborted;
-      return getPosition(id, controller.signal).then(
+      const isCurrent = () => generation === positionGeneration.current && !signal.aborted;
+      return getPosition(id, signal).then(
       (value) => {
         if (isCurrent()) {
           setPosition(loaded(id, value));
@@ -182,15 +181,14 @@ export function PositionPage() {
     });
     positionRead.current = scheduler;
     scheduler.invalidate();
-    return () => { positionRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { positionRead.current = null; scheduler.dispose(); };
   }, [id]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const generation = ++marketGeneration.current;
-      const isCurrent = () => generation === marketGeneration.current && !controller.signal.aborted;
-      return getPositionMarket(id, controller.signal).then(
+      const isCurrent = () => generation === marketGeneration.current && !signal.aborted;
+      return getPositionMarket(id, signal).then(
       (value) => {
         if (isCurrent()) {
           setMarket(loaded(id, value));
@@ -205,16 +203,15 @@ export function PositionPage() {
     });
     marketRead.current = scheduler;
     scheduler.invalidate();
-    return () => { marketRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { marketRead.current = null; scheduler.dispose(); };
   }, [id]);
 
   useEffect(() => {
-    const controller = new AbortController();
     const key = `${id}|${interval}`;
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const generation = ++candlesGeneration.current;
-      const isCurrent = () => generation === candlesGeneration.current && !controller.signal.aborted;
-      return getPositionCandles(id, interval, controller.signal).then(
+      const isCurrent = () => generation === candlesGeneration.current && !signal.aborted;
+      return getPositionCandles(id, interval, signal).then(
       (value) => {
         if (isCurrent()) {
           setCandles(loaded(key, value));
@@ -229,15 +226,14 @@ export function PositionPage() {
     });
     candlesRead.current = scheduler;
     scheduler.invalidate();
-    return () => { candlesRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { candlesRead.current = null; scheduler.dispose(); };
   }, [id, interval]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const generation = ++evaluationGeneration.current;
-      const isCurrent = () => generation === evaluationGeneration.current && !controller.signal.aborted;
-      return getPositionEvaluation(id, controller.signal).then(
+      const isCurrent = () => generation === evaluationGeneration.current && !signal.aborted;
+      return getPositionEvaluation(id, signal).then(
       (value) => {
         if (isCurrent()) {
           setEvaluation(loaded(id, value));
@@ -252,23 +248,25 @@ export function PositionPage() {
     });
     evaluationRead.current = scheduler;
     scheduler.invalidate();
-    return () => { evaluationRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { evaluationRead.current = null; scheduler.dispose(); };
   }, [id]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || (event.type === 'position.updated' && event.positionId === id)) {
       positionGeneration.current += 1;
-      positionRead.current?.invalidate();
+      if (event.type === 'recovery') positionRead.current?.recover();
+      else positionRead.current?.invalidate();
     }
     if (event.type === 'recovery') {
       marketGeneration.current += 1;
       candlesGeneration.current += 1;
-      marketRead.current?.invalidate();
-      candlesRead.current?.invalidate();
+      marketRead.current?.recover();
+      candlesRead.current?.recover();
     }
     if (event.type === 'recovery' || (event.type === 'evaluation.updated' && event.positionId === id)) {
       evaluationGeneration.current += 1;
-      evaluationRead.current?.invalidate();
+      if (event.type === 'recovery') evaluationRead.current?.recover();
+      else evaluationRead.current?.invalidate();
     }
   });
 

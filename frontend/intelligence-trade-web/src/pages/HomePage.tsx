@@ -156,7 +156,7 @@ export function HomePage() {
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
-  const positionsController = useRef<AbortController | null>(null);
+  const positionsSignal = useRef<AbortSignal | null>(null);
   const syncInFlight = useRef(new Set<string>());
   const selectedIdRef = useRef<string | null>(null);
 
@@ -191,11 +191,10 @@ export function HomePage() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => loadAccounts(controller.signal));
+    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
     accountsRead.current = scheduler;
     scheduler.invalidate();
-    return () => { accountsRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { accountsRead.current = null; scheduler.dispose(); };
   }, [loadAccounts]);
 
   const updateParams = useCallback(
@@ -223,11 +222,10 @@ export function HomePage() {
       return;
     }
 
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const generation = ++portfolioGeneration.current;
-      const isCurrent = () => generation === portfolioGeneration.current && !controller.signal.aborted;
-      return getPortfolio(selectedId, controller.signal).then(
+      const isCurrent = () => generation === portfolioGeneration.current && !signal.aborted;
+      return getPortfolio(selectedId, signal).then(
       (portfolio) => {
         if (isCurrent()) {
           setPortfolioLoad({ accountId: selectedId, portfolio, error: null });
@@ -247,7 +245,7 @@ export function HomePage() {
     });
     portfolioRead.current = scheduler;
     scheduler.invalidate();
-    return () => { portfolioRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { portfolioRead.current = null; scheduler.dispose(); };
 
   }, [selectedId, reloadToken]);
 
@@ -257,12 +255,11 @@ export function HomePage() {
     }
 
     const query = JSON.parse(queryKey) as PositionListQuery;
-    const controller = new AbortController();
-    positionsController.current = controller;
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
+      positionsSignal.current = signal;
       const generation = ++positionsGeneration.current;
-      const isCurrent = () => generation === positionsGeneration.current && !controller.signal.aborted;
-      return listPositions(query, controller.signal).then(
+      const isCurrent = () => generation === positionsGeneration.current && !signal.aborted;
+      return listPositions(query, signal).then(
       (page) => {
         if (isCurrent()) {
           setPositions({
@@ -298,24 +295,27 @@ export function HomePage() {
     });
     positionsRead.current = scheduler;
     scheduler.invalidate();
-    return () => { positionsRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { positionsRead.current = null; scheduler.dispose(); };
 
   }, [queryKey, reloadToken]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
       accountsGeneration.current += 1;
-      accountsRead.current?.invalidate();
+      if (event.type === 'recovery') accountsRead.current?.recover();
+      else accountsRead.current?.invalidate();
     }
     if (event.type === 'recovery' || (event.type === 'portfolio.updated' && event.exchangeAccountId === selectedId)) {
       portfolioGeneration.current += 1;
-      portfolioRead.current?.invalidate();
+      if (event.type === 'recovery') portfolioRead.current?.recover();
+      else portfolioRead.current?.invalidate();
     }
     if (event.type === 'recovery' || event.type === 'position.updated') {
       positionsGeneration.current += 1;
       setPositions((current) => current?.key === queryKey
         ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
-      positionsRead.current?.invalidate();
+      if (event.type === 'recovery') positionsRead.current?.recover();
+      else positionsRead.current?.invalidate();
     }
   });
 
@@ -336,7 +336,7 @@ export function HomePage() {
     const key = positions.key;
     const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
     const generation = positionsGeneration.current;
-    const signal = positionsController.current?.signal;
+    const signal = positionsSignal.current ?? undefined;
     const isCurrent = () => generation === positionsGeneration.current && signal?.aborted !== true;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
     listPositions(query, signal).then(

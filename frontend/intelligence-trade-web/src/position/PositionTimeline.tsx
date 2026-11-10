@@ -146,9 +146,12 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
   // Ответ применяется, только если запрос не отменён и его поколение осталось текущим:
   // одной отмены недостаточно для защиты от уже начатого разбора ответа.
-  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null): Promise<void> => {
+  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null, schedulerSignal?: AbortSignal): Promise<void> => {
     cancelActive();
     const requestController = new AbortController();
+    const abortRequest = () => requestController.abort();
+    schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
+    if (schedulerSignal?.aborted) abortRequest();
     const requestGeneration = generation.current;
     controller.current = requestController;
     inFlight.current = true;
@@ -183,14 +186,14 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         finish();
         setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
       },
-    );
+    ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
   }, [cancelActive, positionId]);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
       const current = stateRef.current;
       if (!current.isOpen || current.error?.notice.sessionEnded === true) return Promise.resolve();
-      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null);
+      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal);
     });
     realtimeRead.current = scheduler;
     return () => { realtimeRead.current = null; scheduler.dispose(); };
@@ -200,7 +203,8 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     if (state.isOpen && !sessionEnded && (event.type === 'recovery'
       || ((event.type === 'position.updated' || event.type === 'evaluation.updated') && event.positionId === positionId))) {
       generation.current += 1;
-      realtimeRead.current?.invalidate();
+      if (event.type === 'recovery') realtimeRead.current?.recover();
+      else realtimeRead.current?.invalidate();
     }
   });
 

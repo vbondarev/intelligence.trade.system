@@ -113,4 +113,29 @@ public sealed class RealtimeSessionRegistryTests
         (await registry.SendIfActiveAsync(key, "one", store, "user-subject", () => Task.CompletedTask)).Should().BeFalse();
         (await registry.RegisterAsync(key, "two", () => { }, store, "user-subject")).Should().BeFalse();
     }
+    [Fact]
+    public async Task Expired_intent_allows_new_connection_but_never_restores_revoked_connection()
+    {
+        using var factory = new BffApplicationFactory();
+        using var first = factory.CreateBrowser();
+        using var second = factory.CreateBrowser();
+        await first.SignInAsync();
+        await second.SignInAsync();
+        var key = first.GetSessionKey()!;
+        var otherKey = second.GetSessionKey()!;
+        var registry = factory.Services.GetRequiredService<RealtimeSessionRegistry>();
+        var store = factory.Services.GetRequiredService<ITicketStore>();
+        var aborted = false;
+        (await registry.RegisterAsync(key, "old", () => aborted = true, store, "user-subject")).Should().BeTrue();
+        (await registry.RegisterAsync(otherKey, "other", () => { }, store, "user-subject")).Should().BeTrue();
+        using var response = await first.PostLogoutAsync(await first.GetAntiforgeryTokenAsync());
+        response.IsSuccessStatusCode.Should().BeTrue();
+        aborted.Should().BeTrue();
+        factory.Time.Advance(TimeSpan.FromMinutes(2) - TimeSpan.FromTicks(1));
+        (await registry.RegisterAsync(key, "new", () => { }, store, "user-subject")).Should().BeFalse();
+        (await registry.IsActiveAsync(otherKey, "other", store, "user-subject")).Should().BeTrue();
+        factory.Time.Advance(TimeSpan.FromTicks(1));
+        (await registry.RegisterAsync(key, "new", () => { }, store, "user-subject")).Should().BeTrue();
+        (await registry.SendIfActiveAsync(key, "old", store, "user-subject", () => Task.CompletedTask)).Should().BeFalse();
+    }
 }

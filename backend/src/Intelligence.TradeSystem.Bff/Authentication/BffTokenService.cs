@@ -211,10 +211,10 @@ internal sealed partial class BffTokenService(
     private Task<AuthenticationTicket?> RetrieveAsync(string sessionKey, HttpContext? context, CancellationToken cancellationToken) =>
         context is null ? ticketStore.RetrieveAsync(sessionKey, cancellationToken) : ticketStore.RetrieveAsync(sessionKey, context, cancellationToken);
 
-    private static bool IsSessionValid([NotNullWhen(true)] AuthenticationTicket? ticket, string subject) =>
+    private bool IsSessionValid([NotNullWhen(true)] AuthenticationTicket? ticket, string subject) =>
         ticket is not null
         && string.Equals(ticket.Principal.FindFirst(SubjectClaim)?.Value, subject, StringComparison.Ordinal)
-        && !InMemoryAuthenticationTicketStore.TryGetLogoutIntentExpiry(ticket.Properties, out _);
+        && !InMemoryAuthenticationTicketStore.HasActiveLogoutIntent(ticket.Properties, timeProvider);
 
     private Task EndSessionAsync(string sessionKey, HttpContext? context) =>
         context is not null

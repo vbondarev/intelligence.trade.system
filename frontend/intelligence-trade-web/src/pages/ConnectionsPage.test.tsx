@@ -611,3 +611,34 @@ describe('realtime connection invalidation', () => {
     expect(listRequests(requests)).toHaveLength(3);
   });
 });
+
+
+describe('realtime recovery of a pending connection read', () => {
+  it('starts a fresh read before the old one settles and ignores its late response', async () => {
+    const pending = deferred<Response>();
+    let calls = 0;
+    const requests = renderConnections({ list: () => {
+      calls += 1;
+      return calls === 1 ? pending.promise : [{ ...mainAccount, displayName: 'Актуальное' }];
+    } });
+    await waitFor(() => expect(listRequests(requests)).toHaveLength(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await findCard('Актуальное');
+    expect(listRequests(requests)).toHaveLength(2);
+    await act(async () => pending.resolve(jsonResponse({ items: [{ ...mainAccount, displayName: 'Устаревшее' }] })));
+    expect(screen.queryByText('Устаревшее')).not.toBeInTheDocument();
+    expect(screen.getByText('Актуальное')).toBeInTheDocument();
+  });
+});
+
+
+describe('recovery failure', () => {
+  it('retains the last valid connections and displays the new GET error', async () => {
+    let calls = 0;
+    renderConnections({ list: () => ++calls === 1 ? [mainAccount] : problem(503, 'exchange_unavailable') });
+    await findCard('Основной');
+    act(() => emitRealtime({ type: 'recovery' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Bybit сейчас недоступен');
+    expect(await findCard('Основной')).toBeInTheDocument();
+  });
+});

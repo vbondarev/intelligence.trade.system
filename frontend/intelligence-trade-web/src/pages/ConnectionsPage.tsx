@@ -170,17 +170,17 @@ export function ConnectionsPage() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const scheduler = createInvalidationScheduler(() => loadAccounts(controller.signal));
+    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
     realtimeRead.current = scheduler;
     scheduler.invalidate();
-    return () => { realtimeRead.current = null; scheduler.dispose(); controller.abort(); };
+    return () => { realtimeRead.current = null; scheduler.dispose(); };
   }, [loadAccounts]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
       listGeneration.current += 1;
-      realtimeRead.current?.invalidate();
+      if (event.type === 'recovery') realtimeRead.current?.recover();
+      else realtimeRead.current?.invalidate();
     }
   });
 

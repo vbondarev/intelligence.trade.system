@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace Intelligence.TradeSystem.Bff.Realtime;
 
-internal sealed class RealtimeSessionRegistry : IDisposable
+internal sealed class RealtimeSessionRegistry(TimeProvider timeProvider) : IDisposable
 {
     private readonly Lock sync = new();
     private readonly Dictionary<string, SessionState> sessions = new(StringComparer.Ordinal);
@@ -138,9 +138,9 @@ internal sealed class RealtimeSessionRegistry : IDisposable
         }
     }
 
-    private static bool IsValid(AuthenticationTicket? ticket, string subject) =>
+    private bool IsValid(AuthenticationTicket? ticket, string subject) =>
         ticket is not null && string.Equals(ticket.Principal.FindFirst("sub")?.Value, subject, StringComparison.Ordinal)
-        && !InMemoryAuthenticationTicketStore.TryGetLogoutIntentExpiry(ticket.Properties, out _);
+        && !InMemoryAuthenticationTicketStore.HasActiveLogoutIntent(ticket.Properties, timeProvider);
 
     private sealed class SessionState : IDisposable
     {

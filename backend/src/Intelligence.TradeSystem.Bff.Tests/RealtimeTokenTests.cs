@@ -80,4 +80,23 @@ public sealed class RealtimeTokenTests
         ticket.Should().NotBeNull();
         InMemoryAuthenticationTicketStore.TryGetLogoutIntentExpiry(ticket!.Properties, out _).Should().BeTrue();
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Expired_intent_permits_token_or_rejected_refresh_removes_session(bool rejected)
+    {
+        using var factory = new BffApplicationFactory();
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(UpstreamResponses.TokenError(HttpStatusCode.BadRequest, "invalid_grant"));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: rejected ? TimeSpan.FromSeconds(30) : TimeSpan.FromHours(1));
+        var key = browser.GetSessionKey()!;
+        var service = factory.Services.GetRequiredService<BffTokenService>();
+        using var logout = await browser.PostLogoutAsync(await browser.GetAntiforgeryTokenAsync());
+        logout.IsSuccessStatusCode.Should().BeTrue();
+        (await service.GetAccessTokenForSessionAsync(key, "user-subject", CancellationToken.None)).Status.Should().Be(BffAccessTokenStatus.SessionEnded);
+        factory.Time.Advance(TimeSpan.FromMinutes(2));
+        var result = await service.GetAccessTokenForSessionAsync(key, "user-subject", CancellationToken.None);
+        result.Status.Should().Be(rejected ? BffAccessTokenStatus.SessionEnded : BffAccessTokenStatus.Available);
+        ((await browser.GetStoredTicketAsync()) is not null).Should().Be(!rejected);
+    }
 }
