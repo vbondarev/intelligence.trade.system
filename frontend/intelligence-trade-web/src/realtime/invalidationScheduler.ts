@@ -4,7 +4,7 @@ export interface InvalidationScheduler {
   dispose: () => void;
 }
 
-// РћР±С‹С‡РЅС‹Рµ СЃРѕР±С‹С‚РёСЏ РѕР±СЉРµРґРёРЅСЏСЋС‚СЃСЏ; recovery РѕСЃРІРѕР±РѕР¶РґР°РµС‚ РѕР¶РёРґР°РЅРёРµ РѕС‚РјРµРЅС‘РЅРЅРѕРіРѕ GET.
+// Обычные события объединяются; recovery освобождает ожидание отменённого GET.
 export function createInvalidationScheduler(read: (signal: AbortSignal) => Promise<void>): InvalidationScheduler {
   let dirty = false;
   let running = false;
