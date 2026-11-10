@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
+import { MarketValuationDetails } from '../freshness/FreshnessDetails';
 import {
   SIDE_LABELS,
   TRACKING_STATE_LABELS,
@@ -121,6 +122,7 @@ export function PositionDetails({ position }: { position: Position }) {
           )}
         </dl>
       </div>
+      <MarketValuationDetails valuation={position.marketValuation} />
     </section>
   );
 }

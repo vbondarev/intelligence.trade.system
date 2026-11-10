@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
+import { ObservationDetails } from '../freshness/FreshnessDetails';
+import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { ConnectionsApiError, listConnections, syncConnection } from '../connections/connectionsApi';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { AccountSelector } from '../portfolio/AccountSelector';
@@ -147,6 +150,9 @@ export function HomePage() {
   const [syncStates, setSyncStates] = useState<Readonly<Record<string, SyncState>>>({});
   const [reloadToken, setReloadToken] = useState(0);
 
+  const accountsRead = useRef<InvalidationScheduler | null>(null);
+  const portfolioRead = useRef<InvalidationScheduler | null>(null);
+  const positionsRead = useRef<InvalidationScheduler | null>(null);
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
@@ -186,8 +192,10 @@ export function HomePage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadAccounts(controller.signal);
-    return () => controller.abort();
+    const scheduler = createInvalidationScheduler(() => loadAccounts(controller.signal));
+    accountsRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { accountsRead.current = null; scheduler.dispose(); controller.abort(); };
   }, [loadAccounts]);
 
   const updateParams = useCallback(
@@ -216,9 +224,10 @@ export function HomePage() {
     }
 
     const controller = new AbortController();
-    const generation = ++portfolioGeneration.current;
-    const isCurrent = () => generation === portfolioGeneration.current && !controller.signal.aborted;
-    getPortfolio(selectedId, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++portfolioGeneration.current;
+      const isCurrent = () => generation === portfolioGeneration.current && !controller.signal.aborted;
+      return getPortfolio(selectedId, controller.signal).then(
       (portfolio) => {
         if (isCurrent()) {
           setPortfolioLoad({ accountId: selectedId, portfolio, error: null });
@@ -234,8 +243,12 @@ export function HomePage() {
           }));
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    portfolioRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { portfolioRead.current = null; scheduler.dispose(); controller.abort(); };
+
   }, [selectedId, reloadToken]);
 
   useEffect(() => {
@@ -246,9 +259,10 @@ export function HomePage() {
     const query = JSON.parse(queryKey) as PositionListQuery;
     const controller = new AbortController();
     positionsController.current = controller;
-    const generation = ++positionsGeneration.current;
-    const isCurrent = () => generation === positionsGeneration.current && !controller.signal.aborted;
-    listPositions(query, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++positionsGeneration.current;
+      const isCurrent = () => generation === positionsGeneration.current && !controller.signal.aborted;
+      return listPositions(query, controller.signal).then(
       (page) => {
         if (isCurrent()) {
           setPositions({
@@ -280,9 +294,30 @@ export function HomePage() {
           );
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    positionsRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { positionsRead.current = null; scheduler.dispose(); controller.abort(); };
+
   }, [queryKey, reloadToken]);
+
+  useRealtimeInvalidation((event) => {
+    if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
+      accountsGeneration.current += 1;
+      accountsRead.current?.invalidate();
+    }
+    if (event.type === 'recovery' || (event.type === 'portfolio.updated' && event.exchangeAccountId === selectedId)) {
+      portfolioGeneration.current += 1;
+      portfolioRead.current?.invalidate();
+    }
+    if (event.type === 'recovery' || event.type === 'position.updated') {
+      positionsGeneration.current += 1;
+      setPositions((current) => current?.key === queryKey
+        ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
+      positionsRead.current?.invalidate();
+    }
+  });
 
   // Следующая страница относится к текущему поколению первой страницы: смена подключения,
   // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции. Пока после
@@ -500,6 +535,7 @@ function SelectedAccountPanel({
         </span>
       </header>
       <dl className="connection-details">
+        <ObservationDetails observation={account.realtimeObservation} />
         <div>
           <dt>Обновлено</dt>
           <dd>
@@ -517,10 +553,10 @@ function SelectedAccountPanel({
       {portfolio !== null && (
         <ul className="data-state">
           {portfolio.isFresh ? (
-            <li className="data-state-ok">Данные актуальны</li>
+            <li className="data-state-ok">REST-снимок актуален на момент ответа</li>
           ) : (
             <li className="data-state-warning">
-              Данные устарели
+              REST-снимок устарел
               {account.lastSyncedAt !== null && (
                 <>
                   . Последняя успешная синхронизация:{' '}

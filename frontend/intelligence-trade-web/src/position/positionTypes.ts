@@ -1,3 +1,4 @@
+import type { MarketValuation } from '../freshness/freshness';
 import type { PositionSide, PositionTrackingState } from '../portfolio/portfolioTypes';
 
 export type MarketCategory = 'linear' | 'inverse';
@@ -28,6 +29,7 @@ export interface PositionDetails {
   stopLoss: number | null;
   trailingStop: number | null;
   settlementAsset: string;
+  marketValuation?: MarketValuation | null;
 }
 
 export interface MarketCandle {

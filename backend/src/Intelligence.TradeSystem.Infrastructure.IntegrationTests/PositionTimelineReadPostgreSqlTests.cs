@@ -108,146 +108,155 @@ public sealed class PositionTimelineReadPostgreSqlTests(
     [Fact]
     public async Task Timeline_source_queries_are_owner_scoped_cursor_bounded_and_index_backed()
     {
-        var owner = UserId.New();
-        var positionId = PositionId.New();
-        var cursorAssessmentId = Guid.Parse("10000000-0000-0000-0000-000000000010");
-        var cursorRecommendationId = Guid.Parse("20000000-0000-0000-0000-000000000010");
-
-        await using (var setup = fixture.CreateContext())
+        var isolatedFixture = new PostgreSqlFixture();
+        await isolatedFixture.InitializeAsync();
+        try
         {
-            await SeedRepresentativeDatasetAsync(setup, owner, positionId);
-            await AnalyzeTimelineTablesAsync(setup);
+            var owner = UserId.New();
+            var positionId = PositionId.New();
+            var cursorAssessmentId = Guid.Parse("10000000-0000-0000-0000-000000000010");
+            var cursorRecommendationId = Guid.Parse("20000000-0000-0000-0000-000000000010");
+
+            await using (var setup = isolatedFixture.CreateContext())
+            {
+                await SeedRepresentativeDatasetAsync(setup, owner, positionId);
+                await AnalyzeTimelineTablesAsync(setup);
+            }
+
+            var interceptor = new CommandCaptureInterceptor();
+            await using var context = CreateContext(interceptor, isolatedFixture);
+            var repository = new PositionTimelineReadRepository(context);
+            const int pageSize = 2;
+
+            await repository.ReadCandidatesAsync(owner, CreateQuery(positionId, pageSize));
+            AssertSourceSql(
+                interceptor.Commands,
+                "position_changes",
+                "occurred_at",
+                "sequence",
+                pageSize + 1,
+                expectsCursor: false);
+            AssertSourceSql(
+                interceptor.Commands,
+                "position_assessments",
+                "created_at",
+                "position_assessment_id",
+                pageSize + 1,
+                expectsCursor: false);
+            AssertSourceSql(
+                interceptor.Commands,
+                "recommendations",
+                "created_at",
+                "recommendation_id",
+                pageSize + 1,
+                expectsCursor: false);
+
+            interceptor.Commands.Clear();
+            await repository.ReadCandidatesAsync(
+                owner,
+                CreateQuery(
+                    positionId,
+                    pageSize,
+                    new PositionTimelineCursor(
+                        T0.AddMinutes(10),
+                        PositionTimelineItemKind.Evaluation,
+                        cursorAssessmentId,
+                        null)));
+            AssertCursorSql(
+                interceptor.Commands,
+                "position_assessments",
+                "position_assessment_id",
+                pageSize + 1);
+
+            interceptor.Commands.Clear();
+            await repository.ReadCandidatesAsync(
+                owner,
+                CreateQuery(
+                    positionId,
+                    pageSize,
+                    new PositionTimelineCursor(
+                        T0.AddMinutes(10),
+                        PositionTimelineItemKind.Recommendation,
+                        cursorRecommendationId,
+                        null)));
+            AssertCursorSql(
+                interceptor.Commands,
+                "recommendations",
+                "recommendation_id",
+                pageSize + 1);
+
+            interceptor.Commands.Clear();
+            await repository.ReadCandidatesAsync(
+                owner,
+                CreateQuery(
+                    positionId,
+                    pageSize,
+                    new PositionTimelineCursor(
+                        T0.AddMinutes(10),
+                        PositionTimelineItemKind.PositionChange,
+                        null,
+                        10)));
+            AssertCursorSql(
+                interceptor.Commands,
+                "position_changes",
+                "sequence",
+                pageSize + 1);
+
+            var changesPlan = await ExplainTimelineSourceAsync(
+                context,
+                TimelineSource.PositionChanges,
+                owner,
+                positionId,
+                pageSize + 1);
+            var assessmentsPlan = await ExplainTimelineSourceAsync(
+                context,
+                TimelineSource.Assessments,
+                owner,
+                positionId,
+                pageSize + 1);
+            var recommendationsPlan = await ExplainTimelineSourceAsync(
+                context,
+                TimelineSource.Recommendations,
+                owner,
+                positionId,
+                pageSize + 1);
+            var changesWithoutIndex = await ExplainWithoutIndexAsync(
+                context,
+                "ix_position_changes_position_occurred_at_sequence",
+                TimelineSource.PositionChanges,
+                owner,
+                positionId,
+                pageSize + 1);
+            var recommendationsWithoutIndex = await ExplainWithoutIndexAsync(
+                context,
+                "ix_recommendations_position_created_at_id",
+                TimelineSource.Recommendations,
+                owner,
+                positionId,
+                pageSize + 1);
+
+            WriteExplainEvidence("position_changes", changesPlan, changesWithoutIndex);
+            WriteExplainEvidence("position_assessments", assessmentsPlan);
+            WriteExplainEvidence("recommendations", recommendationsPlan, recommendationsWithoutIndex);
+
+            AssertAssessmentPlanIsBounded(
+                assessmentsPlan,
+                pageSize + 1);
+            AssertPlanIsBounded(
+                changesPlan,
+                "ix_position_changes_position_occurred_at_sequence",
+                pageSize + 1);
+            AssertPlanIsBounded(
+                recommendationsPlan,
+                "ix_recommendations_position_created_at_id",
+                pageSize + 1);
+            Assert.Contains("\"Node Type\": \"Sort\"", changesWithoutIndex);
+            Assert.Contains("\"Node Type\": \"Sort\"", recommendationsWithoutIndex);
         }
-
-        var interceptor = new CommandCaptureInterceptor();
-        await using var context = CreateContext(interceptor);
-        var repository = new PositionTimelineReadRepository(context);
-        const int pageSize = 2;
-
-        await repository.ReadCandidatesAsync(owner, CreateQuery(positionId, pageSize));
-        AssertSourceSql(
-            interceptor.Commands,
-            "position_changes",
-            "occurred_at",
-            "sequence",
-            pageSize + 1,
-            expectsCursor: false);
-        AssertSourceSql(
-            interceptor.Commands,
-            "position_assessments",
-            "created_at",
-            "position_assessment_id",
-            pageSize + 1,
-            expectsCursor: false);
-        AssertSourceSql(
-            interceptor.Commands,
-            "recommendations",
-            "created_at",
-            "recommendation_id",
-            pageSize + 1,
-            expectsCursor: false);
-
-        interceptor.Commands.Clear();
-        await repository.ReadCandidatesAsync(
-            owner,
-            CreateQuery(
-                positionId,
-                pageSize,
-                new PositionTimelineCursor(
-                    T0.AddMinutes(10),
-                    PositionTimelineItemKind.Evaluation,
-                    cursorAssessmentId,
-                    null)));
-        AssertCursorSql(
-            interceptor.Commands,
-            "position_assessments",
-            "position_assessment_id",
-            pageSize + 1);
-
-        interceptor.Commands.Clear();
-        await repository.ReadCandidatesAsync(
-            owner,
-            CreateQuery(
-                positionId,
-                pageSize,
-                new PositionTimelineCursor(
-                    T0.AddMinutes(10),
-                    PositionTimelineItemKind.Recommendation,
-                    cursorRecommendationId,
-                    null)));
-        AssertCursorSql(
-            interceptor.Commands,
-            "recommendations",
-            "recommendation_id",
-            pageSize + 1);
-
-        interceptor.Commands.Clear();
-        await repository.ReadCandidatesAsync(
-            owner,
-            CreateQuery(
-                positionId,
-                pageSize,
-                new PositionTimelineCursor(
-                    T0.AddMinutes(10),
-                    PositionTimelineItemKind.PositionChange,
-                    null,
-                    10)));
-        AssertCursorSql(
-            interceptor.Commands,
-            "position_changes",
-            "sequence",
-            pageSize + 1);
-
-        var changesPlan = await ExplainTimelineSourceAsync(
-            context,
-            TimelineSource.PositionChanges,
-            owner,
-            positionId,
-            pageSize + 1);
-        var assessmentsPlan = await ExplainTimelineSourceAsync(
-            context,
-            TimelineSource.Assessments,
-            owner,
-            positionId,
-            pageSize + 1);
-        var recommendationsPlan = await ExplainTimelineSourceAsync(
-            context,
-            TimelineSource.Recommendations,
-            owner,
-            positionId,
-            pageSize + 1);
-        var changesWithoutIndex = await ExplainWithoutIndexAsync(
-            context,
-            "ix_position_changes_position_occurred_at_sequence",
-            TimelineSource.PositionChanges,
-            owner,
-            positionId,
-            pageSize + 1);
-        var recommendationsWithoutIndex = await ExplainWithoutIndexAsync(
-            context,
-            "ix_recommendations_position_created_at_id",
-            TimelineSource.Recommendations,
-            owner,
-            positionId,
-            pageSize + 1);
-
-        WriteExplainEvidence("position_changes", changesPlan, changesWithoutIndex);
-        WriteExplainEvidence("position_assessments", assessmentsPlan);
-        WriteExplainEvidence("recommendations", recommendationsPlan, recommendationsWithoutIndex);
-
-        AssertAssessmentPlanIsBounded(
-            assessmentsPlan,
-            pageSize + 1);
-        AssertPlanIsBounded(
-            changesPlan,
-            "ix_position_changes_position_occurred_at_sequence",
-            pageSize + 1);
-        AssertPlanIsBounded(
-            recommendationsPlan,
-            "ix_recommendations_position_created_at_id",
-            pageSize + 1);
-        Assert.Contains("\"Node Type\": \"Sort\"", changesWithoutIndex);
-        Assert.Contains("\"Node Type\": \"Sort\"", recommendationsWithoutIndex);
+        finally
+        {
+            await isolatedFixture.DisposeAsync();
+        }
     }
 
     [Theory]
@@ -346,11 +355,12 @@ public sealed class PositionTimelineReadPostgreSqlTests(
     }
 
     private TradeSystemDbContext CreateContext(
-        DbCommandInterceptor? interceptor = null)
+        DbCommandInterceptor? interceptor = null,
+        PostgreSqlFixture? contextFixture = null)
     {
         var options = new DbContextOptionsBuilder<TradeSystemDbContext>()
             .UseNpgsql(
-                fixture.ConnectionString,
+                (contextFixture ?? fixture).ConnectionString,
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly(
                     typeof(TradeSystemDbContext).Assembly.GetName().Name));
         if (interceptor is not null)

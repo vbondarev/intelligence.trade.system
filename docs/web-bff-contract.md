@@ -214,4 +214,10 @@ Browser управляет read-only подключениями Bybit тольк
 
 ## Realtime
 
-Browser SignalR integration через BFF до этапа G-07 отсутствует. Bearer-контракт `/hubs/v1/updates` описан в [Realtime contract v1](realtime-v1-contract.md).
+Browser подключается к `/bff/hubs/v1/updates` через тот же public origin. BFF завершает SignalR WebSocket, принимает только действующую cookie session с `sub` и проверяет `Origin` против public scheme/host после trusted forwarded headers. Browser использует WebSocket без negotiate и не передаёт bearer token; token в query отклоняется. Существующая CSRF-проверка unsafe `/bff/**` не обходится.
+
+Для каждого browser connection BFF создаёт отдельный upstream SignalR client к API `/hubs/v1/updates` с server-side Bearer token. Четыре события v1 передаются только соответствующему browser connection без полного business state; новых методов для выбора пользователя нет. После успешного upstream start и повторной проверки ticket BFF отправляет служебное `bff.realtime.ready` без business payload. При потере upstream browser connection закрывается; новый `ready` инициирует REST recovery.
+
+Реестр соединений привязан к opaque session key. Logout intent и удаление ticket прекращают связанные соединения; наличие действительного ticket проверяется перед каждой отправкой и периодически. Token refresh использует существующую сериализацию и ротацию, без сохранения исходного `HttpContext`. Успешный logout intent сохраняет ticket до штатного OIDC logout-complete. При временной недоступности Identity действующая session не удаляется.
+
+Nginx явно передаёт WebSocket upgrade и доверенные forwarded headers. При недоступности WebSocket REST остаётся доступен, а UI отдельно показывает состояние канала. Bearer-контракт API и события описаны в [Realtime contract v1](realtime-v1-contract.md); BFF не становится обязательным для native clients.

@@ -61,9 +61,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const revalidate = useCallback(async (expectedUserId: string, signal: AbortSignal) => {
+    try {
+      const session = await fetchSession(signal);
+      if (signal.aborted) return false;
+      if (!session.authenticated || session.user.userId !== expectedUserId) {
+        setState(toAuthState(session));
+        return false;
+      }
+      return true;
+    } catch {
+      return !signal.aborted;
+    }
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login: startLogin, logout, retry }),
-    [state, logout, retry],
+    () => ({ ...state, login: startLogin, logout, retry, revalidate }),
+    [state, logout, retry, revalidate],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

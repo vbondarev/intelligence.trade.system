@@ -6,6 +6,7 @@ import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { jsonResponse, mockFetch, stubLocationAssign, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { emitRealtime } from '../test/realtimeTestDriver';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
 const COLLECTION_URL = '/bff/me/exchange-accounts';
@@ -583,5 +584,30 @@ describe('ConnectionsPage restore', () => {
     expect(status).not.toHaveTextContent('восстановлено');
     await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(2));
     expect(screen.getByText('Отключено')).toBeVisible();
+  });
+});
+
+
+describe('realtime connection invalidation', () => {
+  it('coalesces a burst and applies the last REST result', async () => {
+    const pending = deferred<Response>();
+    let calls = 0;
+    const requests = renderConnections({ list: () => {
+      calls += 1;
+      if (calls === 2) return pending.promise;
+      return [{ ...mainAccount, displayName: calls === 1 ? 'Первое' : 'Актуальное' }];
+    } });
+    await findCard('Первое');
+    act(() => emitRealtime({ type: 'exchangeAccount.updated', exchangeAccountId: MAIN_ID }));
+    await waitFor(() => expect(listRequests(requests)).toHaveLength(2));
+    act(() => {
+      emitRealtime({ type: 'exchangeAccount.updated', exchangeAccountId: MAIN_ID });
+      emitRealtime({ type: 'exchangeAccount.updated', exchangeAccountId: MAIN_ID });
+    });
+    expect(listRequests(requests)).toHaveLength(2);
+    await act(async () => pending.resolve(jsonResponse({ items: [{ ...mainAccount, displayName: 'Устаревшее' }] })));
+    await findCard('Актуальное');
+    expect(screen.queryByRole('article', { name: 'Устаревшее' })).not.toBeInTheDocument();
+    expect(listRequests(requests)).toHaveLength(3);
   });
 });

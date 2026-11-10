@@ -225,7 +225,7 @@ for (const viewport of viewports) {
     await expect(summary).toBeVisible();
     await expect(summary.getByText('Общий капитал')).toBeVisible();
     await expect(summary.getByText('+$265')).toBeVisible();
-    await expect(page.getByText('Данные устарели')).toBeVisible();
+    await expect(page.getByText('REST-снимок устарел')).toBeVisible();
 
     const exposure = page.getByRole('region', { name: 'Экспозиция', exact: true });
     await expect(exposure.getByRole('region', { name: 'Экспозиция USDT' })).toBeVisible();

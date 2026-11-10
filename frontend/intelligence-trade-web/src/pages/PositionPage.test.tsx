@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { emitRealtime } from '../test/realtimeTestDriver';
 import {
   ACCOUNT_ID,
   OTHER_POSITION_ID,
@@ -693,5 +694,41 @@ describe('PositionPage evaluation validity on an open page', () => {
     expect(urls(requests, evaluationUrl())).toHaveLength(1);
     expect(urls(requests, evaluationUrl(OTHER_POSITION_ID))).toHaveLength(1);
     expect(requests).toHaveLength(requestCount);
+  });
+});
+
+
+describe('realtime position invalidation', () => {
+  it('keeps history lazy and recovers every displayed resource without POST', async () => {
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => jsonResponse(firstTimelinePage) }));
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+    await waitFor(() => expect(urls(requests, positionUrl())).toHaveLength(2));
+    expect(urls(requests, timelineUrl())).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(urls(requests, positionUrl())).toHaveLength(3));
+    await waitFor(() => expect(urls(requests, marketUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, candlesUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(2));
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});
+
+
+describe('realtime evaluation invalidation', () => {
+  it('reads the matching saved evaluation and ignores other positions without posting', async () => {
+    const requests = renderPage(pagePath(), positionRoutes());
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: OTHER_POSITION_ID }));
+    expect(urls(requests, evaluationUrl())).toHaveLength(1);
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    expect(evaluationPosts(requests)).toHaveLength(0);
+    expect(urls(requests, positionUrl())).toHaveLength(1);
   });
 });

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Intelligence.TradeSystem.Bff.Realtime;
 using System.Globalization;
 using System.Security.Cryptography;
 using Intelligence.TradeSystem.Bff.Configuration;
@@ -22,7 +23,8 @@ namespace Intelligence.TradeSystem.Bff.Authentication;
 internal sealed class InMemoryAuthenticationTicketStore(
     IMemoryCache cache,
     BffSessionOptions sessionOptions,
-    TimeProvider timeProvider) : ITicketStore
+    TimeProvider timeProvider,
+    RealtimeSessionRegistry realtimeRegistry) : ITicketStore
 {
     internal const string SessionKeyItem = ".bff.session_key";
     internal const string TokenGenerationItem = ".bff.token_generation";
@@ -96,7 +98,7 @@ internal sealed class InMemoryAuthenticationTicketStore(
         }
     }
 
-    public Task RemoveAsync(string key)
+    public async Task RemoveAsync(string key)
     {
         if (!string.IsNullOrEmpty(key))
         {
@@ -106,7 +108,26 @@ internal sealed class InMemoryAuthenticationTicketStore(
             }
         }
 
-        return Task.CompletedTask;
+        if (!string.IsNullOrEmpty(key))
+        {
+            await realtimeRegistry.RevokeAsync(key);
+        }
+    }
+
+    internal async Task RemoveUnlessLogoutIntentAsync(string key)
+    {
+        var removed = false;
+        lock (gate)
+        {
+            if (TryGetLiveTicket(key, out var ticket)
+                && !TryGetLogoutIntentExpiry(ticket.Properties, out _))
+            {
+                cache.Remove(CacheKey(key));
+                removed = true;
+            }
+        }
+
+        if (removed) await realtimeRegistry.RevokeAsync(key);
     }
 
     internal static long GetTokenGeneration(AuthenticationProperties properties) =>

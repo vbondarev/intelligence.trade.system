@@ -3,6 +3,7 @@ using Intelligence.TradeSystem.Bff.Api;
 using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Contracts.Auth;
 using Intelligence.TradeSystem.Bff.Security;
+using Intelligence.TradeSystem.Bff.Realtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -126,6 +127,7 @@ internal static partial class AuthEndpoints
     private static async Task<IResult> BeginLogoutAsync(
         HttpContext httpContext,
         ITicketStore ticketStore,
+        RealtimeSessionRegistry realtimeRegistry,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -152,6 +154,7 @@ internal static partial class AuthEndpoints
             return Results.Unauthorized();
         }
 
+        await realtimeRegistry.RevokeAsync(sessionKey);
         return Results.Ok(new LogoutResponse(LogoutCompletePath));
     }
 

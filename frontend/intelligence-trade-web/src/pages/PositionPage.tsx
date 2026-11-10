@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
+import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { SIDE_LABELS, formatNumber } from '../portfolio/portfolioFormatting';
 import { PositionChart } from '../position/PositionChart';
 import { toChartCandles, toPriceLevels, type ChartCandle } from '../position/positionChartAdapter';
@@ -55,7 +57,7 @@ interface Notice {
 }
 
 /** Результат чтения, привязанный к ключу запроса: данные другого ключа не отображаются. */
-type Load<T> = { key: string; value: T; error: null } | { key: string; value: null; error: Notice };
+type Load<T> = { key: string; value: T | null; error: Notice | null };
 
 interface EvaluateState {
   running: boolean;
@@ -94,8 +96,8 @@ function loaded<T>(key: string, value: T): Load<T> {
   return { key, value, error: null };
 }
 
-function failed<T>(key: string, error: Notice): Load<T> {
-  return { key, value: null, error };
+function failed<T>(key: string, error: Notice, previous: Load<T> | null): Load<T> {
+  return { key, value: previous?.key === key ? previous.value : null, error };
 }
 
 /**
@@ -124,6 +126,13 @@ export function PositionPage() {
   const [evaluation, setEvaluation] = useState<Load<Evaluation | null> | null>(null);
   const [evaluateStates, setEvaluateStates] = useState<Readonly<Record<string, EvaluateState>>>({});
 
+  const positionRead = useRef<InvalidationScheduler | null>(null);
+  const marketRead = useRef<InvalidationScheduler | null>(null);
+  const candlesRead = useRef<InvalidationScheduler | null>(null);
+  const evaluationRead = useRef<InvalidationScheduler | null>(null);
+  const positionGeneration = useRef(0);
+  const marketGeneration = useRef(0);
+  const candlesGeneration = useRef(0);
   const evaluationGeneration = useRef(0);
   const evaluateInFlight = useRef(new Set<string>());
   const currentIdRef = useRef(id);
@@ -148,15 +157,18 @@ export function PositionPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    getPosition(id, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++positionGeneration.current;
+      const isCurrent = () => generation === positionGeneration.current && !controller.signal.aborted;
+      return getPosition(id, controller.signal).then(
       (value) => {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           setPosition(loaded(id, value));
           setNotFound(null);
         }
       },
       (error: unknown) => {
-        if (controller.signal.aborted) {
+        if (!isCurrent()) {
           return;
         }
 
@@ -164,52 +176,68 @@ export function PositionPage() {
           setNotFound(id);
         }
 
-        setPosition(failed(id, toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.')));
+        setPosition((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.'), current));
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    positionRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { positionRead.current = null; scheduler.dispose(); controller.abort(); };
   }, [id]);
 
   useEffect(() => {
     const controller = new AbortController();
-    getPositionMarket(id, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++marketGeneration.current;
+      const isCurrent = () => generation === marketGeneration.current && !controller.signal.aborted;
+      return getPositionMarket(id, controller.signal).then(
       (value) => {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           setMarket(loaded(id, value));
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setMarket(failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.')));
+        if (isCurrent()) {
+          setMarket((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.'), current));
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    marketRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { marketRead.current = null; scheduler.dispose(); controller.abort(); };
   }, [id]);
 
   useEffect(() => {
     const controller = new AbortController();
     const key = `${id}|${interval}`;
-    getPositionCandles(id, interval, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++candlesGeneration.current;
+      const isCurrent = () => generation === candlesGeneration.current && !controller.signal.aborted;
+      return getPositionCandles(id, interval, controller.signal).then(
       (value) => {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           setCandles(loaded(key, value));
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setCandles(failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.')));
+        if (isCurrent()) {
+          setCandles((current) => failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.'), current));
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    candlesRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { candlesRead.current = null; scheduler.dispose(); controller.abort(); };
   }, [id, interval]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const generation = ++evaluationGeneration.current;
-    const isCurrent = () => generation === evaluationGeneration.current && !controller.signal.aborted;
-    getPositionEvaluation(id, controller.signal).then(
+    const scheduler = createInvalidationScheduler(() => {
+      const generation = ++evaluationGeneration.current;
+      const isCurrent = () => generation === evaluationGeneration.current && !controller.signal.aborted;
+      return getPositionEvaluation(id, controller.signal).then(
       (value) => {
         if (isCurrent()) {
           setEvaluation(loaded(id, value));
@@ -217,12 +245,32 @@ export function PositionPage() {
       },
       (error: unknown) => {
         if (isCurrent()) {
-          setEvaluation(failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.')));
+          setEvaluation((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current));
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    evaluationRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { evaluationRead.current = null; scheduler.dispose(); controller.abort(); };
   }, [id]);
+
+  useRealtimeInvalidation((event) => {
+    if (event.type === 'recovery' || (event.type === 'position.updated' && event.positionId === id)) {
+      positionGeneration.current += 1;
+      positionRead.current?.invalidate();
+    }
+    if (event.type === 'recovery') {
+      marketGeneration.current += 1;
+      candlesGeneration.current += 1;
+      marketRead.current?.invalidate();
+      candlesRead.current?.invalidate();
+    }
+    if (event.type === 'recovery' || (event.type === 'evaluation.updated' && event.positionId === id)) {
+      evaluationGeneration.current += 1;
+      evaluationRead.current?.invalidate();
+    }
+  });
 
   const currentPosition = position?.key === id ? position : null;
   const currentMarket = market?.key === id ? market : null;
