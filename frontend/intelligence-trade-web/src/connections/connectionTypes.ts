@@ -1,3 +1,5 @@
+import type { RealtimeObservation } from '../freshness/freshness';
+
 export const DISPLAY_NAME_MAX_LENGTH = 100;
 
 export type ExchangeProvider = 'bybit';
@@ -13,6 +15,7 @@ export interface ExchangeAccount {
   connectionStatus: ExchangeAccountConnectionStatus;
   capabilities: ExchangeAccountCapability[];
   lastSyncedAt: string | null;
+  realtimeObservation?: RealtimeObservation | null;
 }
 
 export interface ExchangeAccountListResponse {

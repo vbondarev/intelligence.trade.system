@@ -1,5 +1,6 @@
 using Intelligence.TradeSystem.Bff.Api;
 using Intelligence.TradeSystem.Bff.Configuration;
+using Intelligence.TradeSystem.Bff.Realtime;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,6 +33,7 @@ public static partial class BffAuthenticationExtensions
         services.AddSingleton(configuration.Token);
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
+        services.AddSingleton<RealtimeSessionRegistry>();
         services.AddSingleton<ITicketStore, InMemoryAuthenticationTicketStore>();
         services.AddSingleton<RefreshGateRegistry>();
         services.AddSingleton<BffTokenService>();

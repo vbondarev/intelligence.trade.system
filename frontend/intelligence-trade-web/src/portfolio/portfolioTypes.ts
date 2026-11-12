@@ -1,3 +1,5 @@
+import type { FactualFreshness, MarketValuation, ValuationFreshness } from '../freshness/freshness';
+
 export type PositionSide = 'long' | 'short';
 
 export type PositionTrackingState = 'active' | 'unknown' | 'stale' | 'closed';
@@ -32,6 +34,8 @@ export interface Portfolio {
   isFresh: boolean;
   currentPositionCount: number;
   exposures: PortfolioExposure[];
+  factualFreshness?: FactualFreshness | null;
+  valuationFreshness?: ValuationFreshness | null;
 }
 
 /** Позиция списка. `positionValue` и `unrealizedPnl` выражены в `settlementAsset`, а не в USD. */
@@ -52,6 +56,7 @@ export interface PositionListItem {
   lastObservedAt: string;
   closedAt: string | null;
   settlementAsset: string;
+  marketValuation?: MarketValuation | null;
 }
 
 /** Страница cursor pagination: `nextCursor` — opaque значение, клиент его не разбирает. */

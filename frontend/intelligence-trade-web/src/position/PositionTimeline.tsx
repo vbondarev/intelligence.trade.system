@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { PositionApiError, TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
 import { PositionTimelineItem } from './PositionTimelineItem';
 import { TIMELINE_FILTER_LABELS, timelineItemKey } from './positionTimelineFormatting';
@@ -121,8 +123,14 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const sessionEnded = state.error?.notice.sessionEnded === true;
 
   const generation = useRef(0);
+  const isOpenRef = useRef(false);
+  const invalidationVersion = useRef(0);
+  const appliedInvalidationVersion = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
+  const stateRef = useRef(state);
+  const realtimeRead = useRef<InvalidationScheduler | null>(null);
+  useEffect(() => { stateRef.current = state; }, [state]);
 
   useEffect(
     () => () => {
@@ -132,19 +140,23 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     [],
   );
 
-  const cancelActive = () => {
+  const cancelActive = useCallback(() => {
     generation.current += 1;
     controller.current?.abort();
     controller.current = null;
     inFlight.current = false;
-  };
+  }, []);
 
   // Ответ применяется, только если запрос не отменён и его поколение осталось текущим:
   // одной отмены недостаточно для защиты от уже начатого разбора ответа.
-  const load = (phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null) => {
+  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null, schedulerSignal?: AbortSignal): Promise<void> => {
     cancelActive();
     const requestController = new AbortController();
+    const abortRequest = () => requestController.abort();
+    schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
+    if (schedulerSignal?.aborted) abortRequest();
     const requestGeneration = generation.current;
+    const requestInvalidationVersion = invalidationVersion.current;
     controller.current = requestController;
     inFlight.current = true;
     const isCurrent = () => requestGeneration === generation.current && !requestController.signal.aborted;
@@ -161,13 +173,16 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       ...(phase === 'more' ? {} : { nextCursor: null, hasMore: false }),
     }));
 
-    getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
+    return getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
       (page) => {
         if (!isCurrent()) {
           return;
         }
 
         finish();
+        if (phase !== 'more') {
+          appliedInvalidationVersion.current = Math.max(appliedInvalidationVersion.current, requestInvalidationVersion);
+        }
         setState((current) => applyPage(current, phase, cursor, page));
       },
       (error: unknown) => {
@@ -178,24 +193,44 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         finish();
         setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
       },
-    );
-  };
+    ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
+  }, [cancelActive, positionId]);
+
+  useEffect(() => {
+    const scheduler = createInvalidationScheduler((signal) => {
+      const current = stateRef.current;
+      if (!isOpenRef.current || current.error?.notice.sessionEnded === true) return Promise.resolve();
+      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal);
+    });
+    realtimeRead.current = scheduler;
+    return () => { realtimeRead.current = null; scheduler.dispose(); };
+  }, [load]);
+
+  useRealtimeInvalidation((event) => {
+    if (sessionEnded || !(event.type === 'recovery'
+      || ((event.type === 'position.updated' || event.type === 'evaluation.updated') && event.positionId === positionId))) return;
+    invalidationVersion.current += 1;
+    if (!isOpenRef.current) return;
+    if (event.type === 'recovery') {
+      generation.current += 1;
+      realtimeRead.current?.recover();
+    } else realtimeRead.current?.invalidate();
+  });
 
   const handleToggleOpen = () => {
-    if (state.isOpen) {
-      if (state.pending === 'initial') {
-        cancelActive();
-        setState((current) => ({ ...current, isOpen: false, pending: null }));
-        return;
-      }
-
-      setState((current) => ({ ...current, isOpen: false }));
+    if (isOpenRef.current) {
+      isOpenRef.current = false;
+      cancelActive();
+      realtimeRead.current?.recover();
+      setState((current) => ({ ...current, isOpen: false, pending: null }));
       return;
     }
 
+    isOpenRef.current = true;
     setState((current) => ({ ...current, isOpen: true }));
-    if (!state.hasLoaded && state.pending === null && state.error?.notice.canRetry !== false) {
-      load('initial', state.selectedTypes, null);
+    if ((!state.hasLoaded || invalidationVersion.current > appliedInvalidationVersion.current)
+      && state.error?.notice.canRetry !== false) {
+      realtimeRead.current?.recover();
     }
   };
 

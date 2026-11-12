@@ -20,4 +20,5 @@ export interface AuthContextValue extends AuthState {
   login: () => void;
   logout: () => Promise<void>;
   retry: () => void;
+  revalidate: (expectedUserId: string, signal: AbortSignal) => Promise<boolean>;
 }

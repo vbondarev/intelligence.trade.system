@@ -15,6 +15,21 @@ import {
   timelineRecommendationItem,
 } from '../test/positionFixtures';
 import { PositionTimeline } from './PositionTimeline';
+import { emitRealtime } from '../test/realtimeTestDriver';
+
+vi.mock('../realtime/useRealtimeInvalidation', async () => {
+  const { useEffect, useRef } = await import('react');
+  const { addRealtimeListener, removeRealtimeListener } = await import('../test/realtimeTestDriver');
+  return { useRealtimeInvalidation: (listener: Parameters<typeof addRealtimeListener>[0]) => {
+    const latest = useRef(listener);
+    useEffect(() => { latest.current = listener; }, [listener]);
+    useEffect(() => {
+      const handler: typeof listener = (event) => latest.current(event);
+      addRealtimeListener(handler);
+      return () => removeRealtimeListener(handler);
+    }, []);
+  } };
+});
 import type { PositionTimelinePage } from './positionTypes';
 
 const BASE = `/bff/me/positions/${POSITION_ID}/timeline?pageSize=25`;
@@ -683,5 +698,57 @@ describe('PositionTimeline errors', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent('Сервис временно недоступен. Повторите попытку позже.'),
     );
+  });
+});
+
+
+describe('PositionTimeline realtime recovery', () => {
+  it('keeps the block closed and replaces a pending open read without waiting', async () => {
+    const slow = deferred<Response>();
+    const { requests } = renderTimeline({ [BASE]: sequence(() => slow.promise, page(firstTimelinePage(null))) });
+    act(() => emitRealtime({ type: 'recovery' }));
+    expect(requests).toHaveLength(0);
+    await userEvent.click(toggle());
+    await waitFor(() => expect(requests).toHaveLength(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await findEvents(3);
+    expect(requests).toHaveLength(2);
+    expect((requests[0]?.init?.signal as AbortSignal).aborted).toBe(true);
+    await act(async () => slow.resolve(jsonResponse(emptyTimelinePage())));
+    expect(events()).toHaveLength(3);
+  });
+});
+
+
+describe('PositionTimeline закрытие во время realtime refresh', () => {
+  it('повторяет отложенное чтение и позволяет загрузить свежий cursor', async () => {
+    const slow = deferred<Response>();
+    const fresh = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: page(firstTimelinePage()),
+      [WITHOUT_POSITION_CHANGES_URL]: sequence(page(timelinePageFixture([TIMELINE_EVALUATION], 'old')), () => slow.promise, () => fresh.promise),
+      [`${WITHOUT_POSITION_CHANGES_URL}${cursorQuery('fresh')}`]: page(timelinePageFixture([TIMELINE_RECOMMENDATION])),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(filter('Изменения позиции'));
+    await findEvents(1);
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+    await waitFor(() => expect(requests).toHaveLength(3));
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
+    await userEvent.click(toggle());
+    await act(async () => slow.resolve(jsonResponse(emptyTimelinePage())));
+    await settle();
+    expect(requests).toHaveLength(3);
+    await userEvent.click(toggle());
+    expect(filter('Изменения позиции')).not.toBeChecked();
+    await waitFor(() => expect(requests).toHaveLength(4));
+    await act(async () => fresh.resolve(jsonResponse(timelinePageFixture([TIMELINE_RECOMMENDATION], 'fresh'))));
+    await findEvents(1);
+    expect(screen.queryByText('Обновляем историю…')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await waitFor(() => expect(requestUrls(requests)).toContain(`${WITHOUT_POSITION_CHANGES_URL}${cursorQuery('fresh')}`));
+    expect(requestUrls(requests)).not.toContain(`${WITHOUT_POSITION_CHANGES_URL}${cursorQuery('old')}`);
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { isFactualFreshness, isMarketValuation, isValuationFreshness } from '../freshness/freshness';
 import type {
   Portfolio,
   PortfolioCapital,
@@ -173,7 +174,9 @@ function isPortfolio(value: unknown): value is Portfolio {
     Number.isInteger(value.currentPositionCount) &&
     value.currentPositionCount >= 0 &&
     Array.isArray(value.exposures) &&
-    value.exposures.every(isExposure)
+    value.exposures.every(isExposure) &&
+    isFactualFreshness(value.factualFreshness) &&
+    isValuationFreshness(value.valuationFreshness)
   );
 }
 
@@ -197,6 +200,7 @@ function isPositionListItem(value: unknown): value is PositionListItem {
     typeof value.firstDetectedAt === 'string' &&
     typeof value.lastObservedAt === 'string' &&
     isNullableString(value.closedAt) &&
-    isSettlementAsset(value.settlementAsset)
+    isSettlementAsset(value.settlementAsset) &&
+    isMarketValuation(value.marketValuation)
   );
 }

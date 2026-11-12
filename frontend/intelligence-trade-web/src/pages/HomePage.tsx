@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
+import { ObservationDetails } from '../freshness/FreshnessDetails';
+import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { ConnectionsApiError, listConnections, syncConnection } from '../connections/connectionsApi';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { AccountSelector } from '../portfolio/AccountSelector';
@@ -147,10 +150,14 @@ export function HomePage() {
   const [syncStates, setSyncStates] = useState<Readonly<Record<string, SyncState>>>({});
   const [reloadToken, setReloadToken] = useState(0);
 
+  const accountsRead = useRef<InvalidationScheduler | null>(null);
+  const portfolioRead = useRef<InvalidationScheduler | null>(null);
+  const positionsRead = useRef<InvalidationScheduler | null>(null);
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
-  const positionsController = useRef<AbortController | null>(null);
+  const positionsInvalidationVersion = useRef(0);
+  const positionsSignal = useRef<AbortSignal | null>(null);
   const syncInFlight = useRef(new Set<string>());
   const selectedIdRef = useRef<string | null>(null);
 
@@ -159,6 +166,8 @@ export function HomePage() {
   const selectedAccount = accounts === null ? null : chooseAccount(accounts.items, urlAccountId);
   const selectedId = selectedAccount?.id ?? null;
   const queryKey = selectedId === null ? null : JSON.stringify(toQuery(selectedId, filters));
+  const queryKeyRef = useRef(queryKey);
+  useEffect(() => { queryKeyRef.current = queryKey; }, [queryKey]);
   const selectedSync = selectedId === null ? undefined : syncStates[selectedId];
 
   useEffect(() => {
@@ -185,9 +194,10 @@ export function HomePage() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadAccounts(controller.signal);
-    return () => controller.abort();
+    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
+    accountsRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { accountsRead.current = null; scheduler.dispose(); };
   }, [loadAccounts]);
 
   const updateParams = useCallback(
@@ -215,10 +225,10 @@ export function HomePage() {
       return;
     }
 
-    const controller = new AbortController();
-    const generation = ++portfolioGeneration.current;
-    const isCurrent = () => generation === portfolioGeneration.current && !controller.signal.aborted;
-    getPortfolio(selectedId, controller.signal).then(
+    const scheduler = createInvalidationScheduler((signal) => {
+      const generation = ++portfolioGeneration.current;
+      const isCurrent = () => generation === portfolioGeneration.current && !signal.aborted;
+      return getPortfolio(selectedId, signal).then(
       (portfolio) => {
         if (isCurrent()) {
           setPortfolioLoad({ accountId: selectedId, portfolio, error: null });
@@ -234,8 +244,12 @@ export function HomePage() {
           }));
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    portfolioRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { portfolioRead.current = null; scheduler.dispose(); };
+
   }, [selectedId, reloadToken]);
 
   useEffect(() => {
@@ -244,19 +258,20 @@ export function HomePage() {
     }
 
     const query = JSON.parse(queryKey) as PositionListQuery;
-    const controller = new AbortController();
-    positionsController.current = controller;
-    const generation = ++positionsGeneration.current;
-    const isCurrent = () => generation === positionsGeneration.current && !controller.signal.aborted;
-    listPositions(query, controller.signal).then(
+    const scheduler = createInvalidationScheduler((signal) => {
+      positionsSignal.current = signal;
+      const generation = ++positionsGeneration.current;
+      const invalidationVersion = positionsInvalidationVersion.current;
+      const isCurrent = () => generation === positionsGeneration.current && !signal.aborted && queryKeyRef.current === queryKey;
+      return listPositions(query, signal).then(
       (page) => {
         if (isCurrent()) {
           setPositions({
             key: queryKey,
             reload: reloadToken,
             items: page.items,
-            nextCursor: page.nextCursor,
-            hasMore: page.hasMore,
+            nextCursor: invalidationVersion === positionsInvalidationVersion.current ? page.nextCursor : null,
+            hasMore: invalidationVersion === positionsInvalidationVersion.current && page.hasMore,
             loadingMore: false,
             error: null,
           });
@@ -280,9 +295,40 @@ export function HomePage() {
           );
         }
       },
-    );
-    return () => controller.abort();
+      );
+    });
+    positionsRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { positionsRead.current = null; scheduler.dispose(); };
+
   }, [queryKey, reloadToken]);
+
+  useRealtimeInvalidation((event) => {
+    if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
+      if (event.type === 'recovery') {
+        accountsGeneration.current += 1;
+        accountsRead.current?.recover();
+      }
+      else accountsRead.current?.invalidate();
+    }
+    if (event.type === 'recovery' || (event.type === 'portfolio.updated' && event.exchangeAccountId === selectedId)) {
+      if (event.type === 'recovery') {
+        portfolioGeneration.current += 1;
+        portfolioRead.current?.recover();
+      }
+      else portfolioRead.current?.invalidate();
+    }
+    if (event.type === 'recovery' || event.type === 'position.updated') {
+      positionsInvalidationVersion.current += 1;
+      setPositions((current) => current?.key === queryKey
+        ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
+      if (event.type === 'recovery') {
+        positionsGeneration.current += 1;
+        positionsRead.current?.recover();
+      }
+      else positionsRead.current?.invalidate();
+    }
+  });
 
   // Следующая страница относится к текущему поколению первой страницы: смена подключения,
   // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции. Пока после
@@ -301,8 +347,11 @@ export function HomePage() {
     const key = positions.key;
     const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
     const generation = positionsGeneration.current;
-    const signal = positionsController.current?.signal;
-    const isCurrent = () => generation === positionsGeneration.current && signal?.aborted !== true;
+    const invalidationVersion = positionsInvalidationVersion.current;
+    const signal = positionsSignal.current ?? undefined;
+    const isCurrent = () => generation === positionsGeneration.current
+      && invalidationVersion === positionsInvalidationVersion.current && signal?.aborted !== true
+      && queryKeyRef.current === key;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
     listPositions(query, signal).then(
       (page) => {
@@ -500,6 +549,7 @@ function SelectedAccountPanel({
         </span>
       </header>
       <dl className="connection-details">
+        <ObservationDetails observation={account.realtimeObservation} />
         <div>
           <dt>Обновлено</dt>
           <dd>
@@ -517,10 +567,10 @@ function SelectedAccountPanel({
       {portfolio !== null && (
         <ul className="data-state">
           {portfolio.isFresh ? (
-            <li className="data-state-ok">Данные актуальны</li>
+            <li className="data-state-ok">REST-снимок актуален на момент ответа</li>
           ) : (
             <li className="data-state-warning">
-              Данные устарели
+              REST-снимок устарел
               {account.lastSyncedAt !== null && (
                 <>
                   . Последняя успешная синхронизация:{' '}

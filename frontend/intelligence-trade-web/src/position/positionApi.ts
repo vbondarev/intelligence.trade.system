@@ -1,3 +1,4 @@
+import { isMarketValuation } from '../freshness/freshness';
 import type { PositionSide, PositionTrackingState } from '../portfolio/portfolioTypes';
 import type {
   AddDecision,
@@ -381,7 +382,8 @@ function isPositionDetails(value: unknown): value is PositionDetails {
     isNullableNumber(value.takeProfit) &&
     isNullableNumber(value.stopLoss) &&
     isNullableNumber(value.trailingStop) &&
-    isNonEmptyString(value.settlementAsset)
+    isNonEmptyString(value.settlementAsset) &&
+    isMarketValuation(value.marketValuation)
   );
 }
 

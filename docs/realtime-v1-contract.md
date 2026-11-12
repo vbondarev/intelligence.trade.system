@@ -25,9 +25,11 @@ SignalR user identifier вычисляется сервером из того ж
 anonymous clients, некорректный `sub` и токены без `trade.api` отклоняются.
 
 Resource server принимает bearer token через стандартный `Authorization` header.
-Query-string access token не поддерживается. Browser-specific transport и BFF
-граница относятся к этапу G; access token не должен попадать в JavaScript
-клиента.
+Query-string access token не поддерживается. Browser подключается к отдельной
+same-origin BFF boundary `/bff/hubs/v1/updates`, а не к API напрямую; access token
+не попадает в JavaScript. BFF использует этот API contract как Bearer client.
+Browser-only `bff.realtime.ready` подтверждает upstream и запускает REST recovery;
+это не событие API v1. Подробности — в [Web BFF contract](web-bff-contract.md).
 
 Для bearer/native clients lifetime hub connection ограничен lifetime
 authentication context: после истечения access token соединение закрывается

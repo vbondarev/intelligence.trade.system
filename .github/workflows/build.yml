@@ -501,12 +501,16 @@ jobs:
       - name: Smoke test public scheme through frontend proxy
         run: bash .github/scripts/frontend-public-scheme-smoke.sh
 
+      - name: Build test-only realtime E2E driver
+        run: docker compose -f backend/compose.yaml --profile ci build realtime-e2e-driver
+
       - name: Browser E2E Web login, session and logout
         working-directory: frontend/intelligence-trade-web
         env:
           WEB_BASE_URL: http://localhost:8082
           IDENTITY_BASE_URL: http://localhost:8081
           E2E_USERNAME: trade-dev-user
+          REALTIME_E2E_ENABLED: 'true'
         run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" npm run test:e2e
 
       - name: Show Compose authentication logs on failure

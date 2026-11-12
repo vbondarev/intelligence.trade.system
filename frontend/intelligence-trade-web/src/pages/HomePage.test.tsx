@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import type { ExchangeAccount } from '../connections/connectionTypes';
 import type { Portfolio, PositionListItem } from '../portfolio/portfolioTypes';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
 import { positionFixture } from '../test/positionFixtures';
+import { emitRealtime } from '../test/realtimeTestDriver';
 
 // jsdom не реализует canvas, который нужен графику страницы позиции.
 vi.mock('lightweight-charts', () => ({
@@ -290,7 +291,7 @@ describe('HomePage portfolio summary', () => {
     expect(valueOf(summary, 'Открытые позиции')).toBe('3');
     const account = screen.getByRole('region', { name: 'Основной' });
     expect(within(account).getByText('Подключено')).toBeVisible();
-    expect(within(account).getByText('Данные актуальны')).toBeVisible();
+    expect(within(account).getByText('REST-снимок актуален на момент ответа')).toBeVisible();
     expect(valueOf(account, 'Обновлено')).toBe('2 минуты назад');
     expect(within(account).queryByText('Данные неполные')).not.toBeInTheDocument();
   });
@@ -300,8 +301,8 @@ describe('HomePage portfolio summary', () => {
 
     await findSummary();
     const account = screen.getByRole('region', { name: 'Основной' });
-    expect(within(account).getByText(/Данные устарели/)).toHaveTextContent('Последняя успешная синхронизация');
-    expect(within(account).queryByText('Данные актуальны')).not.toBeInTheDocument();
+    expect(within(account).getByText(/REST-снимок устарел/)).toHaveTextContent('Последняя успешная синхронизация');
+    expect(within(account).queryByText('REST-снимок актуален на момент ответа')).not.toBeInTheDocument();
   });
 
   it('marks partial data', async () => {
@@ -793,5 +794,162 @@ describe('HomePage position navigation', () => {
     expect(searchParams().get('account')).toBe(MAIN_ID);
     expect(searchParams().get('side')).toBe('long');
     expect(requests.some((request) => request.url.includes('/sync') || request.init?.method === 'POST')).toBe(false);
+  });
+});
+
+
+describe('realtime overview invalidation', () => {
+  it('refreshes the selected portfolio and conservatively refreshes the position list', async () => {
+    const requests = renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount]));
+    await waitFor(() => expect(requests.some((request) => request.url === positionsUrl(MAIN_ID))).toBe(true));
+    const count = (url: string) => requests.filter((request) => request.url === url).length;
+    const portfolioBefore = count(portfolioUrl(MAIN_ID));
+    const positionsBefore = count(positionsUrl(MAIN_ID));
+    act(() => emitRealtime({ type: 'portfolio.updated', exchangeAccountId: SECOND_ID }));
+    expect(count(portfolioUrl(MAIN_ID))).toBe(portfolioBefore);
+    act(() => {
+      emitRealtime({ type: 'portfolio.updated', exchangeAccountId: MAIN_ID });
+      emitRealtime({ type: 'position.updated', positionId: 'previously-unknown' });
+    });
+    await waitFor(() => expect(count(portfolioUrl(MAIN_ID))).toBe(portfolioBefore + 1));
+    await waitFor(() => expect(count(positionsUrl(MAIN_ID))).toBe(positionsBefore + 1));
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
+  });
+});
+
+
+describe('realtime pagination consistency', () => {
+  it('discards the previous cursor and coalesces notifications while a filtered first page is pending', async () => {
+    const slow = deferred<Response>();
+    const final = deferred<Response>();
+    let calls = 0;
+    const requests = renderHome(`/app?account=${MAIN_ID}&side=long`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID, '&side=long')]: () => {
+        calls += 1;
+        if (calls === 1) return page([position()], 'old-cursor');
+        if (calls === 2) return slow.promise;
+        if (calls === 3) return final.promise;
+        return page([position({ id: 'new', symbol: 'SOLUSDT' })]);
+      },
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
+    await waitFor(() => expect(calls).toBe(2));
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: 'old' });
+      emitRealtime({ type: 'position.updated', positionId: 'new' });
+    });
+    expect(calls).toBe(2);
+    await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
+    await screen.findByRole('article', { name: 'STALEUSDT · 0,15 LONG' });
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+    await act(async () => final.resolve(page([position({ id: 'new', symbol: 'SOLUSDT' })], 'fresh-cursor')));
+    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
+    expect(searchParams().get('side')).toBe('long');
+    expect(requests.some((request) => request.url.includes('cursor=old-cursor'))).toBe(false);
+    expect(calls).toBe(3);
+  });
+});
+
+
+describe('recovery of a pending positions page', () => {
+  it('keeps account and filter, drops the old cursor and ignores a late response', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderHome(`/app?account=${MAIN_ID}&side=long`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID, '&side=long')]: () => {
+        calls += 1;
+        if (calls === 1) return page([position()], 'old-cursor');
+        if (calls === 2) return slow.promise;
+        return page([position({ id: 'new', symbol: 'SOLUSDT' })]);
+      },
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
+    await waitFor(() => expect(calls).toBe(2));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    expect(calls).toBe(3);
+    await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
+    expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
+    expect(searchParams().get('account')).toBe(MAIN_ID);
+    expect(searchParams().get('side')).toBe('long');
+    expect(requests.some((request) => request.url.includes('cursor=old-cursor'))).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('recovery of closed positions', () => {
+  it('retains the selected account, closed mode and filter', async () => {
+    const closed = position({ trackingState: 'closed', closedAt: '2026-10-06T12:00:00Z', unrealizedPnl: null });
+    const url = positionsUrl(MAIN_ID, '&trackingState=closed&side=long');
+    const requests = renderHome(`/app?account=${MAIN_ID}&view=closed&side=long`, {
+      ...accountRoutes([mainAccount]),
+      [url]: () => page([closed]),
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(urls(requests, url)).toHaveLength(2));
+    expect(searchParams().get('account')).toBe(MAIN_ID);
+    expect(searchParams().get('view')).toBe('closed');
+    expect(searchParams().get('side')).toBe('long');
+    expect(screen.getByRole('button', { name: 'Закрытые' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+
+describe('непрерывная инвалидация портфеля', () => {
+  it('показывает промежуточный и заключительный снимки выбранного аккаунта', async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    let calls = 0;
+    const requests = renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount], MAIN_ID, {
+      portfolio: () => ++calls === 1 ? first.promise : calls === 2 ? second.promise : jsonResponse(portfolio({ currentPositionCount: 9 })),
+    }));
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => {
+      emitRealtime({ type: 'portfolio.updated', exchangeAccountId: SECOND_ID });
+      emitRealtime({ type: 'portfolio.updated', exchangeAccountId: MAIN_ID });
+      emitRealtime({ type: 'portfolio.updated', exchangeAccountId: MAIN_ID });
+    });
+    expect(calls).toBe(1);
+    await act(async () => first.resolve(jsonResponse(portfolio({ currentPositionCount: 4 }))));
+    await waitFor(() => expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('4'));
+    await waitFor(() => expect(calls).toBe(2));
+    act(() => emitRealtime({ type: 'portfolio.updated', exchangeAccountId: MAIN_ID }));
+    await act(async () => second.resolve(jsonResponse(portfolio({ currentPositionCount: 7 }))));
+    await waitFor(() => expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('9'));
+    expect(calls).toBe(3);
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
+  });
+});
+
+describe('инвалидация continuation', () => {
+  it('не добавляет старую страницу и не возвращает её cursor', async () => {
+    const continuation = deferred<Response>();
+    const refresh = deferred<Response>();
+    let calls = 0;
+    const requests = renderHome(`/app?account=${MAIN_ID}`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID)]: () => ++calls === 1 ? page([position()], 'old') : refresh.promise,
+      [positionsUrl(MAIN_ID, '&cursor=old')]: () => continuation.promise,
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
+    await waitFor(() => expect(calls).toBe(2));
+    await act(async () => continuation.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale')));
+    expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+    await act(async () => refresh.resolve(page([position({ id: 'new', symbol: 'SOLUSDT' })], 'fresh')));
+    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });
 });

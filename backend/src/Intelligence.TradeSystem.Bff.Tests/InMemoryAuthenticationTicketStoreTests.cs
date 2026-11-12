@@ -16,7 +16,7 @@ public sealed class InMemoryAuthenticationTicketStoreTests : IDisposable
 
     public InMemoryAuthenticationTicketStoreTests()
     {
-        store = new InMemoryAuthenticationTicketStore(cache, new BffSessionOptions(), time);
+        store = new InMemoryAuthenticationTicketStore(cache, new BffSessionOptions(), time, new Intelligence.TradeSystem.Bff.Realtime.RealtimeSessionRegistry(time));
     }
 
     [Fact]

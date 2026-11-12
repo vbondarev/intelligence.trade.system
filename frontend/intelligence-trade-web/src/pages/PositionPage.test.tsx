@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { emitRealtime } from '../test/realtimeTestDriver';
 import {
   ACCOUNT_ID,
   OTHER_POSITION_ID,
@@ -693,5 +694,134 @@ describe('PositionPage evaluation validity on an open page', () => {
     expect(urls(requests, evaluationUrl())).toHaveLength(1);
     expect(urls(requests, evaluationUrl(OTHER_POSITION_ID))).toHaveLength(1);
     expect(requests).toHaveLength(requestCount);
+  });
+});
+
+
+describe('realtime position invalidation', () => {
+  it('keeps history lazy and recovers every displayed resource without POST', async () => {
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => jsonResponse(firstTimelinePage) }));
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+    await waitFor(() => expect(urls(requests, positionUrl())).toHaveLength(2));
+    expect(urls(requests, timelineUrl())).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(urls(requests, positionUrl())).toHaveLength(3));
+    await waitFor(() => expect(urls(requests, marketUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, candlesUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(2));
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});
+
+
+describe('realtime evaluation invalidation', () => {
+  it('reads the matching saved evaluation and ignores other positions without posting', async () => {
+    const requests = renderPage(pagePath(), positionRoutes());
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(1));
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: OTHER_POSITION_ID }));
+    expect(urls(requests, evaluationUrl())).toHaveLength(1);
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    expect(evaluationPosts(requests)).toHaveLength(0);
+    expect(urls(requests, positionUrl())).toHaveLength(1);
+  });
+});
+
+
+describe('recovery of a pending position read', () => {
+  it('replaces a hung GET and ignores the late response without posting', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++calls === 1 ? slow.promise : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await findTitle(/BTCUSDT/);
+    await waitFor(() => expect(urls(requests, marketUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, candlesUrl())).toHaveLength(2));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await act(async () => slow.resolve(jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'STALEUSDT' }))));
+    expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});
+
+
+describe('recovery of pending timeline', () => {
+  it('keeps a closed history lazy and replaces a hung open history read', async () => {
+    const slow = deferred<Response>();
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [timelineUrl()]: () => ++calls === 1 ? slow.promise : jsonResponse(firstTimelinePage()),
+    }));
+    await findTitle(/BTCUSDT/);
+    act(() => emitRealtime({ type: 'recovery' }));
+    expect(calls).toBe(0);
+    await userEvent.click(screen.getByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(screen.getByRole('list', { name: 'События истории позиции' })).toBeInTheDocument());
+    await act(async () => slow.resolve(jsonResponse(timelinePageFixture([]))));
+    expect(screen.getByRole('list', { name: 'События истории позиции' })).toBeInTheDocument();
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});
+
+
+describe('непрерывные инвалидации позиции и оценки', () => {
+  it('применяет промежуточные GET и выполняет заключительные чтения без POST', async () => {
+    const firstPosition = deferred<Response>();
+    const lastPosition = deferred<Response>();
+    const firstEvaluation = deferred<Response>();
+    const lastEvaluation = deferred<Response>();
+    const finalPosition = deferred<Response>();
+    const finalEvaluation = deferred<Response>();
+    let positions = 0;
+    let evaluations = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++positions === 1 ? firstPosition.promise : positions === 2 ? lastPosition.promise : finalPosition.promise,
+      [evaluationUrl()]: () => ++evaluations === 1 ? firstEvaluation.promise : evaluations === 2 ? lastEvaluation.promise : finalEvaluation.promise,
+    }));
+    await waitFor(() => { expect(positions).toBe(1); expect(evaluations).toBe(1); });
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await act(async () => {
+      firstPosition.resolve(jsonResponse(positionFixture({ symbol: 'MIDUSDT' })));
+      firstEvaluation.resolve(jsonResponse(evaluationFixture()));
+    });
+    await findTitle(/MIDUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+    await waitFor(() => { expect(positions).toBe(2); expect(evaluations).toBe(2); });
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    const base = evaluationFixture();
+    const recommendation = base.recommendation;
+    if (recommendation === null) throw new Error('Fixture must contain a recommendation.');
+    await act(async () => {
+      lastPosition.resolve(jsonResponse(positionFixture({ symbol: 'SECONDUSDT' })));
+      lastEvaluation.resolve(jsonResponse({ ...base, recommendation: { ...recommendation, action: { ...recommendation.action, value: 'reduce' } } }));
+    });
+    await findTitle(/SECONDUSDT/);
+    expect(await screen.findByText('Сократить позицию')).toBeVisible();
+    await waitFor(() => { expect(positions).toBe(3); expect(evaluations).toBe(3); });
+    await act(async () => {
+      finalPosition.resolve(jsonResponse(positionFixture({ symbol: 'FINALUSDT' })));
+      finalEvaluation.resolve(jsonResponse(base));
+    });
+    await findTitle(/FINALUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+    expect(evaluationPosts(requests)).toHaveLength(0);
   });
 });

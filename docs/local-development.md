@@ -224,6 +224,8 @@ http://localhost:8082
 
 > G-02 добавил migration `AddExchangeAccountDisplayName`. Если локальная business database была создана до этой migration, обновите её по разделу «Миграции PostgreSQL» ниже. Реальное подключение Bybit требует валидных read-only API credentials и не является обязательной частью базовой smoke-проверки.
 
+Browser realtime использует WebSocket через `/bff/hubs/v1/updates` на public frontend origin. При диагностике проверьте поддержку WebSocket upgrade у внешнего proxy, `PUBLIC_SCHEME`, trusted network и логи BFF/API без вывода токенов. Состояние realtime канала отображается отдельно; REST остаётся источником данных.
+
 ### Проверка Identity discovery
 
 Windows PowerShell:
@@ -384,7 +386,9 @@ npm run build
 
 ### Browser E2E
 
-Browser E2E выполняется против запущенного Compose stack.
+Browser E2E выполняется против запущенного Compose stack. Полный realtime E2E дополнительно требует disposable database и test-only `realtime-e2e-driver` из Compose profile `ci`; production endpoint он не добавляет. CI собирает driver и запускает тест с `REALTIME_E2E_ENABLED=true`. Driver применяет существующие business migrations и создаёт тестовое отключённое подключение с outbox-событием для явного test UserId; не запускайте этот сценарий против рабочих данных.
+
+Сценарий позиции запускается только на disposable Compose: `REALTIME_E2E_SCENARIO=position` и явные `REALTIME_E2E_USER_ID`, `REALTIME_E2E_ACCOUNT_ID`, `REALTIME_E2E_POSITION_ID`. `REALTIME_E2E_PHASE` принимает `initial`, `changed`, `recovered`, `wait-processed` или `cleanup`; для записи и ожидания нужен `REALTIME_E2E_EVENT_ID`. Для доказательства восстановления пропущенного события браузер отключается, WebSocket закрывается, затем после `recovered` фаза `wait-processed` ожидает `ProcessedAt` конкретного event до возвращения браузера online. По умолчанию режим `account` сохраняет `REALTIME_E2E_NAME`.
 
 Если Playwright browser ещё не установлен:
 

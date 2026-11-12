@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
+import { ObservationDetails } from '../freshness/FreshnessDetails';
+import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import {
   ConnectionsApiError,
   createConnection,
@@ -144,6 +147,7 @@ export function ConnectionsPage() {
   const [pending, setPending] = useState(false);
 
   const listGeneration = useRef(0);
+  const realtimeRead = useRef<InvalidationScheduler | null>(null);
 
   // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
   // более раннего GET не должны перезаписать результат reload после mutation.
@@ -166,10 +170,21 @@ export function ConnectionsPage() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadAccounts(controller.signal);
-    return () => controller.abort();
+    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
+    realtimeRead.current = scheduler;
+    scheduler.invalidate();
+    return () => { realtimeRead.current = null; scheduler.dispose(); };
   }, [loadAccounts]);
+
+  useRealtimeInvalidation((event) => {
+    if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
+      if (event.type === 'recovery') {
+        listGeneration.current += 1;
+        realtimeRead.current?.recover();
+      }
+      else realtimeRead.current?.invalidate();
+    }
+  });
 
   // REST остаётся source of truth: после любой mutation список перечитывается, а не правится локально.
   const runMutation = useCallback(
@@ -446,6 +461,7 @@ function ConnectionCard({
         </span>
       </header>
       <dl className="connection-details">
+        <ObservationDetails observation={account.realtimeObservation} />
         <div>
           <dt>Биржа</dt>
           <dd>Bybit</dd>

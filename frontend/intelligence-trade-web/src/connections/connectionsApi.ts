@@ -1,3 +1,4 @@
+import { isRealtimeObservation } from '../freshness/freshness';
 import type {
   ConnectionResult,
   ExchangeAccount,
@@ -221,6 +222,7 @@ function isExchangeAccount(value: unknown): value is ExchangeAccount {
     value.capabilities.every(
       (capability) => typeof capability === 'string' && (CAPABILITIES as readonly string[]).includes(capability),
     ) &&
-    (value.lastSyncedAt === null || typeof value.lastSyncedAt === 'string')
+    (value.lastSyncedAt === null || typeof value.lastSyncedAt === 'string') &&
+    isRealtimeObservation(value.realtimeObservation)
   );
 }

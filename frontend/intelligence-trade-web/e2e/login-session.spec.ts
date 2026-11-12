@@ -6,7 +6,7 @@ test('login keeps the session across reload without exposing tokens to JavaScrip
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Обзор' })).toBeVisible();
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app(?:\?.*)?$/);
 
   const sessionCookie = await findCookie(context, SESSION_COOKIE);
   expect(sessionCookie).toBeDefined();

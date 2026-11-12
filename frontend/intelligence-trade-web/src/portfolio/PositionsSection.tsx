@@ -1,5 +1,6 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { MarketValuationDetails } from '../freshness/FreshnessDetails';
 import { positionPagePath, type PositionPageState } from '../position/positionNavigation';
 import type {
   CurrentTrackingState,
@@ -233,6 +234,7 @@ function PositionCard({ position, returnTo }: { position: PositionListItem; retu
           </div>
         )}
       </dl>
+      <MarketValuationDetails valuation={position.marketValuation} />
     </article>
   );
 }

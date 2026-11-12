@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Intelligence.TradeSystem.Bff.Realtime;
 using System.Globalization;
 using System.Security.Cryptography;
 using Intelligence.TradeSystem.Bff.Configuration;
@@ -22,7 +23,8 @@ namespace Intelligence.TradeSystem.Bff.Authentication;
 internal sealed class InMemoryAuthenticationTicketStore(
     IMemoryCache cache,
     BffSessionOptions sessionOptions,
-    TimeProvider timeProvider) : ITicketStore
+    TimeProvider timeProvider,
+    RealtimeSessionRegistry realtimeRegistry) : ITicketStore
 {
     internal const string SessionKeyItem = ".bff.session_key";
     internal const string TokenGenerationItem = ".bff.token_generation";
@@ -70,8 +72,8 @@ internal sealed class InMemoryAuthenticationTicketStore(
 
             // Копия, прочитанная до POST /bff/auth/logout, не должна стереть подтверждённый
             // logout intent: иначе logout/complete отклонит уже подтверждённый logout.
-            if (TryGetLogoutIntentExpiry(existing.Properties, out var storedIntent)
-                && storedIntent > timeProvider.GetUtcNow()
+            if (HasActiveLogoutIntent(existing.Properties, timeProvider)
+                && TryGetLogoutIntentExpiry(existing.Properties, out var storedIntent)
                 && (!TryGetLogoutIntentExpiry(copy.Properties, out var incomingIntent) || incomingIntent < storedIntent))
             {
                 copy.Properties.Items[LogoutIntentItem] = existing.Properties.Items[LogoutIntentItem];
@@ -96,7 +98,7 @@ internal sealed class InMemoryAuthenticationTicketStore(
         }
     }
 
-    public Task RemoveAsync(string key)
+    public async Task RemoveAsync(string key)
     {
         if (!string.IsNullOrEmpty(key))
         {
@@ -106,7 +108,26 @@ internal sealed class InMemoryAuthenticationTicketStore(
             }
         }
 
-        return Task.CompletedTask;
+        if (!string.IsNullOrEmpty(key))
+        {
+            await realtimeRegistry.RevokeAsync(key);
+        }
+    }
+
+    internal async Task RemoveUnlessLogoutIntentAsync(string key)
+    {
+        var removed = false;
+        lock (gate)
+        {
+            if (TryGetLiveTicket(key, out var ticket)
+                && !HasActiveLogoutIntent(ticket.Properties, timeProvider))
+            {
+                cache.Remove(CacheKey(key));
+                removed = true;
+            }
+        }
+
+        if (removed) await realtimeRegistry.RevokeAsync(key);
     }
 
     internal static long GetTokenGeneration(AuthenticationProperties properties) =>
@@ -117,6 +138,9 @@ internal sealed class InMemoryAuthenticationTicketStore(
 
     internal static void SetTokenGeneration(AuthenticationProperties properties, long generation) =>
         properties.Items[TokenGenerationItem] = generation.ToString(CultureInfo.InvariantCulture);
+
+    internal static bool HasActiveLogoutIntent(AuthenticationProperties properties, TimeProvider timeProvider) =>
+        TryGetLogoutIntentExpiry(properties, out var expiresAt) && expiresAt > timeProvider.GetUtcNow();
 
     internal static bool TryGetLogoutIntentExpiry(AuthenticationProperties properties, out DateTimeOffset expiresAt)
     {

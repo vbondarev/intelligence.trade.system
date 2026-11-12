@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -56,7 +57,7 @@ internal sealed partial class BffTokenService(
                 out var sessionKey)
             || string.IsNullOrEmpty(sessionKey))
         {
-            await EndSessionAsync(httpContext);
+            await httpContext.SignOutAsync(BffAuthenticationExtensions.SessionScheme);
             return BffAccessTokenResult.SessionEnded;
         }
 
@@ -66,6 +67,25 @@ internal sealed partial class BffTokenService(
             return BffAccessTokenResult.Available(cachedAccessToken);
         }
 
+        return await GetAccessTokenCoreAsync(sessionKey, subject, rejectedAccessToken, httpContext, cancellationToken);
+    }
+
+    internal async Task<BffAccessTokenResult> GetAccessTokenForSessionAsync(
+        string sessionKey, string subject, CancellationToken cancellationToken)
+    {
+        var current = await ticketStore.RetrieveAsync(sessionKey, cancellationToken);
+        if (!IsSessionValid(current, subject))
+        {
+            return BffAccessTokenResult.SessionEnded;
+        }
+
+        return await GetAccessTokenCoreAsync(sessionKey, subject, null, null, cancellationToken);
+    }
+
+    private async Task<BffAccessTokenResult> GetAccessTokenCoreAsync(
+        string sessionKey, string subject, string? rejectedAccessToken,
+        HttpContext? httpContext, CancellationToken cancellationToken)
+    {
         var refreshLock = refreshGates.Acquire(subject);
         var refreshLockAcquired = false;
         try
@@ -74,10 +94,10 @@ internal sealed partial class BffTokenService(
             refreshLockAcquired = true;
 
             // Параллельный запрос той же session мог уже обновить или завершить её, пока этот ждал lock.
-            var current = await ticketStore.RetrieveAsync(sessionKey, httpContext, cancellationToken);
-            if (current is null)
+            var current = await RetrieveAsync(sessionKey, httpContext, cancellationToken);
+            if (current is null || (httpContext is null && !IsSessionValid(current, subject)))
             {
-                await EndSessionAsync(httpContext);
+                if (httpContext is not null) await EndSessionAsync(sessionKey, httpContext);
                 return BffAccessTokenResult.SessionEnded;
             }
 
@@ -98,7 +118,7 @@ internal sealed partial class BffTokenService(
             if (string.IsNullOrEmpty(refreshToken))
             {
                 LogRefreshTokenMissing();
-                await EndSessionAsync(httpContext);
+                await EndSessionAsync(sessionKey, httpContext);
                 return BffAccessTokenResult.SessionEnded;
             }
 
@@ -110,7 +130,7 @@ internal sealed partial class BffTokenService(
             switch (refresh.Status)
             {
                 case OAuthTokenRefreshStatus.Rejected:
-                    await EndSessionAsync(httpContext);
+                    await EndSessionAsync(sessionKey, httpContext);
                     return BffAccessTokenResult.SessionEnded;
                 case OAuthTokenRefreshStatus.Unavailable:
                     refreshLock.RefreshUnavailable = true;
@@ -120,10 +140,18 @@ internal sealed partial class BffTokenService(
             // Tokens сохраняются в существующий server-side ticket без нового sign-in: если
             // параллельный logout уже удалил session, RenewAsync её не восстановит.
             ApplyRefreshedTokens(current.Properties, refresh);
-            await ticketStore.RenewAsync(sessionKey, current, httpContext, persistenceCancellation);
-            if (await ticketStore.RetrieveAsync(sessionKey, httpContext, persistenceCancellation) is null)
+            if (httpContext is null)
             {
-                await EndSessionAsync(httpContext);
+                await ticketStore.RenewAsync(sessionKey, current, persistenceCancellation);
+            }
+            else
+            {
+                await ticketStore.RenewAsync(sessionKey, current, httpContext, persistenceCancellation);
+            }
+            if (await RetrieveAsync(sessionKey, httpContext, persistenceCancellation) is not { } persisted
+                || (httpContext is null && !IsSessionValid(persisted, subject)))
+            {
+                if (httpContext is not null) await EndSessionAsync(sessionKey, httpContext);
                 return BffAccessTokenResult.SessionEnded;
             }
 
@@ -180,8 +208,20 @@ internal sealed partial class BffTokenService(
             && expiresAtValue > timeProvider.GetUtcNow().Add(RefreshSkew);
     }
 
-    private static Task EndSessionAsync(HttpContext httpContext) =>
-        httpContext.SignOutAsync(BffAuthenticationExtensions.SessionScheme);
+    private Task<AuthenticationTicket?> RetrieveAsync(string sessionKey, HttpContext? context, CancellationToken cancellationToken) =>
+        context is null ? ticketStore.RetrieveAsync(sessionKey, cancellationToken) : ticketStore.RetrieveAsync(sessionKey, context, cancellationToken);
+
+    private bool IsSessionValid([NotNullWhen(true)] AuthenticationTicket? ticket, string subject) =>
+        ticket is not null
+        && string.Equals(ticket.Principal.FindFirst(SubjectClaim)?.Value, subject, StringComparison.Ordinal)
+        && !InMemoryAuthenticationTicketStore.HasActiveLogoutIntent(ticket.Properties, timeProvider);
+
+    private Task EndSessionAsync(string sessionKey, HttpContext? context) =>
+        context is not null
+            ? context.SignOutAsync(BffAuthenticationExtensions.SessionScheme)
+            : ticketStore is InMemoryAuthenticationTicketStore store
+                ? store.RemoveUnlessLogoutIntentAsync(sessionKey)
+                : ticketStore.RemoveAsync(sessionKey);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BFF session не содержит refresh token и будет завершена.")]
     private partial void LogRefreshTokenMissing();

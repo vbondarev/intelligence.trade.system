@@ -1,4 +1,4 @@
-﻿services:
+services:
   postgres:
     image: postgres:16-alpine
     environment:
@@ -159,6 +159,21 @@
       trade-agent-network:
         aliases:
           - intelligence-trade-web
+
+  realtime-e2e-driver:
+    profiles: ["ci"]
+    build:
+      context: .
+      dockerfile: src/Intelligence.TradeSystem.Realtime.E2eDriver/Dockerfile
+    environment:
+      - REALTIME_E2E_ENABLED=true
+      - ConnectionStrings__TradeSystem=Host=postgres;Port=5432;Database=tradesystem;Username=tradesystem;Password=tradesystem_dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - trade-agent-network
 
   auth-test-seeder:
     profiles: ["ci"]
