@@ -123,6 +123,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const sessionEnded = state.error?.notice.sessionEnded === true;
 
   const generation = useRef(0);
+  const isOpenRef = useRef(false);
+  const invalidationVersion = useRef(0);
+  const appliedInvalidationVersion = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const stateRef = useRef(state);
@@ -153,6 +156,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
     if (schedulerSignal?.aborted) abortRequest();
     const requestGeneration = generation.current;
+    const requestInvalidationVersion = invalidationVersion.current;
     controller.current = requestController;
     inFlight.current = true;
     const isCurrent = () => requestGeneration === generation.current && !requestController.signal.aborted;
@@ -176,6 +180,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         }
 
         finish();
+        if (phase !== 'more') {
+          appliedInvalidationVersion.current = Math.max(appliedInvalidationVersion.current, requestInvalidationVersion);
+        }
         setState((current) => applyPage(current, phase, cursor, page));
       },
       (error: unknown) => {
@@ -192,7 +199,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   useEffect(() => {
     const scheduler = createInvalidationScheduler((signal) => {
       const current = stateRef.current;
-      if (!current.isOpen || current.error?.notice.sessionEnded === true) return Promise.resolve();
+      if (!isOpenRef.current || current.error?.notice.sessionEnded === true) return Promise.resolve();
       return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal);
     });
     realtimeRead.current = scheduler;
@@ -200,29 +207,30 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   }, [load]);
 
   useRealtimeInvalidation((event) => {
-    if (state.isOpen && !sessionEnded && (event.type === 'recovery'
-      || ((event.type === 'position.updated' || event.type === 'evaluation.updated') && event.positionId === positionId))) {
+    if (sessionEnded || !(event.type === 'recovery'
+      || ((event.type === 'position.updated' || event.type === 'evaluation.updated') && event.positionId === positionId))) return;
+    invalidationVersion.current += 1;
+    if (!isOpenRef.current) return;
+    if (event.type === 'recovery') {
       generation.current += 1;
-      if (event.type === 'recovery') realtimeRead.current?.recover();
-      else realtimeRead.current?.invalidate();
-    }
+      realtimeRead.current?.recover();
+    } else realtimeRead.current?.invalidate();
   });
 
   const handleToggleOpen = () => {
-    if (state.isOpen) {
-      if (state.pending === 'initial') {
-        cancelActive();
-        setState((current) => ({ ...current, isOpen: false, pending: null }));
-        return;
-      }
-
-      setState((current) => ({ ...current, isOpen: false }));
+    if (isOpenRef.current) {
+      isOpenRef.current = false;
+      cancelActive();
+      realtimeRead.current?.recover();
+      setState((current) => ({ ...current, isOpen: false, pending: null }));
       return;
     }
 
+    isOpenRef.current = true;
     setState((current) => ({ ...current, isOpen: true }));
-    if (!state.hasLoaded && state.pending === null && state.error?.notice.canRetry !== false) {
-      load('initial', state.selectedTypes, null);
+    if ((!state.hasLoaded || invalidationVersion.current > appliedInvalidationVersion.current)
+      && state.error?.notice.canRetry !== false) {
+      realtimeRead.current?.recover();
     }
   };
 

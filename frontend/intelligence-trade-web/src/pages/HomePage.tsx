@@ -156,6 +156,7 @@ export function HomePage() {
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
+  const positionsInvalidationVersion = useRef(0);
   const positionsSignal = useRef<AbortSignal | null>(null);
   const syncInFlight = useRef(new Set<string>());
   const selectedIdRef = useRef<string | null>(null);
@@ -165,6 +166,8 @@ export function HomePage() {
   const selectedAccount = accounts === null ? null : chooseAccount(accounts.items, urlAccountId);
   const selectedId = selectedAccount?.id ?? null;
   const queryKey = selectedId === null ? null : JSON.stringify(toQuery(selectedId, filters));
+  const queryKeyRef = useRef(queryKey);
+  useEffect(() => { queryKeyRef.current = queryKey; }, [queryKey]);
   const selectedSync = selectedId === null ? undefined : syncStates[selectedId];
 
   useEffect(() => {
@@ -258,7 +261,8 @@ export function HomePage() {
     const scheduler = createInvalidationScheduler((signal) => {
       positionsSignal.current = signal;
       const generation = ++positionsGeneration.current;
-      const isCurrent = () => generation === positionsGeneration.current && !signal.aborted;
+      const invalidationVersion = positionsInvalidationVersion.current;
+      const isCurrent = () => generation === positionsGeneration.current && !signal.aborted && queryKeyRef.current === queryKey;
       return listPositions(query, signal).then(
       (page) => {
         if (isCurrent()) {
@@ -266,8 +270,8 @@ export function HomePage() {
             key: queryKey,
             reload: reloadToken,
             items: page.items,
-            nextCursor: page.nextCursor,
-            hasMore: page.hasMore,
+            nextCursor: invalidationVersion === positionsInvalidationVersion.current ? page.nextCursor : null,
+            hasMore: invalidationVersion === positionsInvalidationVersion.current && page.hasMore,
             loadingMore: false,
             error: null,
           });
@@ -301,20 +305,27 @@ export function HomePage() {
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
-      accountsGeneration.current += 1;
-      if (event.type === 'recovery') accountsRead.current?.recover();
+      if (event.type === 'recovery') {
+        accountsGeneration.current += 1;
+        accountsRead.current?.recover();
+      }
       else accountsRead.current?.invalidate();
     }
     if (event.type === 'recovery' || (event.type === 'portfolio.updated' && event.exchangeAccountId === selectedId)) {
-      portfolioGeneration.current += 1;
-      if (event.type === 'recovery') portfolioRead.current?.recover();
+      if (event.type === 'recovery') {
+        portfolioGeneration.current += 1;
+        portfolioRead.current?.recover();
+      }
       else portfolioRead.current?.invalidate();
     }
     if (event.type === 'recovery' || event.type === 'position.updated') {
-      positionsGeneration.current += 1;
+      positionsInvalidationVersion.current += 1;
       setPositions((current) => current?.key === queryKey
         ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
-      if (event.type === 'recovery') positionsRead.current?.recover();
+      if (event.type === 'recovery') {
+        positionsGeneration.current += 1;
+        positionsRead.current?.recover();
+      }
       else positionsRead.current?.invalidate();
     }
   });
@@ -336,8 +347,11 @@ export function HomePage() {
     const key = positions.key;
     const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
     const generation = positionsGeneration.current;
+    const invalidationVersion = positionsInvalidationVersion.current;
     const signal = positionsSignal.current ?? undefined;
-    const isCurrent = () => generation === positionsGeneration.current && signal?.aborted !== true;
+    const isCurrent = () => generation === positionsGeneration.current
+      && invalidationVersion === positionsInvalidationVersion.current && signal?.aborted !== true
+      && queryKeyRef.current === key;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
     listPositions(query, signal).then(
       (page) => {

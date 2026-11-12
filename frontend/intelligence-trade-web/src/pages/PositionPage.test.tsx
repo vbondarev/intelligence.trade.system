@@ -774,3 +774,54 @@ describe('recovery of pending timeline', () => {
     expect(evaluationPosts(requests)).toHaveLength(0);
   });
 });
+
+
+describe('непрерывные инвалидации позиции и оценки', () => {
+  it('применяет промежуточные GET и выполняет заключительные чтения без POST', async () => {
+    const firstPosition = deferred<Response>();
+    const lastPosition = deferred<Response>();
+    const firstEvaluation = deferred<Response>();
+    const lastEvaluation = deferred<Response>();
+    const finalPosition = deferred<Response>();
+    const finalEvaluation = deferred<Response>();
+    let positions = 0;
+    let evaluations = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++positions === 1 ? firstPosition.promise : positions === 2 ? lastPosition.promise : finalPosition.promise,
+      [evaluationUrl()]: () => ++evaluations === 1 ? firstEvaluation.promise : evaluations === 2 ? lastEvaluation.promise : finalEvaluation.promise,
+    }));
+    await waitFor(() => { expect(positions).toBe(1); expect(evaluations).toBe(1); });
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await act(async () => {
+      firstPosition.resolve(jsonResponse(positionFixture({ symbol: 'MIDUSDT' })));
+      firstEvaluation.resolve(jsonResponse(evaluationFixture()));
+    });
+    await findTitle(/MIDUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+    await waitFor(() => { expect(positions).toBe(2); expect(evaluations).toBe(2); });
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    const base = evaluationFixture();
+    const recommendation = base.recommendation;
+    if (recommendation === null) throw new Error('Fixture must contain a recommendation.');
+    await act(async () => {
+      lastPosition.resolve(jsonResponse(positionFixture({ symbol: 'SECONDUSDT' })));
+      lastEvaluation.resolve(jsonResponse({ ...base, recommendation: { ...recommendation, action: { ...recommendation.action, value: 'reduce' } } }));
+    });
+    await findTitle(/SECONDUSDT/);
+    expect(await screen.findByText('Сократить позицию')).toBeVisible();
+    await waitFor(() => { expect(positions).toBe(3); expect(evaluations).toBe(3); });
+    await act(async () => {
+      finalPosition.resolve(jsonResponse(positionFixture({ symbol: 'FINALUSDT' })));
+      finalEvaluation.resolve(jsonResponse(base));
+    });
+    await findTitle(/FINALUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+});

@@ -178,8 +178,10 @@ export function ConnectionsPage() {
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
-      listGeneration.current += 1;
-      if (event.type === 'recovery') realtimeRead.current?.recover();
+      if (event.type === 'recovery') {
+        listGeneration.current += 1;
+        realtimeRead.current?.recover();
+      }
       else realtimeRead.current?.invalidate();
     }
   });

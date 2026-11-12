@@ -253,8 +253,10 @@ export function PositionPage() {
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || (event.type === 'position.updated' && event.positionId === id)) {
-      positionGeneration.current += 1;
-      if (event.type === 'recovery') positionRead.current?.recover();
+      if (event.type === 'recovery') {
+        positionGeneration.current += 1;
+        positionRead.current?.recover();
+      }
       else positionRead.current?.invalidate();
     }
     if (event.type === 'recovery') {
@@ -264,8 +266,10 @@ export function PositionPage() {
       candlesRead.current?.recover();
     }
     if (event.type === 'recovery' || (event.type === 'evaluation.updated' && event.positionId === id)) {
-      evaluationGeneration.current += 1;
-      if (event.type === 'recovery') evaluationRead.current?.recover();
+      if (event.type === 'recovery') {
+        evaluationGeneration.current += 1;
+        evaluationRead.current?.recover();
+      }
       else evaluationRead.current?.invalidate();
     }
   });

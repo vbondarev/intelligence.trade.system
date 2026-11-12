@@ -591,10 +591,12 @@ describe('ConnectionsPage restore', () => {
 describe('realtime connection invalidation', () => {
   it('coalesces a burst and applies the last REST result', async () => {
     const pending = deferred<Response>();
+    const final = deferred<Response>();
     let calls = 0;
     const requests = renderConnections({ list: () => {
       calls += 1;
       if (calls === 2) return pending.promise;
+      if (calls === 3) return final.promise;
       return [{ ...mainAccount, displayName: calls === 1 ? 'Первое' : 'Актуальное' }];
     } });
     await findCard('Первое');
@@ -606,9 +608,13 @@ describe('realtime connection invalidation', () => {
     });
     expect(listRequests(requests)).toHaveLength(2);
     await act(async () => pending.resolve(jsonResponse({ items: [{ ...mainAccount, displayName: 'Устаревшее' }] })));
+    await findCard('Устаревшее');
+    await waitFor(() => expect(listRequests(requests)).toHaveLength(3));
+    act(() => emitRealtime({ type: 'exchangeAccount.updated', exchangeAccountId: MAIN_ID }));
+    await act(async () => final.resolve(jsonResponse({ items: [{ ...mainAccount, displayName: 'Промежуточное' }] })));
     await findCard('Актуальное');
-    expect(screen.queryByRole('article', { name: 'Устаревшее' })).not.toBeInTheDocument();
-    expect(listRequests(requests)).toHaveLength(3);
+    expect(listRequests(requests)).toHaveLength(4);
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });
 });
 
