@@ -2,12 +2,16 @@
 
 Источник критериев: [WCAG 2.2](https://www.w3.org/TR/WCAG22/). Это исходная матрица аудита, не заявление о соответствии.
 
+## Reflow оболочки в GitHub Linux CI
+
+На `28855fe` Chromium и mobile WebKit воспроизвели переполнение в GitHub Linux CI при viewport 320 CSS px и увеличении размера текста до 200%. Ширина документа достигала 356 CSS px. FIX-06 разрешает перенос названия приложения и ссылок навигации. В Windows Chromium и mobile WebKit новый E2E с широкими метриками текста показал 358 CSS px до исправления и подтвердил ширину не более 320 CSS px и клавиатурную навигацию после него. Комбинированный E2E учитывается отдельно от проверок SC 1.4.4, SC 1.4.10 и реального browser zoom 400%. [Исходный Linux FAIL](https://github.com/vbondarev/intelligence.trade.system/actions/runs/44580195971/job/135763118299?pr=227) · [Проверки PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227/checks)
+
 ## Результаты Amendment от 19 ноября 2026 года
 
 - Изменения графика, поиска и форм реализованы по [утверждённому Amendment](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6958879377). Целевые сценарии подтвердили контраст семи canvas-подписей, маркер выбора, клавиатуру и касание, управление обеими шкалами, отмену жестов, контекст ссылок и привязку сообщений к полям.
 - Реальный page zoom 400% проверен в Chromium для раскрытого вида графика, ошибок формы подключения и заполненного поиска. Ширина viewport 316 CSS px, scrollWidth 312 CSS px. Отдельные E2E выполнили эти проверки при 320 CSS px, с увеличением текста до 200% на графике.
 - В NVDA 2026.2 и Chrome наблюдались объявление нового диапазона графика, подсказка к ошибке ввода и разные имена ссылок в списке NVDA. В матрице 42 PASS и 14 N/A. Все 8 строк FAIL исправлены, 5 строк PARTIAL закрыты по результатам проверки Amendment.
-- Обязательный HTTPS gate на Windows дал 3 PASS и 1 FAIL. WebKit передал session cookie и контрольную cookie в cross-site запросе. Утверждённая блокировка IMP-07 и merge сохраняется.
+- Обязательный HTTPS gate на Windows дал 3 PASS и 1 FAIL. WebKit передал session cookie и контрольную cookie в cross-site запросе. IMP-07, релиз и закрытие #225 заблокированы. Условия раннего слияния в `develop` описаны в [Amendment](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-7009165810).
 
 ## Исходный итог на 17 ноября 2026 года
 

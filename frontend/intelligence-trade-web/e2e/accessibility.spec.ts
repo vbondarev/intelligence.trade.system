@@ -103,6 +103,52 @@ test('увеличение текста до 200% на узком экране',
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('название и ссылки навигации переносятся при широких метриках текста', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mockBusinessData(page);
+  await loginThroughLanding(page);
+  await page.goto('/app/settings/connections');
+  await expect(page.getByRole('heading', { name: 'Подключения', level: 1 })).toBeVisible();
+  await page.addStyleTag({ content: `
+    html { font-size: 200% !important; }
+    .brand, .side-nav-link { letter-spacing: .12em; }
+  ` });
+
+  const brand = page.locator('.brand');
+  const navigation = page.getByRole('navigation', { name: 'Основная навигация' });
+  await expect(brand).toHaveText('Intelligence Trade');
+  for (const name of ['Обзор', 'Подключения', 'Поиск позиций']) {
+    await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
+  }
+  const layout = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return {
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      labels: Array.from(document.querySelectorAll('.brand, .side-nav-link'), (element) => {
+        const { left, right, width } = element.getBoundingClientRect();
+        return { text: element.textContent, left, right, width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+      }),
+    };
+  });
+  expect(layout.viewportWidth).toBe(320);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.labels).toHaveLength(4);
+  for (const label of layout.labels) {
+    const name = label.text ?? '';
+    expect(label.left, name).toBeGreaterThanOrEqual(0);
+    expect(label.right, name).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(label.width, name).toBeGreaterThan(0);
+    expect(label.scrollWidth, name).toBeLessThanOrEqual(label.clientWidth);
+  }
+
+  const overview = navigation.getByRole('link', { name: 'Обзор', exact: true });
+  await overview.focus();
+  await expect(overview).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Обзор', level: 1 })).toBeVisible();
+});
+
 test('длинное название подключения и фокус доступны на узком экране', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await mockBusinessData(page);

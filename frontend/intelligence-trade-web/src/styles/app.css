@@ -151,7 +151,6 @@ h1 {
 
 .brand {
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .topbar-actions {
@@ -256,7 +255,13 @@ h1 {
   border-radius: var(--radius-small);
   color: var(--color-text-muted);
   text-decoration: none;
-  white-space: nowrap;
+}
+
+.brand,
+.side-nav-link {
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .side-nav-link:hover,
