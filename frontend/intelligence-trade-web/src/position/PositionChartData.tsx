@@ -1,7 +1,6 @@
+import { formatChartPrice } from './chartPriceFormat';
 import type { ChartCandle, PriceLevel, PriceLevelKind } from './positionChartAdapter';
 import type { ChartInterval } from './positionTypes';
-
-const chartPriceFormat = new Intl.NumberFormat('ru-RU', { maximumSignificantDigits: 21 });
 
 const LEVEL_LABELS: Record<PriceLevelKind, string> = {
   entry: 'Цена входа',
@@ -57,10 +56,10 @@ export function PositionChartData({
                 return (
                   <tr key={candle.time}>
                     <th scope="row"><time dateTime={timestamp}>{timestamp.replace('T', ' ').replace('.000Z', ' UTC')}</time></th>
-                    <td>{chartPriceFormat.format(candle.open)}</td>
-                    <td>{chartPriceFormat.format(candle.high)}</td>
-                    <td>{chartPriceFormat.format(candle.low)}</td>
-                    <td>{chartPriceFormat.format(candle.close)}</td>
+                    <td>{formatChartPrice(candle.open)}</td>
+                    <td>{formatChartPrice(candle.high)}</td>
+                    <td>{formatChartPrice(candle.low)}</td>
+                    <td>{formatChartPrice(candle.close)}</td>
                   </tr>
                 );
               })}
@@ -78,7 +77,7 @@ export function PositionChartData({
             <thead><tr><th scope="col">Уровень</th><th scope="col">Цена</th></tr></thead>
             <tbody>
               {levels.map((level) => (
-                <tr key={level.kind}><th scope="row">{LEVEL_LABELS[level.kind]}</th><td>{chartPriceFormat.format(level.price)}</td></tr>
+                <tr key={level.kind}><th scope="row">{LEVEL_LABELS[level.kind]}</th><td>{formatChartPrice(level.price)}</td></tr>
               ))}
             </tbody>
           </table>

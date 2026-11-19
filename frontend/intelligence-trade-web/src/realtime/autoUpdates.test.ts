@@ -8,6 +8,45 @@ function deferred() {
 }
 
 describe('пауза автоматических обновлений', () => {
+  it('таймер повтора ждёт явное чтение, сохраняя его право публикации', async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const updates = createAutoUpdates();
+    const explicit = deferred();
+    const reads: string[] = [];
+    const publish = vi.fn();
+    let explicitSignal: AbortSignal | undefined;
+    const reader = updates.createReader(async (signal, view) => {
+      reads.push(view.kind);
+      if (reads.length === 1) {
+        view.fail(new TypeError('network'), () => {});
+        return;
+      }
+      if (view.kind === 'explicit') {
+        explicitSignal = signal;
+        await explicit.promise;
+      }
+      view.apply(() => publish(view.kind));
+    });
+    try {
+      reader.recover();
+      await vi.advanceTimersByTimeAsync(10);
+      reader.refresh();
+      await vi.advanceTimersByTimeAsync(240);
+      expect(reads).toEqual(['live', 'explicit']);
+      expect(explicitSignal?.aborted).toBe(false);
+      explicit.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toEqual(['live', 'explicit', 'live']);
+      expect(publish.mock.calls).toEqual([['explicit'], ['live']]);
+    } finally {
+      explicit.resolve();
+      reader.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('отзывает явное чтение и его уже запланированное продолжение', async () => {
     const updates = createAutoUpdates();
     const previous = deferred();

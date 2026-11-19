@@ -16,7 +16,7 @@ vi.mock('lightweight-charts', () => ({
   ColorType: { Solid: 'solid' },
   LineStyle: { Solid: 0, Dashed: 2 },
   createChart: () => ({
-    addSeries: () => ({ setData: () => {}, createPriceLine: () => ({}), removePriceLine: () => {} }),
+    addSeries: () => ({ setData: () => {}, applyOptions: () => {}, createPriceLine: () => ({}), removePriceLine: () => {} }),
     timeScale: () => ({ fitContent: () => {}, getVisibleRange: () => null }),
     priceScale: () => ({ setAutoScale: () => {}, options: () => ({ autoScale: true }), getVisibleRange: () => null }),
     remove: () => {},

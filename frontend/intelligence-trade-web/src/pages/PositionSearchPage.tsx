@@ -12,7 +12,10 @@ export function PositionSearchPage() {
   const [params, setParams] = useSearchParams();
   const [attempt, setAttempt] = useState(0);
   const symbol = params.get('symbol')?.trim().slice(0, 100) ?? '';
+  const [draft, setDraft] = useState({ symbol, value: symbol });
   const id = useId();
+
+  if (draft.symbol !== symbol) setDraft({ symbol, value: symbol });
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,10 +36,18 @@ export function PositionSearchPage() {
           <li><Link to="/app/settings/connections">Подключения</Link></li>
         </ul>
       </nav>
-      <form key={symbol} role="search" className="symbol-filter" onSubmit={submit}>
+      <form role="search" className="symbol-filter" onSubmit={submit}>
         <div className="field">
           <label htmlFor={id}>Символ</label>
-          <input id={id} name="symbol" defaultValue={symbol} placeholder="BTCUSDT" maxLength={100} required />
+          <input
+            id={id}
+            name="symbol"
+            value={draft.value}
+            onChange={(event) => setDraft({ symbol, value: event.target.value })}
+            placeholder="BTCUSDT"
+            maxLength={100}
+            required
+          />
         </div>
         <button className="button button-secondary">Найти</button>
       </form>

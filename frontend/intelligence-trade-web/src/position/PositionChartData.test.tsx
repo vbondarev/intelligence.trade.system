@@ -33,8 +33,8 @@ describe('PositionChartData', () => {
     screen.getByText('Данные графика и ценовые уровни').click();
     const table = screen.getByRole('table', { name: /Свечи BTCUSDT/ });
     expect(within(table).getAllByRole('cell').map((cell) => cell.textContent))
-      .toEqual(['0,000000001', '0,000000004', '0,000000002', '0,000000003']);
-    expect(screen.getByRole('rowheader', { name: 'Stop Loss' }).nextElementSibling).toHaveTextContent('0,000000002');
+      .toEqual(['0,0000000010', '0,0000000040', '0,0000000020', '0,0000000030']);
+    expect(screen.getByRole('rowheader', { name: 'Stop Loss' }).nextElementSibling).toHaveTextContent(/^0,0000000020$/);
   });
 
   it('renders all shared candles and labeled price levels', async () => {
@@ -44,7 +44,8 @@ describe('PositionChartData', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(201);
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent('2023-11-14 22:13:20 UTC');
     const firstRow = within(table).getAllByRole('row')[1]!;
-    expect(within(firstRow).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['100', '103', '99', '102']);
+    expect(within(firstRow).getAllByRole('cell').map((cell) => cell.textContent))
+      .toEqual(['100', '103', '99', '102'].map((price) => price + ',0000000000'));
     for (const label of ['Цена входа', 'Безубыток', 'Stop Loss', 'Take Profit', 'Ликвидация', 'Поддержка', 'Сопротивление']) {
       expect(screen.getByRole('rowheader', { name: label })).toBeVisible();
     }

@@ -12,7 +12,10 @@ export function throwIfNetworkFailure(error: unknown, signal?: AbortSignal): voi
 const RECOVERY_RETRY_DELAYS_MS = [250, 500];
 
 // Обычные события объединяются; recovery освобождает ожидание отменённого GET.
-export function createInvalidationScheduler(read: (signal: AbortSignal) => Promise<void>): InvalidationScheduler {
+export function createInvalidationScheduler(
+  read: (signal: AbortSignal) => Promise<void>,
+  canInterruptForRetry: () => boolean = () => true,
+): InvalidationScheduler {
   let dirty = false;
   let running = false;
   let disposed = false;
@@ -66,6 +69,8 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
       cycle.retries += 1;
       recoveryPending = true;
       dirty = true;
+      // Явное чтение сохраняет право завершиться. Фоновый GET не удерживает очередь recovery.
+      if (canInterruptForRetry()) active?.abort();
       void drain();
     }, delay);
   }
@@ -102,6 +107,7 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
           }
         } finally {
           controller.signal.removeEventListener('abort', onAbort);
+          active = null;
         }
       }
     } finally {

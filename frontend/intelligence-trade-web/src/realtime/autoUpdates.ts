@@ -93,7 +93,7 @@ export function createAutoUpdates() {
           throwIfNetworkFailure(error, signal);
         },
       }).finally(finish);
-    });
+    }, () => activeRead?.explicit !== true);
     const silent = createInvalidationScheduler((signal) => read(signal, {
       kind: 'silent',
       apply: () => {},

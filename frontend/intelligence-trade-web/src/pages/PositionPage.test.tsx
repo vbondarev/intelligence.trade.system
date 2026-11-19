@@ -37,6 +37,7 @@ vi.mock('lightweight-charts', () => ({
   createChart: vi.fn(() => ({
     addSeries: () => ({
       setData: chart.setData,
+      applyOptions: () => {},
       createPriceLine: chart.createPriceLine,
       removePriceLine: chart.removePriceLine,
     }),

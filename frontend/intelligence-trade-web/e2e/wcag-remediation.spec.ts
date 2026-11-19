@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { candleFixture, candlesFixture } from '../src/test/positionFixtures';
+import { candleFixture, candlesFixture, marketFixture, positionFixture } from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 import { MAIN_ID, mockBusinessData, mockPositionPage, position } from './uiMock';
 
@@ -7,6 +7,29 @@ test('точные малые цены прокручиваются внутри
   await page.setViewportSize({ width: 320, height: 740 });
   await mockBusinessData(page);
   await mockPositionPage(page);
+  await page.addInitScript(() => {
+    const original = CanvasRenderingContext2D.prototype.fillText;
+    const paints = new Map<string, boolean>();
+    Object.defineProperty(window, 'chartPricePaints', { value: paints });
+    CanvasRenderingContext2D.prototype.fillText = function (label, x, y, maxWidth?) {
+      if (this.canvas.closest('.position-chart')) {
+        const pixelRatio = this.canvas.width / this.canvas.getBoundingClientRect().width;
+        paints.set(String(label), this.measureText(String(label)).width * pixelRatio <= this.canvas.width);
+      }
+      if (maxWidth === undefined) original.call(this, label, x, y);
+      else original.call(this, label, x, y, maxWidth);
+    };
+  });
+  await page.route('**/bff/me/positions/btc', (route) => route.fulfill({
+    json: positionFixture({
+      id: 'btc', averageEntryPrice: 3e-20, stopLoss: 2e-20, takeProfit: 4e-20,
+      breakEvenPrice: 3e-20, liquidationPrice: 1e-20, markPrice: 3e-20,
+    }),
+  }));
+  const market = marketFixture({ positionId: 'btc' });
+  await page.route('**/bff/me/positions/btc/market', (route) => route.fulfill({
+    json: { ...market, h1: { ...market.h1, support1: null, resistance1: null } },
+  }));
   await page.route('**/bff/me/positions/btc/candles?*', (route) => route.fulfill({
     json: candlesFixture('1h', [{
       ...candleFixture('2026-10-12T08:00:00Z'), open: 2e-20, high: 4e-20, low: 1e-20, close: 3e-20,
@@ -19,10 +42,50 @@ test('точные малые цены прокручиваются внутри
   const cells = region.getByRole('cell');
   const prefix = '0,' + '0'.repeat(19);
   await expect(cells).toHaveText(['2', '4', '1', '3'].map((digit) => prefix + digit));
+  const stopLossPrice = prefix + '2';
+  const stopLoss = page.getByRole('row', { name: /^Stop Loss/ }).getByRole('cell');
+  await expect(stopLoss).toHaveText(stopLossPrice);
+  await expect.poll(() => page.evaluate((label) => {
+    const { chartPricePaints } = window as unknown as { chartPricePaints: Map<string, boolean> };
+    return { painted: chartPricePaints.has('SL'), fits: chartPricePaints.get(label) };
+  }, stopLossPrice)).toEqual({ painted: true, fits: true });
   await region.focus();
   await region.press('ArrowRight');
   await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+test('поиск сохраняет фокус и восстанавливает символ при Back и Forward', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mockBusinessData(page);
+  await loginThroughLanding(page);
+  await expect(page.getByText(/^Realtime:/)).toBeHidden();
+  await page.getByRole('link', { name: 'Поиск позиций' }).click();
+  const input = page.getByRole('textbox', { name: 'Символ' });
+  const submit = page.getByRole('button', { name: 'Найти' });
+  const result = page.getByRole('region', { name: 'Текущие позиции' });
+  await input.fill('BTCUSDT');
+  await input.evaluate((node) => node.setAttribute('data-focus-probe', 'original'));
+  await expect(input).toHaveAttribute('data-focus-probe', 'original');
+  await input.press('Enter');
+  await expect(result.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute('data-focus-probe', 'original');
+  await page.keyboard.press('Tab');
+  await expect(submit).toBeFocused();
+
+  await input.fill('ETHUSDC');
+  await submit.press('Enter');
+  await expect(result.getByRole('link', { name: /^ETHUSDC/ })).toBeVisible();
+  await expect(submit).toBeFocused();
+
+  await page.goBack();
+  await expect(input).toHaveValue('BTCUSDT');
+  await expect(result.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+  await page.goForward();
+  await expect(input).toHaveValue('ETHUSDC');
+  await expect(result.getByRole('link', { name: /^ETHUSDC/ })).toBeVisible();
+  await expect(input).toHaveAttribute('data-focus-probe', 'original');
 });
 
 function contrast(left: string, right: string) {

@@ -50,6 +50,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('оставляет фокус и DOM поля после поиска с клавиатуры', async () => {
+  renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => results('BTCUSDT'),
+    '/bff/me/positions?symbol=ETHUSDT': () => results('ETHUSDT'),
+    '/bff/me/positions?trackingState=closed&symbol=ETHUSDT': empty,
+  });
+  const user = userEvent.setup();
+  const input = screen.getByRole('textbox', { name: 'Символ' });
+  await user.clear(input);
+  await user.type(input, 'ETHUSDT{Enter}');
+  expect(await screen.findByRole('link', { name: /^ETHUSDT/ })).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Символ' })).toBe(input);
+  expect(input).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole('button', { name: 'Найти' })).toHaveFocus();
+});
+
 it('отменяет запрос предыдущего символа и игнорирует его поздний ответ', async () => {
   let resolveOld!: (value: Response) => void;
   const late = new Promise<Response>((resolve) => { resolveOld = resolve; });

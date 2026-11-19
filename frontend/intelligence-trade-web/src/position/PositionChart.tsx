@@ -10,6 +10,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { ChartCandle, PriceLevel } from './positionChartAdapter';
+import { chartPriceScale, formatChartPrice } from './chartPriceFormat';
 
 interface PositionChartProps {
   candles: readonly ChartCandle[];
@@ -61,13 +62,12 @@ function restoreView(chart: IChartApi, snapshot: ViewSnapshot, revision: number)
 }
 
 const utc = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' });
-const priceFormat = new Intl.NumberFormat('ru-RU', { maximumSignificantDigits: 10 });
 
 function viewDescription(view: ChartView | null) {
   if (!view?.time) return 'Диапазон появится после загрузки свечей.';
   const { time, price, auto } = view;
   const dates = `${utc.format(time.from * 1000)} — ${utc.format(time.to * 1000)} UTC`;
-  const prices = price ? `Цены ${priceFormat.format(price.from)} — ${priceFormat.format(price.to)}.` : '';
+  const prices = price ? `Цены ${formatChartPrice(price.from)} — ${formatChartPrice(price.to)}.` : '';
   return `${dates}. ${prices} Автомасштаб цен ${auto ? 'включён' : 'выключен'}.`;
 }
 
@@ -80,6 +80,7 @@ export function PositionChart({ candles, levels, dataKey, label }: PositionChart
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const priceBase = useRef(100);
   const [view, setView] = useState<ChartView | null>(null);
   const [undo, setUndo] = useState<ViewSnapshot | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -118,7 +119,9 @@ export function PositionChart({ candles, levels, dataKey, label }: PositionChart
       localization: { locale: 'ru-RU' },
     });
     chartRef.current = chart;
+    priceBase.current = 100;
     seriesRef.current = chart.addSeries(CandlestickSeries, {
+      priceFormat: { type: 'custom', formatter: formatChartPrice, minMove: 0.01, base: 100 },
       upColor: COLORS.up,
       downColor: COLORS.down,
       wickUpColor: COLORS.up,
@@ -221,6 +224,19 @@ export function PositionChart({ candles, levels, dataKey, label }: PositionChart
       chart.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (series === null) return;
+    const prices = candles.flatMap(({ open, high, low, close }) => [open, high, low, close]);
+    prices.push(...levels.map(({ price }) => price));
+    const base = 10 ** chartPriceScale(prices);
+    if (priceBase.current !== base) {
+      series.applyOptions({ priceFormat: { type: 'custom', formatter: formatChartPrice, minMove: 1 / base, base } });
+      priceBase.current = base;
+      publish.current();
+    }
+  }, [candles, levels]);
 
   useEffect(() => {
     const series = seriesRef.current;

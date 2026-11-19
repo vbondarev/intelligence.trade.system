@@ -2,6 +2,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { createInvalidationScheduler, throwIfNetworkFailure } from './invalidationScheduler';
 
 describe('invalidation scheduler', () => {
+  it('повтор recovery вытесняет удерживаемый фоновый GET', async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    let release!: () => void;
+    const previous = new Promise<void>((resolve) => { release = resolve; });
+    const publish = vi.fn();
+    const read = vi.fn<(signal: AbortSignal) => Promise<void>>()
+      .mockRejectedValueOnce(new TypeError('network'))
+      .mockImplementationOnce(async (signal) => {
+        await previous;
+        if (!signal.aborted) publish('старый снимок');
+      })
+      .mockImplementationOnce(async () => { publish('восстановленный снимок'); });
+    const scheduler = createInvalidationScheduler(read);
+    try {
+      scheduler.recover();
+      await vi.advanceTimersByTimeAsync(20);
+      scheduler.invalidate();
+      const background = read.mock.calls[1]![0];
+      await vi.advanceTimersByTimeAsync(230);
+      expect(background.aborted).toBe(true);
+      expect(read).toHaveBeenCalledTimes(3);
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(publish.mock.calls).toEqual([['восстановленный снимок']]);
+    } finally {
+      release();
+      scheduler.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('восстанавливается после второго сетевого отказа и нового online', async () => {
     vi.useFakeTimers();
     let online = false;
