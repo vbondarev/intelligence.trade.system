@@ -323,6 +323,10 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await page.goto('/app/positions/btc');
 
     const history = page.getByRole('region', { name: 'История позиции' });
+    await expect(history).toBeVisible();
+    // Стартовый realtime recovery может заменить первый GET открытой истории.
+    await expect(page.getByText(/^Realtime:/)).toBeHidden();
+
     const visibleStatus = history.locator('.inline-status');
     const spinner = visibleStatus.locator('.spinner');
     const events = history.getByRole('list', { name: 'События истории позиции' });
