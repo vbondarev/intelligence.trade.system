@@ -87,3 +87,97 @@ it('читает REST при recovery на паузе и публикует но
   await screen.findByRole('link', { name: /^BTCUSDT.*61\s000/ });
   expect(updates.getSnapshot().mode).toBe('live');
 });
+
+it.each([false, true])('сохраняет ручную страницу при recovery, начатом заранее: %s', async (startedEarlier) => {
+  let firstReads = 0;
+  let replyOld!: (response: Response) => void;
+  let replyManual!: (response: Response) => void;
+  let replyFresh!: (response: Response) => void;
+  const old = new Promise<Response>((resolve) => { replyOld = resolve; });
+  const manual = new Promise<Response>((resolve) => { replyManual = resolve; });
+  const fresh = new Promise<Response>((resolve) => { replyFresh = resolve; });
+  const page = (price: number, cursor: string | null, id = 'position-1') => jsonResponse({
+    items: [positionFixture({ id, symbol: 'BTCUSDT', averageEntryPrice: price })],
+    hasMore: cursor !== null,
+    nextCursor: cursor,
+  });
+  const { requests, emit } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => {
+      firstReads += 1;
+      if (firstReads === 1) return page(60000, 'old');
+      if (startedEarlier && firstReads === 2) return old;
+      return page(62000, 'fresh');
+    },
+    '/bff/me/positions?symbol=BTCUSDT&cursor=old': () => manual,
+    '/bff/me/positions?symbol=BTCUSDT&cursor=fresh': () => fresh,
+  });
+  const user = userEvent.setup();
+  await screen.findByRole('link', { name: /^BTCUSDT.*60\s000/ });
+  if (startedEarlier) {
+    await act(async () => emit({ type: 'recovery' }));
+    expect(firstReads).toBe(2);
+  }
+
+  await user.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+  const pending = requests.find(({ url }) => url.endsWith('cursor=old'));
+  await act(async () => {
+    emit({ type: 'recovery' });
+    emit({ type: 'recovery' });
+    if (startedEarlier) replyOld(page(59000, 'unused'));
+  });
+  expect(firstReads).toBe(startedEarlier ? 2 : 1);
+  expect(pending?.init?.signal?.aborted).toBe(false);
+  expect(screen.getByRole('link', { name: /^BTCUSDT.*60\s000/ })).toBeVisible();
+
+  await act(async () => replyManual(page(61000, null, 'position-2')));
+  await screen.findByRole('link', { name: /^BTCUSDT.*61\s000/ });
+  await waitFor(() => expect(requests.filter(({ url }) => url.endsWith('cursor=fresh'))).toHaveLength(1));
+  expect(firstReads).toBe(startedEarlier ? 3 : 2);
+  await act(async () => replyFresh(page(63000, null, 'position-2')));
+  await screen.findByRole('link', { name: /^BTCUSDT.*63\s000/ });
+  expect(screen.getByRole('link', { name: /^BTCUSDT.*62\s000/ })).toBeVisible();
+  expect(screen.queryByRole('link', { name: /^BTCUSDT.*61\s000/ })).not.toBeInTheDocument();
+});
+
+it('сохраняет снимок на паузе при отказе REST и передаёт отказ проверке доступа', async () => {
+  let status = 200;
+  const { updates, emit } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => status === 200 ? results('BTCUSDT') : jsonResponse(null, status),
+  });
+  await screen.findByRole('link', { name: /^BTCUSDT.*60\s000/ });
+  const checkAccess = vi.fn();
+  updates.setAccessCheck(checkAccess);
+  act(() => updates.toggle());
+  for (const failure of [401, 403]) {
+    status = failure;
+    await act(async () => emit({ type: 'recovery' }));
+  }
+  expect(checkAccess).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('link', { name: /^BTCUSDT.*60\s000/ })).toBeVisible();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('отменяет ручной continuation и отложенный recovery при смене символа', async () => {
+  let replyManual!: (response: Response) => void;
+  const manual = new Promise<Response>((resolve) => { replyManual = resolve; });
+  const { emit, requests } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => jsonResponse({
+      items: [positionFixture({ symbol: 'BTCUSDT' })], hasMore: true, nextCursor: 'old',
+    }),
+    '/bff/me/positions?symbol=BTCUSDT&cursor=old': () => manual,
+    '/bff/me/positions?symbol=ETHUSDT': () => results('ETHUSDT'),
+    '/bff/me/positions?trackingState=closed&symbol=ETHUSDT': empty,
+  });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Загрузить ещё' }));
+  await act(async () => emit({ type: 'recovery' }));
+  const symbol = screen.getByLabelText('Символ');
+  await user.clear(symbol);
+  await user.type(symbol, 'ETHUSDT');
+  await user.click(screen.getByRole('button', { name: 'Найти' }));
+  await screen.findByRole('link', { name: /^ETHUSDT/ });
+  expect(requests.find(({ url }) => url.endsWith('cursor=old'))?.init?.signal?.aborted).toBe(true);
+  await act(async () => replyManual(results('BTCUSDT', 64000)));
+  expect(requests.filter(({ url }) => url === '/bff/me/positions?symbol=BTCUSDT')).toHaveLength(1);
+  expect(screen.queryByRole('link', { name: /^BTCUSDT/ })).not.toBeInTheDocument();
+});

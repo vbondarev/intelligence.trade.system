@@ -1,11 +1,22 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace Intelligence.TradeSystem.Api.Tests;
 
 public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 {
     private static readonly byte[] TestCredentialKey = new byte[32];
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        // Настройка должна попасть в аргументы Program до регистрации JSON providers.
+        builder.ConfigureHostConfiguration(configuration =>
+            configuration.AddInMemoryCollection(
+                [new KeyValuePair<string, string?>("hostBuilder:reloadConfigOnChange", "false")]));
+        return base.CreateHost(builder);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

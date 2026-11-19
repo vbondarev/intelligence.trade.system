@@ -8,6 +8,7 @@ set -euo pipefail
 
 compose=(docker compose -f backend/compose.yaml)
 local_origin="http://localhost:8082"
+identity_origin="http://localhost:8081"
 tls_container="intelligence-trade-web-tls-smoke"
 tls_port="18082"
 public_host="trade.example.com"
@@ -18,37 +19,59 @@ cleanup() {
 
 trap cleanup EXIT
 
-login_redirect_uri() {
-  local url="$1"
-  shift
-  local headers
-  headers="$(curl --silent --show-error --max-redirs 0 -D - -o /dev/null "$@" "$url/bff/auth/login?returnUrl=/app")"
-  local location
-  location="$(awk 'BEGIN { IGNORECASE = 1 } /^Location:/ {
-    sub(/\r$/, "")
-    sub(/^[^:]+:[[:space:]]*/, "")
-    print
-    exit
-  }' <<< "$headers")"
-  [[ -n "$location" ]] || {
-    echo "BFF login не вернул redirect на Identity: $url" >&2
-    printf '%s\n' "$headers" >&2
-    return 1
-  }
-  python3 -c 'from urllib.parse import parse_qs, urlsplit; import sys; print(parse_qs(urlsplit(sys.argv[1]).query)["redirect_uri"][0])' "$location"
+verify_login_response() {
+  python3 -c '
+import sys
+from email.parser import Parser
+from urllib.parse import parse_qs, urlsplit
+
+description, stage, origin, callback = sys.argv[1:]
+status_line, _, fields = sys.stdin.read().partition("\n")
+headers = Parser().parsestr(fields)
+status = status_line.split()[1:2]
+status_display = status[0] if status else "не определён"
+
+def check(condition, field):
+    if not condition:
+        sys.exit(f"{description} ({stage}): {field}, HTTP {status_display}.")
+
+check(status == ["302"], "ожидался redirect")
+locations = headers.get_all("Location", [])
+check(len(locations) == 1, "ожидался один Location")
+try:
+    location = urlsplit(locations[0])
+    expected_origin = urlsplit(origin)
+except ValueError:
+    sys.exit(f"{description} ({stage}): некорректный адрес редиректа.")
+check((location.scheme, location.netloc) == (expected_origin.scheme, expected_origin.netloc),
+      "неожиданный origin Identity")
+query = parse_qs(location.query, keep_blank_values=True)
+
+if stage == "prepare":
+    check(location.path == "/account/web-login", "неожиданный путь подготовки входа")
+    check(query.get("returnUrl") == ["/app"], "неожиданный returnUrl")
+    check("redirect_uri" not in query, "OIDC challenge создан до входа")
+    names = [cookie.split("=", 1)[0].lower() for cookie in headers.get_all("Set-Cookie", [])]
+    check(not any("correlation" in name or "nonce" in name for name in names),
+          "OIDC cookies созданы до входа")
+else:
+    check(location.path == "/connect/authorize", "неожиданный путь OIDC challenge")
+    check(query.get("prompt") == ["none"], "ожидался prompt=none")
+    check(query.get("redirect_uri") == [callback], "неожиданный redirect_uri")
+' "$@"
 }
 
 expect_redirect_uri() {
   local description="$1"
   local expected="$2"
-  shift 2
-  local actual
-  actual="$(login_redirect_uri "$@")"
-  if [[ "$actual" != "$expected" ]]; then
-    echo "$description: redirect_uri=$actual, ожидался $expected." >&2
-    exit 1
-  fi
-  echo "ok: $description → $actual"
+  local url="$3"
+  shift 3
+  local headers
+  headers="$(curl --silent --show-error -D - -o /dev/null "$@" "$url/bff/auth/login?returnUrl=/app")"
+  verify_login_response "$description" prepare "$identity_origin" "$expected" <<< "$headers"
+  headers="$(curl --silent --show-error -D - -o /dev/null "$@" "$url/bff/auth/login/continue?returnUrl=/app")"
+  verify_login_response "$description" challenge "$identity_origin" "$expected" <<< "$headers"
+  echo "ok: $description → $expected"
 }
 
 expect_redirect_uri "local PUBLIC_SCHEME=http" \

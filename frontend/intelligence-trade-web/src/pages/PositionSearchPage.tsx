@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { listConnections } from '../connections/connectionsApi';
 import { PositionCards } from '../portfolio/PositionsSection';
 import { listPositions, PortfolioApiError } from '../portfolio/portfolioApi';
-import type { PositionPage } from '../portfolio/portfolioTypes';
+import type { PositionListQuery, PositionPage } from '../portfolio/portfolioTypes';
 import type { ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
@@ -17,8 +17,11 @@ export function PositionSearchPage() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const term = String(new FormData(event.currentTarget).get('symbol') ?? '').trim();
-    setParams(term ? { symbol: term } : {});
-    setAttempt((value) => value + 1);
+    if (term === (params.get('symbol') ?? '')) {
+      setAttempt((value) => value + 1);
+    } else {
+      setParams(term ? { symbol: term } : {});
+    }
   }
 
   return (
@@ -84,20 +87,42 @@ function ResultGroup({ symbol, accounts, closed }: {
   const [loadingMore, setLoadingMore] = useState(false);
   const reader = useRef<ScreenReader | null>(null);
   const pagination = useRef<AbortController | null>(null);
+  const snapshot = useRef<SearchSnapshot | null>(null);
+  const deferred = useRef<'invalidate' | 'recover' | null>(null);
 
   useEffect(() => {
     const scheduler = updates.createReader(async (signal, view) => {
+      const startingSnapshot = snapshot.current;
+      const manualAtStart = pagination.current !== null;
+      function deferLiveCommit() {
+        if (view.kind !== 'live') return false;
+        if (!manualAtStart && !pagination.current && snapshot.current === startingSnapshot) return false;
+        deferred.current = 'recover';
+        // Если ручной запрос уже завершился, перечитываем сразу через текущий scheduler.
+        if (!pagination.current) {
+          deferred.current = null;
+          reader.current?.recover();
+        }
+        return true;
+      }
       try {
-        const next = await listPositions({ symbol, trackingState: closed ? 'closed' : undefined }, signal);
+        const query = { symbol, trackingState: closed ? 'closed' as const : undefined };
+        const pageCount = view.kind === 'silent' ? 1 : startingSnapshot?.pageCount ?? 1;
+        const next = await readSearchSnapshot(query, pageCount, signal);
         if (!signal.aborted) view.apply(() => {
+          if (deferLiveCommit()) return;
           pagination.current?.abort();
           pagination.current = null;
+          deferred.current = null;
+          snapshot.current = next;
           setLoadingMore(false);
           setError('');
-          setResult(next);
+          setResult(next.page);
         });
       } catch (failure) {
-        if (!signal.aborted) view.fail(failure, () => setError(searchError(failure)));
+        if (!signal.aborted) view.fail(failure, () => {
+          if (!deferLiveCommit()) setError(searchError(failure));
+        });
       }
     });
     reader.current = scheduler;
@@ -107,27 +132,37 @@ function ResultGroup({ symbol, accounts, closed }: {
       scheduler.dispose();
       pagination.current?.abort();
       pagination.current = null;
+      deferred.current = null;
     };
   }, [closed, symbol, updates]);
 
   useRealtimeInvalidation((event) => {
-    if (event.type === 'recovery') reader.current?.recover();
-    if (event.type === 'position.updated') reader.current?.invalidate();
+    if (event.type !== 'recovery' && event.type !== 'position.updated') return;
+    const action = event.type === 'recovery' ? 'recover' : 'invalidate';
+    if (updates.isLive() && pagination.current) {
+      deferred.current = deferred.current === 'recover' ? 'recover' : action;
+    } else {
+      reader.current?.[action]();
+    }
   });
 
   async function loadMore() {
-    if (!result?.nextCursor || pagination.current) return;
+    const current = snapshot.current;
+    const cursor = current?.page.nextCursor;
+    if (!current || !cursor || pagination.current) return;
+    updates.cancelResume();
     const request = new AbortController();
     pagination.current = request;
     setLoadingMore(true);
     setError('');
     try {
       const next = await listPositions({
-        symbol, trackingState: closed ? 'closed' : undefined, cursor: result.nextCursor,
+        symbol, trackingState: closed ? 'closed' : undefined, cursor,
       }, request.signal);
-      if (!request.signal.aborted) {
-        const ids = new Set(result.items.map(({ id }) => id));
-        setResult({ ...next, items: [...result.items, ...next.items.filter(({ id }) => !ids.has(id))] });
+      if (!request.signal.aborted && snapshot.current === current) {
+        const appended = appendSearchPage(current, cursor, next);
+        snapshot.current = appended;
+        setResult(appended.page);
       }
     } catch (failure) {
       if (!request.signal.aborted) setError(searchError(failure));
@@ -135,6 +170,9 @@ function ResultGroup({ symbol, accounts, closed }: {
       if (pagination.current === request) {
         pagination.current = null;
         setLoadingMore(false);
+        const action = deferred.current;
+        deferred.current = null;
+        if (action) reader.current?.[action]();
       }
     }
   }
@@ -160,6 +198,37 @@ function ResultGroup({ symbol, accounts, closed }: {
       )}
     </section>
   );
+}
+
+interface SearchSnapshot {
+  page: PositionPage;
+  pageCount: number;
+  usedCursors: ReadonlySet<string>;
+}
+
+function appendSearchPage(current: SearchSnapshot, cursor: string, next: PositionPage): SearchSnapshot {
+  const usedCursors = new Set(current.usedCursors).add(cursor);
+  const ids = new Set(current.page.items.map(({ id }) => id));
+  const items = [...current.page.items];
+  for (const item of next.items) {
+    if (ids.has(item.id)) continue;
+    ids.add(item.id);
+    items.push(item);
+  }
+  const nextCursor = next.hasMore && next.nextCursor && !usedCursors.has(next.nextCursor)
+    ? next.nextCursor
+    : null;
+  return { page: { items, nextCursor, hasMore: nextCursor !== null }, pageCount: current.pageCount + 1, usedCursors };
+}
+
+async function readSearchSnapshot(query: PositionListQuery, pageCount: number, signal: AbortSignal): Promise<SearchSnapshot> {
+  let result: SearchSnapshot = { page: await listPositions(query, signal), pageCount: 1, usedCursors: new Set() };
+  while (result.pageCount < pageCount && result.page.hasMore && result.page.nextCursor) {
+    signal.throwIfAborted();
+    const cursor = result.page.nextCursor;
+    result = appendSearchPage(result, cursor, await listPositions({ ...query, cursor }, signal));
+  }
+  return result;
 }
 
 function searchError(error: unknown) {

@@ -18,6 +18,8 @@ using Intelligence.TradeSystem.Infrastructure.Security;
 using Intelligence.TradeSystem.Api.Realtime.V1;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Intelligence.TradeSystem.Api.Tests;
@@ -29,6 +31,23 @@ public sealed class CompositionRootSmokeTests : IClassFixture<ApiWebApplicationF
     public CompositionRootSmokeTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
+    }
+
+    [Fact]
+    public async Task Derived_Test_Host_Loads_Default_Json_Without_File_Watchers()
+    {
+        using var factory = _factory.WithWebHostBuilder(_ => { });
+        using var client = factory.CreateClient();
+        var configuration = factory.Services.GetRequiredService<IConfiguration>()
+            .Should().BeAssignableTo<IConfigurationRoot>().Subject;
+        var providers = configuration.Providers.OfType<JsonConfigurationProvider>()
+            .Where(provider => provider.Source.Path?.StartsWith("appsettings", StringComparison.Ordinal) == true)
+            .ToArray();
+
+        providers.Should().Contain(provider => provider.Source.Path == "appsettings.json");
+        providers.Should().OnlyContain(provider => !provider.Source.ReloadOnChange);
+        using var response = await client.GetAsync("/alive");
+        response.IsSuccessStatusCode.Should().BeTrue();
     }
 
     [Fact]

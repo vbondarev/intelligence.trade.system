@@ -10,7 +10,11 @@ const CHANNEL = 'trade-bff-session-timing';
 
 type Deadline = { kind: 'unknown' | 'active' | 'expired' } | { kind: 'warning'; expiresAt: number };
 
-export function SessionDeadline({ onLogin, onExpired }: { onLogin: () => void; onExpired?: () => void }) {
+export function SessionDeadline({ onLogin, onExpired, onRestored }: {
+  onLogin: () => void;
+  onExpired: () => void;
+  onRestored: () => void;
+}) {
   const [deadline, setDeadline] = useState<Deadline>({ kind: 'unknown' });
   const [dismissed, setDismissed] = useState<number>();
   const [extending, setExtending] = useState(false);
@@ -23,13 +27,21 @@ export function SessionDeadline({ onLogin, onExpired }: { onLogin: () => void; o
     let timer: number | undefined;
     let checking: AbortController | undefined;
     let actionPending = false;
+    let observedExpiry = false;
+    let restoring = false;
     let lastTiming: { expiresAt: number; deadline: number } | undefined;
 
     function apply(timing: SessionTiming | null) {
       if (timing === null) {
+        observedExpiry = true;
         lastTiming = undefined;
         setDeadline({ kind: 'expired' });
-        onExpired?.();
+        onExpired();
+        return;
+      }
+      if (observedExpiry) {
+        restoring = true;
+        onRestored();
         return;
       }
 
@@ -45,7 +57,7 @@ export function SessionDeadline({ onLogin, onExpired }: { onLogin: () => void; o
     }
 
     function refresh() {
-      if (lifetime.signal.aborted || actionPending || checking || document.visibilityState === 'hidden') return;
+      if (lifetime.signal.aborted || restoring || actionPending || checking || document.visibilityState === 'hidden') return;
       window.clearTimeout(timer);
       const current = new AbortController();
       checking = current;
@@ -112,7 +124,7 @@ export function SessionDeadline({ onLogin, onExpired }: { onLogin: () => void; o
       window.removeEventListener('pageshow', refresh);
       window.removeEventListener('online', refresh);
     };
-  }, [onExpired]);
+  }, [onExpired, onRestored]);
 
   const expired = deadline.kind === 'expired';
   const warning = deadline.kind === 'warning';

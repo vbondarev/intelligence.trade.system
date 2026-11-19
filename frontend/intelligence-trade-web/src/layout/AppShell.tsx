@@ -37,7 +37,7 @@ function DataUpdatesShell() {
 }
 
 function AuthenticatedShell() {
-  const { user, error, login, logout } = useAuth();
+  const { user, error, login, logout, retry } = useAuth();
   const realtime = useRealtime();
   const updates = useAutoUpdates();
   const { mode, announcement } = useAutoUpdateState();
@@ -89,7 +89,7 @@ function AuthenticatedShell() {
         </NavLink>
       </nav>
       <main ref={mainRef} id="main-content" className="app-main" tabIndex={-1}>
-        {user && <SessionDeadline onLogin={login} onExpired={hideUserData} />}
+        {user && <SessionDeadline onLogin={login} onExpired={hideUserData} onRestored={retry} />}
         {!sessionEnded && (
           <div className="auto-updates">
             <button type="button" className="button button-secondary" aria-disabled={mode === 'resuming' || undefined} onClick={updates.toggle}>

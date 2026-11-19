@@ -77,4 +77,4 @@
 
 ## Граница приёмки
 
-Статус Issue остаётся `BLOCKED_BY_VERIFICATION`. Пока Windows WebKit отправляет session cookie при cross-site запросе, IMP-01, AC-13 и IMP-07 не могут быть отмечены успешными; READY_FOR_EXTERNAL_REVIEW и merge запрещены. Серверная защита происхождения запросов не утверждена и не включена в этот этап. Изменение gate потребует отдельного Human Gate и Amendment.
+Статус приёмки остаётся `BLOCKED_BY_VERIFICATION`. Известный FAIL Windows WebKit оставляет IMP-01, AC-13 и IMP-07 открытыми. [Amendment о раннем merge](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-7009165810) допускает внешнее ревью при этом FAIL. Слияние возможно только в `develop` после успешного обязательного CI, всех шести realtime recovery E2E на итоговом head, завершённого ревью и отдельного Human Merge Gate. Релиз и закрытие #225 заблокированы до PASS обязательного Windows gate на официальной сборке в [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226) и выполнения остальных критериев IMP-07.

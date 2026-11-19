@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { loginThroughLanding } from './support';
+import { IDENTITY_COOKIE, loginThroughLanding, SESSION_COOKIE } from './support';
 
 const timingPath = '**/bff/auth/session/timing';
 const serverTime = Date.UTC(2026, 10, 17);
@@ -81,4 +81,32 @@ test('сбой продления оставляет предупреждени�
   await expect(ended.getByRole('button', { name: 'Продлить сессию' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Обзор' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Возобновить автообновление' })).toHaveCount(0);
+});
+
+test('повторный вход в другой вкладке восстанавливает исходный маршрут', async ({ page, context }) => {
+  await loginThroughLanding(page);
+  const path = '/app/settings/connections';
+  await page.goto(path);
+  const heading = page.getByRole('heading', { name: 'Подключения', level: 1 });
+  await expect(heading).toBeVisible();
+
+  await page.route(timingPath, (route) => route.fulfill({ status: 401 }));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('dialog', { name: 'Сессия завершена' })).toBeVisible();
+  await expect(heading).toHaveCount(0);
+
+  await context.clearCookies({ name: SESSION_COOKIE });
+  await context.clearCookies({ name: IDENTITY_COOKIE });
+  const other = await context.newPage();
+  await loginThroughLanding(other);
+  await page.unroute(timingPath);
+  const accountRead = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/bff/me/exchange-accounts' && response.ok(),
+  );
+  await page.bringToFront();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await accountRead;
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
+  await expect(heading).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Сессия завершена' })).toBeHidden();
 });

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -64,6 +64,64 @@ describe('App routing and session bootstrap', () => {
     expect(screen.getByRole('button', { name: 'Выйти' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Обзор' })).toHaveAttribute('href', '/app');
   });
+
+  it.each(['authenticated', 'anonymous', 'failed'] as const)(
+    'повторно проверяет сессию после истечения: %s',
+    async (outcome) => {
+      let timingExpired = false;
+      let verifyAuthPending = false;
+      let completeAuth!: (response: Response) => void;
+      let failAuth!: (error: Error) => void;
+      const pendingAuth = new Promise<Response>((resolve, reject) => {
+        completeAuth = resolve;
+        failAuth = reject;
+      });
+      const requests = mockFetch({
+        ...noConnections,
+        '/bff/auth/session': () => verifyAuthPending ? pendingAuth : jsonResponse(authenticatedSession),
+        '/bff/auth/session/timing': () => timingExpired
+          ? jsonResponse(null, 401)
+          : jsonResponse({ serverTimeUtc: '2026-11-19T12:00:00Z', expiresAtUtc: '2026-11-19T12:30:00Z' }),
+      });
+      const reads = () => requests.filter(({ url }) => url === '/bff/me/exchange-accounts').length;
+      renderAt('/app/settings/connections');
+      await screen.findByRole('heading', { name: 'Подключения' });
+      await waitFor(() => expect(reads()).toBeGreaterThan(0));
+      const initialReads = reads();
+
+      timingExpired = true;
+      await act(async () => { window.dispatchEvent(new Event('focus')); });
+      await screen.findByRole('dialog', { name: 'Сессия завершена' });
+      expect(screen.queryByRole('heading', { name: 'Подключения' })).not.toBeInTheDocument();
+
+      timingExpired = false;
+      // Новый timing действителен, но auth boundary ещё должна проверить идентичность.
+      const nextSession = requests.filter(({ url }) => url === '/bff/auth/session').length;
+      verifyAuthPending = true;
+      await act(async () => { window.dispatchEvent(new Event('focus')); });
+      await waitFor(() => expect(requests.filter(({ url }) => url === '/bff/auth/session').length).toBe(nextSession + 1));
+      expect(screen.getByRole('status')).toHaveTextContent('Проверяем сессию');
+      expect(reads()).toBe(initialReads);
+
+      await act(async () => {
+        if (outcome === 'failed') failAuth(new Error('Сеть недоступна'));
+        else completeAuth(jsonResponse(outcome === 'authenticated' ? authenticatedSession : { authenticated: false }));
+      });
+      if (outcome === 'authenticated') {
+        await screen.findByRole('heading', { name: 'Подключения' });
+        await waitFor(() => expect(reads()).toBeGreaterThan(initialReads));
+      } else {
+        if (outcome === 'failed') {
+          expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось проверить сессию');
+          expect(screen.getByRole('button', { name: 'Повторить' })).toBeVisible();
+        } else {
+          await screen.findByRole('button', { name: 'Войти' });
+        }
+        expect(screen.queryByRole('heading', { name: 'Подключения' })).not.toBeInTheDocument();
+        expect(reads()).toBe(initialReads);
+      }
+    },
+  );
 
   it('moves an authenticated visitor from the landing to /app', async () => {
     mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
