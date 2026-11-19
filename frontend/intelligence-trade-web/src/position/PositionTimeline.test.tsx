@@ -121,7 +121,7 @@ describe('PositionTimeline lazy loading', () => {
     expect(within(articles[2]!).getByRole('heading', { level: 3 })).toHaveTextContent(/Размер позиции уменьшился: 0,3\s→\s0,1/);
     expect(within(articles[2]!).getByText('Изменение позиции')).toBeVisible();
     expect(articles[0]!.querySelector('time')).toHaveAttribute('dateTime', TIMELINE_RECOMMENDATION.occurredAt);
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('');
   });
 
   it('keeps the loaded history when the block is closed and reopened without a new request', async () => {
@@ -493,10 +493,15 @@ describe('PositionTimeline refresh', () => {
     await userEvent.click(toggle());
     await findEvents(3);
 
+    const refreshStatus = screen.getByRole('status');
+    expect(refreshStatus).toHaveTextContent('');
     await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Обновляем историю…');
+    expect(screen.getByRole('status')).toBe(refreshStatus);
+    expect(refreshStatus).toHaveTextContent('Обновляем историю…');
+    expect(screen.getByText('Обновляем историю…', { selector: '.inline-status' })).toHaveAttribute('aria-hidden', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
     await findEvents(1);
+    expect(refreshStatus).toHaveTextContent('');
     slow.resolve(jsonResponse(firstTimelinePage(null)));
     await settle();
 
@@ -733,8 +738,10 @@ describe('PositionTimeline закрытие во время realtime refresh', (
     await findEvents(3);
     await userEvent.click(filter('Изменения позиции'));
     await findEvents(1);
+    const manualStatus = screen.getByRole('status');
     act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
     await waitFor(() => expect(requests).toHaveLength(3));
+    expect(manualStatus).toHaveTextContent('');
     act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
     await userEvent.click(toggle());
     await act(async () => slow.resolve(jsonResponse(emptyTimelinePage())));

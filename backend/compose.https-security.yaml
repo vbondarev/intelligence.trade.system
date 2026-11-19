@@ -1,0 +1,38 @@
+# Test-only overlay. All ports, names, storage and the forwarded-header trust network
+# belong to a separate Compose project; never apply it to a production deployment.
+services:
+  api:
+    container_name: issue225-security-api
+    ports: !override []
+    environment:
+      - Authentication__Issuer=https://localtest.me:18995
+  identity:
+    container_name: issue225-security-identity
+    ports: !override
+      - "127.0.0.1:18443:8443"
+    volumes:
+      - ${SECURITY_CERT_DIR:?Set SECURITY_CERT_DIR}:/security-cert:ro
+    environment:
+      - ASPNETCORE_URLS=http://+:8080;https://+:8443
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/security-cert/identity.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=isolated-test-only
+      - Identity__Issuer=https://localtest.me:18995
+      - Identity__WebBffClient__RedirectUris__0=https://localtest.me:18994/signin-oidc
+      - Identity__WebBffClient__PostLogoutRedirectUris__0=https://localtest.me:18994/signout-callback-oidc
+  bff:
+    container_name: issue225-security-bff
+    environment:
+      - Bff__Oidc__Authority=https://localtest.me:18995
+      - Bff__ForwardedHeaders__KnownNetworks__0=172.29.227.0/24
+  frontend:
+    container_name: issue225-security-web
+    ports: !override
+      - "127.0.0.1:18082:8080"
+    environment:
+      - PUBLIC_SCHEME=https
+networks:
+  trade-agent-network:
+    name: issue225-security-network
+    ipam:
+      config: !override
+        - subnet: 172.29.227.0/24

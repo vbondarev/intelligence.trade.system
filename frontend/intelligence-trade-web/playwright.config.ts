@@ -15,5 +15,8 @@ export default defineConfig({
     video: 'off',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium' }],
+  projects: [
+    { name: 'chromium' },
+    { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
+  ],
 });

@@ -68,7 +68,7 @@ export async function listPositions(query: PositionListQuery, signal?: AbortSign
 /** Строит URL с фиксированным порядком параметров; незаданные фильтры не передаются. */
 export function positionsUrl(query: PositionListQuery): string {
   const params = new URLSearchParams();
-  params.set('exchangeAccountId', query.exchangeAccountId);
+  if (query.exchangeAccountId !== undefined) params.set('exchangeAccountId', query.exchangeAccountId);
   if (query.trackingState !== undefined) {
     params.set('trackingState', query.trackingState);
   }
@@ -85,7 +85,7 @@ export function positionsUrl(query: PositionListQuery): string {
     params.set('cursor', query.cursor);
   }
 
-  return `${POSITIONS_URL}?${params.toString()}`;
+  return params.size > 0 ? `${POSITIONS_URL}?${params.toString()}` : POSITIONS_URL;
 }
 
 async function get(url: string, signal?: AbortSignal): Promise<Response> {

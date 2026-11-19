@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { PositionApiError, TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
 import { PositionTimelineItem } from './PositionTimelineItem';
@@ -114,10 +115,12 @@ function appendUnique(current: readonly TimelineItem[], page: readonly TimelineI
  * блок не запускает.
  */
 export function PositionTimeline({ positionId, settlementAsset, onLogin }: PositionTimelineProps) {
+  const updates = useAutoUpdates();
   const titleId = useId();
   const contentId = useId();
   const filterHintId = useId();
   const [state, setState] = useState<TimelineState>(INITIAL_STATE);
+  const [manualLoadStatus, setManualLoadStatus] = useState('');
   // После завершения сессии доступ восстанавливает только повторный вход: ни одна команда
   // блока больше не отправляет timeline-запрос.
   const sessionEnded = state.error?.notice.sessionEnded === true;
@@ -129,7 +132,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const stateRef = useRef(state);
-  const realtimeRead = useRef<InvalidationScheduler | null>(null);
+  const realtimeRead = useRef<ScreenReader | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
 
   useEffect(
@@ -149,7 +152,30 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
   // Ответ применяется, только если запрос не отменён и его поколение осталось текущим:
   // одной отмены недостаточно для защиты от уже начатого разбора ответа.
-  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null, schedulerSignal?: AbortSignal): Promise<void> => {
+  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null, schedulerSignal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    if (view.kind === 'silent' || view.kind === 'resume') {
+      const version = generation.current;
+      const isCurrent = () => isOpenRef.current && generation.current === version && !schedulerSignal?.aborted;
+      return getPositionTimeline(positionId, { types, cursor }, schedulerSignal).then(
+        (page) => view.apply(() => {
+          if (!isCurrent()) return;
+          cancelActive();
+          appliedInvalidationVersion.current = invalidationVersion.current;
+          setManualLoadStatus('');
+          setState((current) => applyPage(current, phase, cursor, page));
+        }),
+        (error: unknown) => {
+          if (!isCurrent()) return;
+          view.fail(error, () => {
+            if (!isCurrent()) return;
+            cancelActive();
+            setManualLoadStatus('');
+            setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
+          });
+        },
+      );
+    }
+
     cancelActive();
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort();
@@ -165,13 +191,15 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       inFlight.current = false;
     };
 
-    setState((current) => ({
-      ...current,
-      pending: phase,
-      error: null,
-      // Cursor прежнего поколения не комбинируется со страницами нового.
-      ...(phase === 'more' ? {} : { nextCursor: null, hasMore: false }),
-    }));
+    if (view.kind === 'explicit') {
+      setState((current) => ({
+        ...current,
+        pending: phase,
+        error: null,
+        // Cursor прежнего поколения не комбинируется со страницами нового.
+        ...(phase === 'more' ? {} : { nextCursor: null, hasMore: false }),
+      }));
+    }
 
     return getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
       (page) => {
@@ -180,10 +208,13 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         }
 
         finish();
-        if (phase !== 'more') {
-          appliedInvalidationVersion.current = Math.max(appliedInvalidationVersion.current, requestInvalidationVersion);
-        }
-        setState((current) => applyPage(current, phase, cursor, page));
+        view.apply(() => {
+          setManualLoadStatus('');
+          if (phase !== 'more') {
+            appliedInvalidationVersion.current = Math.max(appliedInvalidationVersion.current, requestInvalidationVersion);
+          }
+          setState((current) => applyPage(current, phase, cursor, page));
+        });
       },
       (error: unknown) => {
         if (!isCurrent()) {
@@ -191,20 +222,23 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         }
 
         finish();
-        setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
+        view.fail(error, () => {
+          setManualLoadStatus('');
+          setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
+        });
       },
     ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
   }, [cancelActive, positionId]);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => {
+    const scheduler = updates.createReader((signal, view) => {
       const current = stateRef.current;
       if (!isOpenRef.current || current.error?.notice.sessionEnded === true) return Promise.resolve();
-      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal);
+      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal, view);
     });
     realtimeRead.current = scheduler;
     return () => { realtimeRead.current = null; scheduler.dispose(); };
-  }, [load]);
+  }, [load, updates]);
 
   useRealtimeInvalidation((event) => {
     if (sessionEnded || !(event.type === 'recovery'
@@ -212,15 +246,17 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     invalidationVersion.current += 1;
     if (!isOpenRef.current) return;
     if (event.type === 'recovery') {
-      generation.current += 1;
+      if (updates.isLive()) generation.current += 1;
       realtimeRead.current?.recover();
     } else realtimeRead.current?.invalidate();
   });
 
   const handleToggleOpen = () => {
+    updates.cancelResume();
     if (isOpenRef.current) {
       isOpenRef.current = false;
       cancelActive();
+      setManualLoadStatus('');
       realtimeRead.current?.recover();
       setState((current) => ({ ...current, isOpen: false, pending: null }));
       return;
@@ -230,7 +266,8 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     setState((current) => ({ ...current, isOpen: true }));
     if ((!state.hasLoaded || invalidationVersion.current > appliedInvalidationVersion.current)
       && state.error?.notice.canRetry !== false) {
-      realtimeRead.current?.recover();
+      setManualLoadStatus(state.hasLoaded ? 'Обновляем историю…' : 'Загружаем историю…');
+      realtimeRead.current?.refresh();
     }
   };
 
@@ -243,7 +280,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     const nextTypes = TIMELINE_ITEM_TYPES.filter((candidate) =>
       candidate === type ? !selected : state.selectedTypes.includes(candidate),
     );
+    updates.cancelResume();
     cancelActive();
+    setManualLoadStatus('');
     setState((current) => ({
       ...current,
       selectedTypes: nextTypes,
@@ -255,6 +294,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       error: null,
     }));
     if (state.isOpen) {
+      setManualLoadStatus('Загружаем историю…');
       load('initial', nextTypes, null);
     }
   };
@@ -264,14 +304,18 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       return;
     }
 
+    updates.cancelResume();
+    setManualLoadStatus(state.hasLoaded ? 'Обновляем историю…' : 'Загружаем историю…');
     load(state.hasLoaded ? 'refresh' : 'initial', state.selectedTypes, null);
   };
 
   const handleShowMore = () => {
-    if (inFlight.current || state.nextCursor === null) {
+    if ((inFlight.current && updates.isLive()) || state.pending !== null || state.nextCursor === null) {
       return;
     }
 
+    updates.cancelResume();
+    setManualLoadStatus('Загружаем продолжение истории…');
     load('more', state.selectedTypes, state.nextCursor);
   };
 
@@ -288,6 +332,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
   return (
     <section className="panel position-timeline" aria-labelledby={titleId}>
+      <p className="screen-reader-only" role="status" aria-atomic="true">{manualLoadStatus}</p>
       <header className="position-timeline-header">
         <h2 id={titleId} className="section-title">
           <button
@@ -329,7 +374,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         </fieldset>
 
         {(pending === 'initial' || pending === 'refresh') && (
-          <p className="inline-status" role="status">
+          <p className="inline-status" aria-hidden="true">
             <span className="spinner" aria-hidden="true" />
             {pending === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…'}
           </p>
@@ -361,7 +406,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         )}
 
         {pending === 'more' && (
-          <p className="inline-status" role="status">
+          <p className="inline-status" aria-hidden="true">
             <span className="spinner" aria-hidden="true" />
             Загружаем продолжение истории…
           </p>

@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import { loginThroughLanding } from './support';
 
 declare global {
-  interface Window { __realtimeTestSocket?: WebSocket; __realtimePageMarker?: string }
+  interface Window { __realtimeTestSocket?: WebSocket; __realtimePageMarker?: string; __realtimeOnlineAt?: number }
 }
 
 const enabled = process.env.REALTIME_E2E_ENABLED === 'true';
@@ -46,6 +46,13 @@ test('persisted outbox update and missed event recover through the browser', asy
 
   await loginThroughLanding(page);
   await expect.poll(() => readyCount, { timeout: 20000 }).toBeGreaterThan(0);
+  const readyBeforeExtension = readyCount;
+  const antiforgery = await page.request.get('/bff/auth/antiforgery');
+  expect(antiforgery.ok()).toBe(true);
+  const { requestToken } = await antiforgery.json() as { requestToken: string };
+  const extension = await page.request.post('/bff/auth/session/extend', { headers: { 'X-CSRF-TOKEN': requestToken } });
+  expect(extension.ok()).toBe(true);
+  expect(readyCount).toBe(readyBeforeExtension);
   const userId = await page.evaluate(async () => {
     const session = await (await fetch('/bff/auth/session', { credentials: 'same-origin' })).json() as { user: { userId: string } };
     return session.user.userId;
@@ -76,6 +83,79 @@ test('persisted outbox update and missed event recover through the browser', asy
   }
 });
 
+test('пауза сохраняет снимок, пока реальный транспорт восстанавливается и читает REST', async ({ page, context }) => {
+  test.skip(!enabled, 'Требуется disposable Compose с realtime E2E driver.');
+  test.setTimeout(180000);
+  await page.addInitScript(() => {
+    const Original = window.WebSocket;
+    window.WebSocket = class extends Original {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        if (String(url).includes('/bff/hubs/v1/updates')) window.__realtimeTestSocket = this;
+      }
+    };
+  });
+  let ready = 0;
+  let events = 0;
+  page.on('websocket', (socket) => {
+    if (!socket.url().includes('/bff/hubs/v1/updates')) return;
+    socket.on('framereceived', ({ payload }) => {
+      if (typeof payload !== 'string') return;
+      if (payload.includes('bff.realtime.ready')) ready += 1;
+      if (payload.includes('exchangeAccount.updated')) events += 1;
+    });
+  });
+
+  await loginThroughLanding(page);
+  const session = await (await page.request.get('/bff/auth/session')).json() as { user: { userId: string } };
+  const accountId = randomUUID();
+  const suffix = accountId.replaceAll('-', '').slice(0, 8);
+  const account = (phase: string) => page.getByRole('heading', { name: `G07 ${phase} ${suffix}` });
+  changeState(session.user.userId, accountId, 'G07 initial');
+  try {
+    await page.goto('/app/settings/connections');
+    await expect(account('initial')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__realtimeTestSocket?.readyState)).toBe(WebSocket.OPEN);
+    const pause = page.getByRole('button', { name: 'Приостановить автообновление' });
+    await pause.focus();
+    await page.keyboard.press('Space');
+    const resume = page.getByRole('button', { name: 'Возобновить автообновление' });
+    await expect(resume).toBeFocused();
+    const beforeEvents = events;
+    changeState(session.user.userId, accountId, 'G07 changed');
+    await expect.poll(() => events, { timeout: 30000 }).toBeGreaterThan(beforeEvents);
+    await expect(account('initial')).toBeVisible();
+    await expect(account('changed')).toHaveCount(0);
+
+    const beforeReady = ready;
+    await context.setOffline(true);
+    await page.evaluate(async () => {
+      const socket = window.__realtimeTestSocket!;
+      if (socket.readyState === WebSocket.CLOSED) return;
+      await new Promise<void>((resolve) => { socket.addEventListener('close', () => resolve(), { once: true }); socket.close(); });
+    });
+    changeState(session.user.userId, accountId, 'G07 recovered');
+    const recoveryRead = page.waitForResponse((response) =>
+      response.ok() && new URL(response.url()).pathname === '/bff/me/exchange-accounts', { timeout: 45000 });
+    await context.setOffline(false);
+    await expect.poll(() => ready, { timeout: 45000 }).toBeGreaterThan(beforeReady);
+    const snapshot = await (await recoveryRead).json() as { items: { id: string; displayName: string }[] };
+    expect(snapshot.items.find(({ id }) => id === accountId)?.displayName).toBe(`G07 recovered ${suffix}`);
+    await expect(account('initial')).toBeVisible();
+    await expect(account('recovered')).toHaveCount(0);
+    await expect(resume).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await expect(account('recovered')).toBeVisible();
+    await expect(pause).toBeFocused();
+    changeState(session.user.userId, accountId, 'G07 changed');
+    await expect(account('changed')).toBeVisible({ timeout: 30000 });
+  } finally {
+    await context.setOffline(false);
+    changeState(session.user.userId, accountId, 'cleanup');
+  }
+});
+
 function positionPhase(userId: string, accountId: string, positionId: string, phase: string, eventId: string) {
   const args = ['compose', ...(project ? ['-p', project] : []), '-f', composeFile, '--profile', 'ci',
     'run', '--rm', '--no-deps', '-e', 'REALTIME_E2E_SCENARIO=position', '-e', `REALTIME_E2E_USER_ID=${userId}`,
@@ -88,6 +168,7 @@ test('позиция обновляется через outbox и восстан�
   test.skip(!enabled, 'Требуется disposable Compose с realtime E2E driver.');
   test.setTimeout(240000);
   await page.addInitScript(() => {
+    window.addEventListener('online', () => { window.__realtimeOnlineAt = Date.now(); });
     const Original = window.WebSocket;
     class Tracked extends Original {
       constructor(url: string | URL, protocols?: string | string[]) {
@@ -101,6 +182,8 @@ test('позиция обновляется через outbox и восстан�
   const positionEvents: string[] = [];
   let listGets = 0;
   let detailGets = 0;
+  const detailRequests = new Map<object, number>();
+  const successfulDetailReads: number[] = [];
   const mutations: string[] = [];
   const accountId = randomUUID();
   const positionId = randomUUID();
@@ -114,8 +197,15 @@ test('позиция обновляется через outbox и восстан�
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (request.method() === 'GET' && url.pathname === '/bff/me/positions') listGets++;
-    if (request.method() === 'GET' && url.pathname === `/bff/me/positions/${positionId}`) detailGets++;
+    if (request.method() === 'GET' && url.pathname === `/bff/me/positions/${positionId}`) {
+      detailGets++;
+      detailRequests.set(request, Date.now());
+    }
     if (request.method() === 'POST' && /\/(sync|evaluation)(\?|$)/.test(request.url())) mutations.push(request.url());
+  });
+  page.on('response', (response) => {
+    const startedAt = detailRequests.get(response.request());
+    if (startedAt !== undefined && response.ok()) successfulDetailReads.push(startedAt);
   });
   await loginThroughLanding(page);
   await expect.poll(() => ready, { timeout: 20000 }).toBeGreaterThan(0);
@@ -178,8 +268,11 @@ test('позиция обновляется через outbox и восстан�
     await expect.poll(() => observedEvents.some((event) => event.includes(eventId)), { timeout: 30000 }).toBe(true);
     await observerContext.close();
     await context.setOffline(false);
+    const onlineAt = await page.evaluate(() => window.__realtimeOnlineAt);
+    expect(onlineAt).toBeDefined();
     await expect.poll(() => ready, { timeout: 45000 }).toBeGreaterThan(beforeReady);
     await expect.poll(() => detailGets).toBeGreaterThan(beforeDetail);
+    await expect.poll(() => successfulDetailReads.some((startedAt) => startedAt >= onlineAt!), { timeout: 30000 }).toBe(true);
     await expect(page.getByRole('heading', { name: /BTCUSDT.*3/ })).toBeVisible({ timeout: 30000 });
     expect(await page.evaluate(() => window.__realtimePageMarker)).toBe('position-document');
     expect(mutations).toEqual([]);

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { ConnectionsApiError, listConnections, syncConnection } from '../connections/connectionsApi';
 import type { ExchangeAccount } from '../connections/connectionTypes';
@@ -29,6 +30,7 @@ const CONNECTIONS_PATH = '/app/settings/connections';
 
 const SESSION_ENDED = 'Сессия завершена. Войдите снова.';
 const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
+const POSITIONS_ANNOUNCEMENT_INTERVAL_MS = 10_000;
 
 const ERROR_MESSAGES = {
   exchange_account_disabled: 'Подключение отключено. Восстановите его на странице подключений.',
@@ -142,6 +144,7 @@ function toQuery(accountId: string, filters: PositionFilters): PositionListQuery
 
 export function HomePage() {
   const { login } = useAuth();
+  const updates = useAutoUpdates();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<AccountsLoad | null>(null);
   const [accountsError, setAccountsError] = useState<Notice | null>(null);
@@ -149,15 +152,19 @@ export function HomePage() {
   const [positions, setPositions] = useState<PositionsLoad | null>(null);
   const [syncStates, setSyncStates] = useState<Readonly<Record<string, SyncState>>>({});
   const [reloadToken, setReloadToken] = useState(0);
+  const [positionsAnnouncement, setPositionsAnnouncement] = useState('');
 
-  const accountsRead = useRef<InvalidationScheduler | null>(null);
-  const portfolioRead = useRef<InvalidationScheduler | null>(null);
-  const positionsRead = useRef<InvalidationScheduler | null>(null);
+  const accountsRead = useRef<ScreenReader | null>(null);
+  const portfolioRead = useRef<ScreenReader | null>(null);
+  const positionsRead = useRef<ScreenReader | null>(null);
   const accountsGeneration = useRef(0);
   const portfolioGeneration = useRef(0);
   const positionsGeneration = useRef(0);
   const positionsInvalidationVersion = useRef(0);
-  const positionsSignal = useRef<AbortSignal | null>(null);
+  const announcedPositionsVersion = useRef(0);
+  const lastPositionsAnnouncementAt = useRef<number | null>(null);
+  const positionsAnnouncementTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pagination = useRef<AbortController | null>(null);
   const syncInFlight = useRef(new Set<string>());
   const selectedIdRef = useRef<string | null>(null);
 
@@ -175,30 +182,32 @@ export function HomePage() {
   }, [selectedId]);
 
   // Каждое чтение делает предыдущие устаревшими: поздний ответ не перезаписывает более новый state.
-  const loadAccounts = useCallback((signal?: AbortSignal): Promise<void> => {
-    const generation = ++accountsGeneration.current;
+  const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    const generation = view.kind === 'silent' ? accountsGeneration.current : ++accountsGeneration.current;
     const isCurrent = () => generation === accountsGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
-      (items) => {
+      (items) => view.apply(() => {
         if (isCurrent()) {
           setAccounts({ items, loadedAt: Date.now() });
           setAccountsError(null);
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          setAccountsError(toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.'));
+          view.fail(error, () => {
+            if (isCurrent()) setAccountsError(toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.'));
+          });
         }
       },
     );
   }, []);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
+    const scheduler = updates.createReader(loadAccounts);
     accountsRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { accountsRead.current = null; scheduler.dispose(); };
-  }, [loadAccounts]);
+  }, [loadAccounts, updates]);
 
   const updateParams = useCallback(
     (mutate: (params: URLSearchParams) => void, replace = false) => {
@@ -225,47 +234,68 @@ export function HomePage() {
       return;
     }
 
-    const scheduler = createInvalidationScheduler((signal) => {
-      const generation = ++portfolioGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? portfolioGeneration.current : ++portfolioGeneration.current;
       const isCurrent = () => generation === portfolioGeneration.current && !signal.aborted;
       return getPortfolio(selectedId, signal).then(
-      (portfolio) => {
+      (portfolio) => view.apply(() => {
         if (isCurrent()) {
           setPortfolioLoad({ accountId: selectedId, portfolio, error: null });
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          const notice = toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.');
-          setPortfolioLoad((current) => ({
-            accountId: selectedId,
-            portfolio: current?.accountId === selectedId ? current.portfolio : null,
-            error: notice,
-          }));
+          view.fail(error, () => {
+            if (!isCurrent()) return;
+            const notice = toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.');
+            setPortfolioLoad((current) => ({
+              accountId: selectedId,
+              portfolio: current?.accountId === selectedId ? current.portfolio : null,
+              error: notice,
+            }));
+          });
         }
       },
       );
     });
     portfolioRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { portfolioRead.current = null; scheduler.dispose(); };
 
-  }, [selectedId, reloadToken]);
+  }, [selectedId, reloadToken, updates]);
 
   useEffect(() => {
     if (queryKey === null) {
       return;
     }
 
+    announcedPositionsVersion.current = positionsInvalidationVersion.current;
+    const announcePositions = () => {
+      positionsAnnouncementTimer.current = null;
+      if (!updates.isLive()) return;
+      lastPositionsAnnouncementAt.current = Date.now();
+      setPositionsAnnouncement((previous) => previous === 'Список позиций обновлён.'
+        ? 'Обновлён список позиций.' : 'Список позиций обновлён.');
+    };
+    const schedulePositionsAnnouncement = () => {
+      const previous = lastPositionsAnnouncementAt.current;
+      const remaining = previous === null ? 0 : POSITIONS_ANNOUNCEMENT_INTERVAL_MS - (Date.now() - previous);
+      if (remaining <= 0) {
+        if (positionsAnnouncementTimer.current !== null) clearTimeout(positionsAnnouncementTimer.current);
+        announcePositions();
+      } else if (positionsAnnouncementTimer.current === null) {
+        positionsAnnouncementTimer.current = setTimeout(announcePositions, remaining);
+      }
+    };
     const query = JSON.parse(queryKey) as PositionListQuery;
-    const scheduler = createInvalidationScheduler((signal) => {
-      positionsSignal.current = signal;
-      const generation = ++positionsGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? positionsGeneration.current : ++positionsGeneration.current;
       const invalidationVersion = positionsInvalidationVersion.current;
       const isCurrent = () => generation === positionsGeneration.current && !signal.aborted && queryKeyRef.current === queryKey;
       return listPositions(query, signal).then(
-      (page) => {
+      (page) => view.apply(() => {
         if (isCurrent()) {
+          pagination.current?.abort();
           setPositions({
             key: queryKey,
             reload: reloadToken,
@@ -275,55 +305,81 @@ export function HomePage() {
             loadingMore: false,
             error: null,
           });
+          if (view.kind === 'live' && invalidationVersion === positionsInvalidationVersion.current && invalidationVersion > announcedPositionsVersion.current) {
+            announcedPositionsVersion.current = invalidationVersion;
+            schedulePositionsAnnouncement();
+          }
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
-          setPositions((current) =>
-            current?.key === queryKey
-              ? { ...current, loadingMore: false, error: notice }
-              : {
-                  key: queryKey,
-                  reload: reloadToken,
-                  items: [],
-                  nextCursor: null,
-                  hasMore: false,
-                  loadingMore: false,
-                  error: notice,
-                },
-          );
+          view.fail(error, () => {
+            if (!isCurrent()) return;
+            const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
+            setPositions((current) =>
+              current?.key === queryKey
+                ? { ...current, loadingMore: false, error: notice }
+                : {
+                    key: queryKey,
+                    reload: reloadToken,
+                    items: [],
+                    nextCursor: null,
+                    hasMore: false,
+                    loadingMore: false,
+                    error: notice,
+                  },
+            );
+          });
         }
       },
       );
     });
     positionsRead.current = scheduler;
-    scheduler.invalidate();
-    return () => { positionsRead.current = null; scheduler.dispose(); };
+    scheduler.refresh();
+    return () => {
+      positionsRead.current = null;
+      pagination.current?.abort();
+      scheduler.dispose();
+      if (positionsAnnouncementTimer.current !== null) clearTimeout(positionsAnnouncementTimer.current);
+      positionsAnnouncementTimer.current = null;
+    };
 
-  }, [queryKey, reloadToken]);
+  }, [queryKey, reloadToken, updates]);
+
+  useEffect(() => updates.subscribe(() => {
+    if (updates.isLive()) return;
+    if (positionsAnnouncementTimer.current !== null) clearTimeout(positionsAnnouncementTimer.current);
+    positionsAnnouncementTimer.current = null;
+    announcedPositionsVersion.current = positionsInvalidationVersion.current;
+    setPositionsAnnouncement('');
+  }), [updates]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
       if (event.type === 'recovery') {
-        accountsGeneration.current += 1;
+        if (updates.isLive()) accountsGeneration.current += 1;
         accountsRead.current?.recover();
       }
       else accountsRead.current?.invalidate();
     }
     if (event.type === 'recovery' || (event.type === 'portfolio.updated' && event.exchangeAccountId === selectedId)) {
       if (event.type === 'recovery') {
-        portfolioGeneration.current += 1;
+        if (updates.isLive()) portfolioGeneration.current += 1;
         portfolioRead.current?.recover();
       }
       else portfolioRead.current?.invalidate();
     }
     if (event.type === 'recovery' || event.type === 'position.updated') {
-      positionsInvalidationVersion.current += 1;
-      setPositions((current) => current?.key === queryKey
-        ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
+      if (updates.isLive()) {
+        if (positionsAnnouncementTimer.current !== null) clearTimeout(positionsAnnouncementTimer.current);
+        positionsAnnouncementTimer.current = null;
+        pagination.current?.abort();
+        positionsInvalidationVersion.current += 1;
+        setPositions((current) => current?.key === queryKey
+          ? { ...current, nextCursor: null, hasMore: false, loadingMore: false } : current);
+      }
       if (event.type === 'recovery') {
-        positionsGeneration.current += 1;
+        if (updates.isLive()) positionsGeneration.current += 1;
         positionsRead.current?.recover();
       }
       else positionsRead.current?.invalidate();
@@ -344,13 +400,17 @@ export function HomePage() {
       return;
     }
 
+    updates.cancelResume();
     const key = positions.key;
     const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
     const generation = positionsGeneration.current;
     const invalidationVersion = positionsInvalidationVersion.current;
-    const signal = positionsSignal.current ?? undefined;
+    const controller = new AbortController();
+    pagination.current?.abort();
+    pagination.current = controller;
+    const signal = controller.signal;
     const isCurrent = () => generation === positionsGeneration.current
-      && invalidationVersion === positionsInvalidationVersion.current && signal?.aborted !== true
+      && invalidationVersion === positionsInvalidationVersion.current && !signal.aborted
       && queryKeyRef.current === key;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
     listPositions(query, signal).then(
@@ -394,6 +454,7 @@ export function HomePage() {
     if (account.connectionStatus === 'disabled' || syncInFlight.current.has(accountId)) {
       return;
     }
+    updates.cancelResume();
 
     const updateSync = (state: SyncState) => setSyncStates((current) => ({ ...current, [accountId]: state }));
     syncInFlight.current.add(accountId);
@@ -452,6 +513,7 @@ export function HomePage() {
   return (
     <section className="page home-page">
       <h1>Обзор</h1>
+      <p className="screen-reader-only" role="status" aria-atomic="true">{positionsAnnouncement}</p>
 
       {accountsError && <NoticeMessage notice={accountsError} onLogin={login} />}
       {accounts === null && accountsError === null && (
@@ -503,6 +565,7 @@ export function HomePage() {
 
           <PositionsSection
             filters={filters}
+            accountName={selectedAccount.displayName}
             list={{
               loading: currentPositions === null,
               items: currentPositions?.items ?? [],

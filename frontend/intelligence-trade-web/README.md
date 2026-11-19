@@ -51,6 +51,8 @@ npm run build
 
 `npm run test:e2e` выполняется против запущенного полного Compose stack; требования, переменные окружения и запуск описаны в [руководстве по локальной разработке](../../docs/local-development.md).
 
+Для браузерных проверок устанавливаются Chromium и WebKit командой `npx playwright install chromium webkit`; проект `mobile-webkit` использует профиль iPhone 13. Подтверждение применимых критериев WCAG фиксируется в [матрице G-08](../../docs/testing/g08-wcag22-aa-matrix.md).
+
 ## Правила для coding agents
 
 Долговечные правила frontend и routing на специализированные skills — в [AGENTS.md](AGENTS.md).

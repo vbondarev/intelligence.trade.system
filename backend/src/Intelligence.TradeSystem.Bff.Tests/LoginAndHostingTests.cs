@@ -14,7 +14,7 @@ public sealed class LoginAndHostingTests
     };
 
     [Fact]
-    public async Task Login_starts_authorization_code_flow_with_pkce_and_required_scopes()
+    public async Task Login_prepares_identity_without_creating_an_oidc_challenge_until_continuation()
     {
         using var factory = new BffApplicationFactory();
         using var browser = factory.CreateBrowser();
@@ -23,7 +23,15 @@ public sealed class LoginAndHostingTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
-        var location = response.Headers.Location!;
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        var preparation = response.Headers.Location!;
+        preparation.GetLeftPart(UriPartial.Path).Should().Be(BffApplicationFactory.Authority + "account/web-login");
+        QueryHelpers.ParseQuery(preparation.Query)["returnUrl"].ToString().Should().Be("/app");
+
+        factory.Time.Advance(TimeSpan.FromMinutes(16));
+        using var continued = await browser.Client.GetAsync("/bff/auth/login/continue?returnUrl=/app");
+        continued.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var location = continued.Headers.Location!;
         location.GetLeftPart(UriPartial.Path).Should().Be(BffApplicationFactory.OidcConfiguration.AuthorizationEndpoint);
         var query = QueryHelpers.ParseQuery(location.Query);
         query["client_id"].ToString().Should().Be(BffApplicationFactory.ClientId);
@@ -32,9 +40,12 @@ public sealed class LoginAndHostingTests
         query["code_challenge_method"].ToString().Should().Be("S256");
         query["code_challenge"].ToString().Should().NotBeNullOrEmpty();
         query["scope"].ToString().Split(' ').Should().BeEquivalentTo("openid", "offline_access", "trade.api");
-        query.Should().NotContainKey("prompt");
+        query["prompt"].ToString().Should().Be("none");
         query.Should().NotContainKey("client_secret");
         location.Query.Should().NotContain(BffApplicationFactory.ClientSecret);
+        var headers = continued.Headers.GetValues("Set-Cookie");
+        headers.Should().Contain(value => value.StartsWith(".AspNetCore.Correlation.", StringComparison.Ordinal));
+        headers.Should().Contain(value => value.StartsWith(".AspNetCore.OpenIdConnect.Nonce.", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -52,6 +63,10 @@ public sealed class LoginAndHostingTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         response.Headers.Location.Should().BeNull();
+        using var continuation = await browser.Client.GetAsync(
+            "/bff/auth/login/continue?returnUrl=" + Uri.EscapeDataString(returnUrl));
+        continuation.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        continuation.Headers.Location.Should().BeNull();
     }
 
     [Fact]
@@ -190,7 +205,7 @@ public sealed class LoginAndHostingTests
         {
             context.Connection.RemoteIpAddress = IPAddress.Parse(remoteIp);
             context.Request.Method = HttpMethods.Get;
-            context.Request.Path = "/bff/auth/login";
+            context.Request.Path = "/bff/auth/login/continue";
             context.Request.QueryString = new QueryString("?returnUrl=/app");
             context.Request.Host = new HostString(host);
             if (forwardedProto is not null)

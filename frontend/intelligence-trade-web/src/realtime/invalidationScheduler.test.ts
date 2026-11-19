@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createInvalidationScheduler } from './invalidationScheduler';
+import { createInvalidationScheduler, throwIfNetworkFailure } from './invalidationScheduler';
 
 describe('invalidation scheduler', () => {
   it('coalesces a burst during a read and performs the final read', async () => {
@@ -45,5 +45,74 @@ describe('invalidation scheduler', () => {
     scheduler.recover();
     await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries one failed offline recovery after the browser returns online', async () => {
+    let online = false;
+    const onlineState = vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    const read = vi.fn().mockImplementationOnce(async (signal: AbortSignal) => {
+      throwIfNetworkFailure(new TypeError('network'), signal);
+    }).mockResolvedValue(undefined);
+    const scheduler = createInvalidationScheduler(read);
+    scheduler.recover();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    online = true;
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    window.dispatchEvent(new Event('online'));
+    expect(read).toHaveBeenCalledTimes(2);
+    scheduler.dispose();
+    onlineState.mockRestore();
+  });
+
+  it('does not retry an authentication error or a disposed recovery', async () => {
+    const onlineState = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const read = vi.fn().mockRejectedValueOnce(new Error('unauthorized'))
+      .mockRejectedValueOnce(new TypeError('network'));
+    const scheduler = createInvalidationScheduler(read);
+    scheduler.recover();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    window.dispatchEvent(new Event('online'));
+    expect(read).toHaveBeenCalledTimes(1);
+    scheduler.recover();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    scheduler.dispose();
+    window.dispatchEvent(new Event('online'));
+    expect(read).toHaveBeenCalledTimes(2);
+    onlineState.mockRestore();
+  });
+
+  it('retries once when the network failure arrives after the browser is online', async () => {
+    const onlineState = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const read = vi.fn().mockImplementationOnce(async (signal: AbortSignal) => {
+      throwIfNetworkFailure(new TypeError('network'), signal);
+    }).mockResolvedValue(undefined);
+    const scheduler = createInvalidationScheduler(read);
+    scheduler.recover();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    scheduler.dispose();
+    onlineState.mockRestore();
+  });
+
+  it('keeps the online recovery pending when an invalidation arrives offline', async () => {
+    let online = false;
+    const onlineState = vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    const read = vi.fn().mockRejectedValueOnce(new TypeError('network'))
+      .mockRejectedValueOnce(new TypeError('network')).mockResolvedValue(undefined);
+    const scheduler = createInvalidationScheduler(read);
+    scheduler.recover();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    scheduler.invalidate();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    online = true;
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    scheduler.dispose();
+    onlineState.mockRestore();
   });
 });

@@ -5,6 +5,7 @@ import { ConnectionsPage } from '../pages/ConnectionsPage';
 import { HomePage } from '../pages/HomePage';
 import { LandingPage } from '../pages/LandingPage';
 import { PositionPage } from '../pages/PositionPage';
+import { PositionSearchPage } from '../pages/PositionSearchPage';
 
 export function AppRoutes() {
   return (
@@ -19,6 +20,7 @@ export function AppRoutes() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="positions/search" element={<PositionSearchPage />} />
         <Route path="positions/:id" element={<PositionPage />} />
         <Route path="settings/connections" element={<ConnectionsPage />} />
       </Route>

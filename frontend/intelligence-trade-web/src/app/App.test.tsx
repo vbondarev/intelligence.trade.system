@@ -25,6 +25,7 @@ function renderAt(path: string) {
         <AppRoutes />
       </MemoryRouter>
     </AuthProvider>,
+    { wrapper: MantineProvider },
   );
 }
 
@@ -144,7 +145,12 @@ describe('App routing and session bootstrap', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Выйти' }));
 
-    expect(authRequestUrls(requests)).toEqual(['/bff/auth/session', '/bff/auth/antiforgery', '/bff/auth/logout']);
+    expect(authRequestUrls(requests)).toEqual([
+      '/bff/auth/session',
+      '/bff/auth/session/timing',
+      '/bff/auth/antiforgery',
+      '/bff/auth/logout',
+    ]);
     const logout = requests.find((request) => request.url === '/bff/auth/logout');
     expect(new Headers(logout?.init?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token');
     expect(assign).toHaveBeenCalledWith('/bff/auth/logout/complete');
@@ -177,3 +183,4 @@ describe('App routing and session bootstrap', () => {
     expect(Object.keys(state.user ?? {}).join(',')).not.toMatch(/token/i);
   });
 });
+import { MantineProvider } from '@mantine/core';

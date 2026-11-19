@@ -410,6 +410,8 @@ public sealed class ExchangeAccountsControllerTests : IClassFixture<ApiWebApplic
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem!.Extensions["code"]!.ToString().Should().Be("validation_failed");
+        var errors = (System.Text.Json.JsonElement)problem.Extensions["errors"]!;
+        errors.EnumerateObject().Select(field => field.Name).Should().Equal("apiKey");
         service.Verify(
             x => x.ConnectAsync(
                 It.IsAny<UserId>(), It.IsAny<ExchangeId>(), It.IsAny<string>(), It.IsAny<ExchangeAccountCredentialSecret>(),

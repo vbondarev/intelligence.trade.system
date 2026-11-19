@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import {
   ConnectionsApiError,
@@ -39,7 +40,7 @@ const ERROR_MESSAGES: Record<ConnectionErrorCode, string> = {
   exchange_credentials_invalid: 'Bybit отклонил ключи. Проверьте API key и API secret.',
   exchange_permissions_rejected:
     'Права ключа не подходят: нужен ключ Bybit только на чтение, без торговли и вывода средств.',
-  exchange_account_already_exists: 'Этот аккаунт Bybit уже подключён.',
+  exchange_account_already_exists: 'Этот аккаунт Bybit уже подключён. Откройте существующее подключение в списке.',
   exchange_account_identity_mismatch:
     'Новые ключи принадлежат другому аккаунту Bybit. Используйте ключи того же аккаунта.',
   exchange_account_disabled: 'Подключение отключено. Сначала восстановите его.',
@@ -53,6 +54,96 @@ const ERROR_MESSAGES: Record<ConnectionErrorCode, string> = {
 const FALLBACK_ERROR = 'Не удалось выполнить операцию. Повторите попытку позже.';
 const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 
+const INPUT_HINTS = {
+  displayName: 'Укажите название подключения до 100 символов.',
+  apiKey: 'Введите API key.',
+  apiSecret: 'Введите API secret.',
+};
+type InputName = keyof typeof INPUT_HINTS;
+type FormErrors = Partial<Record<InputName | 'credentials', string>>;
+interface ReportError {
+  operation: string;
+  handle: (error: unknown) => boolean;
+}
+const NAME_FIELDS = ['displayName'] as const;
+const KEY_FIELDS = ['apiKey', 'apiSecret'] as const;
+const CREATE_FIELDS = [...NAME_FIELDS, ...KEY_FIELDS];
+
+function useFormErrors(fields: readonly InputName[], operation: string) {
+  const [errors, setErrors] = useState<FormErrors>({});
+  const id = useId();
+
+  function show(form: HTMLFormElement, next: FormErrors) {
+    if (!form.isConnected) return;
+    setErrors(next);
+    const first = fields.find((field) => next[field]) ?? (next.credentials ? 'apiKey' : undefined);
+    if (first && form.contains(document.activeElement)) {
+      requestAnimationFrame(() => {
+        if (form.isConnected && form.contains(document.activeElement)) {
+          const input = form.elements.namedItem(first);
+          if (input instanceof HTMLInputElement) input.focus();
+        }
+      });
+    }
+  }
+
+  function report(form: HTMLFormElement): ReportError {
+    function handle(error: unknown) {
+      if (!(error instanceof ConnectionsApiError) || error.status !== 400) return false;
+      const next: FormErrors = {};
+      if (error.code === 'validation_failed') {
+        const keys = Object.keys(error.errors ?? {}).map((key) => key.replace(/^\$\./, '').toLowerCase());
+        for (const field of fields) {
+          if (keys.includes(field.toLowerCase())) next[field] = INPUT_HINTS[field];
+        }
+      }
+      if (error.code === 'exchange_credentials_invalid' && fields.includes('apiKey')) {
+        next.credentials = ERROR_MESSAGES.exchange_credentials_invalid;
+      }
+      if (!Object.keys(next).length || !form.isConnected) return false;
+      show(form, next);
+      return true;
+    }
+    return { operation, handle };
+  }
+
+  function prepare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (!form.contains(document.activeElement) && submitter instanceof HTMLButtonElement) submitter.focus();
+    return form;
+  }
+
+  function input(field: InputName) {
+    const description = errors[field] ? field : field !== 'displayName' && errors.credentials ? 'credentials' : null;
+    return {
+      'aria-invalid': description ? true : undefined,
+      'aria-describedby': description ? `${id}-${description}` : undefined,
+      onChange: () => setErrors((previous) => ({
+        ...previous,
+        [field]: undefined,
+        credentials: field === 'displayName' ? previous.credentials : undefined,
+      })),
+    };
+  }
+
+  function message(field: keyof FormErrors) {
+    return errors[field] && <p id={`${id}-${field}`} className="field-error">{errors[field]}</p>;
+  }
+
+  return { show, report, prepare, input, message, hasErrors: Object.values(errors).some(Boolean) };
+}
+
+function missingCredentials(form: HTMLFormElement): FormErrors {
+  const data = new FormData(form);
+  const errors: FormErrors = {};
+  for (const field of KEY_FIELDS) {
+    if (!String(data.get(field) ?? '').trim()) errors[field] = INPUT_HINTS[field];
+  }
+  return errors;
+}
+
 type PanelMode = 'rename' | 'rotate' | 'restore';
 
 interface Panel {
@@ -65,6 +156,7 @@ interface Notice {
   text: string;
   traceId?: string | null;
   sessionEnded?: boolean;
+  operation?: string;
 }
 
 function messageForCode(code: string | null): string | undefined {
@@ -140,46 +232,48 @@ function formatTimestamp(value: string): string {
 
 export function ConnectionsPage() {
   const { login } = useAuth();
+  const updates = useAutoUpdates();
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [loadError, setLoadError] = useState<Notice | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [pending, setPending] = useState(false);
+  const mutationPending = useRef(false);
 
   const listGeneration = useRef(0);
-  const realtimeRead = useRef<InvalidationScheduler | null>(null);
+  const realtimeRead = useRef<ScreenReader | null>(null);
 
   // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
   // более раннего GET не должны перезаписать результат reload после mutation.
-  const loadAccounts = useCallback((signal?: AbortSignal): Promise<void> => {
-    const generation = ++listGeneration.current;
+  const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    const generation = view.kind === 'silent' ? listGeneration.current : ++listGeneration.current;
     const isCurrent = () => generation === listGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
-      (items) => {
+      (items) => view.apply(() => {
         if (isCurrent()) {
           setAccounts(items);
           setLoadError(null);
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          setLoadError(toErrorNotice(error));
+          view.fail(error, () => { if (isCurrent()) setLoadError(toErrorNotice(error)); });
         }
       },
     );
   }, []);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => loadAccounts(signal));
+    const scheduler = updates.createReader(loadAccounts);
     realtimeRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { realtimeRead.current = null; scheduler.dispose(); };
-  }, [loadAccounts]);
+  }, [loadAccounts, updates]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || event.type === 'exchangeAccount.updated') {
       if (event.type === 'recovery') {
-        listGeneration.current += 1;
+        if (updates.isLive()) listGeneration.current += 1;
         realtimeRead.current?.recover();
       }
       else realtimeRead.current?.invalidate();
@@ -188,7 +282,10 @@ export function ConnectionsPage() {
 
   // REST остаётся source of truth: после любой mutation список перечитывается, а не правится локально.
   const runMutation = useCallback(
-    async (action: () => Promise<string>): Promise<boolean> => {
+    async (action: () => Promise<string>, report?: ReportError): Promise<boolean> => {
+      if (mutationPending.current) return false;
+      mutationPending.current = true;
+      updates.cancelResume();
       setPending(true);
       setNotice(null);
       let succeeded = false;
@@ -199,40 +296,42 @@ export function ConnectionsPage() {
         succeeded = true;
       } catch (error) {
         sessionEnded = isSessionEnded(error);
-        setNotice(toErrorNotice(error));
+        if (!report?.handle(error)) setNotice({ ...toErrorNotice(error), operation: report?.operation });
       }
 
-      if (!sessionEnded) {
-        await loadAccounts();
+      try {
+        if (!sessionEnded) await loadAccounts();
+      } finally {
+        mutationPending.current = false;
+        setPending(false);
       }
 
-      setPending(false);
       return succeeded;
     },
-    [loadAccounts],
+    [loadAccounts, updates],
   );
 
-  const handleCreate = (displayName: string, credentials: ExchangeCredentials) =>
+  const handleCreate = (displayName: string, credentials: ExchangeCredentials, report: ReportError) =>
     runMutation(async () => {
       const result = await createConnection(displayName, credentials);
       return result.outcome === 'created'
         ? `Подключение «${result.account.displayName}» добавлено.`
         : `Этот аккаунт Bybit уже был подключён как «${result.account.displayName}»: подключение восстановлено с прежним названием.`;
-    });
+    }, report);
 
-  const handleRestore = (account: ExchangeAccount, credentials: ExchangeCredentials) =>
+  const handleRestore = (account: ExchangeAccount, credentials: ExchangeCredentials, report: ReportError) =>
     runMutation(async () => {
       const result = await restoreConnection(account, credentials);
       return result.outcome === 'reconnected'
         ? `Подключение «${result.account.displayName}» восстановлено.`
         : `Ключи принадлежат другому аккаунту Bybit: создано новое подключение «${result.account.displayName}». Подключение «${account.displayName}» осталось отключённым.`;
-    });
+    }, report);
 
-  const handleRename = (account: ExchangeAccount, displayName: string) =>
+  const handleRename = (account: ExchangeAccount, displayName: string, report: ReportError) =>
     runMutation(async () => {
       const renamed = await renameConnection(account.id, displayName);
       return `Подключение переименовано в «${renamed.displayName}».`;
-    });
+    }, report);
 
   const handleVerify = (account: ExchangeAccount) =>
     runMutation(async () => {
@@ -240,11 +339,11 @@ export function ConnectionsPage() {
       return `Подключение «${verified.displayName}» проверено. Статус: ${STATUS_LABELS[verified.connectionStatus]}.`;
     });
 
-  const handleRotate = (account: ExchangeAccount, credentials: ExchangeCredentials) =>
+  const handleRotate = (account: ExchangeAccount, credentials: ExchangeCredentials, report: ReportError) =>
     runMutation(async () => {
       const rotated = await rotateCredentials(account.id, credentials);
       return `Ключи подключения «${rotated.displayName}» заменены.`;
-    });
+    }, report);
 
   const handleDisconnect = (account: ExchangeAccount) => {
     const confirmed = window.confirm(
@@ -291,13 +390,14 @@ export function ConnectionsPage() {
               <ConnectionCard
                 account={account}
                 panel={panel?.id === account.id ? panel.mode : null}
+                hasActivePanel={panel !== null}
                 pending={pending}
                 onOpenPanel={(mode) => setPanel({ id: account.id, mode })}
                 onClosePanel={() => setPanel(null)}
-                onRename={(displayName) => handleRename(account, displayName)}
+                onRename={(displayName, report) => handleRename(account, displayName, report)}
                 onVerify={() => void handleVerify(account)}
-                onRotate={(credentials) => handleRotate(account, credentials)}
-                onRestore={(credentials) => handleRestore(account, credentials)}
+                onRotate={(credentials, report) => handleRotate(account, credentials, report)}
+                onRestore={(credentials, report) => handleRestore(account, credentials, report)}
                 onDisconnect={() => handleDisconnect(account)}
               />
             </li>
@@ -319,6 +419,7 @@ function NoticeMessage({ notice, onLogin }: { notice: Notice; onLogin: () => voi
 
   return (
     <div className="alert" role="alert">
+      {notice.operation && <p className="notice-text">{notice.operation}</p>}
       <p className="notice-text">{notice.text}</p>
       {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
       {notice.sessionEnded && (
@@ -335,35 +436,31 @@ function AddConnectionForm({
   onSubmit,
 }: {
   pending: boolean;
-  onSubmit: (displayName: string, credentials: ExchangeCredentials) => Promise<boolean>;
+  onSubmit: (displayName: string, credentials: ExchangeCredentials, report: ReportError) => Promise<boolean>;
 }) {
-  const [validation, setValidation] = useState<string | null>(null);
+  const feedback = useFormErrors(CREATE_FIELDS, 'Добавление подключения Bybit');
   const idPrefix = useId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
+    const form = feedback.prepare(event);
+    if (pending) return;
     const displayName = String(new FormData(form).get('displayName') ?? '').trim();
     const nameError = validateDisplayName(displayName);
-    if (nameError !== null) {
-      setValidation(nameError);
-      return;
-    }
-
+    const errors = missingCredentials(form);
     const credentials = takeCredentials(form);
-    if (credentials === null) {
-      setValidation('Укажите API key и API secret.');
+    if (nameError || credentials === null) {
+      feedback.show(form, { ...errors, displayName: nameError ?? undefined });
       return;
     }
 
-    setValidation(null);
-    if (await onSubmit(displayName, credentials)) {
+    feedback.show(form, {});
+    if (await onSubmit(displayName, credentials, feedback.report(form))) {
       form.reset();
     }
   }
 
   return (
-    <form className="panel connection-form" aria-labelledby={`${idPrefix}-title`} onSubmit={handleSubmit}>
+    <form className="panel connection-form" aria-labelledby={`${idPrefix}-title`} noValidate onSubmit={handleSubmit}>
       <h2 id={`${idPrefix}-title`} className="section-title">
         Добавить подключение Bybit
       </h2>
@@ -376,16 +473,14 @@ function AddConnectionForm({
           required
           maxLength={DISPLAY_NAME_MAX_LENGTH}
           autoComplete="off"
+          {...feedback.input('displayName')}
         />
+        {feedback.message('displayName')}
       </div>
-      <CredentialFields idPrefix={idPrefix} />
-      {validation && (
-        <p className="field-error" role="alert">
-          {validation}
-        </p>
-      )}
+      <CredentialFields idPrefix={idPrefix} feedback={feedback} />
+      <FormErrorStatus feedback={feedback} />
       <div className="form-actions">
-        <button type="submit" className="button" disabled={pending}>
+        <button type="submit" className="button" aria-disabled={pending || undefined}>
           Подключить
         </button>
       </div>
@@ -393,7 +488,13 @@ function AddConnectionForm({
   );
 }
 
-function CredentialFields({ idPrefix, labelPrefix = '' }: { idPrefix: string; labelPrefix?: string }) {
+type FormFeedback = ReturnType<typeof useFormErrors>;
+
+function FormErrorStatus({ feedback }: { feedback: FormFeedback }) {
+  return <span className="sr-only" aria-live="polite">{feedback.hasErrors ? 'Проверьте поля формы.' : ''}</span>;
+}
+
+function CredentialFields({ idPrefix, labelPrefix = '', feedback }: { idPrefix: string; labelPrefix?: string; feedback: FormFeedback }) {
   return (
     <>
       <div className="field">
@@ -405,7 +506,9 @@ function CredentialFields({ idPrefix, labelPrefix = '' }: { idPrefix: string; la
           required
           autoComplete="off"
           spellCheck={false}
+          {...feedback.input('apiKey')}
         />
+        {feedback.message('apiKey')}
       </div>
       <div className="field">
         <label htmlFor={`${idPrefix}-secret`}>{labelPrefix}API secret *</label>
@@ -416,8 +519,11 @@ function CredentialFields({ idPrefix, labelPrefix = '' }: { idPrefix: string; la
           required
           autoComplete="new-password"
           spellCheck={false}
+          {...feedback.input('apiSecret')}
         />
+        {feedback.message('apiSecret')}
       </div>
+      {feedback.message('credentials')}
     </>
   );
 }
@@ -425,19 +531,21 @@ function CredentialFields({ idPrefix, labelPrefix = '' }: { idPrefix: string; la
 interface ConnectionCardProps {
   account: ExchangeAccount;
   panel: PanelMode | null;
+  hasActivePanel: boolean;
   pending: boolean;
   onOpenPanel: (mode: PanelMode) => void;
   onClosePanel: () => void;
-  onRename: (displayName: string) => Promise<boolean>;
+  onRename: (displayName: string, report: ReportError) => Promise<boolean>;
   onVerify: () => void;
-  onRotate: (credentials: ExchangeCredentials) => Promise<boolean>;
-  onRestore: (credentials: ExchangeCredentials) => Promise<boolean>;
+  onRotate: (credentials: ExchangeCredentials, report: ReportError) => Promise<boolean>;
+  onRestore: (credentials: ExchangeCredentials, report: ReportError) => Promise<boolean>;
   onDisconnect: () => void;
 }
 
 function ConnectionCard({
   account,
   panel,
+  hasActivePanel,
   pending,
   onOpenPanel,
   onClosePanel,
@@ -449,9 +557,23 @@ function ConnectionCard({
 }: ConnectionCardProps) {
   const titleId = useId();
   const disabled = account.connectionStatus === 'disabled';
+  const cardRef = useRef<HTMLElement>(null);
+  const openedPanel = useRef<PanelMode | null>(null);
+
+  useEffect(() => {
+    if (panel !== null && openedPanel.current !== panel) {
+      openedPanel.current = panel;
+      cardRef.current?.querySelector<HTMLInputElement>('form input')?.focus();
+    } else if (panel === null && hasActivePanel) {
+      openedPanel.current = null;
+    } else if (panel === null && !pending && openedPanel.current !== null) {
+      cardRef.current?.querySelector<HTMLButtonElement>(`[data-panel-action="${openedPanel.current}"]`)?.focus();
+      openedPanel.current = null;
+    }
+  }, [panel, pending, hasActivePanel]);
 
   return (
-    <article className={disabled ? 'panel connection-card connection-card-disabled' : 'panel connection-card'} aria-labelledby={titleId}>
+    <article ref={cardRef} className={disabled ? 'panel connection-card connection-card-disabled' : 'panel connection-card'} aria-labelledby={titleId}>
       <header className="connection-header">
         <h3 id={titleId} className="connection-title">
           {account.displayName}
@@ -497,6 +619,7 @@ function ConnectionCard({
             type="button"
             className="button button-secondary"
             disabled={pending}
+            data-panel-action="rename"
             onClick={() => onOpenPanel('rename')}
           >
             Переименовать
@@ -506,6 +629,7 @@ function ConnectionCard({
               type="button"
               className="button button-secondary"
               disabled={pending}
+              data-panel-action="restore"
               onClick={() => onOpenPanel('restore')}
             >
               Восстановить
@@ -516,6 +640,7 @@ function ConnectionCard({
                 type="button"
                 className="button button-secondary"
                 disabled={pending}
+                data-panel-action="rotate"
                 onClick={() => onOpenPanel('rotate')}
               >
                 Заменить ключи
@@ -564,27 +689,28 @@ function RenameForm({
 }: {
   account: ExchangeAccount;
   pending: boolean;
-  onSubmit: (displayName: string) => Promise<boolean>;
+  onSubmit: (displayName: string, report: ReportError) => Promise<boolean>;
   onCancel: () => void;
 }) {
-  const [validation, setValidation] = useState<string | null>(null);
+  const feedback = useFormErrors(NAME_FIELDS, 'Переименование подключения');
   const inputId = useId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const displayName = String(new FormData(event.currentTarget).get('displayName') ?? '').trim();
+    const form = feedback.prepare(event);
+    if (pending) return;
+    const displayName = String(new FormData(form).get('displayName') ?? '').trim();
     const nameError = validateDisplayName(displayName);
     if (nameError !== null) {
-      setValidation(nameError);
+      feedback.show(form, { displayName: nameError });
       return;
     }
 
-    setValidation(null);
-    await onSubmit(displayName);
+    feedback.show(form, {});
+    await onSubmit(displayName, feedback.report(form));
   }
 
   return (
-    <form className="connection-form" onSubmit={handleSubmit}>
+    <form className="connection-form" aria-label="Переименование подключения" noValidate onSubmit={handleSubmit}>
       <div className="field">
         <label htmlFor={inputId}>Новое название *</label>
         <input
@@ -595,15 +721,13 @@ function RenameForm({
           maxLength={DISPLAY_NAME_MAX_LENGTH}
           defaultValue={account.displayName}
           autoComplete="off"
+          {...feedback.input('displayName')}
         />
+        {feedback.message('displayName')}
       </div>
-      {validation && (
-        <p className="field-error" role="alert">
-          {validation}
-        </p>
-      )}
+      <FormErrorStatus feedback={feedback} />
       <div className="form-actions">
-        <button type="submit" className="button" disabled={pending}>
+        <button type="submit" className="button" aria-disabled={pending || undefined}>
           Сохранить
         </button>
         <button type="button" className="button button-secondary" disabled={pending} onClick={onCancel}>
@@ -628,38 +752,36 @@ function CredentialsForm({
   labelPrefix?: string;
   submitLabel: string;
   pending: boolean;
-  onSubmit: (credentials: ExchangeCredentials) => Promise<boolean>;
+  onSubmit: (credentials: ExchangeCredentials, report: ReportError) => Promise<boolean>;
   onCancel: () => void;
 }) {
-  const [validation, setValidation] = useState<string | null>(null);
+  const feedback = useFormErrors(KEY_FIELDS, title);
   const idPrefix = useId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const credentials = takeCredentials(event.currentTarget);
+    const form = feedback.prepare(event);
+    if (pending) return;
+    const errors = missingCredentials(form);
+    const credentials = takeCredentials(form);
     if (credentials === null) {
-      setValidation('Укажите API key и API secret.');
+      feedback.show(form, errors);
       return;
     }
 
-    setValidation(null);
-    await onSubmit(credentials);
+    feedback.show(form, {});
+    await onSubmit(credentials, feedback.report(form));
   }
 
   return (
-    <form className="connection-form" aria-labelledby={`${idPrefix}-title`} onSubmit={handleSubmit}>
+    <form className="connection-form" aria-labelledby={`${idPrefix}-title`} noValidate onSubmit={handleSubmit}>
       <h4 id={`${idPrefix}-title`} className="form-title">
         {title}
       </h4>
       <p className="muted">{description}</p>
-      <CredentialFields idPrefix={idPrefix} labelPrefix={labelPrefix} />
-      {validation && (
-        <p className="field-error" role="alert">
-          {validation}
-        </p>
-      )}
+      <CredentialFields idPrefix={idPrefix} labelPrefix={labelPrefix} feedback={feedback} />
+      <FormErrorStatus feedback={feedback} />
       <div className="form-actions">
-        <button type="submit" className="button" disabled={pending}>
+        <button type="submit" className="button" aria-disabled={pending || undefined}>
           {submitLabel}
         </button>
         <button type="button" className="button button-secondary" disabled={pending} onClick={onCancel}>

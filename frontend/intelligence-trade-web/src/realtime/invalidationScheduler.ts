@@ -1,7 +1,12 @@
 export interface InvalidationScheduler {
   invalidate: () => void;
   recover: () => void;
+  cancelPending: () => void;
   dispose: () => void;
+}
+
+export function throwIfNetworkFailure(error: unknown, signal?: AbortSignal): void {
+  if (error instanceof TypeError && signal?.aborted !== true) throw error;
 }
 
 // Обычные события объединяются; recovery освобождает ожидание отменённого GET.
@@ -10,6 +15,25 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
   let running = false;
   let disposed = false;
   let active: AbortController | null = null;
+  let recoveryPending = false;
+  let waitingForOnline = false;
+
+  function cancelOnlineWait() {
+    if (waitingForOnline) window.removeEventListener('online', retryOnline);
+    waitingForOnline = false;
+  }
+
+  function retryOnline() {
+    cancelOnlineWait();
+    if (!disposed) { dirty = true; void drain(); }
+  }
+
+  function cancelPending() {
+    dirty = false;
+    recoveryPending = false;
+    cancelOnlineWait();
+    active?.abort();
+  }
 
   async function drain() {
     if (running || disposed) return;
@@ -17,6 +41,8 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
     try {
       while (dirty && !disposed) {
         dirty = false;
+        const isRecovery = recoveryPending;
+        recoveryPending = false;
         active?.abort();
         const controller = new AbortController();
         active = controller;
@@ -26,7 +52,16 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
           controller.signal.addEventListener('abort', onAbort, { once: true });
         });
         try {
-          await Promise.race([(async () => read(controller.signal))().catch(() => {}), aborted]);
+          await Promise.race([(async () => read(controller.signal))(), aborted]);
+        } catch (error) {
+          if (isRecovery && !controller.signal.aborted && error instanceof TypeError && !disposed) {
+            cancelOnlineWait();
+            if (navigator.onLine) retryOnline();
+            else {
+              waitingForOnline = true;
+              window.addEventListener('online', retryOnline, { once: true });
+            }
+          }
         } finally {
           controller.signal.removeEventListener('abort', onAbort);
         }
@@ -39,7 +74,8 @@ export function createInvalidationScheduler(read: (signal: AbortSignal) => Promi
 
   return {
     invalidate() { if (!disposed) { dirty = true; void drain(); } },
-    recover() { if (!disposed) { dirty = true; active?.abort(); void drain(); } },
-    dispose() { disposed = true; dirty = false; active?.abort(); },
+    recover() { if (!disposed) { cancelOnlineWait(); recoveryPending = true; dirty = true; active?.abort(); void drain(); } },
+    cancelPending,
+    dispose() { disposed = true; cancelPending(); },
   };
 }

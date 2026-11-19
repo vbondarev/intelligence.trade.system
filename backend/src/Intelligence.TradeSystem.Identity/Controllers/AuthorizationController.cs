@@ -46,6 +46,11 @@ public sealed class AuthorizationController(
         }
         else if (!isAuthenticated)
         {
+            if (request.HasPromptValue(OpenIddictConstants.PromptValues.None))
+            {
+                return LoginRequired();
+            }
+
             return new ChallengeResult(
                 IdentityConstants.ApplicationScheme,
                 new AuthenticationProperties { RedirectUri = returnUrl });
@@ -54,7 +59,9 @@ public sealed class AuthorizationController(
         var user = await userManager.GetUserAsync(User);
         if (user is null)
         {
-            return Challenge(IdentityConstants.ApplicationScheme);
+            return request.HasPromptValue(OpenIddictConstants.PromptValues.None)
+                ? LoginRequired()
+                : Challenge(IdentityConstants.ApplicationScheme);
         }
 
         var identity = new ClaimsIdentity(
@@ -80,6 +87,12 @@ public sealed class AuthorizationController(
             new ClaimsPrincipal(identity),
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
+
+    private ForbidResult LoginRequired() =>
+        Forbid(new AuthenticationProperties(new Dictionary<string, string?>
+        {
+            [OpenIddictServerAspNetCoreConstants.Properties.Error] = OpenIddictConstants.Errors.LoginRequired,
+        }), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
     /// <summary>
     /// Завершает Identity SSO session. До controller доходит только end-session request,

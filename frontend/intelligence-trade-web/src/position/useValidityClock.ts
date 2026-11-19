@@ -24,19 +24,20 @@ function nextDeadlineAfter(deadlines: readonly (string | null | undefined)[], no
  * наступления ближайшего из ещё не наступивших сроков `deadlines`, без периодического опроса
  * и без запросов к backend. Некорректные и отсутствующие сроки игнорируются.
  */
-export function useValidityClock(deadlines: readonly (string | null | undefined)[]): number {
+export function useValidityClock(deadlines: readonly (string | null | undefined)[], pausedAt: number | null = null): number {
   const [now, setNow] = useState(() => Date.now());
-  const nextDeadline = nextDeadlineAfter(deadlines, now);
+  const displayedTime = pausedAt ?? now;
+  const nextDeadline = nextDeadlineAfter(deadlines, displayedTime);
 
   useEffect(() => {
-    if (nextDeadline === null) {
+    if (nextDeadline === null || pausedAt !== null) {
       return;
     }
 
     const delay = Math.min(Math.max(nextDeadline - Date.now(), 0), MAX_TIMER_DELAY_MS);
     const timer = setTimeout(() => setNow(Date.now()), delay);
     return () => clearTimeout(timer);
-  }, [nextDeadline, now]);
+  }, [nextDeadline, now, pausedAt]);
 
-  return now;
+  return displayedTime;
 }

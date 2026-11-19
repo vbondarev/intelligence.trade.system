@@ -80,7 +80,7 @@ export interface PositionFilters {
 }
 
 export interface PositionListQuery {
-  exchangeAccountId: string;
+  exchangeAccountId?: string;
   trackingState?: PositionTrackingState;
   side?: PositionSide;
   symbol?: string;

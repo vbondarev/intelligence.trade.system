@@ -1,12 +1,16 @@
 using System.Globalization;
 using Intelligence.TradeSystem.Bff.Api;
 using Intelligence.TradeSystem.Bff.Authentication;
+using Intelligence.TradeSystem.Bff.Configuration;
 using Intelligence.TradeSystem.Bff.Contracts.Auth;
 using Intelligence.TradeSystem.Bff.Security;
 using Intelligence.TradeSystem.Bff.Realtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Intelligence.TradeSystem.Bff.Endpoints;
 
@@ -31,8 +35,11 @@ internal static partial class AuthEndpoints
             });
 
         group.MapGet("/session", GetSessionAsync);
+        group.MapGet("/session/timing", GetSessionTimingAsync).WithMetadata(SkipSessionSlidingRenewal.Instance);
+        group.MapPost("/session/extend", ExtendSessionAsync).WithMetadata(SkipSessionSlidingRenewal.Instance);
         group.MapGet("/login", LoginAsync);
-        group.MapGet("/antiforgery", GetAntiforgeryTokenAsync);
+        group.MapGet("/login/continue", ContinueLoginAsync);
+        group.MapGet("/antiforgery", GetAntiforgeryTokenAsync).WithMetadata(SkipSessionSlidingRenewal.Instance);
         group.MapPost("/logout", BeginLogoutAsync);
         group.MapGet("/logout/complete", CompleteLogoutAsync);
 
@@ -93,7 +100,7 @@ internal static partial class AuthEndpoints
         };
     }
 
-    private static async Task<IResult> LoginAsync(HttpContext httpContext, string? returnUrl)
+    private static async Task<IResult> LoginAsync(HttpContext httpContext, BffOidcSettings oidc, string? returnUrl)
     {
         if (!LocalReturnUrlValidator.TryNormalize(returnUrl, out var localReturnUrl))
         {
@@ -106,9 +113,27 @@ internal static partial class AuthEndpoints
             return Results.LocalRedirect(localReturnUrl);
         }
 
-        return Results.Challenge(
-            new AuthenticationProperties { RedirectUri = localReturnUrl },
-            [BffAuthenticationExtensions.OidcScheme]);
+        var start = new Uri(oidc.Authority, "/account/web-login");
+        return Results.Redirect(QueryHelpers.AddQueryString(start.AbsoluteUri, "returnUrl", localReturnUrl));
+    }
+
+    private static async Task<IResult> ContinueLoginAsync(HttpContext context, string? returnUrl)
+    {
+        if (!LocalReturnUrlValidator.TryNormalize(returnUrl, out var localReturnUrl))
+        {
+            return Results.BadRequest();
+        }
+
+        if ((await context.AuthenticateAsync(BffAuthenticationExtensions.SessionScheme)).Succeeded)
+        {
+            return Results.LocalRedirect(localReturnUrl);
+        }
+
+        return Results.Challenge(new OpenIdConnectChallengeProperties
+        {
+            RedirectUri = localReturnUrl,
+            Prompt = OpenIdConnectPrompt.None,
+        }, [BffAuthenticationExtensions.OidcScheme]);
     }
 
     private static async Task<IResult> GetAntiforgeryTokenAsync(HttpContext httpContext, IAntiforgery antiforgery)

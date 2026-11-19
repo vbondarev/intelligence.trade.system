@@ -218,6 +218,34 @@ public sealed class IdentityStartupConfigurationTests
         act.Should().NotThrow();
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("https://unexpected.example", false)]
+    [InlineData("https://web.example/another-path", false)]
+    [InlineData("https://public@web.example", false)]
+    [InlineData("https://web.example", true)]
+    public void Web_preparation_origin_must_select_a_registered_callback(string? publicOrigin, bool valid)
+    {
+        var options = new WebBffClientOptions
+        {
+            Enabled = true,
+            ClientId = WebBffClientOptions.CanonicalClientId,
+            ClientSecret = "test-only-placeholder",
+            RedirectUris = ["https://web.example/signin-oidc", "https://second.example/signin-oidc"],
+            PostLogoutRedirectUris = ["https://web.example/signout-callback-oidc"],
+            PublicOrigin = publicOrigin,
+        };
+        var act = () => options.Validate(new TestHostEnvironment("Production"));
+        if (valid)
+        {
+            act.Should().NotThrow();
+        }
+        else
+        {
+            act.Should().Throw<InvalidOperationException>().WithMessage("*Identity:WebBffClient:PublicOrigin*");
+        }
+    }
+
     [Fact]
     public void Enabled_web_bff_client_requires_a_secret()
     {
