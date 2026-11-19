@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createAutoUpdates } from '../realtime/autoUpdates';
+import { AutoUpdatesContext } from '../realtime/autoUpdatesContext';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
 import {
   CLOSED_POSITION_CHANGE,
@@ -67,10 +69,14 @@ function sequence(...handlers: RouteHandler[]): RouteHandler {
 
 const page = (body: PositionTimelinePage): RouteHandler => () => jsonResponse(body);
 
-function renderTimeline(routes: Record<string, RouteHandler>) {
+function renderTimeline(routes: Record<string, RouteHandler>, updates = createAutoUpdates()) {
   const requests = mockFetch(routes);
   const onLogin = vi.fn();
-  const view = render(<PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} />);
+  const view = render(
+    <AutoUpdatesContext.Provider value={updates}>
+      <PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} />
+    </AutoUpdatesContext.Provider>,
+  );
   return { requests, onLogin, view };
 }
 
@@ -708,6 +714,109 @@ describe('PositionTimeline errors', () => {
 
 
 describe('PositionTimeline realtime recovery', () => {
+  it('завершает ручное обновление до одного объединённого фонового чтения', async () => {
+    const manual = deferred<Response>();
+    const background = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => manual.promise, () => background.promise),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await settle();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.init?.signal?.aborted).toBe(false);
+
+    await act(async () => manual.resolve(jsonResponse(timelinePageFixture([TIMELINE_EVALUATION]))));
+    await findEvents(1);
+    expect(requests).toHaveLength(3);
+    expect(screen.queryByText('Обновляем историю…')).not.toBeInTheDocument();
+    await act(async () => background.resolve(jsonResponse(emptyTimelinePage())));
+    expect(await screen.findByText('В истории позиции пока нет событий.')).toBeVisible();
+    expect(requests).toHaveLength(3);
+  });
+
+  it('не отдаёт приоритет уже поставленному в очередь фоновому чтению', async () => {
+    const background = deferred<Response>();
+    const manual = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => background.promise, () => manual.promise),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    await act(async () => background.resolve(jsonResponse(emptyTimelinePage())));
+    await settle();
+    expect(requests).toHaveLength(3);
+    expect(requests[2]?.init?.signal?.aborted).toBe(false);
+
+    await act(async () => manual.resolve(jsonResponse(timelinePageFixture([TIMELINE_EVALUATION]))));
+    await findEvents(1);
+    expect(requests).toHaveLength(3);
+  });
+
+  it.each(['ответ', 'пауза'] as const)('передаёт индикатор истории при recovery: %s', async (outcome) => {
+    const updates = createAutoUpdates();
+    const manual = deferred<Response>();
+    const firstRecovery = deferred<Response>();
+    const secondRecovery = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => manual.promise, () => firstRecovery.promise, () => secondRecovery.promise),
+    }, updates);
+    const status = () => screen.getByText('Обновляем историю…', { selector: '.inline-status' });
+    const spinner = () => status().querySelector('.spinner');
+
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    const manualSpinner = spinner();
+    expect(manualSpinner).toHaveClass('spinner--continuous');
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    expect(status()).toBeVisible();
+    expect(spinner()).not.toHaveClass('spinner--continuous');
+    const finiteSpinner = spinner();
+    expect(finiteSpinner).not.toBe(manualSpinner);
+
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+    expect(requests[2]?.init?.signal?.aborted).toBe(true);
+    expect(spinner()).toBe(finiteSpinner);
+    await act(async () => manual.resolve(jsonResponse(emptyTimelinePage())));
+    await act(async () => firstRecovery.resolve(jsonResponse(emptyTimelinePage())));
+    expect(events()).toHaveLength(3);
+    expect(status()).toBeVisible();
+
+    if (outcome === 'пауза') {
+      act(() => updates.toggle());
+      expect(requests[3]?.init?.signal?.aborted).toBe(true);
+      expect(statusOrNull()).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      await act(async () => secondRecovery.resolve(jsonResponse(emptyTimelinePage())));
+      expect(events()).toHaveLength(3);
+    } else {
+      await act(async () => secondRecovery.resolve(jsonResponse(emptyTimelinePage())));
+      expect(await screen.findByText('В истории позиции пока нет событий.')).toBeVisible();
+    }
+    expect(statusOrNull()).not.toBeInTheDocument();
+
+    function statusOrNull() {
+      return screen.queryByText('Обновляем историю…', { selector: '.inline-status' });
+    }
+  });
+
   it('keeps the block closed and replaces a pending open read without waiting', async () => {
     const slow = deferred<Response>();
     const { requests } = renderTimeline({ [BASE]: sequence(() => slow.promise, page(firstTimelinePage(null))) });

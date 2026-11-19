@@ -13,6 +13,12 @@ const SERVICE_UNAVAILABLE = 'Сервис временно недоступен.
 type LoadPhase = 'initial' | 'more' | 'refresh';
 type LoadSource = 'default' | 'manual-refresh';
 
+interface ActiveLoad {
+  controller: AbortController;
+  generation: number;
+  source: LoadSource;
+}
+
 interface LoadOptions {
   schedulerSignal?: AbortSignal;
   view?: ReadPresentation;
@@ -39,7 +45,7 @@ interface TimelineState {
   nextCursor: string | null;
   hasMore: boolean;
   hasLoaded: boolean;
-  pending: { phase: LoadPhase; source: LoadSource } | null;
+  pending: { phase: LoadPhase; source: LoadSource | 'recovery'; generation: number } | null;
   error: { phase: LoadPhase; notice: TimelineNotice } | null;
 }
 
@@ -136,25 +142,26 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const isOpenRef = useRef(false);
   const invalidationVersion = useRef(0);
   const appliedInvalidationVersion = useRef(0);
-  const controller = useRef<AbortController | null>(null);
-  const inFlight = useRef(false);
+  const activeLoad = useRef<ActiveLoad | null>(null);
   const stateRef = useRef(state);
   const realtimeRead = useRef<ScreenReader | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
 
+  const hasCurrentManualLoad = useCallback(() =>
+    activeLoad.current?.source === 'manual-refresh' && activeLoad.current.generation === generation.current, []);
+
   useEffect(
     () => () => {
       generation.current += 1;
-      controller.current?.abort();
+      activeLoad.current?.controller.abort();
     },
     [],
   );
 
   const cancelActive = useCallback(() => {
     generation.current += 1;
-    controller.current?.abort();
-    controller.current = null;
-    inFlight.current = false;
+    activeLoad.current?.controller.abort();
+    activeLoad.current = null;
   }, []);
 
   // Ответ применяется, только если запрос не отменён и его поколение осталось текущим:
@@ -189,29 +196,47 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     }
 
     cancelActive();
-    const requestController = new AbortController();
-    const abortRequest = () => requestController.abort();
-    schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
-    if (schedulerSignal?.aborted) abortRequest();
     const requestGeneration = generation.current;
     const requestInvalidationVersion = invalidationVersion.current;
-    controller.current = requestController;
-    inFlight.current = true;
+    const requestController = new AbortController();
+    const request = { controller: requestController, generation: requestGeneration, source };
+    activeLoad.current = request;
     const isCurrent = () => requestGeneration === generation.current && !requestController.signal.aborted;
-    const finish = () => {
-      controller.current = null;
-      inFlight.current = false;
+    const readDeferredInvalidation = () => {
+      if (source === 'manual-refresh' && isCurrent() && isOpenRef.current
+        && invalidationVersion.current > requestInvalidationVersion) {
+        realtimeRead.current?.invalidate();
+      }
     };
 
     if (view.kind === 'explicit') {
       setState((current) => ({
         ...current,
-        pending: { phase, source },
+        pending: { phase, source, generation: requestGeneration },
         error: null,
         // Cursor прежнего поколения не комбинируется со страницами нового.
         ...(phase === 'more' ? {} : { nextCursor: null, hasMore: false }),
       }));
+    } else {
+      // Recovery сохраняет видимый статус заменённого запроса и использует конечную анимацию.
+      setState((current) => current.pending?.source === 'manual-refresh' || current.pending?.source === 'recovery'
+        ? { ...current, pending: { phase, source: 'recovery', generation: requestGeneration } }
+        : current);
     }
+
+    const abortRequest = () => {
+      requestController.abort();
+      if (activeLoad.current !== request || requestGeneration !== generation.current) return;
+      activeLoad.current = null;
+      if (view.kind === 'live') {
+        setManualLoadStatus('');
+        setState((current) => current.pending?.generation === requestGeneration
+          ? { ...current, pending: null }
+          : current);
+      }
+    };
+    schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
+    if (schedulerSignal?.aborted) abortRequest();
 
     return getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
       (page) => {
@@ -219,7 +244,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           return;
         }
 
-        finish();
+        activeLoad.current = null;
         view.apply(() => {
           setManualLoadStatus('');
           if (phase !== 'more') {
@@ -227,17 +252,20 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           }
           setState((current) => applyPage(current, phase, cursor, page));
         });
+        readDeferredInvalidation();
       },
       (error: unknown) => {
         if (!isCurrent()) {
           return;
         }
 
-        finish();
+        activeLoad.current = null;
+        const notice = toNotice(error, phase);
         view.fail(error, () => {
           setManualLoadStatus('');
-          setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
+          setState((current) => ({ ...current, pending: null, error: { phase, notice } }));
         });
+        if (!notice.sessionEnded) readDeferredInvalidation();
       },
     ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
   }, [cancelActive, positionId]);
@@ -246,11 +274,12 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     const scheduler = updates.createReader((signal, view) => {
       const current = stateRef.current;
       if (!isOpenRef.current || current.error?.notice.sessionEnded === true) return Promise.resolve();
+      if (view.kind === 'live' && hasCurrentManualLoad()) return Promise.resolve();
       return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, { schedulerSignal: signal, view });
     });
     realtimeRead.current = scheduler;
     return () => { realtimeRead.current = null; scheduler.dispose(); };
-  }, [load, updates]);
+  }, [hasCurrentManualLoad, load, updates]);
 
   useRealtimeInvalidation((event) => {
     if (sessionEnded || !(event.type === 'recovery'
@@ -260,7 +289,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     if (event.type === 'recovery') {
       if (updates.isLive()) generation.current += 1;
       realtimeRead.current?.recover();
-    } else realtimeRead.current?.invalidate();
+    } else if (!updates.isLive() || !hasCurrentManualLoad()) {
+      realtimeRead.current?.invalidate();
+    }
   });
 
   const handleToggleOpen = () => {
@@ -322,7 +353,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   };
 
   const handleShowMore = () => {
-    if ((inFlight.current && updates.isLive()) || state.pending !== null || state.nextCursor === null) {
+    if ((activeLoad.current && updates.isLive()) || state.pending !== null || state.nextCursor === null) {
       return;
     }
 
@@ -387,7 +418,11 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
         {(pending?.phase === 'initial' || pending?.phase === 'refresh') && (
           <p className="inline-status" aria-hidden="true">
-            <span className={pending.source === 'manual-refresh' ? 'spinner spinner--continuous' : 'spinner'} aria-hidden="true" />
+            <span
+              key={pending.source}
+              className={pending.source === 'manual-refresh' ? 'spinner spinner--continuous' : 'spinner'}
+              aria-hidden="true"
+            />
             {pending.phase === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…'}
           </p>
         )}
