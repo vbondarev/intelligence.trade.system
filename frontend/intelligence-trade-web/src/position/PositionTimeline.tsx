@@ -195,6 +195,9 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       );
     }
 
+    if (view.kind === 'explicit' && !schedulerSignal) {
+      realtimeRead.current?.supersedeExplicitRead();
+    }
     cancelActive();
     const requestGeneration = generation.current;
     const requestInvalidationVersion = invalidationVersion.current;
@@ -298,6 +301,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     updates.cancelResume();
     if (isOpenRef.current) {
       isOpenRef.current = false;
+      realtimeRead.current?.supersedeExplicitRead();
       cancelActive();
       setManualLoadStatus('');
       realtimeRead.current?.recover();

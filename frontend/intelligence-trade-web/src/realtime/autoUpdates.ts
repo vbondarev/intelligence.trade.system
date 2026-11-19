@@ -7,7 +7,10 @@ export interface ReadPresentation {
 }
 
 type Read = (signal: AbortSignal, presentation: ReadPresentation) => Promise<void>;
-export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending'> & { refresh: () => void };
+export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending'> & {
+  refresh: () => void;
+  supersedeExplicitRead: () => void;
+};
 type Mode = 'live' | 'paused' | 'resuming' | 'failed';
 type Snapshot = { mode: Mode; pausedAt: number | null; announcement: string };
 
@@ -64,13 +67,18 @@ export function createAutoUpdates() {
       }
       activeRead = current;
       const finish = () => { if (activeRead === current) activeRead = null; };
-      if (current.explicit) return read(signal, {
-        ...explicitPresentation,
-        fail: (error, commit) => {
-          commit();
-          throwIfNetworkFailure(error, signal);
-        },
-      }).finally(finish);
+      if (current.explicit) {
+        const isCurrent = () => activeRead === current && current.explicit && !signal.aborted;
+        return read(signal, {
+          kind: 'explicit',
+          apply: (commit) => { if (isCurrent()) commit(); },
+          fail: (error, commit) => {
+            if (!isCurrent()) return;
+            commit();
+            throwIfNetworkFailure(error, signal);
+          },
+        }).finally(finish);
+      }
 
       const version = generation;
       const apply = (commit: () => void) => {
@@ -99,6 +107,10 @@ export function createAutoUpdates() {
         cancelResume();
         explicitPending = true;
         live.invalidate();
+      },
+      supersedeExplicitRead() {
+        explicitPending = false;
+        if (activeRead) activeRead.explicit = false;
       },
       invalidate() {
         if (isLive()) live.invalidate();

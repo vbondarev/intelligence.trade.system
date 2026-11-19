@@ -714,6 +714,50 @@ describe('PositionTimeline errors', () => {
 
 
 describe('PositionTimeline realtime recovery', () => {
+  it('сохраняет снимок на паузе после замены чтения при раскрытии', async () => {
+    const updates = createAutoUpdates();
+    const reopening = deferred<Response>();
+    const manual = deferred<Response>();
+    const recovery = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(
+        page(firstTimelinePage(null)),
+        () => reopening.promise,
+        () => manual.promise,
+        () => recovery.promise,
+        page(timelinePageFixture([TIMELINE_EVALUATION])),
+      ),
+    }, updates);
+
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(toggle());
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+    await userEvent.click(toggle());
+    await waitFor(() => expect(requests).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    expect(requests).toHaveLength(3);
+
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+    expect(requests[2]?.init?.signal?.aborted).toBe(true);
+    act(() => updates.toggle());
+    await act(async () => {
+      reopening.resolve(jsonResponse(emptyTimelinePage()));
+      manual.resolve(jsonResponse(emptyTimelinePage()));
+      recovery.resolve(jsonResponse(emptyTimelinePage()));
+    });
+    expect(updates.getSnapshot().mode).toBe('paused');
+    expect(events()).toHaveLength(3);
+    expect(requests[3]?.init?.signal?.aborted).toBe(true);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+
+    act(() => updates.toggle());
+    await findEvents(1);
+    expect(updates.getSnapshot().mode).toBe('live');
+  });
+
   it('завершает ручное обновление до одного объединённого фонового чтения', async () => {
     const manual = deferred<Response>();
     const background = deferred<Response>();

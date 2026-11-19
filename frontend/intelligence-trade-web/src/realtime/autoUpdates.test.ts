@@ -8,6 +8,47 @@ function deferred() {
 }
 
 describe('пауза автоматических обновлений', () => {
+  it('отзывает явное чтение и его уже запланированное продолжение', async () => {
+    const updates = createAutoUpdates();
+    const previous = deferred();
+    const reads: string[] = [];
+    const publish = vi.fn();
+    const reader = updates.createReader(async (_, view) => {
+      reads.push(view.kind);
+      if (reads.length > 1) return;
+      await previous.promise;
+      view.apply(publish);
+      expect(() => view.fail(new TypeError('поздний сетевой отказ'), publish)).not.toThrow();
+    });
+
+    reader.refresh();
+    reader.refresh();
+    reader.supersedeExplicitRead();
+    reader.recover();
+    await vi.waitFor(() => expect(reads).toEqual(['explicit', 'live']));
+    previous.resolve();
+    await previous.promise;
+    expect(publish).not.toHaveBeenCalled();
+    reader.dispose();
+  });
+
+  it('позволяет актуальному явному чтению завершиться на паузе', async () => {
+    const updates = createAutoUpdates();
+    const response = deferred();
+    const publish = vi.fn();
+    const reader = updates.createReader(async (_, view) => {
+      await response.promise;
+      view.apply(publish);
+    });
+
+    reader.refresh();
+    updates.toggle();
+    response.resolve();
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+    expect(updates.getSnapshot().mode).toBe('paused');
+    reader.dispose();
+  });
+
   it('отменяет старый GET, выполняет recovery без публикации и объединяет события при возобновлении', async () => {
     const updates = createAutoUpdates();
     const late = deferred();
