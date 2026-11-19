@@ -24,6 +24,19 @@ const levels: PriceLevel[] = [
 const props = { symbol: 'BTCUSDT', interval: '1h' as const, candles, levels, loading: false, dataUnavailable: false, showingPreviousData: false, levelsIncomplete: false };
 
 describe('PositionChartData', () => {
+  it('сохраняет отличия малых OHLC и ценовых уровней', () => {
+    render(<PositionChartData
+      {...props}
+      candles={[{ ...candles[0]!, open: 1e-9, high: 4e-9, low: 2e-9, close: 3e-9 }]}
+      levels={[{ ...levels[1]!, price: 2e-9 }]}
+    />);
+    screen.getByText('Данные графика и ценовые уровни').click();
+    const table = screen.getByRole('table', { name: /Свечи BTCUSDT/ });
+    expect(within(table).getAllByRole('cell').map((cell) => cell.textContent))
+      .toEqual(['0,000000001', '0,000000004', '0,000000002', '0,000000003']);
+    expect(screen.getByRole('rowheader', { name: 'Stop Loss' }).nextElementSibling).toHaveTextContent('0,000000002');
+  });
+
   it('renders all shared candles and labeled price levels', async () => {
     render(<PositionChartData {...props} />);
     await userEvent.setup().click(screen.getByText('Данные графика и ценовые уровни'));

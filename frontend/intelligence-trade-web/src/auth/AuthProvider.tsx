@@ -70,8 +70,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
       return true;
-    } catch {
-      return !signal.aborted;
+    } catch (error) {
+      if (signal.aborted) return false;
+      if (error instanceof AuthApiError && error.status === 403) {
+        setState((current) => !signal.aborted && current.user?.userId === expectedUserId
+          ? { ...toAuthState({ authenticated: false }), error: SESSION_ERROR, logoutAvailable: true }
+          : current);
+        return false;
+      }
+      return true;
     }
   }, []);
 

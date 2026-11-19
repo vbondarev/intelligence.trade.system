@@ -1,6 +1,29 @@
 import { expect, test } from '@playwright/test';
+import { candleFixture, candlesFixture } from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 import { MAIN_ID, mockBusinessData, mockPositionPage, position } from './uiMock';
+
+test('точные малые цены прокручиваются внутри таблицы при 320 CSS px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mockBusinessData(page);
+  await mockPositionPage(page);
+  await page.route('**/bff/me/positions/btc/candles?*', (route) => route.fulfill({
+    json: candlesFixture('1h', [{
+      ...candleFixture('2026-10-12T08:00:00Z'), open: 2e-20, high: 4e-20, low: 1e-20, close: 3e-20,
+    }]),
+  }));
+  await loginThroughLanding(page);
+  await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+  await page.getByText('Данные графика и ценовые уровни', { exact: true }).click();
+  const region = page.getByRole('region', { name: 'Таблица свечей' });
+  const cells = region.getByRole('cell');
+  const prefix = '0,' + '0'.repeat(19);
+  await expect(cells).toHaveText(['2', '4', '1', '3'].map((digit) => prefix + digit));
+  await region.focus();
+  await region.press('ArrowRight');
+  await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
 
 function contrast(left: string, right: string) {
   const luminance = (hex: string) => {

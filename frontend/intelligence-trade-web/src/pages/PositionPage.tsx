@@ -60,6 +60,7 @@ interface Notice {
 
 /** Результат чтения, привязанный к ключу запроса: данные другого ключа не отображаются. */
 type Load<T> = { key: string; value: T | null; error: Notice | null };
+type EvaluationLoad = Load<Evaluation | null> & { appliedAt: number | null };
 
 interface EvaluateState {
   running: boolean;
@@ -127,7 +128,7 @@ export function PositionPage() {
   const [notFound, setNotFound] = useState<string | null>(null);
   const [market, setMarket] = useState<Load<PositionMarket> | null>(null);
   const [candles, setCandles] = useState<Load<PositionCandles> | null>(null);
-  const [evaluation, setEvaluation] = useState<Load<Evaluation | null> | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationLoad | null>(null);
   const [evaluateStates, setEvaluateStates] = useState<Readonly<Record<string, EvaluateState>>>({});
 
   const positionRead = useRef<ScreenReader | null>(null);
@@ -244,13 +245,16 @@ export function PositionPage() {
       return getPositionEvaluation(id, signal).then(
       (value) => view.apply(() => {
         if (isCurrent()) {
-          setEvaluation(loaded(id, value));
+          setEvaluation({ ...loaded(id, value), appliedAt: Date.now() });
         }
       }),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
-            if (isCurrent()) setEvaluation((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current));
+            if (isCurrent()) setEvaluation((current) => ({
+              ...failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current),
+              appliedAt: current?.key === id ? current.appliedAt : null,
+            }));
           });
         }
       },
@@ -295,7 +299,7 @@ export function PositionPage() {
   const now = useValidityClock([
     evaluationValue?.assessment.validUntil,
     evaluationValue?.recommendation?.validUntil,
-  ], pausedAt);
+  ], pausedAt, currentEvaluation?.appliedAt);
 
   const positionValue = currentPosition?.value ?? null;
   const marketValue = currentMarket?.value ?? null;
@@ -324,7 +328,7 @@ export function PositionPage() {
       const value = await evaluatePosition(positionId);
       if (currentIdRef.current === positionId) {
         evaluationGeneration.current += 1;
-        setEvaluation(loaded(positionId, value));
+        setEvaluation({ ...loaded(positionId, value), appliedAt: Date.now() });
       }
 
       notice = { tone: 'success', text: 'Оценка выполнена.' };

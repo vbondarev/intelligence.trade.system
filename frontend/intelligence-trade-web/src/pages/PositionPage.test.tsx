@@ -611,6 +611,33 @@ describe('PositionPage evaluation validity on an open page', () => {
     vi.useRealTimers();
   });
 
+  it('замораживает видимую оценку на паузе и проверяет новые снимки по времени применения', async () => {
+    renderPage(pagePath(), {
+      ...positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(30), at(30))) }),
+      ...positionRoutes(OTHER_POSITION_ID, {
+        [evaluationUrl(OTHER_POSITION_ID)]: (init) => jsonResponse(init?.method === 'POST'
+          ? evaluationValidUntil(at(90), at(40), OTHER_POSITION_ID)
+          : evaluationValidUntil(at(30), at(30), OTHER_POSITION_ID)),
+      }),
+    });
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    fireEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await advanceTo(60);
+    expect(assessmentState()).toContain(VALID);
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
+    await settleUntil(() => expect(assessmentState()).toContain(EXPIRED));
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
+    await settleUntil(() => expect(screen.getByText('Оценка выполнена.')).toBeVisible());
+    expect(assessmentState()).toContain(VALID);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    await advanceTo(90);
+    expect(assessmentState()).toContain(VALID);
+    fireEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await settleUntil(() => expect(assessmentState()).toContain(EXPIRED));
+  });
+
   it('marks the assessment and recommendation expired at validUntil without new requests', async () => {
     const requests = renderPage(
       pagePath(),

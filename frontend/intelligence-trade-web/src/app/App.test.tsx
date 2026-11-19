@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
+import { useAuth } from '../auth/authContext';
 import type { AuthState } from '../auth/authTypes';
 import { jsonResponse, mockFetch, stubLocationAssign } from '../test/fetchMock';
+import { emitRealtime } from '../test/realtimeTestDriver';
 import { AppRoutes } from './router';
 
 const authenticatedSession = {
@@ -63,6 +65,69 @@ describe('App routing and session bootstrap', () => {
     expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Выйти' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Обзор' })).toHaveAttribute('href', '/app');
+  });
+
+  it.each([403, 503])('обрабатывает статус %s при проверке доступа на паузе', async (status) => {
+    let recovering = false;
+    const assign = stubLocationAssign();
+    const requests = mockFetch({
+      '/bff/auth/session': () => recovering ? jsonResponse({}, status) : jsonResponse(authenticatedSession),
+      '/bff/me/exchange-accounts': () => recovering ? jsonResponse({}, 403) : jsonResponse({ items: [] }),
+      '/bff/auth/antiforgery': () => jsonResponse({ requestToken: 'csrf-token' }),
+      '/bff/auth/logout': () => jsonResponse({ redirectUrl: '/bff/auth/logout/complete' }),
+    });
+    renderAt('/app/settings/connections');
+    const heading = await screen.findByRole('heading', { name: 'Подключения', level: 1 });
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    recovering = true;
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(authRequestUrls(requests).filter((url) => url === '/bff/auth/session')).toHaveLength(2));
+
+    if (status === 403) {
+      expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось проверить сессию');
+      expect(heading).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+      expect(assign).toHaveBeenCalledWith('/bff/auth/logout/complete');
+    } else {
+      expect(heading).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Возобновить автообновление' })).toBeVisible();
+    }
+  });
+
+  it.each(['отмена', 'смена пользователя'])('игнорирует поздний 403: %s', async (reason) => {
+    const check = new AbortController();
+    const nextUser = { userId: 'other-user', subject: 'Другой пользователь' };
+    let finishCheck!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finishCheck = resolve; });
+    let sessionReads = 0;
+    const requests = mockFetch({
+      '/bff/auth/session': () => {
+        sessionReads += 1;
+        if (sessionReads === 2) return pending;
+        return jsonResponse(sessionReads === 1 ? authenticatedSession : { authenticated: true, user: nextUser });
+      },
+    });
+    function Probe() {
+      const auth = useAuth();
+      return (
+        <>
+          <p>{auth.user?.subject}</p>
+          <button type="button" onClick={() => void auth.revalidate(authenticatedSession.user.userId, check.signal)}>Проверить</button>
+          <button type="button" onClick={auth.retry}>Загрузить сессию</button>
+        </>
+      );
+    }
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await screen.findByText(authenticatedSession.user.subject);
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить' }));
+    expect(requests).toHaveLength(2);
+    if (reason === 'отмена') check.abort();
+    else {
+      await userEvent.click(screen.getByRole('button', { name: 'Загрузить сессию' }));
+      await screen.findByText(nextUser.subject);
+    }
+    await act(async () => finishCheck(jsonResponse({}, 403)));
+    expect(screen.getByText(reason === 'отмена' ? authenticatedSession.user.subject : nextUser.subject)).toBeVisible();
   });
 
   it.each(['authenticated', 'anonymous', 'failed'] as const)(

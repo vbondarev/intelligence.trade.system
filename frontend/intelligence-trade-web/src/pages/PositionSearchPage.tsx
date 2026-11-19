@@ -86,12 +86,17 @@ function ResultGroup({ symbol, accounts, closed }: {
   const [error, setError] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
   const reader = useRef<ScreenReader | null>(null);
-  const pagination = useRef<AbortController | null>(null);
+  const pagination = useRef<{ controller: AbortController; settled: Promise<boolean> } | null>(null);
   const snapshot = useRef<SearchSnapshot | null>(null);
   const deferred = useRef<'invalidate' | 'recover' | null>(null);
 
   useEffect(() => {
     const scheduler = updates.createReader(async (signal, view) => {
+      const pendingPage = pagination.current;
+      const keepManualError = view.kind === 'resume' && pendingPage !== null
+        ? await waitForManualPage(pendingPage.settled, signal)
+        : false;
+      if (signal.aborted) return;
       const startingSnapshot = snapshot.current;
       const manualAtStart = pagination.current !== null;
       function deferLiveCommit() {
@@ -111,12 +116,12 @@ function ResultGroup({ symbol, accounts, closed }: {
         const next = await readSearchSnapshot(query, pageCount, signal);
         if (!signal.aborted) view.apply(() => {
           if (deferLiveCommit()) return;
-          pagination.current?.abort();
+          pagination.current?.controller.abort();
           pagination.current = null;
           deferred.current = null;
           snapshot.current = next;
           setLoadingMore(false);
-          setError('');
+          if (!keepManualError) setError('');
           setResult(next.page);
         });
       } catch (failure) {
@@ -130,7 +135,7 @@ function ResultGroup({ symbol, accounts, closed }: {
     return () => {
       reader.current = null;
       scheduler.dispose();
-      pagination.current?.abort();
+      pagination.current?.controller.abort();
       pagination.current = null;
       deferred.current = null;
     };
@@ -152,7 +157,10 @@ function ResultGroup({ symbol, accounts, closed }: {
     if (!current || !cursor || pagination.current) return;
     updates.cancelResume();
     const request = new AbortController();
-    pagination.current = request;
+    let finish!: (failed: boolean) => void;
+    const settled = new Promise<boolean>((resolve) => { finish = resolve; });
+    pagination.current = { controller: request, settled };
+    let failed = false;
     setLoadingMore(true);
     setError('');
     try {
@@ -165,15 +173,19 @@ function ResultGroup({ symbol, accounts, closed }: {
         setResult(appended.page);
       }
     } catch (failure) {
-      if (!request.signal.aborted) setError(searchError(failure));
+      if (!request.signal.aborted) {
+        failed = true;
+        setError(searchError(failure));
+      }
     } finally {
-      if (pagination.current === request) {
+      if (pagination.current?.controller === request) {
         pagination.current = null;
         setLoadingMore(false);
         const action = deferred.current;
         deferred.current = null;
         if (action) reader.current?.[action]();
       }
+      finish(failed);
     }
   }
 
@@ -198,6 +210,18 @@ function ResultGroup({ symbol, accounts, closed }: {
       )}
     </section>
   );
+}
+
+async function waitForManualPage(settled: Promise<boolean>, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false;
+  let abort!: () => void;
+  const cancelled = new Promise<boolean>((resolve) => { abort = () => resolve(false); });
+  signal.addEventListener('abort', abort, { once: true });
+  try {
+    return await Promise.race([settled, cancelled]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
 }
 
 interface SearchSnapshot {

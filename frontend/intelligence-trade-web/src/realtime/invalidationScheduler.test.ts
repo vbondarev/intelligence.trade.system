@@ -2,6 +2,80 @@ import { describe, expect, it, vi } from 'vitest';
 import { createInvalidationScheduler, throwIfNetworkFailure } from './invalidationScheduler';
 
 describe('invalidation scheduler', () => {
+  it('восстанавливается после второго сетевого отказа и нового online', async () => {
+    vi.useFakeTimers();
+    let online = false;
+    const onlineState = vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    const read = vi.fn().mockRejectedValueOnce(new TypeError('network'))
+      .mockImplementationOnce(async () => { online = false; throw new TypeError('network again'); })
+      .mockResolvedValue(undefined);
+    const scheduler = createInvalidationScheduler(read);
+    try {
+      scheduler.recover();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(read).toHaveBeenCalledTimes(1);
+      online = true;
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(250);
+      expect(read).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(read).toHaveBeenCalledTimes(2);
+      online = true;
+      window.dispatchEvent(new Event('online'));
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(500);
+      expect(read).toHaveBeenCalledTimes(3);
+    } finally {
+      scheduler.dispose();
+      onlineState.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ограничивает один цикл восстановления двумя автоматическими повторами', async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const read = vi.fn().mockRejectedValue(new TypeError('network'));
+    const scheduler = createInvalidationScheduler(read);
+    try {
+      scheduler.recover();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(read).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(read).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(read).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(read).toHaveBeenCalledTimes(3);
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(read).toHaveBeenCalledTimes(3);
+    } finally {
+      scheduler.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['cancelPending', 'dispose', 'recover'] as const)('убирает старый отложенный повтор при %s', async (operation) => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const read = vi.fn().mockRejectedValueOnce(new TypeError('network')).mockResolvedValue(undefined);
+    const scheduler = createInvalidationScheduler(read);
+    try {
+      scheduler.recover();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(read).toHaveBeenCalledOnce();
+      scheduler[operation]();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(read).toHaveBeenCalledTimes(operation === 'recover' ? 2 : 1);
+    } finally {
+      scheduler.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('coalesces a burst during a read and performs the final read', async () => {
     let finish!: () => void;
     const read = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; })).mockResolvedValue(undefined);

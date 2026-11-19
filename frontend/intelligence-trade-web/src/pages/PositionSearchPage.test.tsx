@@ -88,6 +88,60 @@ it('читает REST при recovery на паузе и публикует но
   expect(updates.getSnapshot().mode).toBe('live');
 });
 
+it.each(['страница', 'ошибка', 'смена символа', 'отмена ожидания'] as const)('сохраняет ручное чтение при возобновлении: %s', async (outcome) => {
+  let resolveManual!: (response: Response) => void;
+  const manual = new Promise<Response>((resolve) => { resolveManual = resolve; });
+  let reads = 0;
+  const page = (price: number, cursor: string | null, id = 'position-1') => jsonResponse({
+    items: [positionFixture({ id, symbol: 'BTCUSDT', averageEntryPrice: price })],
+    hasMore: cursor !== null,
+    nextCursor: cursor,
+  });
+  const { requests, updates } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => ++reads === 1 ? page(60000, 'old') : page(62000, 'fresh'),
+    '/bff/me/positions?symbol=BTCUSDT&cursor=old': () => manual,
+    '/bff/me/positions?symbol=BTCUSDT&cursor=fresh': () => page(63000, null, 'position-2'),
+    '/bff/me/positions?symbol=ETHUSDT': () => results('ETHUSDT'),
+    '/bff/me/positions?trackingState=closed&symbol=ETHUSDT': empty,
+  });
+  await screen.findByRole('link', { name: /^BTCUSDT.*60\s000/ });
+  act(() => updates.toggle());
+  await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+  const request = requests.find(({ url }) => url.endsWith('cursor=old'));
+  await act(async () => updates.toggle());
+  expect(updates.getSnapshot().mode).toBe('resuming');
+  expect(request?.init?.signal?.aborted).toBe(false);
+  expect(reads).toBe(1);
+  if (outcome === 'отмена ожидания') {
+    await act(async () => updates.cancelResume());
+    expect(updates.getSnapshot().mode).toBe('paused');
+    expect(request?.init?.signal?.aborted).toBe(false);
+    await act(async () => resolveManual(page(61000, null, 'position-2')));
+    expect(await screen.findByRole('link', { name: /^BTCUSDT.*61\s000/ })).toBeVisible();
+    expect(reads).toBe(1);
+    return;
+  }
+  if (outcome === 'смена символа') {
+    await userEvent.clear(screen.getByLabelText('Символ'));
+    await userEvent.type(screen.getByLabelText('Символ'), 'ETHUSDT');
+    await userEvent.click(screen.getByRole('button', { name: 'Найти' }));
+    await screen.findByRole('link', { name: /^ETHUSDT/ });
+    expect(request?.init?.signal?.aborted).toBe(true);
+    await act(async () => resolveManual(page(61000, null, 'position-2')));
+    expect(screen.queryByRole('link', { name: /^BTCUSDT/ })).not.toBeInTheDocument();
+    return;
+  }
+  await act(async () => resolveManual(outcome === 'ошибка' ? jsonResponse({}, 503) : page(61000, null, 'position-2')));
+  await screen.findByRole('link', { name: /^BTCUSDT.*62\s000/ });
+  expect(updates.getSnapshot().mode).toBe('live');
+  if (outcome === 'страница') {
+    expect(screen.getByRole('link', { name: /^BTCUSDT.*63\s000/ })).toBeVisible();
+  } else {
+    expect(screen.getByRole('alert')).toHaveTextContent('Не удалось');
+    expect(requests.some(({ url }) => url.endsWith('cursor=fresh'))).toBe(false);
+  }
+});
+
 it.each([false, true])('сохраняет ручную страницу при recovery, начатом заранее: %s', async (startedEarlier) => {
   let firstReads = 0;
   let replyOld!: (response: Response) => void;
