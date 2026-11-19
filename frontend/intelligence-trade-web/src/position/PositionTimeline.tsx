@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { explicitPresentation, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { PositionApiError, TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
@@ -11,6 +11,13 @@ const SESSION_ENDED = 'Сессия завершена. Войдите снов�
 const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 
 type LoadPhase = 'initial' | 'more' | 'refresh';
+type LoadSource = 'default' | 'manual-refresh';
+
+interface LoadOptions {
+  schedulerSignal?: AbortSignal;
+  view?: ReadPresentation;
+  source?: LoadSource;
+}
 
 const PHASE_FALLBACKS: Record<LoadPhase, string> = {
   initial: 'Не удалось загрузить историю позиции. Повторите попытку позже.',
@@ -32,7 +39,7 @@ interface TimelineState {
   nextCursor: string | null;
   hasMore: boolean;
   hasLoaded: boolean;
-  pending: LoadPhase | null;
+  pending: { phase: LoadPhase; source: LoadSource } | null;
   error: { phase: LoadPhase; notice: TimelineNotice } | null;
 }
 
@@ -152,7 +159,12 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
   // Ответ применяется, только если запрос не отменён и его поколение осталось текущим:
   // одной отмены недостаточно для защиты от уже начатого разбора ответа.
-  const load = useCallback((phase: LoadPhase, types: readonly PositionTimelineItemType[], cursor: string | null, schedulerSignal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+  const load = useCallback((
+    phase: LoadPhase,
+    types: readonly PositionTimelineItemType[],
+    cursor: string | null,
+    { schedulerSignal, view = explicitPresentation, source = 'default' }: LoadOptions = {},
+  ): Promise<void> => {
     if (view.kind === 'silent' || view.kind === 'resume') {
       const version = generation.current;
       const isCurrent = () => isOpenRef.current && generation.current === version && !schedulerSignal?.aborted;
@@ -194,7 +206,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     if (view.kind === 'explicit') {
       setState((current) => ({
         ...current,
-        pending: phase,
+        pending: { phase, source },
         error: null,
         // Cursor прежнего поколения не комбинируется со страницами нового.
         ...(phase === 'more' ? {} : { nextCursor: null, hasMore: false }),
@@ -234,7 +246,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     const scheduler = updates.createReader((signal, view) => {
       const current = stateRef.current;
       if (!isOpenRef.current || current.error?.notice.sessionEnded === true) return Promise.resolve();
-      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, signal, view);
+      return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, { schedulerSignal: signal, view });
     });
     realtimeRead.current = scheduler;
     return () => { realtimeRead.current = null; scheduler.dispose(); };
@@ -306,7 +318,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
 
     updates.cancelResume();
     setManualLoadStatus(state.hasLoaded ? 'Обновляем историю…' : 'Загружаем историю…');
-    load(state.hasLoaded ? 'refresh' : 'initial', state.selectedTypes, null);
+    load(state.hasLoaded ? 'refresh' : 'initial', state.selectedTypes, null, { source: 'manual-refresh' });
   };
 
   const handleShowMore = () => {
@@ -373,10 +385,10 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           </p>
         </fieldset>
 
-        {(pending === 'initial' || pending === 'refresh') && (
+        {(pending?.phase === 'initial' || pending?.phase === 'refresh') && (
           <p className="inline-status" aria-hidden="true">
-            <span className="spinner" aria-hidden="true" />
-            {pending === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…'}
+            <span className={pending.source === 'manual-refresh' ? 'spinner spinner--continuous' : 'spinner'} aria-hidden="true" />
+            {pending.phase === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…'}
           </p>
         )}
 
@@ -405,7 +417,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           </ol>
         )}
 
-        {pending === 'more' && (
+        {pending?.phase === 'more' && (
           <p className="inline-status" aria-hidden="true">
             <span className="spinner" aria-hidden="true" />
             Загружаем продолжение истории…

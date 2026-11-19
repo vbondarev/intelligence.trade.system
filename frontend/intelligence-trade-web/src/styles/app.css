@@ -92,6 +92,10 @@ h1 {
   animation: spin 0.8s linear 6;
 }
 
+.spinner--continuous {
+  animation-iteration-count: infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }

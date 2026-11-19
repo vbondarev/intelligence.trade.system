@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { firstTimelinePage } from '../src/test/positionFixtures';
 import { loginThroughLanding, openIdentityLoginThroughLanding } from './support';
 import { LONG_DISPLAY_NAME, MAIN_ID, mockBusinessData, mockPositionPage } from './uiMock';
 
@@ -312,3 +313,81 @@ test('негативные состояния: axe и reflow загрузки, �
   await expect(page.getByRole('heading', { level: 1, name: 'Позиция недоступна' })).toBeVisible();
   await expectAccessibleState('Позиция не найдена');
 });
+
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`индикатор длительной загрузки истории сохраняет статус (${reducedMotion})`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion });
+    await mockBusinessData(page);
+    await mockPositionPage(page);
+    await loginThroughLanding(page);
+    await page.goto('/app/positions/btc');
+
+    const history = page.getByRole('region', { name: 'История позиции' });
+    const visibleStatus = history.locator('.inline-status');
+    const spinner = visibleStatus.locator('.spinner');
+    const events = history.getByRole('list', { name: 'События истории позиции' });
+    const motionEnabled = reducedMotion === 'no-preference';
+
+    const holdResponse = async (status: number) => {
+      let release!: () => void;
+      const responseGate = new Promise<void>((resolve) => { release = resolve; });
+      await page.route('**/bff/me/positions/btc/timeline?*', async (route) => {
+        await responseGate;
+        await route.fulfill({ status, json: status === 200 ? firstTimelinePage() : {} });
+      }, { times: 1 });
+      return release;
+    };
+
+    const expectLoading = async (message: string, continuous: boolean) => {
+      await expect(visibleStatus).toBeVisible();
+      await expect(visibleStatus).toHaveText(message);
+      await expect(history.getByRole('status')).toHaveText(message);
+      await expect(spinner).toHaveCSS('animation-name', motionEnabled ? 'spin' : 'none');
+      if (motionEnabled) {
+        await expect(spinner).toHaveCSS('animation-duration', '0.8s');
+        await expect(spinner).toHaveCSS('animation-iteration-count', continuous ? 'infinite' : '6');
+      }
+      const running = await spinner.evaluate(async (element) => {
+        // Ответ удерживается, чтобы проверить состояние после лимита анимации.
+        await new Promise((resolve) => setTimeout(resolve, 5100));
+        return element.getAnimations().some((animation) => animation.playState === 'running');
+      });
+      expect(running).toBe(motionEnabled && continuous);
+      await expect(visibleStatus).toHaveText(message);
+      await expect(visibleStatus).toBeVisible();
+    };
+
+    const releaseInitial = await holdResponse(200);
+    try {
+      await history.getByRole('button', { name: 'История позиции' }).click();
+      await expectLoading('Загружаем историю…', false);
+    } finally {
+      releaseInitial();
+    }
+    await expect(events).toBeVisible();
+    await expect(visibleStatus).toBeHidden();
+
+    const releaseRefresh = await holdResponse(503);
+    try {
+      await history.getByRole('button', { name: 'Обновить', exact: true }).press('Enter');
+      await expectLoading('Обновляем историю…', true);
+    } finally {
+      releaseRefresh();
+    }
+    await expect(history.getByRole('alert')).toContainText('Сервис временно недоступен');
+    await expect(visibleStatus).toBeHidden();
+
+    const releaseRetry = await holdResponse(200);
+    try {
+      await history.getByRole('button', { name: 'Повторить', exact: true }).press('Enter');
+      await expect(visibleStatus).toHaveText('Обновляем историю…');
+      await expect(spinner).toHaveCSS('animation-name', motionEnabled ? 'spin' : 'none');
+      if (motionEnabled) await expect(spinner).toHaveCSS('animation-iteration-count', 'infinite');
+    } finally {
+      releaseRetry();
+    }
+    await expect(visibleStatus).toBeHidden();
+    await expect(events).toBeVisible();
+    await expect(history.getByRole('alert')).toBeHidden();
+  });
+}
