@@ -95,17 +95,28 @@ test('повторный вход в другой вкладке восстан�
   await expect(page.getByRole('dialog', { name: 'Сессия завершена' })).toBeVisible();
   await expect(heading).toHaveCount(0);
 
+  // Изолируем ветку, где RealtimeProvider ещё не получил анонимную сессию.
+  // После смены cookie первая вкладка снова читает сессию и данные через настоящий BFF.
+  const sessionPath = '**/bff/auth/session';
+  await page.route(sessionPath, (route) => route.abort('failed'));
   await context.clearCookies({ name: SESSION_COOKIE });
   await context.clearCookies({ name: IDENTITY_COOKIE });
   const other = await context.newPage();
   await loginThroughLanding(other);
-  await page.unroute(timingPath);
-  const accountRead = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === '/bff/me/exchange-accounts' && response.ok(),
+  await expect(page.getByRole('dialog', { name: 'Сессия завершена' })).toBeVisible();
+
+  const sessionCheck = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/bff/auth/session' && response.ok(),
   );
+  const accountRead = page.waitForRequest((request) =>
+    new URL(request.url()).pathname === '/bff/me/exchange-accounts' && request.method() === 'GET',
+  );
+  await page.unroute(sessionPath);
+  await page.unroute(timingPath);
   await page.bringToFront();
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await accountRead;
+  const [session] = await Promise.all([sessionCheck, accountRead]);
+  expect(await session.json()).toMatchObject({ authenticated: true });
   await expect(page).toHaveURL(new RegExp(`${path}$`));
   await expect(heading).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Сессия завершена' })).toBeHidden();
