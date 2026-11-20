@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type MouseEvent } from 'react';
 import { explicitPresentation, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
@@ -145,6 +145,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   const activeLoad = useRef<ActiveLoad | null>(null);
   const stateRef = useRef(state);
   const realtimeRead = useRef<ScreenReader | null>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
 
   const hasCurrentManualLoad = useCallback(() =>
@@ -366,6 +367,13 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     load('more', state.selectedTypes, state.nextCursor);
   };
 
+  const handleRetry = (event: MouseEvent<HTMLButtonElement>) => {
+    const button = event.currentTarget;
+    // Запуск чтения сразу убирает кнопку ошибки из DOM.
+    if (button.ownerDocument.activeElement === button) refreshButton.current?.focus();
+    handleRefresh();
+  };
+
   const { isOpen, selectedTypes, items, hasLoaded, pending, error } = state;
   const canShowMore =
     hasLoaded && state.hasMore && state.nextCursor !== null && pending === null && error === null;
@@ -375,7 +383,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       ? null
       : error.phase === 'more'
         ? { label: 'Повторить загрузку продолжения', run: handleShowMore }
-        : { label: 'Повторить', run: handleRefresh };
+        : { label: 'Повторить', run: handleRetry };
 
   return (
     <section className="panel position-timeline" aria-labelledby={titleId}>
@@ -393,7 +401,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           </button>
         </h2>
         {isOpen && !sessionEnded && (
-          <button type="button" className="button button-secondary" onClick={handleRefresh}>
+          <button ref={refreshButton} type="button" className="button button-secondary" onClick={handleRefresh}>
             Обновить
           </button>
         )}
@@ -530,7 +538,7 @@ function applyPage(
 interface TimelineAlertProps {
   notice: TimelineNotice;
   note: string | null;
-  retry: { label: string; run: () => void } | null;
+  retry: { label: string; run: (event: MouseEvent<HTMLButtonElement>) => void } | null;
   onLogin: () => void;
 }
 

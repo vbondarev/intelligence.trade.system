@@ -677,6 +677,43 @@ describe('PositionTimeline errors', () => {
     expect(requestUrls(requests)).toEqual([BASE, BASE]);
   });
 
+  it.each(['initial', 'refresh'] as const)('сохраняет предсказуемый фокус при повторе %s', async (phase) => {
+    const user = userEvent.setup();
+    const response = deferred<Response>();
+    const failure = () => problem(503, 'service_unavailable');
+    const handlers: RouteHandler[] = [failure, () => response.promise];
+    if (phase === 'refresh') handlers.unshift(page(firstTimelinePage()));
+    renderTimeline({ [BASE]: sequence(...handlers) });
+
+    await user.click(toggle());
+    const refresh = screen.getByRole('button', { name: 'Обновить' });
+    if (phase === 'refresh') {
+      await findEvents(3);
+      await user.click(refresh);
+    }
+    const retry = within(await screen.findByRole('alert')).getByRole('button', { name: 'Повторить' });
+    retry.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(refresh).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      phase === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…',
+    );
+
+    if (phase === 'initial') {
+      await act(async () => response.resolve(jsonResponse(firstTimelinePage())));
+      await findEvents(3);
+      expect(refresh).toHaveFocus();
+    } else {
+      await user.tab();
+      const next = document.activeElement;
+      expect(next).toHaveAttribute('type', 'checkbox');
+      await act(async () => response.resolve(failure()));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Сервис временно недоступен');
+      expect(next).toHaveFocus();
+    }
+  });
+
   it('loads the first page again on reopen after a retryable error', async () => {
     const { requests } = renderTimeline({
       [BASE]: sequence(() => problem(503, 'service_unavailable'), page(firstTimelinePage())),

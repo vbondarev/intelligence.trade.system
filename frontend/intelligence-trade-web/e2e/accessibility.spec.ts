@@ -314,6 +314,40 @@ test('негативные состояния: axe и reflow загрузки, �
   await expectAccessibleState('Позиция не найдена');
 });
 
+test('повтор первого чтения истории сохраняет фокус при повторном отказе', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mockBusinessData(page);
+  await mockPositionPage(page);
+  await loginThroughLanding(page);
+  await page.goto('/app/positions/btc');
+
+  const history = page.getByRole('region', { name: 'История позиции' });
+  await expect(history).toBeVisible();
+  await expect(page.getByText(/^Realtime:/)).toBeHidden();
+  let release!: () => void;
+  const responseGate = new Promise<void>((resolve) => { release = resolve; });
+  let reads = 0;
+  await page.route('**/bff/me/positions/btc/timeline?*', async (route) => {
+    if (++reads === 2) await responseGate;
+    await route.fulfill({ status: 503, json: {} });
+  });
+
+  try {
+    await history.getByRole('button', { name: 'История позиции' }).press('Enter');
+    const retry = history.getByRole('button', { name: 'Повторить', exact: true });
+    await expect(retry).toBeVisible();
+    await retry.press('Enter');
+    await expect(history.getByRole('button', { name: 'Обновить', exact: true })).toBeFocused();
+    await expect(history.getByRole('status')).toHaveText('Загружаем историю…');
+    await page.keyboard.press('Tab');
+    await expect(history.getByRole('checkbox').first()).toBeFocused();
+  } finally {
+    release();
+  }
+  await expect(history.getByRole('alert')).toContainText('Сервис временно недоступен');
+  await expect(history.getByRole('checkbox').first()).toBeFocused();
+});
+
 for (const reducedMotion of ['no-preference', 'reduce'] as const) {
   test(`индикатор длительной загрузки истории сохраняет статус (${reducedMotion})`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion });
@@ -382,8 +416,10 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await expect(visibleStatus).toBeHidden();
 
     const releaseRetry = await holdResponse(200);
+    const refresh = history.getByRole('button', { name: 'Обновить', exact: true });
     try {
       await history.getByRole('button', { name: 'Повторить', exact: true }).press('Enter');
+      await expect(refresh).toBeFocused();
       await expect(visibleStatus).toHaveText('Обновляем историю…');
       await expect(spinner).toHaveCSS('animation-name', motionEnabled ? 'spin' : 'none');
       if (motionEnabled) await expect(spinner).toHaveCSS('animation-iteration-count', 'infinite');
@@ -393,5 +429,6 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await expect(visibleStatus).toBeHidden();
     await expect(events).toBeVisible();
     await expect(history.getByRole('alert')).toBeHidden();
+    await expect(refresh).toBeFocused();
   });
 }
