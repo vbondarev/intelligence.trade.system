@@ -59,12 +59,15 @@ test('поиск сохраняет фокус и восстанавливает
   await page.setViewportSize({ width: 320, height: 740 });
   await mockBusinessData(page);
   await loginThroughLanding(page);
+  // Проверяем query-навигацию внутри поиска после отдельной загрузки его маршрута.
+  await page.goto('/app/positions/search');
+  await expect(page.getByRole('heading', { name: 'Навигация и поиск позиций' })).toBeVisible();
   await expect(page.getByText(/^Realtime:/)).toBeHidden();
-  await page.getByRole('link', { name: 'Поиск позиций' }).click();
   const input = page.getByRole('textbox', { name: 'Символ' });
   const submit = page.getByRole('button', { name: 'Найти' });
   const result = page.getByRole('region', { name: 'Текущие позиции' });
   await input.fill('BTCUSDT');
+  await expect(input).toHaveValue('BTCUSDT');
   await input.evaluate((node) => node.setAttribute('data-focus-probe', 'original'));
   await expect(input).toHaveAttribute('data-focus-probe', 'original');
   await input.press('Enter');
