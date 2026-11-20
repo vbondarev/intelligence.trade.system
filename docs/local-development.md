@@ -215,9 +215,9 @@ http://localhost:8082
 Ожидаемый пользовательский сценарий:
 
 1. frontend показывает стартовую страницу;
-2. кнопка «Войти» переводит на Identity <code>http://localhost:8081/account/login</code>;
-3. development user входит с <code>TRADE_WEB_DEV_USERNAME</code> / <code>TRADE_WEB_DEV_PASSWORD</code>;
-4. после Authorization Code + PKCE browser возвращается на <code>http://localhost:8082/app</code>;
+2. кнопка «Войти» переводит на Identity <code>http://localhost:8081/account/web-login</code>. Без активной Identity SSO-сессии открывается форма <code>/account/login</code>;
+3. development user входит с <code>TRADE_WEB_DEV_USERNAME</code> / <code>TRADE_WEB_DEV_PASSWORD</code>. После успешного POST Identity отвечает <code>303</code> на <code>/account/web-login/continue</code>;
+4. Identity переводит browser на <code>http://localhost:8082/bff/auth/login/continue</code>, BFF запускает Authorization Code + PKCE, затем browser возвращается на <code>http://localhost:8082/app</code>;
 5. перезагрузка страницы сохраняет BFF session;
 6. в навигации «Подключения» открывается `/app/settings/connections`; при актуальной business schema список загружается через same-origin BFF;
 7. «Выйти» завершает BFF session и Identity SSO session.
