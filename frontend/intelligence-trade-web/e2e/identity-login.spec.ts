@@ -19,12 +19,32 @@ function passwordInput(page: Page) {
   return page.getByLabel('Пароль', { exact: true });
 }
 
+const sharedTokens = [
+  '--color-background', '--color-surface', '--color-border', '--color-text', '--color-text-muted',
+  '--color-accent', '--color-accent-hover', '--color-danger', '--color-danger-surface',
+  '--font-family', '--font-size-base', '--font-size-small', '--font-size-title',
+  '--space-3', '--space-4', '--space-6', '--radius-small', '--radius-medium',
+];
+
+async function readTokens(page: Page) {
+  return page.evaluate((names) => {
+    const style = getComputedStyle(document.documentElement);
+    return names.map((name) => style.getPropertyValue(name).trim()
+      .replace(/^\.(?=\d)/, '0.')
+      .replaceAll("'", '"'));
+  }, sharedTokens);
+}
+
 for (const viewport of viewports) {
   test(`Identity login page is styled by its own stylesheet on ${viewport.name} ${viewport.width}x${viewport.height}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+    const reactTokens = await readTokens(page);
+    expect(reactTokens.every(Boolean)).toBe(true);
     await openIdentityLoginThroughLanding(page);
+    expect(await readTokens(page)).toEqual(reactTokens);
 
     const card = page.locator('.auth-card');
     await expect(card).toBeVisible();
@@ -55,6 +75,8 @@ for (const viewport of viewports) {
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
     if (viewport.name === 'mobile') {
+      await page.locator('html').evaluate((element) => { element.style.fontSize = '200%'; });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
       await expect(usernameInput(page)).toBeFocused();
       await page.keyboard.press('Tab');
       await expect(passwordInput(page)).toBeFocused();

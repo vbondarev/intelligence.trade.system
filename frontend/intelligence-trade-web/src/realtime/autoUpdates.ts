@@ -1,9 +1,10 @@
 import { createInvalidationScheduler, throwIfNetworkFailure, type InvalidationScheduler } from './invalidationScheduler';
+import { HttpFailure } from '../errors/httpFailure';
 
 export interface ReadPresentation {
   kind: 'explicit' | 'live' | 'silent' | 'resume';
-  apply: (commit: () => void) => void;
-  fail: (error: unknown, commit: () => void) => void;
+  apply: (commit: () => void, isCurrent?: () => boolean) => void;
+  fail: (error: unknown, commit: () => void, revoke?: () => void, isCurrent?: () => boolean) => void;
 }
 
 type Read = (signal: AbortSignal, presentation: ReadPresentation) => Promise<void>;
@@ -19,12 +20,22 @@ const RESUME_TIMEOUT_MS = 20_000;
 const RESUME_FAILURE = 'Не удалось возобновить автообновление. Повторите попытку.';
 export const explicitPresentation: ReadPresentation = {
   kind: 'explicit',
-  apply: (commit) => commit(),
-  fail: (_, commit) => commit(),
+  apply: (commit, isCurrent) => { if (isCurrent?.() !== false) commit(); },
+  fail: (error, commit, revoke, isCurrent) => {
+    if (isCurrent?.() === false) return;
+    if (resourceUnavailable(error)) revoke?.();
+    commit();
+  },
 };
 
 function statusOf(error: unknown) {
   return typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
+}
+
+export function resourceUnavailable(error: unknown): boolean {
+  const status = statusOf(error);
+  const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  return status === 404 || (status === 403 && code !== 'exchange_permissions_rejected');
 }
 
 export function createAutoUpdates() {
@@ -35,7 +46,19 @@ export function createAutoUpdates() {
   const readers = new Map<ScreenReader, { read: Read; pause: () => void }>();
   const dirty = new Set<ScreenReader>();
   const isLive = () => snapshot.mode === 'live';
-  let checkAccess: (() => void) | undefined;
+  let checkAccess: ((status: 401 | 403, traceId?: string | null) => void) | undefined;
+
+  function reportAccessFailure(error: unknown) {
+    const status = statusOf(error);
+    if (status === 401 || (status === 403 && resourceUnavailable(error))) {
+      checkAccess?.(status, error instanceof HttpFailure ? error.traceId : null);
+    }
+  }
+
+  function handleAccess(error: unknown, revoke?: () => void) {
+    if (resourceUnavailable(error)) revoke?.();
+    reportAccessFailure(error);
+  }
 
   function setSnapshot(next: Snapshot) {
     snapshot = next;
@@ -57,10 +80,12 @@ export function createAutoUpdates() {
 
   function createReader(read: Read): ScreenReader {
     let explicitPending = false;
+    let replacementExplicit = false;
     let activeRead: { explicit: boolean } | null = null;
-    const live = createInvalidationScheduler((signal) => {
+    const live = createInvalidationScheduler((signal, hasRecoveryRetry) => {
       const current = { explicit: explicitPending };
       explicitPending = false;
+      replacementExplicit = false;
       if (!current.explicit && !isLive()) {
         dirty.add(reader);
         return Promise.resolve();
@@ -71,9 +96,10 @@ export function createAutoUpdates() {
         const isCurrent = () => activeRead === current && current.explicit && !signal.aborted;
         return read(signal, {
           kind: 'explicit',
-          apply: (commit) => { if (isCurrent()) commit(); },
-          fail: (error, commit) => {
-            if (!isCurrent()) return;
+          apply: (commit, eligible) => { if (isCurrent() && eligible?.() !== false) commit(); },
+          fail: (error, commit, revoke, eligible) => {
+            if (!isCurrent() || eligible?.() === false) return;
+            handleAccess(error, revoke);
             commit();
             throwIfNetworkFailure(error, signal);
           },
@@ -81,24 +107,27 @@ export function createAutoUpdates() {
       }
 
       const version = generation;
-      const apply = (commit: () => void) => {
-        if (isLive() && generation === version && !signal.aborted) commit();
+      const isCurrent = () => isLive() && generation === version && !signal.aborted;
+      const apply: ReadPresentation['apply'] = (commit, eligible) => {
+        if (isCurrent() && eligible?.() !== false) commit();
       };
       return read(signal, {
         kind: 'live',
         apply,
-        fail: (error, commit) => {
-          if (!signal.aborted && (statusOf(error) === 401 || statusOf(error) === 403)) checkAccess?.();
-          apply(commit);
+        fail: (error, commit, revoke, eligible) => {
+          if (!isCurrent() || eligible?.() === false) return;
+          handleAccess(error, revoke);
+          if (!(error instanceof TypeError && hasRecoveryRetry())) apply(commit);
           throwIfNetworkFailure(error, signal);
         },
       }).finally(finish);
-    }, () => activeRead?.explicit !== true);
+    }, () => activeRead?.explicit !== true, () => explicitPending && !replacementExplicit);
     const silent = createInvalidationScheduler((signal) => read(signal, {
       kind: 'silent',
       apply: () => {},
-      fail: (error) => {
-        if (!signal.aborted && (statusOf(error) === 401 || statusOf(error) === 403)) checkAccess?.();
+      fail: (error, _, revoke, eligible) => {
+        if (signal.aborted || eligible?.() === false) return;
+        handleAccess(error, revoke);
         throwIfNetworkFailure(error, signal);
       },
     }));
@@ -106,10 +135,12 @@ export function createAutoUpdates() {
       refresh() {
         cancelResume();
         explicitPending = true;
+        replacementExplicit = false;
         live.invalidate();
       },
       supersedeExplicitRead() {
         explicitPending = false;
+        replacementExplicit = false;
         if (activeRead) activeRead.explicit = false;
       },
       invalidate() {
@@ -118,7 +149,10 @@ export function createAutoUpdates() {
       },
       recover() {
         if (isLive()) {
-          if (activeRead?.explicit) explicitPending = true;
+          if (activeRead?.explicit) {
+            explicitPending = true;
+            replacementExplicit = true;
+          }
           live.recover();
         } else {
           dirty.add(reader);
@@ -155,12 +189,18 @@ export function createAutoUpdates() {
     try {
       const refresh = Promise.all([...readers.values()].map(({ read }) => read(signal, {
         kind: 'resume',
-        apply: (commit) => { if (!signal.aborted) writes.push(commit); },
-        fail: (error, commit) => {
-          if (signal.aborted) return;
+        apply: (commit, eligible) => {
+          if (!signal.aborted && eligible?.() !== false) {
+            writes.push(() => { if (eligible?.() !== false) commit(); });
+          }
+        },
+        fail: (error, commit, revoke, eligible) => {
+          if (signal.aborted || eligible?.() === false) return;
           const status = statusOf(error);
-          if (status === 401 || status === 403) checkAccess?.();
-          if (status === 404) writes.push(commit);
+          handleAccess(error, revoke);
+          if (status === 404) {
+            if (!revoke) writes.push(() => { if (eligible?.() !== false) commit(); });
+          }
           else throw error;
         },
       })));
@@ -188,7 +228,8 @@ export function createAutoUpdates() {
       return () => { listeners.delete(listener); };
     },
     isLive,
-    setAccessCheck(check?: () => void) { checkAccess = check; },
+    setAccessCheck(check?: typeof checkAccess) { checkAccess = check; },
+    reportAccessFailure,
     createReader,
     toggle() {
       if (isLive()) {

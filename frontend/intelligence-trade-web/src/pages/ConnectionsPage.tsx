@@ -1,3 +1,5 @@
+import { presentError } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
@@ -52,7 +54,6 @@ const ERROR_MESSAGES: Record<ConnectionErrorCode, string> = {
 };
 
 const FALLBACK_ERROR = 'Не удалось выполнить операцию. Повторите попытку позже.';
-const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 
 const INPUT_HINTS = {
   displayName: 'Укажите название подключения до 100 символов.',
@@ -156,11 +157,8 @@ interface Notice {
   text: string;
   traceId?: string | null;
   sessionEnded?: boolean;
+  background?: boolean;
   operation?: string;
-}
-
-function messageForCode(code: string | null): string | undefined {
-  return code !== null && Object.hasOwn(ERROR_MESSAGES, code) ? ERROR_MESSAGES[code as ConnectionErrorCode] : undefined;
 }
 
 function isSessionEnded(error: unknown): boolean {
@@ -169,30 +167,8 @@ function isSessionEnded(error: unknown): boolean {
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail ProblemDetails не показываются.
 function toErrorNotice(error: unknown): Notice {
-  if (!(error instanceof ConnectionsApiError)) {
-    return { tone: 'error', text: FALLBACK_ERROR };
-  }
-
-  if (isSessionEnded(error)) {
-    return { tone: 'error', text: ERROR_MESSAGES.authentication_required, sessionEnded: true };
-  }
-
-  let text = messageForCode(error.code);
-  if (text === undefined) {
-    if (error.status === 403) {
-      text = ERROR_MESSAGES.access_forbidden;
-    } else if (error.status === 404) {
-      text = ERROR_MESSAGES.resource_not_found;
-    } else if (error.status === 400) {
-      text = ERROR_MESSAGES.validation_failed;
-    } else if (error.status === 503) {
-      text = SERVICE_UNAVAILABLE;
-    } else {
-      text = FALLBACK_ERROR;
-    }
-  }
-
-  return { tone: 'error', text, traceId: error.traceId };
+  const errorNotice = presentError(error, { fallback: FALLBACK_ERROR, messages: { ...ERROR_MESSAGES, forbidden: ERROR_MESSAGES.access_forbidden, missing: ERROR_MESSAGES.resource_not_found, validation: ERROR_MESSAGES.validation_failed } });
+  return { tone: 'error', text: errorNotice.text, traceId: errorNotice.traceId, sessionEnded: errorNotice.action === 'login' };
 }
 
 function validateDisplayName(displayName: string): string | null {
@@ -231,7 +207,7 @@ function formatTimestamp(value: string): string {
 }
 
 export function ConnectionsPage() {
-  const { login } = useAuth();
+  const { login, captureSessionEnd } = useAuth();
   const updates = useAutoUpdates();
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [loadError, setLoadError] = useState<Notice | null>(null);
@@ -246,6 +222,7 @@ export function ConnectionsPage() {
   // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
   // более раннего GET не должны перезаписать результат reload после mutation.
   const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    const endSession = captureSessionEnd();
     const generation = view.kind === 'silent' ? listGeneration.current : ++listGeneration.current;
     const isCurrent = () => generation === listGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
@@ -254,14 +231,25 @@ export function ConnectionsPage() {
           setAccounts(items);
           setLoadError(null);
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
-          view.fail(error, () => { if (isCurrent()) setLoadError(toErrorNotice(error)); });
+          const message = toErrorNotice(error);
+          if (view === explicitPresentation) {
+            if (message.sessionEnded) endSession(message.traceId);
+            else updates.reportAccessFailure(error);
+          }
+          view.fail(error, () => {
+            if (isCurrent()) setLoadError({ ...message, background: view.kind === 'live' && !message.sessionEnded });
+          }, () => {
+            listGeneration.current += 1;
+            setAccounts(null);
+            if (view.kind !== 'silent') setLoadError(message);
+          }, isCurrent);
         }
       },
     );
-  }, []);
+  }, [captureSessionEnd, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader(loadAccounts);
@@ -284,6 +272,7 @@ export function ConnectionsPage() {
   const runMutation = useCallback(
     async (action: () => Promise<string>, report?: ReportError): Promise<boolean> => {
       if (mutationPending.current) return false;
+      const endSession = captureSessionEnd();
       mutationPending.current = true;
       updates.cancelResume();
       setPending(true);
@@ -296,6 +285,7 @@ export function ConnectionsPage() {
         succeeded = true;
       } catch (error) {
         sessionEnded = isSessionEnded(error);
+        if (sessionEnded && error instanceof ConnectionsApiError) endSession(error.traceId);
         if (!report?.handle(error)) setNotice({ ...toErrorNotice(error), operation: report?.operation });
       }
 
@@ -308,7 +298,7 @@ export function ConnectionsPage() {
 
       return succeeded;
     },
-    [loadAccounts, updates],
+    [loadAccounts, updates, captureSessionEnd],
   );
 
   const handleCreate = (displayName: string, credentials: ExchangeCredentials, report: ReportError) =>
@@ -373,12 +363,15 @@ export function ConnectionsPage() {
       <AddConnectionForm pending={pending} onSubmit={handleCreate} />
 
       <h2 className="section-title">Мои подключения</h2>
-      {loadError && <NoticeMessage notice={loadError} onLogin={login} />}
+      {loadError && (
+        <NoticeMessage
+          notice={{ ...loadError, background: loadError.background && accounts !== null }}
+          onLogin={login}
+          onRetry={() => realtimeRead.current?.refresh()}
+        />
+      )}
       {accounts === null && loadError === null && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем подключения…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем подключения…" />
       )}
       {accounts !== null && accounts.length === 0 && (
         <p className="muted">Подключений пока нет. Добавьте read-only ключ Bybit.</p>
@@ -408,27 +401,13 @@ export function ConnectionsPage() {
   );
 }
 
-function NoticeMessage({ notice, onLogin }: { notice: Notice; onLogin: () => void }) {
-  if (notice.tone === 'success') {
-    return (
-      <p className="notice notice-success" role="status">
-        {notice.text}
-      </p>
-    );
-  }
-
-  return (
-    <div className="alert" role="alert">
-      {notice.operation && <p className="notice-text">{notice.operation}</p>}
-      <p className="notice-text">{notice.text}</p>
-      {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
-      {notice.sessionEnded && (
-        <button type="button" className="button button-secondary" onClick={onLogin}>
-          Войти снова
-        </button>
-      )}
-    </div>
-  );
+function NoticeMessage({ notice, onLogin, onRetry }: { notice: Notice; onLogin: () => void; onRetry?: () => void }) {
+  const actions = notice.sessionEnded && (
+    <button type="button" className="button button-secondary" onClick={onLogin}>
+      Войти снова
+    </button>
+  ) || (onRetry && <button type="button" className="button button-secondary" onClick={onRetry}>Повторить</button>);
+  return <StatusMessage kind={notice.background ? 'warning' : notice.tone} text={notice.text} traceId={notice.traceId} label={notice.operation} actions={actions} />;
 }
 
 function AddConnectionForm({

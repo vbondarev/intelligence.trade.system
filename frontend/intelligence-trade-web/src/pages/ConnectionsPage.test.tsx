@@ -151,7 +151,8 @@ describe('ConnectionsPage list', () => {
 
     renderAtConnections();
 
-    expect(await screen.findByText('Загружаем подключения…')).toHaveAttribute('role', 'status');
+    const loading = await screen.findByText('Загружаем подключения…');
+    expect(loading.closest('[role="status"]')).toBeVisible();
   });
 
   it('shows active and disabled connections with their details', async () => {
@@ -195,9 +196,9 @@ describe('ConnectionsPage list', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена');
-    await userEvent.click(within(alert).getByRole('button', { name: 'Войти снова' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Войти снова' }));
 
-    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=/app');
+    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections');
   });
 });
 
@@ -321,7 +322,7 @@ describe('ConnectionsPage add', () => {
   });
 
   it('clears secrets but keeps the name when create is rejected', async () => {
-    renderConnections({ list: () => [], onCollection: () => problem(400, 'exchange_permissions_rejected') });
+    renderConnections({ list: () => [], onCollection: () => problem(403, 'exchange_permissions_rejected') });
     const user = userEvent.setup();
     await screen.findByText(EMPTY_STATE);
 
@@ -682,7 +683,8 @@ describe('recovery failure', () => {
     renderConnections({ list: () => ++calls === 1 ? [mainAccount] : problem(503, 'exchange_unavailable') });
     await findCard('Основной');
     act(() => emitRealtime({ type: 'recovery' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Bybit сейчас недоступен');
+    expect(await screen.findByText(/Bybit сейчас недоступен/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeVisible();
     expect(await findCard('Основной')).toBeInTheDocument();
   });
 });

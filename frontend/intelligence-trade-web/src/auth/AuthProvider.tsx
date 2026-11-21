@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthApiError, fetchSession, logout as logoutRequest, startLogin } from './authApi';
 import { AuthContext } from './authContext';
 import type { AuthContextValue, AuthState, BrowserSession } from './authTypes';
@@ -22,17 +22,21 @@ function toAuthState(session: BrowserSession): AuthState {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(LOADING_STATE);
   const [attempt, setAttempt] = useState(0);
+  const epoch = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestedEpoch = ++epoch.current;
     fetchSession(controller.signal).then(
       (session) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && epoch.current === requestedEpoch) {
+          epoch.current += 1;
           setState(toAuthState(session));
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && epoch.current === requestedEpoch) {
+          epoch.current += 1;
           const status = error instanceof AuthApiError ? error.status : 0;
           setState({
             loading: false,
@@ -49,30 +53,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [attempt]);
 
   const retry = useCallback(() => {
+    epoch.current += 1;
     setState(LOADING_STATE);
     setAttempt((current) => current + 1);
   }, []);
 
   const logout = useCallback(async () => {
+    const requestedEpoch = epoch.current;
     try {
       await logoutRequest();
     } catch {
-      setState((current) => ({ ...current, error: LOGOUT_ERROR }));
+      if (epoch.current === requestedEpoch) setState((current) => ({ ...current, error: LOGOUT_ERROR }));
     }
   }, []);
 
   const revalidate = useCallback(async (expectedUserId: string, signal: AbortSignal) => {
+    const requestedEpoch = epoch.current;
     try {
       const session = await fetchSession(signal);
-      if (signal.aborted) return false;
+      if (signal.aborted || epoch.current !== requestedEpoch) return false;
       if (!session.authenticated || session.user.userId !== expectedUserId) {
+        epoch.current += 1;
         setState(toAuthState(session));
         return false;
       }
       return true;
     } catch (error) {
-      if (signal.aborted) return false;
+      if (signal.aborted || epoch.current !== requestedEpoch) return false;
       if (error instanceof AuthApiError && error.status === 403) {
+        epoch.current += 1;
         setState((current) => !signal.aborted && current.user?.userId === expectedUserId
           ? { ...toAuthState({ authenticated: false }), error: SESSION_ERROR, logoutAvailable: true }
           : current);
@@ -82,9 +91,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const captureSessionEnd = useCallback(() => {
+    const requestedEpoch = epoch.current;
+    return (traceId?: string | null) => {
+      if (epoch.current !== requestedEpoch) return;
+      epoch.current += 1;
+      setState({ ...toAuthState({ authenticated: false }), sessionEnded: true, sessionTraceId: traceId });
+    };
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login: startLogin, logout, retry, revalidate }),
-    [state, logout, retry, revalidate],
+    () => ({ ...state, login: startLogin, logout, retry, revalidate, captureSessionEnd }),
+    [state, logout, retry, revalidate, captureSessionEnd],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

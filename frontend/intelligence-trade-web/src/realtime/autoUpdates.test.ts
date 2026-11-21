@@ -8,6 +8,70 @@ function deferred() {
 }
 
 describe('пауза автоматических обновлений', () => {
+  it.each([true, false])('объединяет события во время ожидания повтора (online=%s)', async (initiallyOnline) => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(initiallyOnline);
+    const updates = createAutoUpdates();
+    const warning = vi.fn();
+    const read = vi.fn(async (_: AbortSignal, view: Parameters<Parameters<typeof updates.createReader>[0]>[1]) => {
+      view.fail(new TypeError('network'), warning);
+    });
+    const reader = updates.createReader(read);
+    try {
+      reader.recover();
+      await vi.advanceTimersByTimeAsync(0);
+      reader.invalidate();
+      reader.invalidate();
+      if (!initiallyOnline) {
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(read).toHaveBeenCalledOnce();
+        online.mockReturnValue(true);
+        window.dispatchEvent(new Event('online'));
+      }
+      await vi.advanceTimersByTimeAsync(249);
+      expect(read).toHaveBeenCalledOnce();
+      expect(warning).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(warning).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(warning).toHaveBeenCalledOnce();
+    } finally {
+      reader.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('отбрасывает подготовленный снимок зависимой области после отзыва доступа', async () => {
+    const updates = createAutoUpdates();
+    let generation = 0;
+    const dependent = vi.fn();
+    const independent = vi.fn();
+    const hide = vi.fn();
+    const readers = [
+      updates.createReader(async (_, view) => {
+        const expected = generation;
+        view.apply(dependent, () => generation === expected);
+      }),
+      updates.createReader(async (_, view) => {
+        view.fail({ status: 404 }, () => {}, () => {
+          generation += 1;
+          hide();
+        });
+      }),
+      updates.createReader(async (_, view) => view.apply(independent)),
+    ];
+    updates.toggle();
+    updates.toggle();
+    await vi.waitFor(() => expect(updates.getSnapshot().mode).toBe('live'));
+    expect(hide).toHaveBeenCalledOnce();
+    expect(dependent).not.toHaveBeenCalled();
+    expect(independent).toHaveBeenCalledOnce();
+    readers.forEach((reader) => reader.dispose());
+  });
+
   it('таймер повтора ждёт явное чтение, сохраняя его право публикации', async () => {
     vi.useFakeTimers();
     const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);

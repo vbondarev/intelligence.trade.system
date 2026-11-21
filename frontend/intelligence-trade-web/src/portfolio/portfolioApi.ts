@@ -1,3 +1,4 @@
+import { decodeProblem, HttpFailure, readSuccessJson } from '../errors/httpFailure';
 import { isFactualFreshness, isMarketValuation, isValuationFreshness } from '../freshness/freshness';
 import type {
   Portfolio,
@@ -20,17 +21,11 @@ const TRACKING_STATES: readonly PositionTrackingState[] = ['active', 'unknown', 
  * Ошибка чтения портфеля или позиций. Хранит только machine-readable поля ProblemDetails:
  * UI ветвится по `status` и `code`, а не по `title`/`detail`.
  */
-export class PortfolioApiError extends Error {
-  readonly status: number;
-  readonly code: string | null;
-  readonly traceId: string | null;
+export class PortfolioApiError extends HttpFailure {
 
   constructor(status: number, code: string | null = null, traceId: string | null = null) {
-    super(`Запрос портфеля или позиций завершился со статусом ${status}${code ? ` (${code})` : ''}.`);
+    super(`Запрос портфеля или позиций завершился со статусом ${status}${code ? ` (${code})` : ''}.`, status, code, traceId);
     this.name = 'PortfolioApiError';
-    this.status = status;
-    this.code = code;
-    this.traceId = traceId;
   }
 }
 
@@ -41,7 +36,7 @@ export async function getPortfolio(accountId: string, signal?: AbortSignal): Pro
     return null;
   }
 
-  const body: unknown = await response.json();
+  const body: unknown = await readSuccessJson(response, () => new PortfolioApiError(response.status), signal);
   if (!isPortfolio(body)) {
     throw new PortfolioApiError(response.status);
   }
@@ -51,7 +46,7 @@ export async function getPortfolio(accountId: string, signal?: AbortSignal): Pro
 
 export async function listPositions(query: PositionListQuery, signal?: AbortSignal): Promise<PositionPage> {
   const response = await get(positionsUrl(query), signal);
-  const body: unknown = await response.json();
+  const body: unknown = await readSuccessJson(response, () => new PortfolioApiError(response.status), signal);
   if (
     !isObject(body) ||
     !Array.isArray(body.items) ||
@@ -96,32 +91,15 @@ async function get(url: string, signal?: AbortSignal): Promise<Response> {
     signal,
   });
   if (!response.ok) {
-    throw await toError(response);
+    throw await toError(response, signal);
   }
 
   return response;
 }
 
-async function toError(response: Response): Promise<PortfolioApiError> {
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (!/json/i.test(contentType)) {
-    return new PortfolioApiError(response.status);
-  }
-
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return new PortfolioApiError(response.status);
-  }
-
-  return isObject(body)
-    ? new PortfolioApiError(
-        response.status,
-        typeof body.code === 'string' ? body.code : null,
-        typeof body.traceId === 'string' ? body.traceId : null,
-      )
-    : new PortfolioApiError(response.status);
+async function toError(response: Response, signal?: AbortSignal): Promise<PortfolioApiError> {
+  const { code, traceId } = await decodeProblem(response, signal);
+  return new PortfolioApiError(response.status, code, traceId);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

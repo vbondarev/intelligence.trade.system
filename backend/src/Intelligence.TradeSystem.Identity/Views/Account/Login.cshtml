@@ -15,7 +15,9 @@
 
         @if (Model.ErrorMessage is not null)
         {
-            <div id="login-error" class="alert" role="alert">@Model.ErrorMessage</div>
+            <div id="login-error" class="alert" role="alert">
+                <p class="notice-text">@Model.ErrorMessage</p>
+            </div>
         }
 
         <form class="auth-form" method="post" action="/account/login">

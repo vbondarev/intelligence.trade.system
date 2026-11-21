@@ -1,3 +1,4 @@
+import { decodeProblem, HttpFailure, readSuccessJson } from '../errors/httpFailure';
 import { isRealtimeObservation } from '../freshness/freshness';
 import type {
   ConnectionResult,
@@ -18,10 +19,7 @@ const CAPABILITIES: readonly ExchangeAccountCapability[] = ['readBalance', 'read
  * Ошибка management API подключений. Хранит только machine-readable поля ProblemDetails:
  * UI ветвится по `status` и `code`, а не по `title`/`detail`.
  */
-export class ConnectionsApiError extends Error {
-  readonly status: number;
-  readonly code: string | null;
-  readonly traceId: string | null;
+export class ConnectionsApiError extends HttpFailure {
   readonly errors: Readonly<Record<string, readonly string[]>> | null;
 
   constructor(
@@ -30,11 +28,8 @@ export class ConnectionsApiError extends Error {
     traceId: string | null = null,
     errors: Readonly<Record<string, readonly string[]>> | null = null,
   ) {
-    super(`Connections request failed with status ${status}${code ? ` (${code})` : ''}.`);
+    super(`Connections request failed with status ${status}${code ? ` (${code})` : ''}.`, status, code, traceId);
     this.name = 'ConnectionsApiError';
-    this.status = status;
-    this.code = code;
-    this.traceId = traceId;
     this.errors = errors;
   }
 }
@@ -47,10 +42,10 @@ export async function listConnections(signal?: AbortSignal): Promise<ExchangeAcc
     signal,
   });
   if (!response.ok) {
-    throw await toError(response);
+    throw await toError(response, signal);
   }
 
-  const body: unknown = await response.json();
+  const body: unknown = await readSuccessJson(response, () => new ConnectionsApiError(response.status), signal);
   if (!isObject(body) || !Array.isArray(body.items) || !body.items.every(isExchangeAccount)) {
     throw new ConnectionsApiError(response.status);
   }
@@ -146,10 +141,10 @@ async function fetchAntiforgeryToken(): Promise<string> {
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) {
-    throw new ConnectionsApiError(response.status);
+    throw await toError(response);
   }
 
-  const body: unknown = await response.json();
+  const body: unknown = await readSuccessJson(response, () => new ConnectionsApiError(response.status));
   if (!isObject(body) || typeof body.requestToken !== 'string' || body.requestToken.length === 0) {
     throw new ConnectionsApiError(response.status);
   }
@@ -158,7 +153,7 @@ async function fetchAntiforgeryToken(): Promise<string> {
 }
 
 async function readAccount(response: Response): Promise<ExchangeAccount> {
-  const body: unknown = await response.json();
+  const body: unknown = await readSuccessJson(response, () => new ConnectionsApiError(response.status));
   if (!isExchangeAccount(body)) {
     throw new ConnectionsApiError(response.status);
   }
@@ -166,44 +161,9 @@ async function readAccount(response: Response): Promise<ExchangeAccount> {
   return body;
 }
 
-async function toError(response: Response): Promise<ConnectionsApiError> {
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (!/json/i.test(contentType)) {
-    return new ConnectionsApiError(response.status);
-  }
-
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return new ConnectionsApiError(response.status);
-  }
-
-  if (!isObject(body)) {
-    return new ConnectionsApiError(response.status);
-  }
-
-  return new ConnectionsApiError(
-    response.status,
-    typeof body.code === 'string' ? body.code : null,
-    typeof body.traceId === 'string' ? body.traceId : null,
-    parseErrors(body.errors),
-  );
-}
-
-function parseErrors(value: unknown): Record<string, string[]> | null {
-  if (!isObject(value)) {
-    return null;
-  }
-
-  const errors: Record<string, string[]> = {};
-  for (const [field, messages] of Object.entries(value)) {
-    if (Array.isArray(messages)) {
-      errors[field] = messages.filter((message): message is string => typeof message === 'string');
-    }
-  }
-
-  return errors;
+async function toError(response: Response, signal?: AbortSignal): Promise<ConnectionsApiError> {
+  const { code, traceId, errors } = await decodeProblem(response, signal);
+  return new ConnectionsApiError(response.status, code, traceId, errors);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

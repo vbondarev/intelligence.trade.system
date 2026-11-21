@@ -1,7 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { presentError } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
-import type { ScreenReader } from '../realtime/autoUpdates';
+import { resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { SIDE_LABELS, formatNumber } from '../portfolio/portfolioFormatting';
@@ -37,8 +39,6 @@ import type {
   PositionMarket,
 } from '../position/positionTypes';
 
-const SESSION_ENDED = 'Сессия завершена. Войдите снова.';
-const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 const NO_CANDLES: readonly ChartCandle[] = [];
 
 const ERROR_MESSAGES = {
@@ -49,13 +49,14 @@ const ERROR_MESSAGES = {
   position_not_evaluable: 'Позиция сейчас не может быть оценена.',
 } as const;
 
-type ErrorCode = keyof typeof ERROR_MESSAGES;
 
 interface Notice {
   tone: 'success' | 'error';
   text: string;
   traceId?: string | null;
   sessionEnded?: boolean;
+  background?: boolean;
+  accessDenied?: boolean;
 }
 
 /** Результат чтения, привязанный к ключу запроса: данные другого ключа не отображаются. */
@@ -68,27 +69,9 @@ interface EvaluateState {
 }
 
 // UI ветвится только по HTTP status, machine-readable code и reason: title/detail не показываются.
-function toErrorNotice(error: unknown, fallback: string): Notice {
-  if (!(error instanceof PositionApiError)) {
-    return { tone: 'error', text: fallback };
-  }
-
-  if (error.status === 401 || error.code === 'authentication_required') {
-    return { tone: 'error', text: SESSION_ENDED, sessionEnded: true };
-  }
-
-  let text: string | undefined;
-  if (error.reason !== null) {
-    text = NOT_EVALUABLE_REASON_MESSAGES[error.reason];
-  } else if (error.code !== null && Object.hasOwn(ERROR_MESSAGES, error.code)) {
-    text = ERROR_MESSAGES[error.code as ErrorCode];
-  } else if (error.status === 403) {
-    text = ERROR_MESSAGES.access_forbidden;
-  } else if (error.status === 503) {
-    text = SERVICE_UNAVAILABLE;
-  }
-
-  return { tone: 'error', text: text ?? fallback, traceId: error.traceId };
+function toErrorNotice(error: unknown, fallback: string, background = false): Notice {
+  const errorNotice = presentError(error, { fallback: fallback, messages: { ...ERROR_MESSAGES, forbidden: ERROR_MESSAGES.access_forbidden, internal_error: fallback }, reasons: NOT_EVALUABLE_REASON_MESSAGES });
+  return { tone: 'error', text: errorNotice.text, traceId: errorNotice.traceId, sessionEnded: errorNotice.action === 'login', background: background && !resourceUnavailable(error), accessDenied: errorNotice.kind === 'forbidden' };
 }
 
 function isNotFound(error: unknown): boolean {
@@ -113,7 +96,7 @@ function failed<T>(key: string, error: Notice, previous: Load<T> | null): Load<T
 export function PositionPage() {
   const { id = '' } = useParams();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, captureSessionEnd } = useAuth();
   const updates = useAutoUpdates();
   const { pausedAt } = useAutoUpdateState();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -141,6 +124,9 @@ export function PositionPage() {
   const evaluationGeneration = useRef(0);
   const evaluateInFlight = useRef(new Set<string>());
   const currentIdRef = useRef(id);
+  const revokedPosition = useRef<string | null>(null);
+  const accessGeneration = useRef(0);
+  const isPositionAccessible = useCallback(() => currentIdRef.current === id && revokedPosition.current !== id, [id]);
 
   useEffect(() => {
     currentIdRef.current = id;
@@ -163,24 +149,41 @@ export function PositionPage() {
   useEffect(() => {
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? positionGeneration.current : ++positionGeneration.current;
-      const isCurrent = () => generation === positionGeneration.current && !signal.aborted;
+      const isCurrent = () => generation === positionGeneration.current && currentIdRef.current === id && !signal.aborted;
       return getPosition(id, signal).then(
       (value) => view.apply(() => {
         if (isCurrent()) {
           setPosition(loaded(id, value));
           setNotFound(null);
+          if (revokedPosition.current === id) {
+            revokedPosition.current = null;
+            marketRead.current?.invalidate();
+            candlesRead.current?.invalidate();
+            evaluationRead.current?.invalidate();
+          }
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (!isCurrent()) {
           return;
         }
 
+        const notice = toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.', view.kind === 'live');
         view.fail(error, () => {
-          if (!isCurrent()) return;
-          if (isNotFound(error)) setNotFound(id);
-          setPosition((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.'), current));
-        });
+          if (isCurrent()) setPosition((current) => failed(id, notice, current));
+        }, () => {
+          revokedPosition.current = id;
+          accessGeneration.current += 1;
+          positionGeneration.current += 1;
+          marketGeneration.current += 1;
+          candlesGeneration.current += 1;
+          evaluationGeneration.current += 1;
+          setNotFound(isNotFound(error) ? id : null);
+          setPosition(failed(id, notice, null));
+          setMarket(null);
+          setCandles(null);
+          setEvaluation(null);
+        }, isCurrent);
       },
       );
     });
@@ -192,18 +195,21 @@ export function PositionPage() {
   useEffect(() => {
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? marketGeneration.current : ++marketGeneration.current;
-      const isCurrent = () => generation === marketGeneration.current && !signal.aborted;
+      const isCurrent = () => generation === marketGeneration.current && currentIdRef.current === id && revokedPosition.current !== id && !signal.aborted;
       return getPositionMarket(id, signal).then(
       (value) => view.apply(() => {
         if (isCurrent()) {
           setMarket(loaded(id, value));
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
-            if (isCurrent()) setMarket((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.'), current));
-          });
+            if (isCurrent()) setMarket((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.', view.kind === 'live'), current));
+          }, () => {
+            marketGeneration.current += 1;
+            setMarket(failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.'), null));
+          }, isCurrent);
         }
       },
       );
@@ -217,18 +223,21 @@ export function PositionPage() {
     const key = `${id}|${interval}`;
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? candlesGeneration.current : ++candlesGeneration.current;
-      const isCurrent = () => generation === candlesGeneration.current && !signal.aborted;
+      const isCurrent = () => generation === candlesGeneration.current && currentIdRef.current === id && revokedPosition.current !== id && !signal.aborted;
       return getPositionCandles(id, interval, signal).then(
       (value) => view.apply(() => {
         if (isCurrent()) {
           setCandles(loaded(key, value));
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
-            if (isCurrent()) setCandles((current) => failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.'), current));
-          });
+            if (isCurrent()) setCandles((current) => failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.', view.kind === 'live'), current));
+          }, () => {
+            candlesGeneration.current += 1;
+            setCandles(failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.'), null));
+          }, isCurrent);
         }
       },
       );
@@ -241,21 +250,24 @@ export function PositionPage() {
   useEffect(() => {
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? evaluationGeneration.current : ++evaluationGeneration.current;
-      const isCurrent = () => generation === evaluationGeneration.current && !signal.aborted;
+      const isCurrent = () => generation === evaluationGeneration.current && currentIdRef.current === id && revokedPosition.current !== id && !signal.aborted;
       return getPositionEvaluation(id, signal).then(
       (value) => view.apply(() => {
         if (isCurrent()) {
           setEvaluation({ ...loaded(id, value), appliedAt: Date.now() });
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
             if (isCurrent()) setEvaluation((current) => ({
-              ...failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current),
+              ...failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.', view.kind === 'live'), current),
               appliedAt: current?.key === id ? current.appliedAt : null,
             }));
-          });
+          }, () => {
+            evaluationGeneration.current += 1;
+            setEvaluation({ ...failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), null), appliedAt: null });
+          }, isCurrent);
         }
       },
       );
@@ -315,6 +327,8 @@ export function PositionPage() {
   // и отменяет ещё не завершённое чтение оценки, чтобы оно не перезаписало новый результат.
   const handleEvaluate = async () => {
     const positionId = id;
+    const endSession = captureSessionEnd();
+    const requestGeneration = accessGeneration.current;
     if (evaluateInFlight.current.has(positionId)) {
       return;
     }
@@ -326,7 +340,7 @@ export function PositionPage() {
     let notice: Notice;
     try {
       const value = await evaluatePosition(positionId);
-      if (currentIdRef.current === positionId) {
+      if (currentIdRef.current === positionId && revokedPosition.current !== positionId && accessGeneration.current === requestGeneration) {
         evaluationGeneration.current += 1;
         setEvaluation({ ...loaded(positionId, value), appliedAt: Date.now() });
       }
@@ -334,6 +348,7 @@ export function PositionPage() {
       notice = { tone: 'success', text: 'Оценка выполнена.' };
     } catch (error) {
       notice = toErrorNotice(error, 'Не удалось выполнить оценку. Повторите попытку позже.');
+      if (notice.sessionEnded) endSession(notice.traceId);
     }
 
     evaluateInFlight.current.delete(positionId);
@@ -367,7 +382,17 @@ export function PositionPage() {
       <section className="page position-page" aria-labelledby={titleId}>
         {backLink}
         <h1 id={titleId}>Позиция недоступна</h1>
-        <p className="muted">Позиция не найдена или недоступна для текущего пользователя.</p>
+        <StatusMessage kind="empty" text="Позиция не найдена или недоступна для текущего пользователя." traceId={currentPosition?.error?.traceId} />
+      </section>
+    );
+  }
+
+  if (currentPosition?.error?.accessDenied) {
+    return (
+      <section className="page position-page" aria-labelledby={titleId}>
+        {backLink}
+        <h1 id={titleId}>Позиция недоступна</h1>
+        <NoticeMessage notice={currentPosition.error} onLogin={login} onRetry={() => positionRead.current?.refresh()} />
       </section>
     );
   }
@@ -384,12 +409,11 @@ export function PositionPage() {
       <h1 id={titleId}>{title}</h1>
 
       {currentPosition === null && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем позицию…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем позицию…" />
       )}
-      {currentPosition?.error && <NoticeMessage notice={currentPosition.error} onLogin={login} />}
+      {currentPosition?.error && (
+        <NoticeMessage notice={currentPosition.error} onLogin={login} onRetry={() => positionRead.current?.refresh()} />
+      )}
       {positionValue !== null && <PositionDetails position={positionValue} />}
 
       <section className="panel chart-panel" aria-labelledby={chartTitleId}>
@@ -412,12 +436,9 @@ export function PositionPage() {
           </div>
         </header>
         {currentCandles === null && (
-          <p className="inline-status" role="status">
-            <span className="spinner" aria-hidden="true" />
-            Загружаем свечи…
-          </p>
+          <StatusMessage kind="loading" text="Загружаем свечи…" />
         )}
-        {currentCandles?.error && <NoticeMessage notice={currentCandles.error} onLogin={login} />}
+        {currentCandles?.error && <NoticeMessage notice={currentCandles.error} onLogin={login} onRetry={() => candlesRead.current?.refresh()} />}
         {currentCandles?.value && chartCandles.length === 0 && (
           <p className="muted">Свечей для интервала {CHART_INTERVAL_LABELS[interval]} нет.</p>
         )}
@@ -440,14 +461,11 @@ export function PositionPage() {
       </section>
 
       {currentMarket === null && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем рыночный контекст…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем рыночный контекст…" />
       )}
       {currentMarket?.error && (
         <section className="panel" aria-label="Рыночный контекст">
-          <NoticeMessage notice={currentMarket.error} onLogin={login} />
+          <NoticeMessage notice={currentMarket.error} onLogin={login} onRetry={() => marketRead.current?.refresh()} />
         </section>
       )}
       {marketValue !== null && <PositionMarketContext market={marketValue} />}
@@ -467,21 +485,15 @@ export function PositionPage() {
           </button>
         </header>
         {evaluateState?.running === true && (
-          <p className="inline-status" role="status">
-            <span className="spinner" aria-hidden="true" />
-            Выполняем оценку позиции…
-          </p>
+          <StatusMessage kind="loading" text="Выполняем оценку позиции…" />
         )}
         {evaluateState?.notice && <NoticeMessage notice={evaluateState.notice} onLogin={login} />}
         {currentEvaluation === null && (
-          <p className="inline-status" role="status">
-            <span className="spinner" aria-hidden="true" />
-            Загружаем оценку…
-          </p>
+          <StatusMessage kind="loading" text="Загружаем оценку…" />
         )}
-        {currentEvaluation?.error && <NoticeMessage notice={currentEvaluation.error} onLogin={login} />}
+        {currentEvaluation?.error && <NoticeMessage notice={currentEvaluation.error} onLogin={login} onRetry={() => evaluationRead.current?.refresh()} />}
         {currentEvaluation !== null && currentEvaluation.error === null && evaluationValue === null && (
-          <p className="muted">Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».</p>
+          <StatusMessage kind="empty" text="Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить»." />
         )}
         {evaluationValue !== null && (
           <>
@@ -501,30 +513,19 @@ export function PositionPage() {
           positionId={id}
           settlementAsset={positionValue.settlementAsset}
           onLogin={login}
+          captureSessionEnd={captureSessionEnd}
+          isPositionAccessible={isPositionAccessible}
         />
       )}
     </section>
   );
 }
 
-function NoticeMessage({ notice, onLogin }: { notice: Notice; onLogin: () => void }) {
-  if (notice.tone === 'success') {
-    return (
-      <p className="notice notice-success" role="status">
-        {notice.text}
-      </p>
-    );
-  }
-
-  return (
-    <div className="alert" role="alert">
-      <p className="notice-text">{notice.text}</p>
-      {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
-      {notice.sessionEnded && (
-        <button type="button" className="button button-secondary" onClick={onLogin}>
-          Войти снова
-        </button>
-      )}
-    </div>
-  );
+function NoticeMessage({ notice, onLogin, onRetry }: { notice: Notice; onLogin: () => void; onRetry?: () => void }) {
+  const actions = notice.sessionEnded && (
+    <button type="button" className="button button-secondary" onClick={onLogin}>
+      Войти снова
+    </button>
+  ) || (onRetry && <button type="button" className="button button-secondary" onClick={onRetry}>Повторить</button>);
+  return <StatusMessage kind={notice.background ? 'warning' : notice.tone} text={notice.text} traceId={notice.traceId} actions={actions} />;
 }

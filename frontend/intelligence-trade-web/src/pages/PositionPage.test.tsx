@@ -395,9 +395,10 @@ describe('PositionPage evaluation command', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
 
-    const alert = await within(evaluationPanel()).findByRole('alert');
+    const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(within(alert).getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
   });
 
   it('does not apply an evaluation result to another position', async () => {
@@ -754,6 +755,27 @@ describe('PositionPage evaluation validity on an open page', () => {
 
 
 describe('realtime position invalidation', () => {
+  it('keeps the position visible after a background read fails and retries by GET', async () => {
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++calls === 2
+        ? new Response(null, { status: 503 })
+        : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    const title = await findTitle(/BTCUSDT/);
+
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+
+    const retry = await screen.findByRole('button', { name: 'Повторить' });
+    expect(title).toBeVisible();
+    await userEvent.click(retry);
+
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(title).toBeVisible();
+    expect(urls(requests, positionUrl())).toHaveLength(3);
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+
   it('keeps history lazy and recovers every displayed resource without POST', async () => {
     const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => jsonResponse(firstTimelinePage) }));
     await findTitle(/BTCUSDT/);
@@ -810,6 +832,26 @@ describe('recovery of a pending position read', () => {
 
 
 describe('recovery of pending timeline', () => {
+  it('drops the buffered evaluation when the position becomes unavailable during resume', async () => {
+    const unavailable = deferred<Response>();
+    let resuming = false;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => resuming ? unavailable.promise : jsonResponse(positionFixture()),
+      [evaluationUrl()]: () => jsonResponse(evaluationFixture()),
+    }));
+    await screen.findByText('Удерживать');
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    resuming = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await act(async () => unavailable.resolve(new Response(null, { status: 404 })));
+
+    await screen.findByRole('heading', { name: 'Позиция недоступна' });
+    expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Приостановить автообновление' })).toBeEnabled();
+  });
+
   it('keeps a closed history lazy and replaces a hung open history read', async () => {
     const slow = deferred<Response>();
     let calls = 0;

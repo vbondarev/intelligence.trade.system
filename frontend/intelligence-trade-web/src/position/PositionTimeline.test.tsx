@@ -536,15 +536,16 @@ describe('PositionTimeline session end', () => {
   };
 
   it.each([
-    ['an empty BFF 401', () => new Response(null, { status: 401 })],
-    ['an API authentication_required problem', () => problem(401, 'authentication_required')],
-  ])('after %s on the first page offers only signing in again', async (_, response) => {
+    ['an empty BFF 401', () => new Response(null, { status: 401 }), null],
+    ['an API authentication_required problem', () => problem(401, 'authentication_required'), '00-trace-09'],
+  ])('after %s on the first page offers only signing in again', async (_, response, traceId) => {
     const { onLogin, requests } = renderTimeline({ [BASE]: response });
     await userEvent.click(toggle());
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(alert).not.toHaveTextContent('Код диагностики');
+    if (traceId) expect(alert).toHaveTextContent(`Код диагностики: ${traceId}`);
+    else expect(alert).not.toHaveTextContent('Код диагностики');
     expectNoTimelineCommands();
 
     await tryTimelineCommands();

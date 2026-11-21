@@ -1,10 +1,13 @@
+import { presentError, type ErrorPresentation } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
+import { useAuth } from '../auth/authContext';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { listConnections } from '../connections/connectionsApi';
 import { PositionCards } from '../portfolio/PositionsSection';
-import { listPositions, PortfolioApiError } from '../portfolio/portfolioApi';
+import { listPositions } from '../portfolio/portfolioApi';
 import type { PositionListQuery, PositionPage } from '../portfolio/portfolioTypes';
-import type { ScreenReader } from '../realtime/autoUpdates';
+import { resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 
@@ -58,15 +61,23 @@ export function PositionSearchPage() {
 
 function SearchResults({ symbol }: { symbol: string }) {
   const [accounts, setAccounts] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [accountError, setAccountError] = useState<{ notice: ErrorPresentation; background: boolean } | null>(null);
   const updates = useAutoUpdates();
   const reader = useRef<ScreenReader | null>(null);
   useEffect(() => {
     const scheduler = updates.createReader(async (signal, view) => {
       try {
         const connections = await listConnections(signal);
-        if (!signal.aborted) view.apply(() => setAccounts(new Map(connections.map(({ id, displayName }) => [id, displayName]))));
+        view.apply(() => {
+          setAccounts(new Map(connections.map(({ id, displayName }) => [id, displayName])));
+          setAccountError(null);
+        }, () => !signal.aborted);
       } catch (error) {
-        if (!signal.aborted) view.fail(error, () => {});
+        const notice = presentError(error, { fallback: 'Не удалось загрузить названия подключений.', retry: true });
+        view.fail(error, () => setAccountError({ notice, background: view.kind === 'live' }), () => {
+          setAccounts(new Map());
+          if (view.kind !== 'silent') setAccountError({ notice, background: false });
+        }, () => !signal.aborted);
       }
     });
     reader.current = scheduler;
@@ -79,6 +90,12 @@ function SearchResults({ symbol }: { symbol: string }) {
   });
   return (
     <>
+      {accountError && (
+        <StatusMessage kind={accountError.background ? 'warning' : 'error'} text={accountError.notice.text}
+          traceId={accountError.notice.traceId} actions={accountError.notice.action === 'retry' &&
+            <button type="button" className="button button-secondary" onClick={() => reader.current?.refresh()}>Обновить подключения</button>
+          } />
+      )}
       <ResultGroup symbol={symbol} accounts={accounts} closed={false} />
       <ResultGroup symbol={symbol} accounts={accounts} closed />
     </>
@@ -92,9 +109,11 @@ function ResultGroup({ symbol, accounts, closed }: {
 }) {
   const updates = useAutoUpdates();
   const location = useLocation();
+  const { login, captureSessionEnd } = useAuth();
   const id = useId();
   const [result, setResult] = useState<PositionPage | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<ErrorPresentation | null>(null);
+  const [backgroundError, setBackgroundError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const reader = useRef<ScreenReader | null>(null);
   const pagination = useRef<{ controller: AbortController; settled: Promise<boolean> } | null>(null);
@@ -110,6 +129,7 @@ function ResultGroup({ symbol, accounts, closed }: {
       if (signal.aborted) return;
       const startingSnapshot = snapshot.current;
       const manualAtStart = pagination.current !== null;
+      const isCurrent = () => !signal.aborted;
       function deferLiveCommit() {
         if (view.kind !== 'live') return false;
         if (!manualAtStart && !pagination.current && snapshot.current === startingSnapshot) return false;
@@ -132,13 +152,28 @@ function ResultGroup({ symbol, accounts, closed }: {
           deferred.current = null;
           snapshot.current = next;
           setLoadingMore(false);
-          if (!keepManualError) setError('');
+          if (!keepManualError) {
+            setError(null);
+            setBackgroundError(false);
+          }
           setResult(next.page);
-        });
+        }, isCurrent);
       } catch (failure) {
+        const notice = searchError(failure);
         if (!signal.aborted) view.fail(failure, () => {
-          if (!deferLiveCommit()) setError(searchError(failure));
-        });
+          if (!deferLiveCommit()) {
+            setError(notice);
+            setBackgroundError(view.kind === 'live' && snapshot.current !== null);
+          }
+        }, () => {
+          pagination.current?.controller.abort();
+          pagination.current = null;
+          snapshot.current = null;
+          setLoadingMore(false);
+          setResult(null);
+          setBackgroundError(false);
+          if (view.kind !== 'silent') setError(notice);
+        }, isCurrent);
       }
     });
     reader.current = scheduler;
@@ -163,6 +198,7 @@ function ResultGroup({ symbol, accounts, closed }: {
   });
 
   async function loadMore() {
+    const endSession = captureSessionEnd();
     const current = snapshot.current;
     const cursor = current?.page.nextCursor;
     if (!current || !cursor || pagination.current) return;
@@ -173,7 +209,8 @@ function ResultGroup({ symbol, accounts, closed }: {
     pagination.current = { controller: request, settled };
     let failed = false;
     setLoadingMore(true);
-    setError('');
+    setError(null);
+    setBackgroundError(false);
     try {
       const next = await listPositions({
         symbol, trackingState: closed ? 'closed' : undefined, cursor,
@@ -186,7 +223,14 @@ function ResultGroup({ symbol, accounts, closed }: {
     } catch (failure) {
       if (!request.signal.aborted) {
         failed = true;
-        setError(searchError(failure));
+        const notice = searchError(failure);
+        if (notice.action === 'login') endSession(notice.traceId);
+        else updates.reportAccessFailure(failure);
+        if (resourceUnavailable(failure)) {
+          snapshot.current = null;
+          setResult(null);
+        }
+        setError(notice);
       }
     } finally {
       if (pagination.current?.controller === request) {
@@ -203,16 +247,18 @@ function ResultGroup({ symbol, accounts, closed }: {
   return (
     <section aria-labelledby={id}>
       <h2 id={id}>{closed ? 'Закрытые позиции' : 'Текущие позиции'}</h2>
-      {!result && !error && <p role="status">Загружаем позиции…</p>}
-      {result?.items.length === 0 && <p>Позиции с таким символом не найдены.</p>}
+      {!result && !error && <StatusMessage kind="loading" text="Загружаем позиции…" />}
+      {result?.items.length === 0 && <StatusMessage kind="empty" text="Позиции с таким символом не найдены." />}
       {!!result?.items.length && (
         <PositionCards items={result.items} accounts={accounts} returnTo={location.pathname + location.search} />
       )}
       {error && (
-        <div role="alert">
-          <p>{error}</p>
-          {result === null && <button type="button" className="button button-secondary" onClick={() => reader.current?.refresh()}>Повторить поиск</button>}
-        </div>
+        <StatusMessage kind={backgroundError ? 'warning' : 'error'} text={error.text} traceId={error.traceId} actions={
+          error.action === 'login' ? <button type="button" className="button button-secondary" onClick={login}>Войти снова</button> :
+          (result === null || backgroundError) && error.action === 'retry' && (
+            <button type="button" className="button button-secondary" onClick={() => reader.current?.refresh()}>Повторить поиск</button>
+          )
+        } />
       )}
       {result?.hasMore && result.nextCursor && (
         <button type="button" className="button button-secondary" disabled={loadingMore} onClick={() => void loadMore()}>
@@ -266,9 +312,10 @@ async function readSearchSnapshot(query: PositionListQuery, pageCount: number, s
   return result;
 }
 
-function searchError(error: unknown) {
-  if (error instanceof PortfolioApiError && (error.status === 401 || error.status === 403)) {
-    return 'Доступ к поиску недоступен. Проверьте, что вы вошли в приложение.';
-  }
-  return 'Не удалось загрузить позиции. Повторите запрос.';
+function searchError(error: unknown): ErrorPresentation {
+  return presentError(error, {
+    fallback: 'Не удалось загрузить позиции. Повторите запрос.',
+    retry: true,
+    messages: { unavailable: 'Не удалось загрузить позиции. Повторите запрос.', forbidden: 'Доступ к поиску недоступен. Проверьте, что вы вошли в приложение.' },
+  });
 }

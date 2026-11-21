@@ -1,3 +1,4 @@
+import { AuthContext } from '../auth/authContext';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -35,7 +36,12 @@ function renderSearch(routes: Record<string, RouteHandler>) {
     <MemoryRouter initialEntries={['/app/positions/search?symbol=BTCUSDT']}>
       <AutoUpdatesContext.Provider value={updates}>
         <RealtimeContext.Provider value={realtime}>
-          <PositionSearchPage />
+          <AuthContext.Provider value={{
+            authenticated: true, loading: false, user: null, error: null, logoutAvailable: false,
+            login: vi.fn(), logout: vi.fn(), retry: vi.fn(), revalidate: vi.fn(), captureSessionEnd: () => vi.fn(),
+          }}>
+            <PositionSearchPage />
+          </AuthContext.Provider>
         </RealtimeContext.Provider>
       </AutoUpdatesContext.Provider>
     </MemoryRouter>,
@@ -48,6 +54,23 @@ function renderSearch(routes: Record<string, RouteHandler>) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it('при 403 очередной страницы скрывает результаты и проверяет общую сессию', async () => {
+  const { updates } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => jsonResponse({
+      items: [positionFixture({ symbol: 'BTCUSDT' })], hasMore: true, nextCursor: 'next',
+    }),
+    '/bff/me/positions?symbol=BTCUSDT&cursor=next': () => new Response(null, { status: 403 }),
+  });
+  const checkAccess = vi.fn();
+  updates.setAccessCheck(checkAccess);
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Загрузить ещё' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Доступ к поиску недоступен');
+  expect(screen.queryByRole('link', { name: /^BTCUSDT/ })).not.toBeInTheDocument();
+  expect(checkAccess).toHaveBeenCalledExactlyOnceWith(403, null);
 });
 
 it('оставляет фокус и DOM поля после поиска с клавиатуры', async () => {
@@ -210,7 +233,7 @@ it.each([false, true])('сохраняет ручную страницу при 
   expect(screen.queryByRole('link', { name: /^BTCUSDT.*61\s000/ })).not.toBeInTheDocument();
 });
 
-it('сохраняет снимок на паузе при отказе REST и передаёт отказ проверке доступа', async () => {
+it('скрывает снимок на паузе при отказе REST и передаёт отказ проверке доступа', async () => {
   let status = 200;
   const { updates, emit } = renderSearch({
     '/bff/me/positions?symbol=BTCUSDT': () => status === 200 ? results('BTCUSDT') : jsonResponse(null, status),
@@ -224,7 +247,7 @@ it('сохраняет снимок на паузе при отказе REST и 
     await act(async () => emit({ type: 'recovery' }));
   }
   expect(checkAccess).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole('link', { name: /^BTCUSDT.*60\s000/ })).toBeVisible();
+  expect(screen.queryByRole('link', { name: /^BTCUSDT.*60\s000/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 

@@ -572,7 +572,7 @@ describe('HomePage manual sync', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(within(alert).getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Войти снова' })).toBeVisible();
     expect(urls(requests, ACCOUNTS_URL)).toHaveLength(1);
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(1);
   });
