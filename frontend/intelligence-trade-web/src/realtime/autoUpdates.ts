@@ -88,7 +88,9 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
     let replacementExplicit = false;
     let activeRead: { explicit: boolean } | null = null;
     const live = createInvalidationScheduler((signal, hasRecoveryRetry) => {
-      const current = { explicit: explicitPending && !replacementExplicit };
+      // Замена завершает явное чтение на паузе и подчиняется правилам ошибок recovery.
+      const current = { explicit: explicitPending };
+      const replacedExplicit = replacementExplicit;
       explicitPending = false;
       replacementExplicit = false;
       if (!current.explicit && !isLive()) {
@@ -98,13 +100,13 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
       activeRead = current;
       const endSession = captureSessionEnd?.();
       const finish = () => { if (activeRead === current) activeRead = null; };
-      if (current.explicit) {
-        const isCurrent = () => activeRead === current && current.explicit && !signal.aborted;
+      const isExplicitCurrent = () => activeRead === current && current.explicit && !signal.aborted;
+      if (current.explicit && !replacedExplicit) {
         return read(signal, {
           kind: 'explicit',
-          apply: (commit, eligible) => { if (isCurrent() && eligible?.() !== false) commit(); },
+          apply: (commit, eligible) => { if (isExplicitCurrent() && eligible?.() !== false) commit(); },
           fail: (error, commit, revoke, eligible) => {
-            if (!isCurrent() || eligible?.() === false) return;
+            if (!isExplicitCurrent() || eligible?.() === false) return;
             handleAccess(error, revoke, endSession);
             commit();
             throwIfNetworkFailure(error, signal);
@@ -113,7 +115,8 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
       }
 
       const version = generation;
-      const isCurrent = () => isLive() && generation === version && !signal.aborted;
+      const isCurrent = replacedExplicit ? isExplicitCurrent
+        : () => isLive() && generation === version && !signal.aborted;
       const apply: ReadPresentation['apply'] = (commit, eligible) => {
         if (isCurrent() && eligible?.() !== false) commit();
       };

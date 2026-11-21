@@ -177,6 +177,33 @@ describe('пауза автоматических обновлений', () => {
     }
   });
 
+  it.each([false, true])('сохраняет первое чтение при паузе после reconnect (замена запущена: %s)', async (started) => {
+    const updates = createAutoUpdates();
+    const pending = deferred();
+    const replacement = deferred();
+    const publish = vi.fn();
+    let calls = 0;
+    const reader = updates.createReader(async (_, view) => {
+      if (++calls === 1) return pending.promise;
+      await replacement.promise;
+      view.apply(publish);
+    });
+    try {
+      reader.refresh();
+      reader.recover();
+      if (started) await vi.waitFor(() => expect(calls).toBe(2));
+      updates.toggle();
+      replacement.resolve();
+      await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+      expect(calls).toBe(2);
+      expect(updates.getSnapshot().mode).toBe('paused');
+    } finally {
+      pending.resolve();
+      replacement.resolve();
+      reader.dispose();
+    }
+  });
+
   it('таймер повтора ждёт явное чтение, сохраняя его право публикации', async () => {
     vi.useFakeTimers();
     const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
