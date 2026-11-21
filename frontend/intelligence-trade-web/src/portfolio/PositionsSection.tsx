@@ -43,6 +43,7 @@ export interface PositionsListState {
 interface PositionsSectionProps {
   filters: PositionFilters;
   list: PositionsListState;
+  accountName?: string;
   onViewChange: (view: PositionsView) => void;
   onStateChange: (state: CurrentTrackingState | null) => void;
   onSideChange: (side: PositionSide | null) => void;
@@ -57,6 +58,7 @@ interface PositionsSectionProps {
 export function PositionsSection({
   filters,
   list,
+  accountName,
   onViewChange,
   onStateChange,
   onSideChange,
@@ -165,13 +167,7 @@ export function PositionsSection({
         <p className="muted">{filters.view === 'closed' ? 'Закрытых позиций нет.' : 'Текущих позиций нет.'}</p>
       )}
       {list.items.length > 0 && (
-        <ul className="position-list">
-          {list.items.map((position) => (
-            <li key={position.id}>
-              <PositionCard position={position} returnTo={returnTo} />
-            </li>
-          ))}
-        </ul>
+        <PositionCards items={list.items} returnTo={returnTo} accountName={accountName} />
       )}
       {list.error}
       {!list.loading && list.hasMore && (
@@ -185,8 +181,46 @@ export function PositionsSection({
   );
 }
 
-function PositionCard({ position, returnTo }: { position: PositionListItem; returnTo: string }) {
+function positionLabel(position: PositionListItem) {
+  return `${position.symbol} · ${formatNumber(position.size)} ${SIDE_LABELS[position.side]}`;
+}
+
+export function PositionCards({ items, returnTo, accounts, accountName }: {
+  items: readonly PositionListItem[];
+  returnTo: string;
+  accounts?: ReadonlyMap<string, string>;
+  accountName?: string;
+}) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const label = positionLabel(item);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  return (
+    <ul className="position-list">
+      {items.map((position, index) => {
+        const duplicate = (counts.get(positionLabel(position)) ?? 0) > 1;
+        const account = accounts?.get(position.exchangeAccountId) ?? accountName;
+        const context = accounts || duplicate
+          ? [account, position.settlementAsset, `вход ${formatNumber(position.averageEntryPrice)}`,
+              formatTimestamp(position.closedAt ?? position.firstDetectedAt), duplicate ? `позиция ${index + 1}` : null]
+              .filter(Boolean).join(' · ')
+          : null;
+        return (
+          <li key={position.id}>
+            <PositionCard position={position} returnTo={returnTo} context={context} />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PositionCard({ position, returnTo, context }: { position: PositionListItem; returnTo: string; context: string | null }) {
   const titleId = useId();
+  const labelId = `${titleId}-label`;
+  const contextId = `${titleId}-context`;
   const asset = position.settlementAsset;
   const state: PositionPageState = { returnTo };
 
@@ -194,8 +228,10 @@ function PositionCard({ position, returnTo }: { position: PositionListItem; retu
     <article className="panel position-card" aria-labelledby={titleId}>
       <header className="position-header">
         <h3 id={titleId} className="position-title">
-          <Link className="position-link" to={positionPagePath(position.id)} state={state}>
-            {position.symbol} · {formatNumber(position.size)} {SIDE_LABELS[position.side]}
+          <Link className="position-link" to={positionPagePath(position.id)} state={state}
+            aria-labelledby={context ? `${labelId} ${contextId}` : undefined}>
+            <span id={labelId}>{positionLabel(position)}</span>
+            {context && <span id={contextId} className="position-link-context">— {context}</span>}
           </Link>
         </h3>
         {position.trackingState !== 'active' && (

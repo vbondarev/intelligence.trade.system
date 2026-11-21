@@ -16,6 +16,7 @@ export function AccountSelector({
   onSelect: (id: string) => void;
 }) {
   const selectId = useId();
+  const selectedAccount = accounts.find((account) => account.id === selectedId);
 
   return (
     <div className="field account-selector">
@@ -32,6 +33,11 @@ export function AccountSelector({
           </option>
         ))}
       </select>
+      {selectedAccount && (
+        <span className="account-selector-value" aria-hidden="true">
+          {selectedAccount.displayName} — {CONNECTION_STATUS_LABELS[selectedAccount.connectionStatus]}
+        </span>
+      )}
     </div>
   );
 }

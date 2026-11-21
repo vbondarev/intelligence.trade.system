@@ -7,7 +7,7 @@
     <section class="auth-card" aria-labelledby="login-title">
         <header class="auth-brand">
             <p class="auth-brand-name">Intelligence.TradeSystem</p>
-            <p class="auth-brand-tagline">Trading intelligence platform</p>
+            <p class="auth-brand-tagline" lang="en">Trading intelligence platform</p>
         </header>
 
         <h1 id="login-title">Вход</h1>
@@ -15,7 +15,7 @@
 
         @if (Model.ErrorMessage is not null)
         {
-            <div class="alert" role="alert">@Model.ErrorMessage</div>
+            <div id="login-error" class="alert" role="alert">@Model.ErrorMessage</div>
         }
 
         <form class="auth-form" method="post" action="/account/login">
@@ -31,6 +31,8 @@
                        autocomplete="username"
                        autocapitalize="none"
                        spellcheck="false"
+                       aria-invalid="@(Model.ErrorMessage is not null ? "true" : null)"
+                       aria-describedby="@(Model.ErrorMessage is not null ? "login-error" : null)"
                        required
                        autofocus="@(!hasUsername)">
             </div>
@@ -41,6 +43,8 @@
                        name="password"
                        type="password"
                        autocomplete="current-password"
+                       aria-invalid="@(Model.ErrorMessage is not null ? "true" : null)"
+                       aria-describedby="@(Model.ErrorMessage is not null ? "login-error" : null)"
                        required
                        autofocus="@hasUsername">
             </div>

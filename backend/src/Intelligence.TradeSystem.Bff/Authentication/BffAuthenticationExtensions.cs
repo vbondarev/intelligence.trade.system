@@ -1,8 +1,10 @@
 using Intelligence.TradeSystem.Bff.Api;
 using Intelligence.TradeSystem.Bff.Configuration;
 using Intelligence.TradeSystem.Bff.Realtime;
+using Intelligence.TradeSystem.Bff.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -34,7 +36,8 @@ public static partial class BffAuthenticationExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddMemoryCache();
         services.AddSingleton<RealtimeSessionRegistry>();
-        services.AddSingleton<ITicketStore, InMemoryAuthenticationTicketStore>();
+        services.AddSingleton<InMemoryAuthenticationTicketStore>();
+        services.AddSingleton<ITicketStore>(provider => provider.GetRequiredService<InMemoryAuthenticationTicketStore>());
         services.AddSingleton<RefreshGateRegistry>();
         services.AddSingleton<BffTokenService>();
 
@@ -53,6 +56,15 @@ public static partial class BffAuthenticationExtensions
                 options.Cookie.SecurePolicy = securePolicy;
                 options.ExpireTimeSpan = configuration.Session.Lifetime;
                 options.SlidingExpiration = true;
+                options.Events.OnCheckSlidingExpiration = context =>
+                {
+                    if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<SkipSessionSlidingRenewal>() is not null)
+                    {
+                        context.ShouldRenew = false;
+                    }
+
+                    return Task.CompletedTask;
+                };
             })
             .AddOpenIdConnect(OidcScheme, options =>
             {
@@ -103,7 +115,12 @@ public static partial class BffAuthenticationExtensions
                             .GetRequiredService<ILoggerFactory>()
                             .CreateLogger(typeof(BffAuthenticationExtensions));
                         LogRemoteFailure(logger, context.Failure?.GetType().Name ?? "unknown");
-                        context.Response.Redirect("/");
+                        context.Response.Headers.CacheControl = "no-store";
+                        if (!LocalReturnUrlValidator.TryNormalize(context.Properties?.RedirectUri, out var returnUrl))
+                        {
+                            returnUrl = LocalReturnUrlValidator.DefaultReturnUrl;
+                        }
+                        context.Response.Redirect(QueryHelpers.AddQueryString("/?loginError=1", "returnUrl", returnUrl));
                         context.HandleResponse();
                         return Task.CompletedTask;
                     },
@@ -204,4 +221,10 @@ public static partial class BffAuthenticationExtensions
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "OIDC callback завершился ошибкой {FailureType}; browser возвращён на публичную страницу.")]
     private static partial void LogRemoteFailure(ILogger logger, string failureType);
+}
+
+internal sealed class SkipSessionSlidingRenewal
+{
+    internal static readonly SkipSessionSlidingRenewal Instance = new();
+    private SkipSessionSlidingRenewal() { }
 }

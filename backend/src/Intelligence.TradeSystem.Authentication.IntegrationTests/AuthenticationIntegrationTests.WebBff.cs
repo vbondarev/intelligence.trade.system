@@ -403,6 +403,48 @@ public sealed partial class AuthenticationIntegrationTests
     }
 
     [Fact]
+    public async Task Prompt_none_without_identity_session_returns_a_standard_oidc_error()
+    {
+        using var client = CreateIdentityClient();
+        using var response = await client.GetAsync(
+            BuildWebBffAuthorizeUri(CreateCodeChallenge(CreateCodeVerifier()), PromptValues.None));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location.Query);
+        query["error"].ToString().Should().Be(Errors.LoginRequired);
+        query["state"].ToString().Should().Be(WebBffState);
+        query.Should().NotContainKey("code");
+    }
+
+    [Fact]
+    public async Task Fresh_prompt_none_uses_current_identity_after_switching_accounts()
+    {
+        using var client = CreateIdentityClient();
+        await LoginAsync(client, Username, Password);
+        using var preparation = await client.GetAsync("/account/web-login?returnUrl=%2Fapp");
+        preparation.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        preparation.Headers.Location!.AbsoluteUri.Should().Be("http://web.test/bff/auth/login/continue?returnUrl=%2Fapp");
+
+        await LoginAsync(client, SecondUsername, SecondPassword);
+        var verifier = CreateCodeVerifier();
+        using var authorization = await client.GetAsync(
+            BuildWebBffAuthorizeUri(CreateCodeChallenge(verifier), PromptValues.None));
+        authorization.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        authorization.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be(WebBffTestRedirectUri);
+        var callback = QueryHelpers.ParseQuery(authorization.Headers.Location.Query);
+        callback["state"].ToString().Should().Be(WebBffState);
+        var code = callback["code"].ToString();
+        code.Should().NotBeNullOrWhiteSpace();
+
+        using var tokenResponse = await RedeemWebBffCodeAsync(code, verifier, WebBffTestClientSecret);
+        tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var payload = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+        new JwtSecurityTokenHandler().ReadJwtToken(payload.RootElement.GetProperty("id_token").GetString()!)
+            .Subject.Should().Be(secondUserId.ToString());
+    }
+
+    [Fact]
     public async Task Prompt_login_forces_reauthentication_despite_existing_identity_session()
     {
         using var client = CreateIdentityClient();

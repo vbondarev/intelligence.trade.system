@@ -58,9 +58,9 @@ public sealed class ExchangeAccountsController(
         [FromBody] CreateExchangeAccountRequest? request, CancellationToken cancellationToken)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.ApiKey) || string.IsNullOrWhiteSpace(request.ApiSecret))
-            return BadRequestProblem("Both apiKey and apiSecret are required.");
+            return InvalidCredentialsInput(request?.ApiKey, request?.ApiSecret);
         if (ValidateDisplayName(request.DisplayName) is { } displayNameError)
-            return BadRequestProblem(displayNameError);
+            return BadRequestProblem(displayNameError, "displayName");
         if (request.Exchange != ExchangeProvider.Bybit)
             return BadRequestProblem("The exchange is not supported.");
         var result = await accountService.ConnectAsync(currentUserContext.UserId, ExchangeId.Bybit,
@@ -93,9 +93,9 @@ public sealed class ExchangeAccountsController(
         if (id == Guid.Empty)
             return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         if (request is null)
-            return BadRequestProblem("displayName is required.");
+            return BadRequestProblem("displayName is required.", "displayName");
         if (ValidateDisplayName(request.DisplayName) is { } displayNameError)
-            return BadRequestProblem(displayNameError);
+            return BadRequestProblem(displayNameError, "displayName");
         var account = await accountService.RenameAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id),
             request.DisplayName.Trim(), cancellationToken).ConfigureAwait(false);
         return account is null
@@ -124,7 +124,7 @@ public sealed class ExchangeAccountsController(
         [FromBody] RotateExchangeAccountCredentialsRequest? request, CancellationToken cancellationToken)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.ApiKey) || string.IsNullOrWhiteSpace(request.ApiSecret))
-            return BadRequestProblem("Both apiKey and apiSecret are required.");
+            return InvalidCredentialsInput(request?.ApiKey, request?.ApiSecret);
         if (id == Guid.Empty)
             return BadRequestProblem("The exchange account id must be a non-empty GUID.");
         var result = await accountService.RotateCredentialsAsync(currentUserContext.UserId, ExchangeAccountId.FromGuid(id),
@@ -209,5 +209,23 @@ public sealed class ExchangeAccountsController(
     private ObjectResult Error(ApiErrorDescriptor descriptor, string? detail = null) =>
         StatusCode(descriptor.StatusCode, ApiProblemDetails.Create(HttpContext, descriptor, detail));
     private ObjectResult NotFoundProblem() => Error(ApiErrorDescriptors.ResourceNotFound, "The requested resource was not found.");
-    private BadRequestObjectResult BadRequestProblem(string detail) => BadRequest(ApiProblemDetails.CreateValidation(HttpContext, detail));
+    private static readonly string[] InvalidFieldMessages = ["The value is invalid."];
+
+    private BadRequestObjectResult InvalidCredentialsInput(string? apiKey, string? apiSecret)
+    {
+        var fields = new List<string>(2);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            fields.Add("apiKey");
+        if (string.IsNullOrWhiteSpace(apiSecret))
+            fields.Add("apiSecret");
+        return BadRequestProblem("Both apiKey and apiSecret are required.", [.. fields]);
+    }
+
+    private BadRequestObjectResult BadRequestProblem(string detail, params string[] fields)
+    {
+        var problem = ApiProblemDetails.CreateValidation(HttpContext, detail);
+        if (fields.Length > 0)
+            problem.Extensions["errors"] = fields.ToDictionary(field => field, _ => InvalidFieldMessages);
+        return BadRequest(problem);
+    }
 }

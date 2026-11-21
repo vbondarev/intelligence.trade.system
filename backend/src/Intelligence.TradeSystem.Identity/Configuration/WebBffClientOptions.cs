@@ -28,6 +28,10 @@ public sealed class WebBffClientOptions
 
     public List<string> PostLogoutRedirectUris { get; init; } = [];
 
+    public string? PublicOrigin { get; init; }
+
+    internal Uri? LoginContinuation { get; private set; }
+
     public void Validate(IHostEnvironment environment)
     {
         if (!Enabled)
@@ -53,6 +57,31 @@ public sealed class WebBffClientOptions
 
         ValidateUris(RedirectUris, "Identity:WebBffClient:RedirectUris", environment);
         ValidateUris(PostLogoutRedirectUris, "Identity:WebBffClient:PostLogoutRedirectUris", environment);
+
+        var origins = RedirectUris.Select(uri => new Uri(uri))
+            .Where(uri => uri.AbsolutePath == "/signin-oidc" && uri.Query.Length == 0 && uri.UserInfo.Length == 0)
+            .Select(uri => new Uri(uri.GetLeftPart(UriPartial.Authority)))
+            .Distinct()
+            .ToArray();
+        Uri origin;
+        if (string.IsNullOrEmpty(PublicOrigin) && origins.Length == 1)
+        {
+            origin = origins[0];
+        }
+        else if (Uri.TryCreate(PublicOrigin, UriKind.Absolute, out var configured)
+            && configured.AbsolutePath == "/" && configured.Query.Length == 0
+            && configured.UserInfo.Length == 0 && configured.Fragment.Length == 0
+            && origins.Contains(configured))
+        {
+            origin = configured;
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "Identity:WebBffClient:PublicOrigin должен однозначно соответствовать origin зарегистрированного /signin-oidc.");
+        }
+
+        LoginContinuation = new Uri(origin, "/bff/auth/login/continue");
     }
 
     private static void ValidateUris(List<string> values, string key, IHostEnvironment environment)

@@ -37,10 +37,12 @@ vi.mock('lightweight-charts', () => ({
   createChart: vi.fn(() => ({
     addSeries: () => ({
       setData: chart.setData,
+      applyOptions: () => {},
       createPriceLine: chart.createPriceLine,
       removePriceLine: chart.removePriceLine,
     }),
-    timeScale: () => ({ fitContent: chart.fitContent }),
+    timeScale: () => ({ fitContent: chart.fitContent, getVisibleRange: () => null }),
+    priceScale: () => ({ setAutoScale: () => {}, options: () => ({ autoScale: true }), getVisibleRange: () => null }),
     remove: chart.remove,
   })),
 }));
@@ -109,6 +111,7 @@ function renderPage(entry: InitialEntry, routes: Record<string, RouteHandler>): 
         <LocationProbe />
       </MemoryRouter>
     </AuthProvider>,
+    { wrapper: MantineProvider },
   );
   return requests;
 }
@@ -262,6 +265,7 @@ describe('PositionPage navigation', () => {
       }),
     );
     await findTitle('BTCUSDT · 0,5 LONG');
+    await userEvent.click(screen.getByText('Данные графика и ценовые уровни'));
 
     await userEvent.click(screen.getByRole('button', { name: '1d' }));
     await waitFor(() => expect(lastChartData()?.map((candle) => candle.close)).toEqual([55000]));
@@ -269,6 +273,9 @@ describe('PositionPage navigation', () => {
     await settle();
 
     expect(lastChartData()?.map((candle) => candle.close)).toEqual([55000]);
+    const table = screen.getByRole('table', { name: /Свечи BTCUSDT, 1d, UTC/ });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getByText(/2026-10-11 00:00:00 UTC/)).toBeVisible();
   });
 
   it('does not show late responses of the previous position after switching', async () => {
@@ -294,6 +301,25 @@ describe('PositionPage navigation', () => {
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ETHUSDT · 0,5 LONG');
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+  });
+
+  it('keeps previous position candles out of the accessible table after navigation', async () => {
+    const lateCandles = deferred<Response>();
+    renderPage(pagePath(), {
+      ...positionRoutes(POSITION_ID, { [candlesUrl('1h', POSITION_ID)]: () => lateCandles.promise }),
+      ...positionRoutes(OTHER_POSITION_ID, {
+        [candlesUrl('1h', OTHER_POSITION_ID)]: () => jsonResponse(candlesFixture('1h', [candleFixture('2026-10-12T10:00:00Z', 42000)])),
+      }),
+    });
+    await findTitle('BTCUSDT · 0,5 LONG');
+    await userEvent.click(screen.getByText('Данные графика и ценовые уровни'));
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
+    await findTitle('ETHUSDT · 0,5 LONG');
+    const table = await screen.findByRole('table', { name: /Свечи ETHUSDT, 1h, UTC/ });
+    lateCandles.resolve(jsonResponse(candlesFixture('1h', [candleFixture('2026-10-12T03:00:00Z', 90000)])));
+    await settle();
+    expect(within(table).getByText('2026-10-12 10:00:00 UTC')).toBeVisible();
+    expect(within(table).queryByText('2026-10-12 03:00:00 UTC')).not.toBeInTheDocument();
   });
 });
 
@@ -527,6 +553,8 @@ describe('PositionPage history', () => {
 // Время двигается только явно: подменены лишь setTimeout и Date. Ожидание ответов fetch
 // использует настоящий setTimeout, сохранённый до подмены.
 describe('PositionPage evaluation validity on an open page', () => {
+  const countRequestsOutsideSessionTimer = (requests: RecordedRequest[]) =>
+    requests.filter(({ url }) => url !== '/bff/auth/session/timing').length;
   const realSetTimeout = globalThis.setTimeout;
   const T0 = Date.parse('2026-10-12T10:00:00.000Z');
   const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
@@ -584,13 +612,40 @@ describe('PositionPage evaluation validity on an open page', () => {
     vi.useRealTimers();
   });
 
+  it('замораживает видимую оценку на паузе и проверяет новые снимки по времени применения', async () => {
+    renderPage(pagePath(), {
+      ...positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(30), at(30))) }),
+      ...positionRoutes(OTHER_POSITION_ID, {
+        [evaluationUrl(OTHER_POSITION_ID)]: (init) => jsonResponse(init?.method === 'POST'
+          ? evaluationValidUntil(at(90), at(40), OTHER_POSITION_ID)
+          : evaluationValidUntil(at(30), at(30), OTHER_POSITION_ID)),
+      }),
+    });
+    await settleUntil(() => expect(assessmentState()).toContain(VALID));
+    fireEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await advanceTo(60);
+    expect(assessmentState()).toContain(VALID);
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
+    await settleUntil(() => expect(assessmentState()).toContain(EXPIRED));
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
+    await settleUntil(() => expect(screen.getByText('Оценка выполнена.')).toBeVisible());
+    expect(assessmentState()).toContain(VALID);
+    expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
+    await advanceTo(90);
+    expect(assessmentState()).toContain(VALID);
+    fireEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await settleUntil(() => expect(assessmentState()).toContain(EXPIRED));
+  });
+
   it('marks the assessment and recommendation expired at validUntil without new requests', async () => {
     const requests = renderPage(
       pagePath(),
       positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(60), at(60))) }),
     );
     await settleUntil(() => expect(assessmentState()).toContain(VALID));
-    const requestCount = requests.length;
+    const requestCount = countRequestsOutsideSessionTimer(requests);
 
     await advanceTo(60, -1);
     expect(assessmentState()).toContain(VALID);
@@ -600,7 +655,7 @@ describe('PositionPage evaluation validity on an open page', () => {
     expect(assessmentState()).toContain(EXPIRED);
     expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
     expect(screen.getByText('Удерживать')).toBeVisible();
-    expect(requests).toHaveLength(requestCount);
+    expect(countRequestsOutsideSessionTimer(requests)).toBe(requestCount);
   });
 
   it('expires a recommendation that ends before the assessment independently', async () => {
@@ -609,7 +664,7 @@ describe('PositionPage evaluation validity on an open page', () => {
       positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(120), at(30))) }),
     );
     await settleUntil(() => expect(assessmentState()).toContain(VALID));
-    const requestCount = requests.length;
+    const requestCount = countRequestsOutsideSessionTimer(requests);
 
     await advanceTo(30);
     expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
@@ -617,7 +672,7 @@ describe('PositionPage evaluation validity on an open page', () => {
 
     await advanceTo(120);
     expect(assessmentState()).toContain(EXPIRED);
-    expect(requests).toHaveLength(requestCount);
+    expect(countRequestsOutsideSessionTimer(requests)).toBe(requestCount);
   });
 
   it('expires an assessment that ends before the recommendation independently', async () => {
@@ -626,7 +681,7 @@ describe('PositionPage evaluation validity on an open page', () => {
       positionRoutes(POSITION_ID, { [evaluationUrl()]: () => jsonResponse(evaluationValidUntil(at(30), at(120))) }),
     );
     await settleUntil(() => expect(assessmentState()).toContain(VALID));
-    const requestCount = requests.length;
+    const requestCount = countRequestsOutsideSessionTimer(requests);
 
     await advanceTo(30);
     expect(assessmentState()).toContain(EXPIRED);
@@ -634,7 +689,7 @@ describe('PositionPage evaluation validity on an open page', () => {
 
     await advanceTo(120);
     expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
-    expect(requests).toHaveLength(requestCount);
+    expect(countRequestsOutsideSessionTimer(requests)).toBe(requestCount);
   });
 
   it('follows the validUntil values of a new evaluation after re-evaluation', async () => {
@@ -654,7 +709,7 @@ describe('PositionPage evaluation validity on an open page', () => {
     await settleUntil(() => expect(screen.getByText('Оценка выполнена.')).toBeVisible());
     expect(assessmentState()).toContain(VALID);
     expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
-    const requestCount = requests.length;
+    const requestCount = countRequestsOutsideSessionTimer(requests);
 
     await advanceTo(120, -1);
     expect(recommendationState()).not.toContain(RECOMMENDATION_EXPIRED);
@@ -666,7 +721,7 @@ describe('PositionPage evaluation validity on an open page', () => {
     expect(assessmentState()).toContain(EXPIRED);
     expect(evaluationPosts(requests)).toHaveLength(1);
     expect(urls(requests, evaluationUrl()).filter((request) => request.init?.method !== 'POST')).toHaveLength(1);
-    expect(requests).toHaveLength(requestCount);
+    expect(countRequestsOutsideSessionTimer(requests)).toBe(requestCount);
   });
 
   it('does not let deadlines of the previous position affect the next one', async () => {
@@ -682,7 +737,7 @@ describe('PositionPage evaluation validity on an open page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
     await settleUntil(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ETHUSDT · 0,5 LONG'));
     await settleUntil(() => expect(assessmentState()).toContain(VALID));
-    const requestCount = requests.length;
+    const requestCount = countRequestsOutsideSessionTimer(requests);
 
     await advanceTo(30);
     expect(assessmentState()).toContain(VALID);
@@ -693,7 +748,7 @@ describe('PositionPage evaluation validity on an open page', () => {
     expect(recommendationState()).toContain(RECOMMENDATION_EXPIRED);
     expect(urls(requests, evaluationUrl())).toHaveLength(1);
     expect(urls(requests, evaluationUrl(OTHER_POSITION_ID))).toHaveLength(1);
-    expect(requests).toHaveLength(requestCount);
+    expect(countRequestsOutsideSessionTimer(requests)).toBe(requestCount);
   });
 });
 
@@ -825,3 +880,4 @@ describe('непрерывные инвалидации позиции и оце
     expect(evaluationPosts(requests)).toHaveLength(0);
   });
 });
+import { MantineProvider } from '@mantine/core';

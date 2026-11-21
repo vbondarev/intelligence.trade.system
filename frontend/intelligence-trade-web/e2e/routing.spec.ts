@@ -57,7 +57,14 @@ test('frontend service serves React routes and proxies the BFF boundary on the s
 
   const login = await request.get('/bff/auth/login?returnUrl=/app', { maxRedirects: 0 });
   expect(login.status()).toBe(302);
-  const authorize = new URL(login.headers()['location']);
+  const preparation = new URL(login.headers()['location']);
+  expect(preparation.origin).toBe(identityBaseUrl);
+  expect(preparation.pathname).toBe('/account/web-login');
+  expect(login.headers()['set-cookie']).toBeUndefined();
+  const continuation = await request.get('/bff/auth/login/continue?returnUrl=/app', { maxRedirects: 0 });
+  expect(continuation.status()).toBe(302);
+  const authorize = new URL(continuation.headers()['location']);
   expect(authorize.origin).toBe(identityBaseUrl);
+  expect(authorize.searchParams.get('prompt')).toBe('none');
   expect(authorize.searchParams.get('redirect_uri')).toBe(`${webBaseUrl}/signin-oidc`);
 });

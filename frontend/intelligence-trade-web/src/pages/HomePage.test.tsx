@@ -16,8 +16,9 @@ vi.mock('lightweight-charts', () => ({
   ColorType: { Solid: 'solid' },
   LineStyle: { Solid: 0, Dashed: 2 },
   createChart: () => ({
-    addSeries: () => ({ setData: () => {}, createPriceLine: () => ({}), removePriceLine: () => {} }),
-    timeScale: () => ({ fitContent: () => {} }),
+    addSeries: () => ({ setData: () => {}, applyOptions: () => {}, createPriceLine: () => ({}), removePriceLine: () => {} }),
+    timeScale: () => ({ fitContent: () => {}, getVisibleRange: () => null }),
+    priceScale: () => ({ setAutoScale: () => {}, options: () => ({ autoScale: true }), getVisibleRange: () => null }),
     remove: () => {},
   }),
 }));
@@ -138,6 +139,7 @@ function renderHome(path: string, routes: Record<string, RouteHandler>): Recorde
         <LocationProbe />
       </MemoryRouter>
     </AuthProvider>,
+    { wrapper: MantineProvider },
   );
   return requests;
 }
@@ -805,6 +807,7 @@ describe('realtime overview invalidation', () => {
     const count = (url: string) => requests.filter((request) => request.url === url).length;
     const portfolioBefore = count(portfolioUrl(MAIN_ID));
     const positionsBefore = count(positionsUrl(MAIN_ID));
+    expect(screen.queryByText('Список позиций обновлён.')).not.toBeInTheDocument();
     act(() => emitRealtime({ type: 'portfolio.updated', exchangeAccountId: SECOND_ID }));
     expect(count(portfolioUrl(MAIN_ID))).toBe(portfolioBefore);
     act(() => {
@@ -813,7 +816,92 @@ describe('realtime overview invalidation', () => {
     });
     await waitFor(() => expect(count(portfolioUrl(MAIN_ID))).toBe(portfolioBefore + 1));
     await waitFor(() => expect(count(positionsUrl(MAIN_ID))).toBe(positionsBefore + 1));
+    expect(await screen.findByText('Список позиций обновлён.')).toHaveAttribute('role', 'status');
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'another-update' }));
+    await waitFor(() => expect(count(positionsUrl(MAIN_ID))).toBe(positionsBefore + 2));
+    expect(screen.queryByText('Обновлён список позиций.')).not.toBeInTheDocument();
     expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
+  });
+
+  it('does not announce success when refreshing positions fails', async () => {
+    let calls = 0;
+    renderHome(`/app?account=${MAIN_ID}`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID)]: () => {
+        calls += 1;
+        return calls === 1 ? page([position()]) : problem(503, 'service_unavailable');
+      },
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'changed' }));
+    await screen.findByText('Сервис временно недоступен. Повторите попытку позже.');
+    expect(screen.queryByText('Список позиций обновлён.')).not.toBeInTheDocument();
+  });
+
+  it('announces a later realtime refresh after the quiet interval', async () => {
+    renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount]));
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
+    await screen.findByText('Список позиций обновлён.');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_001);
+    try {
+      act(() => emitRealtime({ type: 'position.updated', positionId: 'second' }));
+      expect(await screen.findByText('Обновлён список позиций.')).toHaveAttribute('role', 'status');
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('announces the last refresh in a burst after the quiet interval', async () => {
+    renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount]));
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
+    await screen.findByText('Список позиций обновлён.');
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        emitRealtime({ type: 'position.updated', positionId: 'second' });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.queryByText('Обновлён список позиций.')).not.toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(screen.getByText('Обновлён список позиций.')).toHaveAttribute('role', 'status');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a pending announcement when a newer refresh fails', async () => {
+    let calls = 0;
+    renderHome(`/app?account=${MAIN_ID}`, {
+      ...accountRoutes([mainAccount]),
+      [positionsUrl(MAIN_ID)]: () => {
+        calls += 1;
+        return calls < 4 ? page([position()]) : problem(503, 'service_unavailable');
+      },
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
+    await screen.findByText('Список позиций обновлён.');
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        emitRealtime({ type: 'position.updated', positionId: 'second' });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        emitRealtime({ type: 'position.updated', positionId: 'third' });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(calls).toBe(4);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(screen.queryByText('Обновлён список позиций.')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -845,9 +933,11 @@ describe('realtime pagination consistency', () => {
     expect(calls).toBe(2);
     await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
     await screen.findByRole('article', { name: 'STALEUSDT · 0,15 LONG' });
+    expect(screen.queryByText('Список позиций обновлён.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     await act(async () => final.resolve(page([position({ id: 'new', symbol: 'SOLUSDT' })], 'fresh-cursor')));
     await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    expect(await screen.findByText('Список позиций обновлён.')).toHaveAttribute('role', 'status');
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
     expect(searchParams().get('side')).toBe('long');
     expect(requests.some((request) => request.url.includes('cursor=old-cursor'))).toBe(false);
@@ -953,3 +1043,4 @@ describe('инвалидация continuation', () => {
     expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });
 });
+import { MantineProvider } from '@mantine/core';

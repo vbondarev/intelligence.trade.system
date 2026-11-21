@@ -79,10 +79,42 @@ internal sealed class InMemoryAuthenticationTicketStore(
                 copy.Properties.Items[LogoutIntentItem] = existing.Properties.Items[LogoutIntentItem];
             }
 
+            // Refresh, logout intent и sliding renewal могут работать со снимком, прочитанным
+            // до явного продления. Не откатываем expiry и не продлеваем ticket после logout intent.
+            if (existing.Properties.ExpiresUtc > copy.Properties.ExpiresUtc
+                || HasActiveLogoutIntent(copy.Properties, timeProvider))
+            {
+                copy.Properties.IssuedUtc = existing.Properties.IssuedUtc;
+                copy.Properties.ExpiresUtc = existing.Properties.ExpiresUtc;
+            }
+
             Set(key, copy);
         }
 
         return Task.CompletedTask;
+    }
+
+    internal AuthenticationTicket? Extend(string key)
+    {
+        lock (gate)
+        {
+            if (!TryGetLiveTicket(key, out var ticket) || HasActiveLogoutIntent(ticket.Properties, timeProvider))
+            {
+                return null;
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var deadline = now.Add(sessionOptions.Lifetime);
+            var extended = Copy(ticket);
+            if (extended.Properties.ExpiresUtc is null || deadline > extended.Properties.ExpiresUtc)
+            {
+                extended.Properties.IssuedUtc = now;
+                extended.Properties.ExpiresUtc = deadline;
+                Set(key, extended);
+            }
+
+            return extended;
+        }
     }
 
     public Task<AuthenticationTicket?> RetrieveAsync(string key)

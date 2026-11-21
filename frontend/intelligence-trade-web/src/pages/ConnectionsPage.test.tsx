@@ -60,6 +60,7 @@ function renderAtConnections() {
         <AppRoutes />
       </MemoryRouter>
     </AuthProvider>,
+    { wrapper: MantineProvider },
   );
 }
 
@@ -341,6 +342,41 @@ describe('ConnectionsPage add', () => {
 });
 
 describe('ConnectionsPage rename', () => {
+  it('moves focus into the form and returns it after cancellation', async () => {
+    renderConnections({ list: () => [mainAccount] });
+    const user = userEvent.setup();
+    const card = await findCard('Основной');
+    await user.click(within(card).getByRole('button', { name: 'Переименовать' }));
+    expect(within(card).getByLabelText('Новое название *')).toHaveFocus();
+    await user.click(within(card).getByRole('button', { name: 'Отмена' }));
+    expect(within(card).getByRole('button', { name: 'Переименовать' })).toHaveFocus();
+  });
+
+  it('focuses the newly opened form when switching between cards', async () => {
+    renderConnections({ list: () => [mainAccount, disabledAccount] });
+    const user = userEvent.setup();
+    const first = await findCard('Основной');
+    const second = await findCard('GinArea');
+    await user.click(within(second).getByRole('button', { name: 'Переименовать' }));
+    await user.click(within(first).getByRole('button', { name: 'Переименовать' }));
+    expect(within(first).getByLabelText('Новое название *')).toHaveFocus();
+  });
+
+  it('focuses credential forms and returns to the action after cancellation', async () => {
+    renderConnections({ list: () => [mainAccount, disabledAccount] });
+    const user = userEvent.setup();
+    for (const [name, action, input] of [
+      ['Основной', 'Заменить ключи', 'Новый API key *'],
+      ['GinArea', 'Восстановить', 'API key *'],
+    ] as const) {
+      const card = await findCard(name);
+      await user.click(within(card).getByRole('button', { name: action }));
+      expect(within(card).getByLabelText(input)).toHaveFocus();
+      await user.click(within(card).getByRole('button', { name: 'Отмена' }));
+      expect(within(card).getByRole('button', { name: action })).toHaveFocus();
+    }
+  });
+
   it('renames through PATCH and reloads the list', async () => {
     let items = [mainAccount];
     const requests = renderConnections({
@@ -379,6 +415,8 @@ describe('ConnectionsPage rename', () => {
     await user.click(screen.getByRole('button', { name: 'Сохранить' }));
 
     expect(await screen.findByText('Укажите название подключения.')).toBeVisible();
+    expect(screen.getByLabelText('Новое название *')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Новое название *')).toHaveAccessibleDescription('Укажите название подключения.');
     expect(mutations(requests)).toHaveLength(0);
   });
 
@@ -648,3 +686,4 @@ describe('recovery failure', () => {
     expect(await findCard('Основной')).toBeInTheDocument();
   });
 });
+import { MantineProvider } from '@mantine/core';

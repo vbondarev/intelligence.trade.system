@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { credentials, identityBaseUrl, openIdentityLoginThroughLanding, webBaseUrl } from './support';
@@ -6,7 +7,7 @@ const identityLoginUrl = `${identityBaseUrl}/account/login`;
 const genericLoginError = 'Неверное имя пользователя или пароль.';
 
 const viewports = [
-  { name: 'mobile', width: 390, height: 844 },
+  { name: 'mobile', width: 320, height: 740 },
   { name: 'desktop', width: 1440, height: 900 },
 ];
 
@@ -27,6 +28,7 @@ for (const viewport of viewports) {
 
     const card = page.locator('.auth-card');
     await expect(card).toBeVisible();
+    await expect(page.locator('.auth-brand-tagline')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
     await expect(usernameInput(page)).toBeVisible();
     await expect(passwordInput(page)).toBeVisible();
@@ -52,10 +54,20 @@ for (const viewport of viewports) {
       innerWidth: window.innerWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+    if (viewport.name === 'mobile') {
+      await expect(usernameInput(page)).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(passwordInput(page)).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('button', { name: 'Войти' })).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(passwordInput(page)).toBeFocused();
+    }
   });
 }
 
 test('wrong password keeps the user on the Identity form with one generic error, then login succeeds', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
   const { username, password } = credentials();
   const wrongPassword = `wrong-${randomBytes(12).toString('hex')}`;
 
@@ -76,8 +88,17 @@ test('wrong password keeps the user on the Identity form with one generic error,
   await expect(page).toHaveURL(identityLoginUrl);
   const alert = page.getByRole('alert');
   await expect(alert).toHaveText(genericLoginError);
+  await expect(usernameInput(page)).toHaveAttribute('aria-describedby', 'login-error');
+  await expect(passwordInput(page)).toHaveAttribute('aria-describedby', 'login-error');
+  await expect(usernameInput(page)).toHaveAttribute('aria-invalid', 'true');
+  await expect(passwordInput(page)).toHaveAttribute('aria-invalid', 'true');
   await expect(alert).toHaveCSS('background-color', 'rgb(42, 21, 23)');
   await expect(alert).toHaveCSS('color', 'rgb(248, 113, 113)');
+  const audit = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(audit.violations.map(({ id }) => id)).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 
   expect(await failedLogin.text()).not.toContain(wrongPassword);
   expect(await page.content()).not.toContain(wrongPassword);

@@ -74,10 +74,10 @@ public static class StartupExtensions
             })
             .AddIdentityCookies();
         services.AddHostedService<IdentityScopeSeeder>();
+        services.AddSingleton(webBffClientOptions);
 
         if (webBffClientOptions.Enabled)
         {
-            services.AddSingleton(webBffClientOptions);
             services.AddHostedService<WebBffClientSeeder>();
         }
 

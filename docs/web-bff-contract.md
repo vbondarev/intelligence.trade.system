@@ -92,11 +92,24 @@ Frontend service (nginx) — единственный browser-facing origin (`ht
 - `503` — Identity token endpoint или `Api` временно недоступны; session при этом сохраняется, full logout остаётся доступным.
 - Завершённая или отклонённая session возвращается как `authenticated: false`, а не как `401`.
 
+### `GET /bff/auth/session/timing` и `POST /bff/auth/session/extend`
+
+- Оба маршрута возвращают только `serverTimeUtc` и `expiresAtUtc` в ISO 8601 либо `401` при отсутствии действующего ticket или активном logout intent. Оба ответа используют `Cache-Control: no-store`. Маршруты не обращаются к Identity token endpoint и business API.
+- GET не запускает sliding renewal и не переиздаёт session cookie. Получение обычного antiforgery token также не сдвигает срок. POST требует существующей централизованной CSRF-проверки, которая отвечает `400` при отказе.
+- POST по явному действию продлевает тот же ticket на полный настроенный срок от серверного времени. Если срок уже позже, он сохраняется. Операция сериализуется с удалением ticket и учитывает logout intent. Конкурентный token refresh не откатывает срок, а sliding renewal не откатывает поколение OAuth-токенов.
+- Успешный POST переиздаёт текущую opaque cookie с существующими атрибутами через настроенный cookie manager. Продление не создаёт новую session и не меняет действующие правила OIDC, OAuth revocation или авторизации realtime.
+
 ### `GET /bff/auth/login?returnUrl=<local-path>`
 
-- Без session запускает OIDC challenge к Identity; с действующей session сразу выполняет local redirect.
+- Без session перенаправляет на настроенный Identity `/account/web-login`. При действующей BFF-сессии сразу выполняет local redirect.
 - `returnUrl` принимает только local relative path (до и после percent-decoding): без scheme, host, `//`, `\`, управляющих и пробельных символов, длиной не больше 2048. Пустое значение заменяется на `/app`, некорректное возвращает `400`.
-- Обычный login не отправляет `prompt=login`.
+- Identity использует действующую SSO-сессию или показывает форму. POST формы проверяет antiforgery и credentials, затем отвечает `303` на локальное продолжение `/account/web-login/continue`. Для перехода в BFF Identity использует origin зарегистрированного `/signin-oidc`. При нескольких зарегистрированных origin требуется указать `Identity:WebBffClient:PublicOrigin` с одним из них.
+
+### `GET /bff/auth/login/continue?returnUrl=<local-path>`
+
+- Проверяет назначение по тем же правилам. При действующей BFF-сессии выполняет локальный redirect. В остальных случаях запускает свежий OIDC Authorization Code challenge с PKCE и `prompt=none`.
+- При утрате Identity SSO OpenIddict возвращает `login_required` на зарегистрированный callback. BFF переводит браузер на собственную публичную страницу с сообщением об ошибке и явным повтором. После ошибки в параметрах остаётся только проверенный локальный путь назначения.
+- BFF выдаёт сессию после штатной проверки OIDC callback. Ответы обоих маршрутов используют `Cache-Control: no-store`.
 
 ### `GET /bff/auth/antiforgery`
 

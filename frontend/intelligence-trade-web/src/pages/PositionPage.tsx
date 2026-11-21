@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
-import { createInvalidationScheduler, type InvalidationScheduler } from '../realtime/invalidationScheduler';
+import type { ScreenReader } from '../realtime/autoUpdates';
+import { useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { SIDE_LABELS, formatNumber } from '../portfolio/portfolioFormatting';
 import { PositionChart } from '../position/PositionChart';
+import { PositionChartData } from '../position/PositionChartData';
 import { toChartCandles, toPriceLevels, type ChartCandle } from '../position/positionChartAdapter';
 import { PositionDetails } from '../position/PositionDetails';
 import { PositionEvaluation } from '../position/PositionEvaluation';
@@ -25,7 +27,7 @@ import {
   NOT_EVALUABLE_REASON_MESSAGES,
   parseChartInterval,
 } from '../position/positionFormatting';
-import { resolveReturnPath } from '../position/positionNavigation';
+import { POSITION_SEARCH_PATH, resolveReturnPath } from '../position/positionNavigation';
 import { useValidityClock } from '../position/useValidityClock';
 import type {
   ChartInterval,
@@ -58,6 +60,7 @@ interface Notice {
 
 /** Результат чтения, привязанный к ключу запроса: данные другого ключа не отображаются. */
 type Load<T> = { key: string; value: T | null; error: Notice | null };
+type EvaluationLoad = Load<Evaluation | null> & { appliedAt: number | null };
 
 interface EvaluateState {
   running: boolean;
@@ -111,6 +114,8 @@ export function PositionPage() {
   const { id = '' } = useParams();
   const location = useLocation();
   const { login } = useAuth();
+  const updates = useAutoUpdates();
+  const { pausedAt } = useAutoUpdateState();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawInterval = searchParams.get('interval');
   const interval = parseChartInterval(rawInterval);
@@ -123,13 +128,13 @@ export function PositionPage() {
   const [notFound, setNotFound] = useState<string | null>(null);
   const [market, setMarket] = useState<Load<PositionMarket> | null>(null);
   const [candles, setCandles] = useState<Load<PositionCandles> | null>(null);
-  const [evaluation, setEvaluation] = useState<Load<Evaluation | null> | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationLoad | null>(null);
   const [evaluateStates, setEvaluateStates] = useState<Readonly<Record<string, EvaluateState>>>({});
 
-  const positionRead = useRef<InvalidationScheduler | null>(null);
-  const marketRead = useRef<InvalidationScheduler | null>(null);
-  const candlesRead = useRef<InvalidationScheduler | null>(null);
-  const evaluationRead = useRef<InvalidationScheduler | null>(null);
+  const positionRead = useRef<ScreenReader | null>(null);
+  const marketRead = useRef<ScreenReader | null>(null);
+  const candlesRead = useRef<ScreenReader | null>(null);
+  const evaluationRead = useRef<ScreenReader | null>(null);
   const positionGeneration = useRef(0);
   const marketGeneration = useRef(0);
   const candlesGeneration = useRef(0);
@@ -156,118 +161,129 @@ export function PositionPage() {
   }, [rawInterval, interval, setSearchParams, location.state]);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => {
-      const generation = ++positionGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? positionGeneration.current : ++positionGeneration.current;
       const isCurrent = () => generation === positionGeneration.current && !signal.aborted;
       return getPosition(id, signal).then(
-      (value) => {
+      (value) => view.apply(() => {
         if (isCurrent()) {
           setPosition(loaded(id, value));
           setNotFound(null);
         }
-      },
+      }),
       (error: unknown) => {
         if (!isCurrent()) {
           return;
         }
 
-        if (isNotFound(error)) {
-          setNotFound(id);
-        }
-
-        setPosition((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.'), current));
+        view.fail(error, () => {
+          if (!isCurrent()) return;
+          if (isNotFound(error)) setNotFound(id);
+          setPosition((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить позицию. Повторите попытку позже.'), current));
+        });
       },
       );
     });
     positionRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { positionRead.current = null; scheduler.dispose(); };
-  }, [id]);
+  }, [id, updates]);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => {
-      const generation = ++marketGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? marketGeneration.current : ++marketGeneration.current;
       const isCurrent = () => generation === marketGeneration.current && !signal.aborted;
       return getPositionMarket(id, signal).then(
-      (value) => {
+      (value) => view.apply(() => {
         if (isCurrent()) {
           setMarket(loaded(id, value));
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          setMarket((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.'), current));
+          view.fail(error, () => {
+            if (isCurrent()) setMarket((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить рыночный контекст. Повторите попытку позже.'), current));
+          });
         }
       },
       );
     });
     marketRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { marketRead.current = null; scheduler.dispose(); };
-  }, [id]);
+  }, [id, updates]);
 
   useEffect(() => {
     const key = `${id}|${interval}`;
-    const scheduler = createInvalidationScheduler((signal) => {
-      const generation = ++candlesGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? candlesGeneration.current : ++candlesGeneration.current;
       const isCurrent = () => generation === candlesGeneration.current && !signal.aborted;
       return getPositionCandles(id, interval, signal).then(
-      (value) => {
+      (value) => view.apply(() => {
         if (isCurrent()) {
           setCandles(loaded(key, value));
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          setCandles((current) => failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.'), current));
+          view.fail(error, () => {
+            if (isCurrent()) setCandles((current) => failed(key, toErrorNotice(error, 'Не удалось загрузить свечи. Повторите попытку позже.'), current));
+          });
         }
       },
       );
     });
     candlesRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { candlesRead.current = null; scheduler.dispose(); };
-  }, [id, interval]);
+  }, [id, interval, updates]);
 
   useEffect(() => {
-    const scheduler = createInvalidationScheduler((signal) => {
-      const generation = ++evaluationGeneration.current;
+    const scheduler = updates.createReader((signal, view) => {
+      const generation = view.kind === 'silent' ? evaluationGeneration.current : ++evaluationGeneration.current;
       const isCurrent = () => generation === evaluationGeneration.current && !signal.aborted;
       return getPositionEvaluation(id, signal).then(
-      (value) => {
+      (value) => view.apply(() => {
         if (isCurrent()) {
-          setEvaluation(loaded(id, value));
+          setEvaluation({ ...loaded(id, value), appliedAt: Date.now() });
         }
-      },
+      }),
       (error: unknown) => {
         if (isCurrent()) {
-          setEvaluation((current) => failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current));
+          view.fail(error, () => {
+            if (isCurrent()) setEvaluation((current) => ({
+              ...failed(id, toErrorNotice(error, 'Не удалось загрузить оценку. Повторите попытку позже.'), current),
+              appliedAt: current?.key === id ? current.appliedAt : null,
+            }));
+          });
         }
       },
       );
     });
     evaluationRead.current = scheduler;
-    scheduler.invalidate();
+    scheduler.refresh();
     return () => { evaluationRead.current = null; scheduler.dispose(); };
-  }, [id]);
+  }, [id, updates]);
 
   useRealtimeInvalidation((event) => {
     if (event.type === 'recovery' || (event.type === 'position.updated' && event.positionId === id)) {
       if (event.type === 'recovery') {
-        positionGeneration.current += 1;
+        if (updates.isLive()) positionGeneration.current += 1;
         positionRead.current?.recover();
       }
       else positionRead.current?.invalidate();
     }
     if (event.type === 'recovery') {
-      marketGeneration.current += 1;
-      candlesGeneration.current += 1;
+      if (updates.isLive()) {
+        marketGeneration.current += 1;
+        candlesGeneration.current += 1;
+      }
       marketRead.current?.recover();
       candlesRead.current?.recover();
     }
     if (event.type === 'recovery' || (event.type === 'evaluation.updated' && event.positionId === id)) {
       if (event.type === 'recovery') {
-        evaluationGeneration.current += 1;
+        if (updates.isLive()) evaluationGeneration.current += 1;
         evaluationRead.current?.recover();
       }
       else evaluationRead.current?.invalidate();
@@ -283,7 +299,7 @@ export function PositionPage() {
   const now = useValidityClock([
     evaluationValue?.assessment.validUntil,
     evaluationValue?.recommendation?.validUntil,
-  ]);
+  ], pausedAt, currentEvaluation?.appliedAt);
 
   const positionValue = currentPosition?.value ?? null;
   const marketValue = currentMarket?.value ?? null;
@@ -302,6 +318,7 @@ export function PositionPage() {
     if (evaluateInFlight.current.has(positionId)) {
       return;
     }
+    updates.cancelResume();
 
     const update = (state: EvaluateState) => setEvaluateStates((current) => ({ ...current, [positionId]: state }));
     evaluateInFlight.current.add(positionId);
@@ -311,7 +328,7 @@ export function PositionPage() {
       const value = await evaluatePosition(positionId);
       if (currentIdRef.current === positionId) {
         evaluationGeneration.current += 1;
-        setEvaluation(loaded(positionId, value));
+        setEvaluation({ ...loaded(positionId, value), appliedAt: Date.now() });
       }
 
       notice = { tone: 'success', text: 'Оценка выполнена.' };
@@ -341,7 +358,7 @@ export function PositionPage() {
   const returnPath = resolveReturnPath(location.state, positionValue?.exchangeAccountId ?? null);
   const backLink = (
     <Link to={returnPath} className="back-link">
-      ← К списку позиций
+      {returnPath.split('?')[0] === POSITION_SEARCH_PATH ? '← К результатам поиска' : '← К списку позиций'}
     </Link>
   );
 
@@ -409,6 +426,16 @@ export function PositionPage() {
           levels={levels}
           dataKey={candlesKey}
           label={`Свечной график ${symbol ?? 'позиции'}, интервал ${CHART_INTERVAL_LABELS[interval]}`}
+        />
+        <PositionChartData
+          symbol={symbol ?? 'Позиция'}
+          interval={interval}
+          candles={chartCandles}
+          levels={levels}
+          loading={currentCandles === null}
+          dataUnavailable={currentCandles?.error != null && currentCandles.value === null}
+          showingPreviousData={currentCandles?.error != null && currentCandles.value !== null}
+          levelsIncomplete={currentPosition === null || currentMarket === null || currentPosition.error !== null || currentMarket.error !== null}
         />
       </section>
 

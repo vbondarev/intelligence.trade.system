@@ -93,8 +93,11 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
 
             services.PostConfigure<OpenIdConnectOptions>(
                 BffAuthenticationExtensions.OidcScheme,
-                options => options.ConfigurationManager =
-                    new StaticConfigurationManager<OpenIdConnectConfiguration>(OidcConfiguration));
+                options =>
+                {
+                    options.TimeProvider = Time;
+                    options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(OidcConfiguration);
+                });
 
             services.AddHttpClient(OAuthTokenRefreshClient.HttpClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => TokenEndpoint)

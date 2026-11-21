@@ -477,7 +477,7 @@ jobs:
         working-directory: frontend/intelligence-trade-web
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit
 
       # Frontend и BFF проверяются раздельно: healthy frontend не означает доступный BFF и наоборот.
       - name: Wait for frontend and BFF
@@ -512,6 +512,9 @@ jobs:
           E2E_USERNAME: trade-dev-user
           REALTIME_E2E_ENABLED: 'true'
         run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" npm run test:e2e
+
+      - name: HTTPS BFF session cookie security gate
+        run: bash .github/scripts/https-security-e2e.sh
 
       - name: Show Compose authentication logs on failure
         if: failure()

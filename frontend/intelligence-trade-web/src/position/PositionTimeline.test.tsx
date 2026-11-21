@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createAutoUpdates } from '../realtime/autoUpdates';
+import { AutoUpdatesContext } from '../realtime/autoUpdatesContext';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
 import {
   CLOSED_POSITION_CHANGE,
@@ -67,10 +69,14 @@ function sequence(...handlers: RouteHandler[]): RouteHandler {
 
 const page = (body: PositionTimelinePage): RouteHandler => () => jsonResponse(body);
 
-function renderTimeline(routes: Record<string, RouteHandler>) {
+function renderTimeline(routes: Record<string, RouteHandler>, updates = createAutoUpdates()) {
   const requests = mockFetch(routes);
   const onLogin = vi.fn();
-  const view = render(<PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} />);
+  const view = render(
+    <AutoUpdatesContext.Provider value={updates}>
+      <PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} />
+    </AutoUpdatesContext.Provider>,
+  );
   return { requests, onLogin, view };
 }
 
@@ -121,7 +127,7 @@ describe('PositionTimeline lazy loading', () => {
     expect(within(articles[2]!).getByRole('heading', { level: 3 })).toHaveTextContent(/Размер позиции уменьшился: 0,3\s→\s0,1/);
     expect(within(articles[2]!).getByText('Изменение позиции')).toBeVisible();
     expect(articles[0]!.querySelector('time')).toHaveAttribute('dateTime', TIMELINE_RECOMMENDATION.occurredAt);
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('');
   });
 
   it('keeps the loaded history when the block is closed and reopened without a new request', async () => {
@@ -493,10 +499,15 @@ describe('PositionTimeline refresh', () => {
     await userEvent.click(toggle());
     await findEvents(3);
 
+    const refreshStatus = screen.getByRole('status');
+    expect(refreshStatus).toHaveTextContent('');
     await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Обновляем историю…');
+    expect(screen.getByRole('status')).toBe(refreshStatus);
+    expect(refreshStatus).toHaveTextContent('Обновляем историю…');
+    expect(screen.getByText('Обновляем историю…', { selector: '.inline-status' })).toHaveAttribute('aria-hidden', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
     await findEvents(1);
+    expect(refreshStatus).toHaveTextContent('');
     slow.resolve(jsonResponse(firstTimelinePage(null)));
     await settle();
 
@@ -666,6 +677,43 @@ describe('PositionTimeline errors', () => {
     expect(requestUrls(requests)).toEqual([BASE, BASE]);
   });
 
+  it.each(['initial', 'refresh'] as const)('сохраняет предсказуемый фокус при повторе %s', async (phase) => {
+    const user = userEvent.setup();
+    const response = deferred<Response>();
+    const failure = () => problem(503, 'service_unavailable');
+    const handlers: RouteHandler[] = [failure, () => response.promise];
+    if (phase === 'refresh') handlers.unshift(page(firstTimelinePage()));
+    renderTimeline({ [BASE]: sequence(...handlers) });
+
+    await user.click(toggle());
+    const refresh = screen.getByRole('button', { name: 'Обновить' });
+    if (phase === 'refresh') {
+      await findEvents(3);
+      await user.click(refresh);
+    }
+    const retry = within(await screen.findByRole('alert')).getByRole('button', { name: 'Повторить' });
+    retry.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(refresh).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      phase === 'initial' ? 'Загружаем историю…' : 'Обновляем историю…',
+    );
+
+    if (phase === 'initial') {
+      await act(async () => response.resolve(jsonResponse(firstTimelinePage())));
+      await findEvents(3);
+      expect(refresh).toHaveFocus();
+    } else {
+      await user.tab();
+      const next = document.activeElement;
+      expect(next).toHaveAttribute('type', 'checkbox');
+      await act(async () => response.resolve(failure()));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Сервис временно недоступен');
+      expect(next).toHaveFocus();
+    }
+  });
+
   it('loads the first page again on reopen after a retryable error', async () => {
     const { requests } = renderTimeline({
       [BASE]: sequence(() => problem(503, 'service_unavailable'), page(firstTimelinePage())),
@@ -703,6 +751,153 @@ describe('PositionTimeline errors', () => {
 
 
 describe('PositionTimeline realtime recovery', () => {
+  it('сохраняет снимок на паузе после замены чтения при раскрытии', async () => {
+    const updates = createAutoUpdates();
+    const reopening = deferred<Response>();
+    const manual = deferred<Response>();
+    const recovery = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(
+        page(firstTimelinePage(null)),
+        () => reopening.promise,
+        () => manual.promise,
+        () => recovery.promise,
+        page(timelinePageFixture([TIMELINE_EVALUATION])),
+      ),
+    }, updates);
+
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(toggle());
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+    await userEvent.click(toggle());
+    await waitFor(() => expect(requests).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    expect(requests).toHaveLength(3);
+
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+    expect(requests[2]?.init?.signal?.aborted).toBe(true);
+    act(() => updates.toggle());
+    await act(async () => {
+      reopening.resolve(jsonResponse(emptyTimelinePage()));
+      manual.resolve(jsonResponse(emptyTimelinePage()));
+      recovery.resolve(jsonResponse(emptyTimelinePage()));
+    });
+    expect(updates.getSnapshot().mode).toBe('paused');
+    expect(events()).toHaveLength(3);
+    expect(requests[3]?.init?.signal?.aborted).toBe(true);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+
+    act(() => updates.toggle());
+    await findEvents(1);
+    expect(updates.getSnapshot().mode).toBe('live');
+  });
+
+  it('завершает ручное обновление до одного объединённого фонового чтения', async () => {
+    const manual = deferred<Response>();
+    const background = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => manual.promise, () => background.promise),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await settle();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.init?.signal?.aborted).toBe(false);
+
+    await act(async () => manual.resolve(jsonResponse(timelinePageFixture([TIMELINE_EVALUATION]))));
+    await findEvents(1);
+    expect(requests).toHaveLength(3);
+    expect(screen.queryByText('Обновляем историю…')).not.toBeInTheDocument();
+    await act(async () => background.resolve(jsonResponse(emptyTimelinePage())));
+    expect(await screen.findByText('В истории позиции пока нет событий.')).toBeVisible();
+    expect(requests).toHaveLength(3);
+  });
+
+  it('не отдаёт приоритет уже поставленному в очередь фоновому чтению', async () => {
+    const background = deferred<Response>();
+    const manual = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => background.promise, () => manual.promise),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    act(() => {
+      emitRealtime({ type: 'position.updated', positionId: POSITION_ID });
+      emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID });
+    });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    await act(async () => background.resolve(jsonResponse(emptyTimelinePage())));
+    await settle();
+    expect(requests).toHaveLength(3);
+    expect(requests[2]?.init?.signal?.aborted).toBe(false);
+
+    await act(async () => manual.resolve(jsonResponse(timelinePageFixture([TIMELINE_EVALUATION]))));
+    await findEvents(1);
+    expect(requests).toHaveLength(3);
+  });
+
+  it.each(['ответ', 'пауза'] as const)('передаёт индикатор истории при recovery: %s', async (outcome) => {
+    const updates = createAutoUpdates();
+    const manual = deferred<Response>();
+    const firstRecovery = deferred<Response>();
+    const secondRecovery = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: sequence(page(firstTimelinePage(null)), () => manual.promise, () => firstRecovery.promise, () => secondRecovery.promise),
+    }, updates);
+    const status = () => screen.getByText('Обновляем историю…', { selector: '.inline-status' });
+    const spinner = () => status().querySelector('.spinner');
+
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить' }));
+    const manualSpinner = spinner();
+    expect(manualSpinner).toHaveClass('spinner--continuous');
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[1]?.init?.signal?.aborted).toBe(true);
+    expect(status()).toBeVisible();
+    expect(spinner()).not.toHaveClass('spinner--continuous');
+    const finiteSpinner = spinner();
+    expect(finiteSpinner).not.toBe(manualSpinner);
+
+    act(() => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+    expect(requests[2]?.init?.signal?.aborted).toBe(true);
+    expect(spinner()).toBe(finiteSpinner);
+    await act(async () => manual.resolve(jsonResponse(emptyTimelinePage())));
+    await act(async () => firstRecovery.resolve(jsonResponse(emptyTimelinePage())));
+    expect(events()).toHaveLength(3);
+    expect(status()).toBeVisible();
+
+    if (outcome === 'пауза') {
+      act(() => updates.toggle());
+      expect(requests[3]?.init?.signal?.aborted).toBe(true);
+      expect(statusOrNull()).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      await act(async () => secondRecovery.resolve(jsonResponse(emptyTimelinePage())));
+      expect(events()).toHaveLength(3);
+    } else {
+      await act(async () => secondRecovery.resolve(jsonResponse(emptyTimelinePage())));
+      expect(await screen.findByText('В истории позиции пока нет событий.')).toBeVisible();
+    }
+    expect(statusOrNull()).not.toBeInTheDocument();
+
+    function statusOrNull() {
+      return screen.queryByText('Обновляем историю…', { selector: '.inline-status' });
+    }
+  });
+
   it('keeps the block closed and replaces a pending open read without waiting', async () => {
     const slow = deferred<Response>();
     const { requests } = renderTimeline({ [BASE]: sequence(() => slow.promise, page(firstTimelinePage(null))) });
@@ -733,8 +928,10 @@ describe('PositionTimeline закрытие во время realtime refresh', (
     await findEvents(3);
     await userEvent.click(filter('Изменения позиции'));
     await findEvents(1);
+    const manualStatus = screen.getByRole('status');
     act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
     await waitFor(() => expect(requests).toHaveLength(3));
+    expect(manualStatus).toHaveTextContent('');
     act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
     await userEvent.click(toggle());
     await act(async () => slow.resolve(jsonResponse(emptyTimelinePage())));
