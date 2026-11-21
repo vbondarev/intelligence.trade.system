@@ -161,10 +161,6 @@ interface Notice {
   operation?: string;
 }
 
-function isSessionEnded(error: unknown): boolean {
-  return error instanceof ConnectionsApiError && (error.status === 401 || error.code === 'authentication_required');
-}
-
 // UI ветвится только по HTTP status и machine-readable code: title/detail ProblemDetails не показываются.
 function toErrorNotice(error: unknown): Notice {
   const errorNotice = presentError(error, { fallback: FALLBACK_ERROR, messages: { ...ERROR_MESSAGES, forbidden: ERROR_MESSAGES.access_forbidden, missing: ERROR_MESSAGES.resource_not_found, validation: ERROR_MESSAGES.validation_failed } });
@@ -284,9 +280,10 @@ export function ConnectionsPage() {
         setPanel(null);
         succeeded = true;
       } catch (error) {
-        sessionEnded = isSessionEnded(error);
-        if (sessionEnded && error instanceof ConnectionsApiError) endSession(error.traceId);
-        if (!report?.handle(error)) setNotice({ ...toErrorNotice(error), operation: report?.operation });
+        const message = toErrorNotice(error);
+        sessionEnded = message.sessionEnded === true;
+        if (sessionEnded) endSession(message.traceId);
+        if (!report?.handle(error)) setNotice({ ...message, operation: report?.operation });
       }
 
       try {

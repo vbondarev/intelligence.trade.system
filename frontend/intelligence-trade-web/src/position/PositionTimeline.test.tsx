@@ -324,17 +324,20 @@ describe('PositionTimeline pagination', () => {
     expect(requestUrls(requests)).toEqual([BASE, MORE_URL]);
   });
 
-  it('keeps already loaded events when the continuation fails and retries the same cursor', async () => {
+  it.each([
+    [500, 'internal_error', 'Не удалось загрузить продолжение истории. Повторите попытку позже.'],
+    [503, 'service_unavailable', 'Сервис временно недоступен. Повторите попытку позже.'],
+  ])('сохраняет события и повторяет тот же cursor при ошибке %s', async (status, code, message) => {
     const { requests } = renderTimeline({
       [BASE]: page(firstTimelinePage()),
-      [MORE_URL]: sequence(() => problem(500, 'internal_error'), page(continuationTimelinePage())),
+      [MORE_URL]: sequence(() => problem(status, code), page(continuationTimelinePage())),
     });
     await userEvent.click(toggle());
     await findEvents(3);
     await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Не удалось загрузить продолжение истории. Повторите попытку позже.');
+    expect(alert).toHaveTextContent(message);
     expect(alert).toHaveTextContent('Ранее загруженные события сохранены.');
     expect(alert).toHaveTextContent('Код диагностики: 00-trace-09');
     expect(alert).not.toHaveTextContent('secret detail');
@@ -345,6 +348,20 @@ describe('PositionTimeline pagination', () => {
     await findEvents(5);
     expect(requestUrls(requests)).toEqual([BASE, MORE_URL, MORE_URL]);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each([403, 404])('скрывает события и подпись о сохранении при отказе %s на продолжении', async (status) => {
+    renderTimeline({
+      [BASE]: page(firstTimelinePage()),
+      [MORE_URL]: () => new Response(null, { status }),
+    });
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+
+    expect(await screen.findByRole('alert')).not.toHaveTextContent('Ранее загруженные события сохранены');
+    expect(screen.queryByRole('list', { name: 'События истории позиции' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить загрузку продолжения' })).not.toBeInTheDocument();
   });
 
   it('does not repeat a continuation that returns the same cursor', async () => {

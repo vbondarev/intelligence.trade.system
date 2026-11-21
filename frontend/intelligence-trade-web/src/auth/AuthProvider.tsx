@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(LOADING_STATE);
   const [attempt, setAttempt] = useState(0);
   const epoch = useRef(0);
+  const currentUserId = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (session) => {
         if (!controller.signal.aborted && epoch.current === requestedEpoch) {
           epoch.current += 1;
+          currentUserId.current = session.authenticated ? session.user.userId : null;
           setState(toAuthState(session));
         }
       },
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const retry = useCallback(() => {
     epoch.current += 1;
+    currentUserId.current = null;
     setState(LOADING_STATE);
     setAttempt((current) => current + 1);
   }, []);
@@ -68,23 +71,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const revalidate = useCallback(async (expectedUserId: string, signal: AbortSignal) => {
-    const requestedEpoch = epoch.current;
+    const canReconnect = () => !signal.aborted && currentUserId.current === expectedUserId;
+    if (!canReconnect()) return false;
+
+    const requestedEpoch = ++epoch.current;
     try {
       const session = await fetchSession(signal);
-      if (signal.aborted || epoch.current !== requestedEpoch) return false;
-      if (!session.authenticated || session.user.userId !== expectedUserId) {
-        epoch.current += 1;
-        setState(toAuthState(session));
-        return false;
-      }
-      return true;
+      if (!canReconnect() || epoch.current !== requestedEpoch) return canReconnect();
+      // Подтверждение сессии отзывает и право чтений, начатых во время проверки.
+      epoch.current += 1;
+      currentUserId.current = session.authenticated ? session.user.userId : null;
+      if (currentUserId.current !== expectedUserId) setState(toAuthState(session));
+      return canReconnect();
     } catch (error) {
-      if (signal.aborted || epoch.current !== requestedEpoch) return false;
+      if (!canReconnect() || epoch.current !== requestedEpoch) return canReconnect();
       if (error instanceof AuthApiError && error.status === 403) {
         epoch.current += 1;
-        setState((current) => !signal.aborted && current.user?.userId === expectedUserId
-          ? { ...toAuthState({ authenticated: false }), error: SESSION_ERROR, logoutAvailable: true }
-          : current);
+        currentUserId.current = null;
+        setState({ ...toAuthState({ authenticated: false }), error: SESSION_ERROR, logoutAvailable: true });
         return false;
       }
       return true;
@@ -96,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (traceId?: string | null) => {
       if (epoch.current !== requestedEpoch) return;
       epoch.current += 1;
+      currentUserId.current = null;
       setState({ ...toAuthState({ authenticated: false }), sessionEnded: true, sessionTraceId: traceId });
     };
   }, []);

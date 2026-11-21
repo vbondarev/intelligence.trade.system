@@ -66,6 +66,8 @@ interface PortfolioLoad {
   error: Notice | null;
 }
 
+type FailedContinuation = { cursor: string; generation: number; invalidationVersion: number };
+
 interface PositionsLoad {
   key: string;
   /** `reloadToken`, для которого получена первая страница: cursor относится только к этому перечитыванию. */
@@ -74,7 +76,7 @@ interface PositionsLoad {
   nextCursor: string | null;
   hasMore: boolean;
   loadingMore: boolean;
-  error: Notice | null;
+  error: (Notice & { continuation?: FailedContinuation }) | null;
 }
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail ProblemDetails не показываются.
@@ -293,6 +295,10 @@ export function HomePage() {
     const query = JSON.parse(queryKey) as PositionListQuery;
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? positionsGeneration.current : ++positionsGeneration.current;
+      if (view.kind === 'explicit') {
+        setPositions((current) => current?.key === queryKey && current.error?.continuation
+          ? { ...current, nextCursor: null, hasMore: false } : current);
+      }
       const invalidationVersion = positionsInvalidationVersion.current;
       const isCurrent = () => generation === positionsGeneration.current && !signal.aborted && queryKeyRef.current === queryKey;
       return listPositions(query, signal).then(
@@ -397,13 +403,18 @@ export function HomePage() {
   // Следующая страница относится к текущему поколению первой страницы: смена подключения,
   // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции. Пока после
   // sync не получена новая первая страница, прежний cursor не используется.
-  const handleLoadMore = () => {
+  const handleLoadMore = (continuation?: FailedContinuation) => {
     if (
       positions === null ||
       positions.key !== queryKey ||
       positions.reload !== reloadToken ||
       positions.nextCursor === null ||
-      positions.loadingMore
+      positions.loadingMore ||
+      (continuation !== undefined && (
+        continuation.cursor !== positions.nextCursor ||
+        continuation.generation !== positionsGeneration.current ||
+        continuation.invalidationVersion !== positionsInvalidationVersion.current
+      ))
     ) {
       return;
     }
@@ -411,7 +422,8 @@ export function HomePage() {
     updates.cancelResume();
     const key = positions.key;
     const endSession = captureSessionEnd();
-    const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
+    const cursor = positions.nextCursor;
+    const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor };
     const generation = positionsGeneration.current;
     const invalidationVersion = positionsInvalidationVersion.current;
     const controller = new AbortController();
@@ -450,7 +462,7 @@ export function HomePage() {
                   ...current,
                   ...(revoked ? { items: [], nextCursor: null, hasMore: false } : {}),
                   loadingMore: false,
-                  error: notice,
+                  error: revoked ? notice : { ...notice, continuation: { cursor, generation, invalidationVersion } },
                 }
               : current,
           );
@@ -525,6 +537,12 @@ export function HomePage() {
 
   const currentPortfolio = portfolioLoad !== null && portfolioLoad.accountId === selectedId ? portfolioLoad : null;
   const currentPositions = positions !== null && positions.key === queryKey ? positions : null;
+  const failedContinuation = currentPositions?.error?.continuation;
+  const canRetryContinuation = failedContinuation && currentPositions?.reload === reloadToken
+    && currentPositions.nextCursor === failedContinuation.cursor;
+  const retryPositions = failedContinuation
+    ? canRetryContinuation ? () => handleLoadMore(failedContinuation) : undefined
+    : () => positionsRead.current?.refresh();
 
   return (
     <section className="page home-page">
@@ -587,13 +605,19 @@ export function HomePage() {
               items: currentPositions?.items ?? [],
               hasMore: currentPositions !== null && currentPositions.reload === reloadToken && currentPositions.hasMore,
               loadingMore: currentPositions?.loadingMore ?? false,
-              error: currentPositions?.error ? <NoticeMessage notice={currentPositions.error} onLogin={login} onRetry={() => positionsRead.current?.refresh()} /> : null,
+              error: currentPositions?.error ? (
+                <NoticeMessage
+                  notice={currentPositions.error}
+                  onLogin={login}
+                  onRetry={retryPositions}
+                />
+              ) : null,
             }}
             onViewChange={handleViewChange}
             onStateChange={handleStateChange}
             onSideChange={handleSideChange}
             onSymbolChange={handleSymbolChange}
-            onLoadMore={handleLoadMore}
+            onLoadMore={() => handleLoadMore()}
           />
         </>
       )}

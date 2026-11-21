@@ -94,6 +94,66 @@ describe('App routing and session bootstrap', () => {
     }
   });
 
+  it.each([false, true])('игнорирует старый 401 при перепроверке сессии (перепроверка завершена: %s)', async (confirmed) => {
+    let finishOldRead!: (response: Response) => void;
+    const oldRead = new Promise<Response>((resolve) => { finishOldRead = resolve; });
+    let finishCheck!: (response: Response) => void;
+    const check = new Promise<Response>((resolve) => { finishCheck = resolve; });
+    let sessionReads = 0;
+    let accountReads = 0;
+    const requests = mockFetch({
+      '/bff/auth/session': () => ++sessionReads === 1 ? jsonResponse(authenticatedSession) : check,
+      '/bff/me/exchange-accounts': () => {
+        accountReads += 1;
+        if (accountReads === 1) return oldRead;
+        return new Response(null, { status: accountReads === 2 ? 403 : 401 });
+      },
+    });
+    renderAt('/app');
+    const heading = await screen.findByRole('heading', { name: 'Обзор' });
+    await waitFor(() => expect(accountReads).toBe(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(authRequestUrls(requests).filter((url) => url === '/bff/auth/session')).toHaveLength(2));
+
+    if (confirmed) await act(async () => finishCheck(jsonResponse(authenticatedSession)));
+    await act(async () => finishOldRead(new Response(null, { status: 401 })));
+    expect(heading).toBeVisible();
+    if (!confirmed) await act(async () => finishCheck(jsonResponse(authenticatedSession)));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    expect(await screen.findByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(heading).not.toBeInTheDocument();
+  });
+
+  it('перекрывающиеся проверки сохраняют reconnect подтверждённого пользователя', async () => {
+    let finishFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { finishFirst = resolve; });
+    let finishSecond!: (response: Response) => void;
+    const second = new Promise<Response>((resolve) => { finishSecond = resolve; });
+    let reads = 0;
+    mockFetch({
+      '/bff/auth/session': () => [jsonResponse(authenticatedSession), first, second][reads++]!,
+    });
+    let revalidate!: ReturnType<typeof useAuth>['revalidate'];
+    function Probe() {
+      const auth = useAuth();
+      revalidate = auth.revalidate;
+      return <p>{auth.user?.subject}</p>;
+    }
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await screen.findByText(authenticatedSession.user.subject);
+    const check = () => revalidate(authenticatedSession.user.userId, new AbortController().signal);
+    const reconnectCheck = check();
+    const accessCheck = check();
+
+    await act(async () => finishSecond(jsonResponse(authenticatedSession)));
+    await expect(accessCheck).resolves.toBe(true);
+    await act(async () => finishFirst(new Response(null, { status: 403 })));
+    await expect(reconnectCheck).resolves.toBe(true);
+    expect(screen.getByText(authenticatedSession.user.subject)).toBeVisible();
+  });
+
   it.each(['отмена', 'смена пользователя'])('игнорирует поздний 403: %s', async (reason) => {
     const check = new AbortController();
     const nextUser = { userId: 'other-user', subject: 'Другой пользователь' };

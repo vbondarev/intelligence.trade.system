@@ -457,6 +457,25 @@ describe('HomePage positions', () => {
     expect(searchParams().get('symbol')).toBe('ETHUSDC');
   });
 
+  it('повторяет проваленную страницу списка с исходным cursor', async () => {
+    const second = position({ id: 'second', symbol: 'SOLUSDT', size: 10 });
+    const firstUrl = positionsUrl(MAIN_ID);
+    const nextUrl = positionsUrl(MAIN_ID, '&cursor=opaque%2Bcursor%2F%3D');
+    let continuationReads = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'opaque+cursor/=') }),
+      [nextUrl]: () => ++continuationReads === 1 ? new Response(null, { status: 503 }) : page([second]),
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Повторить' }));
+
+    expect(await screen.findAllByRole('article', { name: 'SOLUSDT · 10 LONG' })).toHaveLength(1);
+    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(urls(requests, firstUrl)).toHaveLength(1);
+    expect(urls(requests, nextUrl)).toHaveLength(2);
+  });
+
   it('appends the next page with the opaque cursor', async () => {
     const second = position({ id: 'second', symbol: 'SOLUSDT', size: 10 });
     const requests = renderHome('/app', {

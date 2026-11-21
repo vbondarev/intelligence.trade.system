@@ -64,20 +64,26 @@ function SearchResults({ symbol }: { symbol: string }) {
   const [accountError, setAccountError] = useState<{ notice: ErrorPresentation; background: boolean } | null>(null);
   const updates = useAutoUpdates();
   const reader = useRef<ScreenReader | null>(null);
+  const accountsGeneration = useRef(0);
   useEffect(() => {
     const scheduler = updates.createReader(async (signal, view) => {
+      const generation = accountsGeneration.current;
+      const isCurrent = () => !signal.aborted && accountsGeneration.current === generation;
       try {
         const connections = await listConnections(signal);
         view.apply(() => {
           setAccounts(new Map(connections.map(({ id, displayName }) => [id, displayName])));
           setAccountError(null);
-        }, () => !signal.aborted);
+        }, isCurrent);
       } catch (error) {
         const notice = presentError(error, { fallback: 'Не удалось загрузить названия подключений.', retry: true });
-        view.fail(error, () => setAccountError({ notice, background: view.kind === 'live' }), () => {
+        view.fail(error, () => {
+          if (isCurrent()) setAccountError({ notice, background: view.kind === 'live' });
+        }, () => {
+          accountsGeneration.current += 1;
           setAccounts(new Map());
           if (view.kind !== 'silent') setAccountError({ notice, background: false });
-        }, () => !signal.aborted);
+        }, isCurrent);
       }
     });
     reader.current = scheduler;
@@ -118,6 +124,7 @@ function ResultGroup({ symbol, accounts, closed }: {
   const reader = useRef<ScreenReader | null>(null);
   const pagination = useRef<{ controller: AbortController; settled: Promise<boolean> } | null>(null);
   const snapshot = useRef<SearchSnapshot | null>(null);
+  const resultGeneration = useRef(0);
   const deferred = useRef<'invalidate' | 'recover' | null>(null);
 
   useEffect(() => {
@@ -127,9 +134,10 @@ function ResultGroup({ symbol, accounts, closed }: {
         ? await waitForManualPage(pendingPage.settled, signal)
         : false;
       if (signal.aborted) return;
+      const generation = resultGeneration.current;
       const startingSnapshot = snapshot.current;
       const manualAtStart = pagination.current !== null;
-      const isCurrent = () => !signal.aborted;
+      const isCurrent = () => !signal.aborted && resultGeneration.current === generation;
       function deferLiveCommit() {
         if (view.kind !== 'live') return false;
         if (!manualAtStart && !pagination.current && snapshot.current === startingSnapshot) return false;
@@ -161,14 +169,16 @@ function ResultGroup({ symbol, accounts, closed }: {
       } catch (failure) {
         const notice = searchError(failure);
         if (!signal.aborted) view.fail(failure, () => {
-          if (!deferLiveCommit()) {
+          if (isCurrent() && !deferLiveCommit()) {
             setError(notice);
             setBackgroundError(view.kind === 'live' && snapshot.current !== null);
           }
         }, () => {
+          resultGeneration.current += 1;
           pagination.current?.controller.abort();
           pagination.current = null;
           snapshot.current = null;
+          deferred.current = null;
           setLoadingMore(false);
           setResult(null);
           setBackgroundError(false);
@@ -204,6 +214,8 @@ function ResultGroup({ symbol, accounts, closed }: {
     if (!current || !cursor || pagination.current) return;
     updates.cancelResume();
     const request = new AbortController();
+    const generation = resultGeneration.current;
+    const isCurrent = () => !request.signal.aborted && resultGeneration.current === generation && snapshot.current === current;
     let finish!: (failed: boolean) => void;
     const settled = new Promise<boolean>((resolve) => { finish = resolve; });
     pagination.current = { controller: request, settled };
@@ -215,19 +227,22 @@ function ResultGroup({ symbol, accounts, closed }: {
       const next = await listPositions({
         symbol, trackingState: closed ? 'closed' : undefined, cursor,
       }, request.signal);
-      if (!request.signal.aborted && snapshot.current === current) {
+      if (isCurrent()) {
         const appended = appendSearchPage(current, cursor, next);
         snapshot.current = appended;
         setResult(appended.page);
       }
     } catch (failure) {
-      if (!request.signal.aborted) {
-        failed = true;
+      if (isCurrent()) {
+        const revoked = resourceUnavailable(failure);
+        failed = !revoked;
         const notice = searchError(failure);
         if (notice.action === 'login') endSession(notice.traceId);
         else updates.reportAccessFailure(failure);
-        if (resourceUnavailable(failure)) {
+        if (revoked) {
+          resultGeneration.current += 1;
           snapshot.current = null;
+          deferred.current = null;
           setResult(null);
         }
         setError(notice);

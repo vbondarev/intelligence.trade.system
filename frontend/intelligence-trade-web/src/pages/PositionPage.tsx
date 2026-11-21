@@ -127,6 +127,7 @@ export function PositionPage() {
   const revokedPosition = useRef<string | null>(null);
   const accessGeneration = useRef(0);
   const isPositionAccessible = useCallback(() => currentIdRef.current === id && revokedPosition.current !== id, [id]);
+  const isPositionRevoked = useCallback(() => currentIdRef.current === id && revokedPosition.current === id, [id]);
 
   useEffect(() => {
     currentIdRef.current = id;
@@ -492,7 +493,7 @@ export function PositionPage() {
           <StatusMessage kind="loading" text="Загружаем оценку…" />
         )}
         {currentEvaluation?.error && <NoticeMessage notice={currentEvaluation.error} onLogin={login} onRetry={() => evaluationRead.current?.refresh()} />}
-        {currentEvaluation !== null && currentEvaluation.error === null && evaluationValue === null && (
+        {currentEvaluation !== null && currentEvaluation.appliedAt !== null && evaluationValue === null && (
           <StatusMessage kind="empty" text="Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить»." />
         )}
         {evaluationValue !== null && (
@@ -515,6 +516,7 @@ export function PositionPage() {
           onLogin={login}
           captureSessionEnd={captureSessionEnd}
           isPositionAccessible={isPositionAccessible}
+          isPositionRevoked={isPositionRevoked}
         />
       )}
     </section>

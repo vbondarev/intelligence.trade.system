@@ -67,6 +67,7 @@ interface PositionTimelineProps {
   onLogin: () => void;
   captureSessionEnd?: () => (traceId?: string | null) => void;
   isPositionAccessible?: () => boolean;
+  isPositionRevoked?: () => boolean;
 }
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail не показываются.
@@ -115,7 +116,7 @@ function appendUnique(current: readonly TimelineItem[], page: readonly TimelineI
  * unmount отменяют прежний запрос, а его поздний ответ не применяется. Polling, sync и оценку
  * блок не запускает.
  */
-export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionEnd, isPositionAccessible }: PositionTimelineProps) {
+export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionEnd, isPositionAccessible, isPositionRevoked }: PositionTimelineProps) {
   const updates = useAutoUpdates();
   const titleId = useId();
   const contentId = useId();
@@ -258,8 +259,10 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
 
         activeLoad.current = null;
         const notice = toNotice(error, phase, view.kind === 'live');
-        if (notice.sessionEnded) endSession?.(notice.traceId);
-        else if (view === explicitPresentation) updates.reportAccessFailure(error);
+        if (view === explicitPresentation) {
+          if (notice.sessionEnded) endSession?.(notice.traceId);
+          else updates.reportAccessFailure(error);
+        }
         view.fail(error, () => {
           setManualLoadStatus('');
           setState((current) => ({ ...current, pending: null, error: { phase, notice } }));
@@ -281,8 +284,11 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
       return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, { schedulerSignal: signal, view });
     });
     realtimeRead.current = scheduler;
-    return () => { realtimeRead.current = null; scheduler.dispose(); };
-  }, [hasCurrentManualLoad, load, updates]);
+    return () => {
+      realtimeRead.current = null;
+      scheduler.dispose(isPositionRevoked?.() ? 'access-revoked' : undefined);
+    };
+  }, [hasCurrentManualLoad, isPositionRevoked, load, updates]);
 
   useRealtimeInvalidation((event) => {
     if (sessionEnded || !(event.type === 'recovery'
@@ -473,7 +479,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
         {error?.phase === 'more' && (
           <TimelineAlert
             notice={error.notice}
-            note="Ранее загруженные события сохранены."
+            note={items.length > 0 ? 'Ранее загруженные события сохранены.' : null}
             retry={retry}
             onLogin={onLogin}
           />

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { HttpFailure, readSuccessJson } from '../errors/httpFailure';
 import { createAutoUpdates } from './autoUpdates';
 
 function deferred() {
@@ -70,6 +71,110 @@ describe('пауза автоматических обновлений', () => {
     expect(dependent).not.toHaveBeenCalled();
     expect(independent).toHaveBeenCalledOnce();
     readers.forEach((reader) => reader.dispose());
+  });
+
+  it('завершает resume после удаления зависимого reader с незавершённым GET', async () => {
+    const updates = createAutoUpdates();
+    const remaining = deferred();
+    const revoke = deferred();
+    const never = deferred();
+    const publish = vi.fn();
+    let dependentSignal: AbortSignal | undefined;
+    const dependent = updates.createReader(async (signal) => {
+      dependentSignal = signal;
+      await never.promise;
+    });
+    const primary = updates.createReader(async (_, view) => {
+      await revoke.promise;
+      view.fail({ status: 404 }, () => {}, () => dependent.dispose('access-revoked'));
+    });
+    const independent = updates.createReader(async (_, view) => {
+      await remaining.promise;
+      view.apply(publish);
+    });
+    try {
+      updates.toggle();
+      updates.toggle();
+      revoke.resolve();
+      await vi.waitFor(() => expect(dependentSignal?.aborted).toBe(true));
+      expect(updates.getSnapshot().mode).toBe('resuming');
+      remaining.resolve();
+      await vi.waitFor(() => expect(updates.getSnapshot().mode).toBe('live'));
+      expect(publish).toHaveBeenCalledOnce();
+    } finally {
+      never.resolve();
+      remaining.resolve();
+      primary.dispose();
+      independent.dispose();
+    }
+  });
+
+  it('повторяет GET после сбоя потока успешного HTTP-ответа', async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const updates = createAutoUpdates();
+    const notice = vi.fn();
+    const publish = vi.fn();
+    let attempts = 0;
+    const reader = updates.createReader(async (signal, view) => {
+      const response = ++attempts === 1
+        ? new Response(new ReadableStream({
+          start(controller) { controller.error(new TypeError('Сбой сети')); },
+        }))
+        : new Response('{}');
+      try {
+        await readSuccessJson(response, () => new HttpFailure('Некорректный JSON', 200), signal);
+        view.apply(publish);
+      } catch (error) {
+        view.fail(error, notice);
+      }
+    });
+    try {
+      reader.recover();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(attempts).toBe(1);
+      expect(notice).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(2);
+      expect(publish).toHaveBeenCalledOnce();
+      expect(notice).not.toHaveBeenCalled();
+    } finally {
+      reader.dispose();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([false, true])('публикует только терминальный исход замены ручного чтения (исчерпание: %s)', async (exhausted) => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const updates = createAutoUpdates();
+    const oldRead = deferred();
+    const warn = vi.fn();
+    const publish = vi.fn();
+    let calls = 0;
+    const reader = updates.createReader(async (_, view) => {
+      calls += 1;
+      if (calls === 1) return oldRead.promise;
+      if (calls === 2 || exhausted) view.fail(new TypeError('Сбой сети'), warn);
+      else view.apply(publish);
+    });
+    try {
+      reader.refresh();
+      reader.recover();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(calls).toBe(2);
+      expect(warn).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(exhausted ? 501 : 1);
+      expect(calls).toBe(exhausted ? 4 : 3);
+      expect(warn).toHaveBeenCalledTimes(exhausted ? 1 : 0);
+      expect(publish).toHaveBeenCalledTimes(exhausted ? 0 : 1);
+    } finally {
+      reader.dispose();
+      oldRead.resolve();
+      online.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('таймер повтора ждёт явное чтение, сохраняя его право публикации', async () => {

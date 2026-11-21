@@ -8,10 +8,12 @@ export interface ReadPresentation {
 }
 
 type Read = (signal: AbortSignal, presentation: ReadPresentation) => Promise<void>;
-export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending'> & {
+export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending' | 'dispose'> & {
+  dispose: (reason?: 'access-revoked') => void;
   refresh: () => void;
   supersedeExplicitRead: () => void;
 };
+type EndSession = (traceId?: string | null) => void;
 type Mode = 'live' | 'paused' | 'resuming' | 'failed';
 type Snapshot = { mode: Mode; pausedAt: number | null; announcement: string };
 
@@ -38,26 +40,28 @@ export function resourceUnavailable(error: unknown): boolean {
   return status === 404 || (status === 403 && code !== 'exchange_permissions_rejected');
 }
 
-export function createAutoUpdates() {
+export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
   let snapshot = LIVE;
   let generation = 0;
-  let resume: AbortController | null = null;
+  let resume: { controller: AbortController; participants: Map<ScreenReader, AbortController> } | null = null;
   const listeners = new Set<() => void>();
   const readers = new Map<ScreenReader, { read: Read; pause: () => void }>();
   const dirty = new Set<ScreenReader>();
   const isLive = () => snapshot.mode === 'live';
   let checkAccess: ((status: 401 | 403, traceId?: string | null) => void) | undefined;
 
-  function reportAccessFailure(error: unknown) {
+  function reportAccessFailure(error: unknown, endSession?: EndSession) {
     const status = statusOf(error);
     if (status === 401 || (status === 403 && resourceUnavailable(error))) {
-      checkAccess?.(status, error instanceof HttpFailure ? error.traceId : null);
+      const traceId = error instanceof HttpFailure ? error.traceId : null;
+      if (status === 401 && endSession) endSession(traceId);
+      else checkAccess?.(status, traceId);
     }
   }
 
-  function handleAccess(error: unknown, revoke?: () => void) {
+  function handleAccess(error: unknown, revoke: (() => void) | undefined, endSession?: EndSession) {
     if (resourceUnavailable(error)) revoke?.();
-    reportAccessFailure(error);
+    reportAccessFailure(error, endSession);
   }
 
   function setSnapshot(next: Snapshot) {
@@ -67,12 +71,13 @@ export function createAutoUpdates() {
 
   function cancelResume() {
     if (resume === null) return;
-    resume.abort();
+    resume.controller.abort();
     resume = null;
     setSnapshot({ ...snapshot, mode: 'paused', announcement: 'Автообновление приостановлено.' });
   }
 
   function failResume(controller: AbortController) {
+    if (resume?.controller !== controller) return;
     resume = null;
     controller.abort();
     setSnapshot({ ...snapshot, mode: 'failed', announcement: RESUME_FAILURE });
@@ -83,7 +88,7 @@ export function createAutoUpdates() {
     let replacementExplicit = false;
     let activeRead: { explicit: boolean } | null = null;
     const live = createInvalidationScheduler((signal, hasRecoveryRetry) => {
-      const current = { explicit: explicitPending };
+      const current = { explicit: explicitPending && !replacementExplicit };
       explicitPending = false;
       replacementExplicit = false;
       if (!current.explicit && !isLive()) {
@@ -91,6 +96,7 @@ export function createAutoUpdates() {
         return Promise.resolve();
       }
       activeRead = current;
+      const endSession = captureSessionEnd?.();
       const finish = () => { if (activeRead === current) activeRead = null; };
       if (current.explicit) {
         const isCurrent = () => activeRead === current && current.explicit && !signal.aborted;
@@ -99,7 +105,7 @@ export function createAutoUpdates() {
           apply: (commit, eligible) => { if (isCurrent() && eligible?.() !== false) commit(); },
           fail: (error, commit, revoke, eligible) => {
             if (!isCurrent() || eligible?.() === false) return;
-            handleAccess(error, revoke);
+            handleAccess(error, revoke, endSession);
             commit();
             throwIfNetworkFailure(error, signal);
           },
@@ -116,21 +122,24 @@ export function createAutoUpdates() {
         apply,
         fail: (error, commit, revoke, eligible) => {
           if (!isCurrent() || eligible?.() === false) return;
-          handleAccess(error, revoke);
+          handleAccess(error, revoke, endSession);
           if (!(error instanceof TypeError && hasRecoveryRetry())) apply(commit);
           throwIfNetworkFailure(error, signal);
         },
       }).finally(finish);
     }, () => activeRead?.explicit !== true, () => explicitPending && !replacementExplicit);
-    const silent = createInvalidationScheduler((signal) => read(signal, {
-      kind: 'silent',
-      apply: () => {},
-      fail: (error, _, revoke, eligible) => {
-        if (signal.aborted || eligible?.() === false) return;
-        handleAccess(error, revoke);
-        throwIfNetworkFailure(error, signal);
-      },
-    }));
+    const silent = createInvalidationScheduler((signal) => {
+      const endSession = captureSessionEnd?.();
+      return read(signal, {
+        kind: 'silent',
+        apply: () => {},
+        fail: (error, _, revoke, eligible) => {
+          if (signal.aborted || eligible?.() === false) return;
+          handleAccess(error, revoke, endSession);
+          throwIfNetworkFailure(error, signal);
+        },
+      });
+    });
     const reader: ScreenReader = {
       refresh() {
         cancelResume();
@@ -159,10 +168,11 @@ export function createAutoUpdates() {
           silent.recover();
         }
       },
-      dispose() {
+      dispose(reason) {
         readers.delete(reader);
         dirty.delete(reader);
-        cancelResume();
+        if (reason === 'access-revoked') resume?.participants.get(reader)?.abort();
+        else cancelResume();
         live.dispose();
         silent.dispose();
       },
@@ -175,7 +185,8 @@ export function createAutoUpdates() {
   async function resumeUpdates() {
     if (resume !== null) return;
     const controller = new AbortController();
-    resume = controller;
+    const participants = new Map<ScreenReader, AbortController>();
+    resume = { controller, participants };
     const { signal } = controller;
     dirty.clear();
     setSnapshot({ ...snapshot, mode: 'resuming', announcement: '' });
@@ -187,23 +198,36 @@ export function createAutoUpdates() {
     });
     const timeout = setTimeout(() => failResume(controller), RESUME_TIMEOUT_MS);
     try {
-      const refresh = Promise.all([...readers.values()].map(({ read }) => read(signal, {
-        kind: 'resume',
-        apply: (commit, eligible) => {
-          if (!signal.aborted && eligible?.() !== false) {
-            writes.push(() => { if (eligible?.() !== false) commit(); });
-          }
-        },
-        fail: (error, commit, revoke, eligible) => {
-          if (signal.aborted || eligible?.() === false) return;
-          const status = statusOf(error);
-          handleAccess(error, revoke);
-          if (status === 404) {
-            if (!revoke) writes.push(() => { if (eligible?.() !== false) commit(); });
-          }
-          else throw error;
-        },
-      })));
+      const refresh = Promise.all([...readers.entries()].map(async ([reader, { read }]) => {
+        if (!readers.has(reader) || signal.aborted) return;
+        const participant = new AbortController();
+        participants.set(reader, participant);
+        const readSignal = AbortSignal.any([signal, participant.signal]);
+        const endSession = captureSessionEnd?.();
+        let finishRead = () => {};
+        const abandoned = new Promise<void>((resolve) => {
+          finishRead = resolve;
+          readSignal.addEventListener('abort', finishRead, { once: true });
+        });
+        try {
+          await Promise.race([read(readSignal, {
+            kind: 'resume',
+            apply: (commit, eligible) => {
+              const current = () => !readSignal.aborted && eligible?.() !== false;
+              if (current()) writes.push(() => { if (current()) commit(); });
+            },
+            fail: (error, commit, revoke, eligible) => {
+              const current = () => !readSignal.aborted && eligible?.() !== false;
+              if (!current()) return;
+              handleAccess(error, revoke, endSession);
+              if (statusOf(error) !== 404) throw error;
+              if (!revoke) writes.push(() => { if (current()) commit(); });
+            },
+          }), abandoned]);
+        } finally {
+          readSignal.removeEventListener('abort', finishRead);
+        }
+      }));
       await Promise.race([refresh, cancelled]);
       if (signal.aborted) return;
       for (const commit of writes) commit();

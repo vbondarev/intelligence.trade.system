@@ -16,20 +16,15 @@ export function AppShell() {
 
 function DataUpdatesShell() {
   const { user, revalidate, captureSessionEnd } = useAuth();
-  const [updates] = useState(createAutoUpdates);
+  const [updates] = useState(() => createAutoUpdates(captureSessionEnd));
   const userId = user?.userId;
 
   useEffect(() => {
     if (!userId) return;
     const lifetime = new AbortController();
     let checking = false;
-    const endSession = captureSessionEnd();
-    updates.setAccessCheck((status, traceId) => {
-      if (status === 401) {
-        endSession(traceId);
-        return;
-      }
-      if (checking) return;
+    updates.setAccessCheck((status) => {
+      if (status !== 403 || checking) return;
       checking = true;
       void revalidate(userId, lifetime.signal).finally(() => { checking = false; });
     });
@@ -37,7 +32,7 @@ function DataUpdatesShell() {
       updates.setAccessCheck();
       lifetime.abort();
     };
-  }, [userId, revalidate, updates, captureSessionEnd]);
+  }, [userId, revalidate, updates]);
 
   return <AutoUpdatesContext.Provider value={updates}><AuthenticatedShell /></AutoUpdatesContext.Provider>;
 }

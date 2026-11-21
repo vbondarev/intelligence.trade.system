@@ -755,7 +755,26 @@ describe('PositionPage evaluation validity on an open page', () => {
 
 
 describe('realtime position invalidation', () => {
-  it('keeps the position visible after a background read fails and retries by GET', async () => {
+  it('сохраняет применённый пустой снимок оценки при фоновом сбое и повторе', async () => {
+    let calls = 0;
+    const empty = 'Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».';
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [evaluationUrl()]: () => new Response(null, { status: ++calls === 2 ? 503 : 204 }),
+    }));
+    expect(await screen.findByText(empty)).toBeVisible();
+
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
+
+    const retry = await screen.findByRole('button', { name: 'Повторить' });
+    expect(screen.getByText(empty)).toBeVisible();
+    expect(retry.closest('[role="status"]')).toHaveTextContent('Сервис временно недоступен');
+    await userEvent.click(retry);
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(screen.getByText(empty)).toBeVisible();
+    expect(urls(requests, evaluationUrl())).toHaveLength(3);
+  });
+
+  it('сохраняет позицию при фоновом сбое и повторяет чтение через GET', async () => {
     let calls = 0;
     const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
       [positionUrl()]: () => ++calls === 2
@@ -832,14 +851,19 @@ describe('recovery of a pending position read', () => {
 
 
 describe('recovery of pending timeline', () => {
-  it('drops the buffered evaluation when the position becomes unavailable during resume', async () => {
+  it('отбрасывает подготовленную оценку после отзыва позиции при возобновлении', async () => {
     const unavailable = deferred<Response>();
+    const market = deferred<Response>();
     let resuming = false;
     const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
       [positionUrl()]: () => resuming ? unavailable.promise : jsonResponse(positionFixture()),
       [evaluationUrl()]: () => jsonResponse(evaluationFixture()),
+      [marketUrl()]: () => resuming ? market.promise : new Response(null, { status: 503 }),
+      [timelineUrl()]: () => resuming ? new Promise<Response>(() => {}) : jsonResponse(firstTimelinePage()),
     }));
     await screen.findByText('Удерживать');
+    await userEvent.click(await screen.findByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(1));
     await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
     resuming = true;
     await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
@@ -849,7 +873,9 @@ describe('recovery of pending timeline', () => {
     await screen.findByRole('heading', { name: 'Позиция недоступна' });
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Приостановить автообновление' })).toBeEnabled();
+    expect(screen.queryByRole('region', { name: 'История позиции' })).not.toBeInTheDocument();
+    await act(async () => market.resolve(new Response(null, { status: 503 })));
+    expect(await screen.findByRole('button', { name: 'Приостановить автообновление' })).toBeEnabled();
   });
 
   it('keeps a closed history lazy and replaces a hung open history read', async () => {

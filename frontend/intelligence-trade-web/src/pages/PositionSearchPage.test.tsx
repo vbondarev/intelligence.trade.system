@@ -8,7 +8,7 @@ import { AutoUpdatesContext } from '../realtime/autoUpdatesContext';
 import { RealtimeContext } from '../realtime/realtimeContext';
 import type { RealtimeInvalidation, RealtimeListener } from '../realtime/realtimeTypes';
 import { jsonResponse, mockFetch, type RouteHandler } from '../test/fetchMock';
-import { positionFixture } from '../test/positionFixtures';
+import { ACCOUNT_ID, positionFixture } from '../test/positionFixtures';
 import { PositionSearchPage } from './PositionSearchPage';
 
 const empty = () => jsonResponse({ items: [], hasMore: false, nextCursor: null });
@@ -71,6 +71,48 @@ it('при 403 очередной страницы скрывает резуль
   expect(await screen.findByRole('alert')).toHaveTextContent('Доступ к поиску недоступен');
   expect(screen.queryByRole('link', { name: /^BTCUSDT/ })).not.toBeInTheDocument();
   expect(checkAccess).toHaveBeenCalledExactlyOnceWith(403, null);
+});
+
+it.each(['справочник', 'группа'] as const)('отбрасывает подготовленный снимок после отзыва: %s', async (area) => {
+  const accountsUrl = '/bff/me/exchange-accounts';
+  const positionsUrl = '/bff/me/positions?symbol=BTCUSDT';
+  const account = { id: ACCOUNT_ID, displayName: 'Старое имя', exchange: 'bybit',
+    connectionStatus: 'connected', capabilities: [], lastSyncedAt: null };
+  let targetReads = 0;
+  const accountResult = () => jsonResponse({ items: [account] });
+  const positionResult = () => jsonResponse({
+    items: [positionFixture()], hasMore: true, nextCursor: 'old',
+  });
+  const afterRevocation = new Promise<Response>(() => {});
+  const readTarget = (response: () => Response) => {
+    targetReads += 1;
+    if (targetReads < 3) return response();
+    return targetReads === 3 ? new Response(null, { status: 403 }) : afterRevocation;
+  };
+  const { updates, emit } = renderSearch({
+    [accountsUrl]: area === 'справочник' ? () => readTarget(accountResult) : accountResult,
+    [positionsUrl]: area === 'группа' ? () => readTarget(positionResult) : positionResult,
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const independent = updates.createReader(async (_, view) => {
+    if (view.kind === 'resume') await pending;
+  });
+  const name = area === 'справочник' ? /Старое имя/ : /^BTCUSDT/;
+  expect(await screen.findByRole('link', { name })).toBeVisible();
+  await act(async () => updates.toggle());
+  await act(async () => updates.toggle());
+  expect(targetReads).toBe(2);
+
+  await act(async () => emit({ type: 'recovery' }));
+  expect(targetReads).toBe(3);
+  expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+  await act(async () => finish());
+
+  expect(updates.getSnapshot().mode).toBe('live');
+  expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+  if (area === 'группа') expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+  independent.dispose();
 });
 
 it('оставляет фокус и DOM поля после поиска с клавиатуры', async () => {

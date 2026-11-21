@@ -70,13 +70,20 @@ export async function readSuccessJson(
   invalid: () => HttpFailure,
   signal?: AbortSignal | null,
 ): Promise<unknown> {
-  let value: unknown;
+  signal?.throwIfAborted();
+  if (response.bodyUsed || response.body?.locked) throw invalid();
+  let body: string;
   try {
-    value = await response.json();
+    body = await response.text();
   } catch (error) {
     rethrowAbort(error, signal);
+    if (error instanceof TypeError) throw error;
     throw invalid();
   }
   signal?.throwIfAborted();
-  return value;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw invalid();
+  }
 }

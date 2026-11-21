@@ -321,6 +321,32 @@ describe('ConnectionsPage add', () => {
     );
   });
 
+  it.each([503, 401])('обрабатывает отказ создания подключения по HTTP-статусу %s', async (status) => {
+    const assign = stubLocationAssign();
+    const requests = renderConnections({
+      list: () => [],
+      onCollection: () => status === 401 ? new Response(null, { status }) : problem(status, 'authentication_required'),
+    });
+    const user = userEvent.setup();
+    await screen.findByText(EMPTY_STATE);
+    await user.type(screen.getByLabelText('Название *'), 'Основной');
+    await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
+    await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    await user.click(screen.getByRole('button', { name: 'Подключить' }));
+
+    if (status === 401) {
+      await user.click(await screen.findByRole('button', { name: 'Войти снова' }));
+      expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections');
+      expect(listRequests(requests)).toHaveLength(1);
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent('Сервис временно недоступен');
+      expect(screen.getByRole('heading', { name: 'Подключения' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Войти снова' })).not.toBeInTheDocument();
+      expect(listRequests(requests)).toHaveLength(2);
+    }
+    expect(mutations(requests)).toHaveLength(1);
+  });
+
   it('clears secrets but keeps the name when create is rejected', async () => {
     renderConnections({ list: () => [], onCollection: () => problem(403, 'exchange_permissions_rejected') });
     const user = userEvent.setup();
