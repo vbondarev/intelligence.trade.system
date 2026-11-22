@@ -1,6 +1,6 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.76
+Версия документа: 3.77
 Дата актуализации: 22 ноября 2026 года
 Проверенная база перед G-06 / PR-5: `develop` @ `c7f4d544dd59beed487b2cdaaf61352bf2da0442` (слияние PR #219). G-06 / PR-3, связанные follow-up и PR-4 уже вошли в `develop`; PR-5 реализован в Issue #202 / PR #220.
 Последнее подтверждённое изменение базовой ветки перед PR-5 — завершение PR #219. История предыдущих PR и проверенных SHA сохраняется в журнале изменений.
@@ -8,7 +8,9 @@
 ROADMAP в ветке PR #221 подготовлен как целевое состояние после успешного merge и не подтверждает сам факт слияния; указанная база PR-6 не является будущим merge commit.
 Проверенная база G-07 / PR #224: `develop` @ `4353b70ac0f4057ea27e6288ac3270496deb0f7b`. Реализация G-07 по Issue #223 завершена и принята к слиянию 12 ноября 2026 года: независимый Re-review завершился без подтверждённых блокеров, exact-head CI [#43094745697](https://github.com/vbondarev/intelligence.trade.system/actions/runs/43094745697) (attempt 3) — SUCCESS на `0a5b0d509af1a1e14c3a349367392c41da9d022e`. PR #224 слит в `develop` 12 ноября 2026 года коммитом `a870c5baa28d60b589933f3cf5410fca5601670b`, Issue #223 закрыт.
 Проверенная база G-08 / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227): `develop` @ `a870c5baa28d60b589933f3cf5410fca5601670b`. Документация описывает целевое состояние после раннего слияния в `develop`.
-Текущий этап: **G — основной Web-клиент и realtime-контур**. G-01–G-07 завершены. Приёмка **G-08** продолжается. Изменения **G-09** подготовлены к Draft PR по отдельному решению владельца. Этап G остаётся в работе до завершения G-08 и G-09. **AC-12: `DEFERRED / NOT_VERIFIED` → [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222); реальный SLO p95 ≤ 5 секунд не подтверждён.**
+Текущий этап: **G — основной Web-клиент и realtime-контур**. G-01–G-07 завершены. Приёмка **G-08** продолжается. Базовая дизайн-система и единая обработка ошибок **G-09** реализованы. Приёмка [Issue #228](https://github.com/vbondarev/intelligence.trade.system/issues/228) остаётся открытой. Этап G остаётся в работе до завершения G-08 и G-09. **AC-12: `DEFERRED / NOT_VERIFIED` → [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222); реальный SLO p95 ≤ 5 секунд не подтверждён.**
+
+Проверенная база G-09 — `develop` @ `822d6b9a213ffa54a8f022d96489e0aa074e3f37` ([PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227)).
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
 
 ## 1. Цель продукта
@@ -178,6 +180,7 @@ ROADMAP в ветке PR #221 подготовлен как целевое со�
 ### Частично реализовано
 
 - 🟡 G-08 / [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) — адаптивная оболочка, улучшения клавиатурной и семантической доступности, таблица свечей и ценовых уровней, предупреждение и продление сессии, обновлённый вход Identity и пауза автообновления с сохранением REST recovery. Приёмка остаётся открытой.
+- 🟡 G-09 — базовая дизайн-система и единая обработка ошибок реализованы ([PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229)). Приёмка [Issue #228](https://github.com/vbondarev/intelligence.trade.system/issues/228) остаётся открытой.
 
 ### Есть только как заготовка
 
@@ -185,7 +188,6 @@ ROADMAP в ветке PR #221 подготовлен как целевое со�
 
 ### Пока отсутствует
 
-- 🚧 G-09 — базовая дизайн-система и единая обработка ошибок ([Issue #228](https://github.com/vbondarev/intelligence.trade.system/issues/228)).
 - ⬜ AC-12 — эксплуатационное подтверждение Bybit `creationTime` → REST-visible p95 ≤ 5 секунд: `DEFERRED / NOT_VERIFIED`, [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222).
 - ⬜ Автоматическая интеллектуальная повторная оценка активных позиций этапа H.
 - ⬜ Уведомления о риске конкретной позиции.
@@ -365,7 +367,7 @@ GET    /api/v1/auth/me
 
 ### Этап G. Создать основной Web-клиент и realtime-контур
 
-Статус этапа: 🚧 В работе. G-01–G-07 завершены. G-08 выполнен частично. По G-09 подготовлены реализация и проверки для Draft PR. Приёмка G-08 и условия релиза сохраняются.
+Статус этапа: 🚧 В работе. G-01–G-07 завершены. G-08 выполнен частично. Реализация G-09 выполнена. Приёмка G-08 и G-09 остаётся открытой. Условия релиза сохраняются.
 
 Цель: завершить основной пользовательский Web-сценарий первого MVP — не только React-интерфейс и browser realtime transport, но и полный путь от изменения фактического состояния биржи до автоматического обновления открытого Web:
 
@@ -385,7 +387,7 @@ Stage G поэтому является cross-stack этапом и включа
 | G-06 | Реализовать realtime-наблюдение фактического состояния Bybit и reconciliation | ✅ | Backend автоматически и с минимальной разумной задержкой получает фактические изменения активных read-only аккаунтов и их позиций, используя realtime-возможности биржи; актуальность live market-derived valuation обеспечивается отдельно от приватного наблюдения, без предположения, что любое изменение PnL инициирует private account event; полная REST-синхронизация сохраняется для начального состояния, восстановления после разрыва наблюдения, контрольной сверки и ручного recovery; duplicate, delayed и out-of-order observations не нарушают monotonicity/idempotency invariants этапа D; потеря актуальности наблюдения представляется явным degraded/stale состоянием; принятые изменения проходят через существующий state/application event/outbox pipeline; фактическое обновление не запускает скрытую повторную evaluation |
 | G-07 | Подключить SignalR с восстановлением через REST через BFF-compatible browser integration | ✅ Завершено | Browser подключается к realtime без выдачи access token в JavaScript; realtime-события инвалидируют соответствующее клиентское состояние; после разрыва соединения клиент перечитывает актуальные REST resources; подтверждён полный поток «persisted backend change → SignalR invalidation → browser REST recovery → обновление Web без F5 и ручной синхронизации» |
 | G-08 | Добавить адаптивность и базовую доступность | 🟡 Частично | Основные сценарии работают на телефоне и компьютере |
-| G-09 | Зафиксировать базовую дизайн-систему и обработку ошибок | 🚧 | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
+| G-09 | Зафиксировать базовую дизайн-систему и обработку ошибок | 🟡 Частично | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
 
 **Промежуточный результат G-06 / PR-3 (Issue #202, [PR #208](https://github.com/vbondarev/intelligence.trade.system/pull/208)).** Реализованы application-level согласование приватных WS-наблюдений с REST, persisted PostgreSQL REST ordering evidence, versioned `RecoveryRequestEpoch`, generation/recovery fencing, биржевые cursors, атомарное сохранение доменного состояния и outbox и тесты PostgreSQL на порядок, восстановление, clock skew и конкурентные сценарии. Результаты exact-head CI и решение Human Merge Gate для PR-3 фиксируются в PR #208, а не в дорожной карте. **PR-3 не запускает realtime worker:** автоматическое получение и доставка WS-наблюдений в эксплуатационном контуре и полный G-06 остаются следующими работами. Follow-up: [#209](https://github.com/vbondarev/intelligence.trade.system/issues/209) (история позиций), [#210](https://github.com/vbondarev/intelligence.trade.system/issues/210) (SQL Balance evidence), [#211](https://github.com/vbondarev/intelligence.trade.system/issues/211) (несмежные REST-окна), [#212](https://github.com/vbondarev/intelligence.trade.system/issues/212) и [#213](https://github.com/vbondarev/intelligence.trade.system/issues/213) (корректность при утрате evidence). #209 устранён PR #216, #210 — PR #217, #211 — PR #218, #212 — PR #214, #213 — PR #215; все follow-up PR вошли в `develop`. Issue #202 остаётся задачей всего G-06, даже после слияния отдельных follow-up PR.
 
@@ -401,7 +403,9 @@ Stage G поэтому является cross-stack этапом и включа
 
 **Завершённая и проверенная реализация G-07 (Issue #223, [PR #224](https://github.com/vbondarev/intelligence.trade.system/pull/224); слит в `develop`).** Реализован защищённый browser-facing SignalR через BFF, связанный с действующей server-side session и проверенной пользовательской идентичностью. BFF подключается к API с server-side Bearer и передаёт четыре существующих события v1 без изменения их контрактов; `bff.realtime.ready` инициирует REST recovery. React автоматически обновляет открытые списки подключений и позиций, account-scoped портфель, карточку позиции, сохранённую оценку и раскрытую историю. Для reconnect, logout и смены пользователя реализованы безопасный lifecycle, ограниченные повторные попытки и защита от гонок `start/stop`. Сохранены действующие фильтры, изоляция асинхронных ответов и cursor pagination. Отдельно отображаются признаки фактической свежести и производной рыночной оценки G-06. Full-stack E2E подтверждает путь от сохранённого backend-изменения через transactional outbox, API SignalR и BFF до REST-восстановления Web, включая пропущенное при разрыве событие. Скрытая синхронизация, автоматическая evaluation, торговые операции и изменение Bybit ingress не вводились. Этап G остаётся в работе до G-08 и G-09; эксплуатационное подтверждение AC-12 из G-06 остаётся за Issue #222.
 
-**Частичная реализация G-08.** PR #227 подготовлен к раннему merge в `develop`. Приёмка G-08 / #225 остаётся `BLOCKED_BY_VERIFICATION`. Все IMP-01–IMP-07 и их критерии сохраняются. IMP-07, релиз и закрытие #225 заблокированы до PASS обязательного Windows WebKit gate в [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226) и выполнения остальных критериев приёмки. Доказательства и границы проверок приведены в [аудите G-08](docs/testing/g08-acceptance-audit.md).
+**Частичная реализация G-08.** [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) слит в `develop` 21 ноября 2026 года коммитом `822d6b9a213ffa54a8f022d96489e0aa074e3f37`. Приёмка G-08 / #225 остаётся `BLOCKED_BY_VERIFICATION`. Все IMP-01–IMP-07 и их критерии сохраняются. IMP-07, релиз и закрытие #225 заблокированы до PASS обязательного Windows WebKit gate в [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226) и выполнения остальных критериев приёмки. Доказательства и границы проверок приведены в [аудите G-08](docs/testing/g08-acceptance-audit.md).
+
+**Частичная реализация G-09.** [PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229) вводит общие токены и состояния React, обработку ошибок по HTTP-статусам и машинным кодам, согласованное оформление формы входа Identity и защиту от устаревших отказов доступа. Приёмка #228 остаётся открытой по AC‑07. Фокус при истечении сессии подтверждён, NVDA с автоматическим Say All повторяет «Войти снова». В Windows mobile WebKit сохраняется `FAIL` по [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226). Условия приёмки и релиза действуют согласно [Amendment 2](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7069306806) и [Amendment 3](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7080146360).
 
 #### Параллельное направление G-AUTH — внешняя аутентификация
 
@@ -540,7 +544,7 @@ Stage G поэтому является cross-stack этапом и включа
 
 G-AUTH-01 — G-AUTH-03 являются параллельным направлением и могут реализовываться независимо от основной очереди, если не создают конфликт с текущим обязательным шагом; они не становятся prerequisite для G-04 — G-09.
 
-Этапы A–F, Tech-G01 — Tech-G13 и G-01 — G-07 завершены. Приёмка G-08 продолжается, реализация G-09 готовится к ревью. Последовательность дальнейших этапов не меняется. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
+Этапы A–F, Tech-G01 — Tech-G13 и G-01 — G-07 завершены. Реализация G-09 выполнена. Приёмка G-08 и G-09 остаётся открытой. Последовательность дальнейших этапов не меняется. OpenAPI/API tests обновляются в каждом PR, затрагивающем публичный контракт; SignalR event names/payload schemas дополнительно фиксируются отдельными realtime serialization/approval tests. Существующий BTC Daily Check остаётся изолированным публичным сценарием. Переосмысление OpenClaw, расширение агентного контура и его автоматические сквозные тесты перенесены на этап K после проверки первого MVP. Этап N не начинается до накопления статистики J.
 
 ## 7. Граница первого MVP
 
@@ -621,6 +625,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-11-22 | 3.77 | Отражены реализация G-09 в PR #229, открытая приёмка #228 и факт слияния PR #227. Сохранены условия AC‑07, #226 и релиза. |
 | 2026-11-22 | 3.76 | Реализация G-09 по #228 подготовлена к Draft PR. Amendments разрешают работу до завершения приёмки G-08 и публикацию Draft PR с известным результатом FAIL в Windows mobile WebKit. Условия приёмки #226 и релиза сохраняются. |
 | 2026-11-20 | 3.75 | Уточнён факт слияния PR #224 и закрытия #223. Подготовлено целевое состояние для раннего слияния PR #227 в `develop`: G-08 выполнен частично, этап G остаётся в работе. Статус приёмки #225 — `BLOCKED_BY_VERIFICATION`. IMP-07, релиз и закрытие #225 требуют PASS обязательного Windows WebKit gate в #226 и выполнения остальных критериев. |
 | 2026-11-12 | 3.74 | По решению владельца G-07 / Issue #223 / PR #224 признан завершённым по реализации и проверкам до ручного слияния. Independent Re-review: `REVIEW_PASSED`; RR-01/RR-02 закрыты по действующему Base Plan и трём trusted Amendments. Exact-head CI #43094745697, attempt 3: SUCCESS (backend, frontend, Docker/E2E, `ci-gate`). Отмечено, что в attempt 2 на том же SHA один раз возник TimeoutException ранее существовавшего G-06 PostgreSQL realtime recovery test; первопричина не установлена и не объявлена исправленной. NuGet-зависимости не обновляются до отдельного этапа .NET 10 → .NET 11. G-08/G-09 остаются впереди, AC-12 G-06 / Issue #222 — `DEFERRED / NOT_VERIFIED`. PR и Issue не объявлены слитыми/закрытыми; Human Merge Gate и post-merge проверки остаются отдельными событиями. |
