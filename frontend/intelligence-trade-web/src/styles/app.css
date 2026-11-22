@@ -74,6 +74,12 @@ h1 {
   color: var(--color-danger);
 }
 
+.status-warning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-surface);
+  color: var(--color-warning);
+}
+
 .status-screen {
   display: flex;
   align-items: center;
@@ -554,8 +560,8 @@ h2.section-title {
 }
 
 .data-state-warning {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
+  border-color: var(--color-warning);
+  color: var(--color-warning);
 }
 
 .account-panel > .muted {

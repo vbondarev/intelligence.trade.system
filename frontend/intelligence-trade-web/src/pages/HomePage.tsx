@@ -1,14 +1,16 @@
+import { presentError } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { explicitPresentation, isStaleSessionAccessFailure, resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
-import { ConnectionsApiError, listConnections, syncConnection } from '../connections/connectionsApi';
+import { listConnections, syncConnection } from '../connections/connectionsApi';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { AccountSelector } from '../portfolio/AccountSelector';
-import { PortfolioApiError, getPortfolio, listPositions } from '../portfolio/portfolioApi';
+import { getPortfolio, listPositions } from '../portfolio/portfolioApi';
 import {
   CONNECTION_STATUS_LABELS,
   formatRelativeTime,
@@ -28,8 +30,6 @@ import { PositionsSection } from '../portfolio/PositionsSection';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
 
-const SESSION_ENDED = 'Сессия завершена. Войдите снова.';
-const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 const POSITIONS_ANNOUNCEMENT_INTERVAL_MS = 10_000;
 
 const ERROR_MESSAGES = {
@@ -39,13 +39,13 @@ const ERROR_MESSAGES = {
   access_forbidden: 'Недостаточно прав для просмотра портфеля.',
 } as const;
 
-type ErrorCode = keyof typeof ERROR_MESSAGES;
 
 interface Notice {
   tone: 'success' | 'error';
   text: string;
   traceId?: string | null;
   sessionEnded?: boolean;
+  background?: boolean;
 }
 
 interface AccountsLoad {
@@ -62,8 +62,11 @@ interface SyncState {
 interface PortfolioLoad {
   accountId: string;
   portfolio: Portfolio | null;
+  hasSnapshot: boolean;
   error: Notice | null;
 }
+
+type FailedContinuation = { cursor: string; generation: number; invalidationVersion: number };
 
 interface PositionsLoad {
   key: string;
@@ -73,34 +76,13 @@ interface PositionsLoad {
   nextCursor: string | null;
   hasMore: boolean;
   loadingMore: boolean;
-  error: Notice | null;
+  error: (Notice & { continuation?: FailedContinuation }) | null;
 }
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail ProblemDetails не показываются.
-function toErrorNotice(error: unknown, fallback: string): Notice {
-  if (!(error instanceof ConnectionsApiError || error instanceof PortfolioApiError)) {
-    return { tone: 'error', text: fallback };
-  }
-
-  if (error.status === 401 || error.code === 'authentication_required') {
-    return { tone: 'error', text: SESSION_ENDED, sessionEnded: true };
-  }
-
-  let text: string | undefined =
-    error.code !== null && Object.hasOwn(ERROR_MESSAGES, error.code) ? ERROR_MESSAGES[error.code as ErrorCode] : undefined;
-  if (text === undefined) {
-    if (error.status === 403) {
-      text = ERROR_MESSAGES.access_forbidden;
-    } else if (error.status === 404) {
-      text = ERROR_MESSAGES.resource_not_found;
-    } else if (error.status === 503) {
-      text = SERVICE_UNAVAILABLE;
-    } else {
-      text = fallback;
-    }
-  }
-
-  return { tone: 'error', text, traceId: error.traceId };
+function toErrorNotice(error: unknown, fallback: string, background = false): Notice {
+  const errorNotice = presentError(error, { fallback: fallback, messages: { ...ERROR_MESSAGES, forbidden: ERROR_MESSAGES.access_forbidden, missing: ERROR_MESSAGES.resource_not_found } });
+  return { tone: 'error', text: errorNotice.text, traceId: errorNotice.traceId, sessionEnded: errorNotice.action === 'login', background: background && errorNotice.action !== 'login' };
 }
 
 /**
@@ -143,7 +125,7 @@ function toQuery(accountId: string, filters: PositionFilters): PositionListQuery
 }
 
 export function HomePage() {
-  const { login } = useAuth();
+  const { login, captureSessionEnd, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<AccountsLoad | null>(null);
@@ -183,6 +165,7 @@ export function HomePage() {
 
   // Каждое чтение делает предыдущие устаревшими: поздний ответ не перезаписывает более новый state.
   const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    const session = view === explicitPresentation ? captureSessionRead() : undefined;
     const generation = view.kind === 'silent' ? accountsGeneration.current : ++accountsGeneration.current;
     const isCurrent = () => generation === accountsGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
@@ -191,16 +174,30 @@ export function HomePage() {
           setAccounts({ items, loadedAt: Date.now() });
           setAccountsError(null);
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
-        if (isCurrent()) {
+        if (isCurrent() && !isStaleSessionAccessFailure(error, session)) {
+          const notice = toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.', view.kind === 'live');
+          if (view === explicitPresentation) {
+            if (notice.sessionEnded) session?.endSession(notice.traceId);
+            else updates.reportAccessFailure(error);
+          }
           view.fail(error, () => {
-            if (isCurrent()) setAccountsError(toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.'));
-          });
+            if (isCurrent()) setAccountsError(notice);
+          }, () => {
+            accountsGeneration.current += 1;
+            portfolioGeneration.current += 1;
+            positionsGeneration.current += 1;
+            pagination.current?.abort();
+            setAccounts(null);
+            setPortfolioLoad(null);
+            setPositions(null);
+            if (view.kind !== 'silent') setAccountsError(toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.'));
+          }, isCurrent);
         }
       },
     );
-  }, []);
+  }, [captureSessionRead, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader(loadAccounts);
@@ -240,20 +237,28 @@ export function HomePage() {
       return getPortfolio(selectedId, signal).then(
       (portfolio) => view.apply(() => {
         if (isCurrent()) {
-          setPortfolioLoad({ accountId: selectedId, portfolio, error: null });
+          setPortfolioLoad({ accountId: selectedId, portfolio, hasSnapshot: true, error: null });
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
             if (!isCurrent()) return;
-            const notice = toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.');
-            setPortfolioLoad((current) => ({
-              accountId: selectedId,
-              portfolio: current?.accountId === selectedId ? current.portfolio : null,
-              error: notice,
-            }));
-          });
+            const notice = toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.', view.kind === 'live');
+            setPortfolioLoad((current) => {
+              const previous = current?.accountId === selectedId ? current : null;
+              const hasSnapshot = previous?.hasSnapshot ?? false;
+              return {
+                accountId: selectedId,
+                portfolio: previous?.portfolio ?? null,
+                hasSnapshot,
+                error: { ...notice, background: notice.background && hasSnapshot },
+              };
+            });
+          }, () => {
+            portfolioGeneration.current += 1;
+            setPortfolioLoad({ accountId: selectedId, portfolio: null, hasSnapshot: false, error: view.kind === 'silent' ? null : toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.') });
+          }, isCurrent);
         }
       },
       );
@@ -290,6 +295,10 @@ export function HomePage() {
     const query = JSON.parse(queryKey) as PositionListQuery;
     const scheduler = updates.createReader((signal, view) => {
       const generation = view.kind === 'silent' ? positionsGeneration.current : ++positionsGeneration.current;
+      if (view.kind === 'explicit') {
+        setPositions((current) => current?.key === queryKey && current.error?.continuation
+          ? { ...current, nextCursor: null, hasMore: false } : current);
+      }
       const invalidationVersion = positionsInvalidationVersion.current;
       const isCurrent = () => generation === positionsGeneration.current && !signal.aborted && queryKeyRef.current === queryKey;
       return listPositions(query, signal).then(
@@ -310,12 +319,12 @@ export function HomePage() {
             schedulePositionsAnnouncement();
           }
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
         if (isCurrent()) {
           view.fail(error, () => {
             if (!isCurrent()) return;
-            const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
+            const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.', view.kind === 'live');
             setPositions((current) =>
               current?.key === queryKey
                 ? { ...current, loadingMore: false, error: notice }
@@ -329,7 +338,12 @@ export function HomePage() {
                     error: notice,
                   },
             );
-          });
+          }, () => {
+            positionsGeneration.current += 1;
+            pagination.current?.abort();
+            setPositions({ key: queryKey, reload: reloadToken, items: [], nextCursor: null, hasMore: false, loadingMore: false,
+              error: view.kind === 'silent' ? null : toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.') });
+          }, isCurrent);
         }
       },
       );
@@ -389,20 +403,26 @@ export function HomePage() {
   // Следующая страница относится к текущему поколению первой страницы: смена подключения,
   // фильтра или reload после sync отменяет её и не даёт дописать устаревшие позиции. Пока после
   // sync не получена новая первая страница, прежний cursor не используется.
-  const handleLoadMore = () => {
+  const handleLoadMore = (continuation?: FailedContinuation) => {
     if (
       positions === null ||
       positions.key !== queryKey ||
       positions.reload !== reloadToken ||
       positions.nextCursor === null ||
-      positions.loadingMore
+      positions.loadingMore ||
+      (continuation !== undefined && (
+        continuation.cursor !== positions.nextCursor ||
+        continuation.generation !== positionsGeneration.current ||
+        continuation.invalidationVersion !== positionsInvalidationVersion.current
+      ))
     ) {
       return;
     }
 
     updates.cancelResume();
     const key = positions.key;
-    const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor: positions.nextCursor };
+    const cursor = positions.nextCursor;
+    const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor };
     const generation = positionsGeneration.current;
     const invalidationVersion = positionsInvalidationVersion.current;
     const controller = new AbortController();
@@ -413,6 +433,7 @@ export function HomePage() {
       && invalidationVersion === positionsInvalidationVersion.current && !signal.aborted
       && queryKeyRef.current === key;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
+    const session = captureSessionRead();
     listPositions(query, signal).then(
       (page) => {
         if (isCurrent()) {
@@ -431,12 +452,26 @@ export function HomePage() {
       },
       (error: unknown) => {
         if (isCurrent()) {
+          if (isStaleSessionAccessFailure(error, session)) {
+            if (pagination.current === controller) {
+              pagination.current = null;
+              setPositions((current) => current?.key === key && current.reload === reloadToken
+                ? { ...current, loadingMore: false }
+                : current);
+            }
+            return;
+          }
+          const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
+          if (notice.sessionEnded) session.endSession(notice.traceId);
+          else updates.reportAccessFailure(error);
+          const revoked = resourceUnavailable(error);
           setPositions((current) =>
             current?.key === key
               ? {
                   ...current,
+                  ...(revoked ? { items: [], nextCursor: null, hasMore: false } : {}),
                   loadingMore: false,
-                  error: toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.'),
+                  error: revoked ? notice : { ...notice, continuation: { cursor, generation, invalidationVersion } },
                 }
               : current,
           );
@@ -451,6 +486,7 @@ export function HomePage() {
   // уже перешёл на другое, портфель и позиции нового выбора не перечитываются и не подменяются.
   const handleSync = async (account: ExchangeAccount) => {
     const accountId = account.id;
+    const endSession = captureSessionEnd();
     if (account.connectionStatus === 'disabled' || syncInFlight.current.has(accountId)) {
       return;
     }
@@ -465,6 +501,7 @@ export function HomePage() {
       notice = { tone: 'success', text: 'Синхронизация завершена.' };
     } catch (error) {
       notice = toErrorNotice(error, 'Не удалось синхронизировать подключение. Повторите попытку позже.');
+      if (notice.sessionEnded) endSession(notice.traceId);
     }
     updateSync({ running: true, notice });
 
@@ -509,18 +546,27 @@ export function HomePage() {
 
   const currentPortfolio = portfolioLoad !== null && portfolioLoad.accountId === selectedId ? portfolioLoad : null;
   const currentPositions = positions !== null && positions.key === queryKey ? positions : null;
+  const failedContinuation = currentPositions?.error?.continuation;
+  const canRetryContinuation = failedContinuation && currentPositions?.reload === reloadToken
+    && currentPositions.nextCursor === failedContinuation.cursor;
+  const retryPositions = failedContinuation
+    ? canRetryContinuation ? () => handleLoadMore(failedContinuation) : undefined
+    : () => positionsRead.current?.refresh();
 
   return (
     <section className="page home-page">
       <h1>Обзор</h1>
       <p className="screen-reader-only" role="status" aria-atomic="true">{positionsAnnouncement}</p>
 
-      {accountsError && <NoticeMessage notice={accountsError} onLogin={login} />}
+      {accountsError && (
+        <NoticeMessage
+          notice={{ ...accountsError, background: accountsError.background && accounts !== null }}
+          onLogin={login}
+          onRetry={() => accountsRead.current?.refresh()}
+        />
+      )}
       {accounts === null && accountsError === null && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем подключения…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем подключения…" />
       )}
 
       {accounts !== null && accounts.items.length === 0 && (
@@ -552,14 +598,11 @@ export function HomePage() {
           {selectedSync?.notice && <NoticeMessage notice={selectedSync.notice} onLogin={login} />}
 
           {currentPortfolio === null && (
-            <p className="inline-status" role="status">
-              <span className="spinner" aria-hidden="true" />
-              Загружаем портфель…
-            </p>
+            <StatusMessage kind="loading" text="Загружаем портфель…" />
           )}
-          {currentPortfolio?.error && <NoticeMessage notice={currentPortfolio.error} onLogin={login} />}
-          {currentPortfolio !== null && currentPortfolio.error === null && currentPortfolio.portfolio === null && (
-            <p className="muted">Данных портфеля пока нет. Запустите синхронизацию подключения.</p>
+          {currentPortfolio?.error && <NoticeMessage notice={currentPortfolio.error} onLogin={login} onRetry={() => portfolioRead.current?.refresh()} />}
+          {currentPortfolio?.hasSnapshot && currentPortfolio.portfolio === null && (
+            <StatusMessage kind="empty" text="Данных портфеля пока нет. Запустите синхронизацию подключения." />
           )}
           {currentPortfolio?.portfolio && <PortfolioSummary portfolio={currentPortfolio.portfolio} />}
 
@@ -571,13 +614,19 @@ export function HomePage() {
               items: currentPositions?.items ?? [],
               hasMore: currentPositions !== null && currentPositions.reload === reloadToken && currentPositions.hasMore,
               loadingMore: currentPositions?.loadingMore ?? false,
-              error: currentPositions?.error ? <NoticeMessage notice={currentPositions.error} onLogin={login} /> : null,
+              error: currentPositions?.error ? (
+                <NoticeMessage
+                  notice={currentPositions.error}
+                  onLogin={login}
+                  onRetry={retryPositions}
+                />
+              ) : null,
             }}
             onViewChange={handleViewChange}
             onStateChange={handleStateChange}
             onSideChange={handleSideChange}
             onSymbolChange={handleSymbolChange}
-            onLoadMore={handleLoadMore}
+            onLoadMore={() => handleLoadMore()}
           />
         </>
       )}
@@ -659,24 +708,11 @@ function SelectedAccountPanel({
   );
 }
 
-function NoticeMessage({ notice, onLogin }: { notice: Notice; onLogin: () => void }) {
-  if (notice.tone === 'success') {
-    return (
-      <p className="notice notice-success" role="status">
-        {notice.text}
-      </p>
-    );
-  }
-
-  return (
-    <div className="alert" role="alert">
-      <p className="notice-text">{notice.text}</p>
-      {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
-      {notice.sessionEnded && (
-        <button type="button" className="button button-secondary" onClick={onLogin}>
-          Войти снова
-        </button>
-      )}
-    </div>
-  );
+function NoticeMessage({ notice, onLogin, onRetry }: { notice: Notice; onLogin: () => void; onRetry?: () => void }) {
+  const actions = notice.sessionEnded && (
+    <button type="button" className="button button-secondary" onClick={onLogin}>
+      Войти снова
+    </button>
+  ) || (onRetry && <button type="button" className="button button-secondary" onClick={onRetry}>Повторить</button>);
+  return <StatusMessage kind={notice.background ? 'warning' : notice.tone} text={notice.text} traceId={notice.traceId} actions={actions} />;
 }

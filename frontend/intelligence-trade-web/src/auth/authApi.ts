@@ -1,3 +1,4 @@
+import { decodeProblem, HttpFailure, readSuccessJson } from '../errors/httpFailure';
 import type { BrowserSession } from './authTypes';
 
 export const LOGIN_URL = '/bff/auth/login?returnUrl=/app';
@@ -9,13 +10,11 @@ const ANTIFORGERY_URL = '/bff/auth/antiforgery';
 const LOGOUT_URL = '/bff/auth/logout';
 const CSRF_HEADER = 'X-CSRF-TOKEN';
 
-export class AuthApiError extends Error {
-  readonly status: number;
+export class AuthApiError extends HttpFailure {
 
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(message: string, status: number, code: string | null = null, traceId: string | null = null) {
+    super(message, status, code, traceId);
     this.name = 'AuthApiError';
-    this.status = status;
   }
 }
 
@@ -27,10 +26,10 @@ export async function fetchSession(signal?: AbortSignal): Promise<BrowserSession
     signal,
   });
   if (!response.ok) {
-    throw new AuthApiError('Session request failed.', response.status);
+    throw await authFailure('Session request failed.', response, signal);
   }
 
-  return parseSession(await response.json());
+  return parseSession(await readAuthJson(response, signal), response.status);
 }
 
 export function startLogin(): void {
@@ -49,10 +48,10 @@ async function fetchAntiforgeryToken(signal?: AbortSignal): Promise<string> {
     signal,
   });
   if (!tokenResponse.ok) {
-    throw new AuthApiError('Antiforgery request failed.', tokenResponse.status);
+    throw await authFailure('Antiforgery request failed.', tokenResponse, signal);
   }
 
-  const { requestToken } = (await tokenResponse.json()) as { requestToken?: unknown };
+  const { requestToken } = asFields(await readAuthJson(tokenResponse, signal));
   if (typeof requestToken !== 'string' || requestToken.length === 0) {
     throw new AuthApiError('Antiforgery response is malformed.', tokenResponse.status);
   }
@@ -68,10 +67,10 @@ export async function logout(): Promise<void> {
     headers: { Accept: 'application/json', [CSRF_HEADER]: requestToken },
   });
   if (!logoutResponse.ok) {
-    throw new AuthApiError('Logout request failed.', logoutResponse.status);
+    throw await authFailure('Logout request failed.', logoutResponse);
   }
 
-  const { redirectUrl } = (await logoutResponse.json()) as { redirectUrl?: unknown };
+  const { redirectUrl } = asFields(await readAuthJson(logoutResponse));
   if (typeof redirectUrl !== 'string' || !isSameOriginPath(redirectUrl)) {
     throw new AuthApiError('Logout redirect is not a same-origin path.', logoutResponse.status);
   }
@@ -111,12 +110,9 @@ async function requestSessionTiming(url: string, init: RequestInit): Promise<Ses
     cache: 'no-store',
   });
   if (response.status === 401) return null;
-  if (!response.ok) throw new AuthApiError('Session timing request failed.', response.status);
+  if (!response.ok) throw await authFailure('Session timing request failed.', response, init.signal);
 
-  const { serverTimeUtc, expiresAtUtc } = (await response.json()) as {
-    serverTimeUtc?: unknown;
-    expiresAtUtc?: unknown;
-  };
+  const { serverTimeUtc, expiresAtUtc } = asFields(await readAuthJson(response, init.signal));
   const serverTime = typeof serverTimeUtc === 'string' ? Date.parse(serverTimeUtc) : NaN;
   const expiresAt = typeof expiresAtUtc === 'string' ? Date.parse(expiresAtUtc) : NaN;
   if (!Number.isFinite(serverTime) || !Number.isFinite(expiresAt) || expiresAt < serverTime) {
@@ -131,7 +127,7 @@ function isSameOriginPath(value: string): boolean {
   return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
 }
 
-function parseSession(value: unknown): BrowserSession {
+function parseSession(value: unknown, status: number): BrowserSession {
   if (typeof value === 'object' && value !== null && 'authenticated' in value) {
     if (value.authenticated === false) {
       return { authenticated: false };
@@ -152,5 +148,18 @@ function parseSession(value: unknown): BrowserSession {
     }
   }
 
-  throw new AuthApiError('Session response is malformed.', 200);
+  throw new AuthApiError('Session response is malformed.', status);
+}
+
+async function authFailure(message: string, response: Response, signal?: AbortSignal | null): Promise<AuthApiError> {
+  const { code, traceId } = await decodeProblem(response, signal);
+  return new AuthApiError(message, response.status, code, traceId);
+}
+
+function readAuthJson(response: Response, signal?: AbortSignal | null): Promise<unknown> {
+  return readSuccessJson(response, () => new AuthApiError('Auth response is malformed.', response.status), signal);
+}
+
+function asFields(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

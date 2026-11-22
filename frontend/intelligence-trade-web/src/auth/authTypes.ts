@@ -14,6 +14,13 @@ export interface AuthState {
   user: SessionUser | null;
   error: string | null;
   logoutAvailable: boolean;
+  sessionEnded?: boolean;
+  sessionTraceId?: string | null;
+}
+
+export interface SessionReadContext {
+  isCurrent: () => boolean;
+  endSession: (traceId?: string | null) => void;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -21,4 +28,6 @@ export interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   retry: () => void;
   revalidate: (expectedUserId: string, signal: AbortSignal) => Promise<boolean>;
+  captureSessionRead: () => SessionReadContext;
+  captureSessionEnd: () => (traceId?: string | null) => void;
 }

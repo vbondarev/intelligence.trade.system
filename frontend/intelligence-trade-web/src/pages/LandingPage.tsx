@@ -1,10 +1,11 @@
+import { StatusMessage } from '../ui/StatusMessage';
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
 import { startLoginAt } from '../auth/authApi';
 import { LoadingScreen } from '../layout/LoadingScreen';
 
 export function LandingPage() {
-  const { loading, authenticated, error, logoutAvailable, login, logout, retry } = useAuth();
+  const { loading, authenticated, error, logoutAvailable, login, logout, retry, sessionEnded, sessionTraceId } = useAuth();
   const { state } = useLocation();
   const [query] = useSearchParams();
   const loginFailed = query.get('loginError') === '1';
@@ -24,12 +25,11 @@ export function LandingPage() {
       <section className="landing-card">
         <h1>Intelligence Trade</h1>
         <p className="muted">Сопровождение открытых торговых позиций.</p>
-        {loginFailed && <p className="alert" role="alert">Не удалось завершить вход. Начните вход заново.</p>}
+        {loginFailed && <StatusMessage kind="error" text="Не удалось завершить вход. Начните вход заново." />}
+        {sessionEnded && <StatusMessage kind="error" text="Сессия завершена. Войдите снова." traceId={sessionTraceId} />}
         {error ? (
           <>
-            <p className="alert" role="alert">
-              {error}
-            </p>
+            <StatusMessage kind="error" text={error} />
             <div className="landing-actions">
               <button type="button" className="button" onClick={retry}>
                 Повторить
@@ -43,7 +43,7 @@ export function LandingPage() {
           </>
         ) : (
           <button type="button" className="button" autoFocus={loginFailed} onClick={() => returnUrl ? startLoginAt(returnUrl) : login()}>
-            {loginFailed ? 'Начать вход заново' : 'Войти'}
+            {loginFailed ? 'Начать вход заново' : sessionEnded ? 'Войти снова' : 'Войти'}
           </button>
         )}
       </section>

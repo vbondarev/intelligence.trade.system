@@ -1,3 +1,4 @@
+import { decodeProblem, HttpFailure, readSuccessJson } from '../errors/httpFailure';
 import { isMarketValuation } from '../freshness/freshness';
 import type { PositionSide, PositionTrackingState } from '../portfolio/portfolioTypes';
 import type {
@@ -131,10 +132,7 @@ const CHANGE_CAUSES: readonly PositionChangeCause[] = [
  * Ошибка операций страницы позиции. Хранит только machine-readable поля ProblemDetails:
  * UI ветвится по `status`, `code` и `reason`, а не по `title`/`detail`.
  */
-export class PositionApiError extends Error {
-  readonly status: number;
-  readonly code: string | null;
-  readonly traceId: string | null;
+export class PositionApiError extends HttpFailure {
   /** Причина `409 position_not_evaluable`; неизвестное значение сохраняется как `null`. */
   readonly reason: PositionNotEvaluableReason | null;
 
@@ -144,23 +142,20 @@ export class PositionApiError extends Error {
     traceId: string | null = null,
     reason: PositionNotEvaluableReason | null = null,
   ) {
-    super(`Запрос позиции завершился со статусом ${status}${code ? ` (${code})` : ''}.`);
+    super(`Запрос позиции завершился со статусом ${status}${code ? ` (${code})` : ''}.`, status, code, traceId);
     this.name = 'PositionApiError';
-    this.status = status;
-    this.code = code;
-    this.traceId = traceId;
     this.reason = reason;
   }
 }
 
 export async function getPosition(positionId: string, signal?: AbortSignal): Promise<PositionDetails> {
   const response = await get(positionUrl(positionId), signal);
-  return readBody(response, isPositionDetails);
+  return readBody(response, isPositionDetails, signal);
 }
 
 export async function getPositionMarket(positionId: string, signal?: AbortSignal): Promise<PositionMarket> {
   const response = await get(`${positionUrl(positionId)}/market`, signal);
-  return readBody(response, isPositionMarket);
+  return readBody(response, isPositionMarket, signal);
 }
 
 export async function getPositionCandles(
@@ -169,7 +164,7 @@ export async function getPositionCandles(
   signal?: AbortSignal,
 ): Promise<PositionCandles> {
   const response = await get(candlesUrl(positionId, interval), signal);
-  return readBody(response, isPositionCandles);
+  return readBody(response, isPositionCandles, signal);
 }
 
 /** Возвращает `null`, если оценка позиции ещё не выполнялась (`204`). */
@@ -182,7 +177,7 @@ export async function getPositionEvaluation(
     return null;
   }
 
-  return readBody(response, isPositionEvaluation);
+  return readBody(response, isPositionEvaluation, signal);
 }
 
 /**
@@ -214,7 +209,7 @@ export async function getPositionTimeline(
   signal?: AbortSignal,
 ): Promise<PositionTimelinePage> {
   const response = await get(timelineUrl(positionId, query), signal);
-  return readBody(response, isTimelinePage);
+  return readBody(response, isTimelinePage, signal);
 }
 
 export function positionUrl(positionId: string): string {
@@ -258,7 +253,7 @@ async function get(url: string, signal?: AbortSignal): Promise<Response> {
     signal,
   });
   if (!response.ok) {
-    throw await toError(response);
+    throw await toError(response, signal);
   }
 
   return response;
@@ -271,10 +266,10 @@ async function fetchAntiforgeryToken(): Promise<string> {
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) {
-    throw new PositionApiError(response.status);
+    throw await toError(response);
   }
 
-  const body = await readJson(response);
+  const body = await readSuccessJson(response, () => new PositionApiError(response.status));
   if (!isObject(body) || typeof body.requestToken !== 'string' || body.requestToken.length === 0) {
     throw new PositionApiError(response.status);
   }
@@ -282,8 +277,8 @@ async function fetchAntiforgeryToken(): Promise<string> {
   return body.requestToken;
 }
 
-async function readBody<T>(response: Response, guard: (value: unknown) => value is T): Promise<T> {
-  const body = await readJson(response);
+async function readBody<T>(response: Response, guard: (value: unknown) => value is T, signal?: AbortSignal): Promise<T> {
+  const body = await readSuccessJson(response, () => new PositionApiError(response.status), signal);
   if (!guard(body)) {
     throw new PositionApiError(response.status);
   }
@@ -291,42 +286,14 @@ async function readBody<T>(response: Response, guard: (value: unknown) => value 
   return body;
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return (await response.json()) as unknown;
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw error;
-    }
-
-    throw new PositionApiError(response.status);
-  }
-}
-
-async function toError(response: Response): Promise<PositionApiError> {
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (!/json/i.test(contentType)) {
-    return new PositionApiError(response.status);
-  }
-
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return new PositionApiError(response.status);
-  }
-
-  if (!isObject(body)) {
-    return new PositionApiError(response.status);
-  }
-
-  const code = typeof body.code === 'string' ? body.code : null;
+async function toError(response: Response, signal?: AbortSignal): Promise<PositionApiError> {
+  const { code, traceId, reason } = await decodeProblem(response, signal);
   return new PositionApiError(
     response.status,
     code,
-    typeof body.traceId === 'string' ? body.traceId : null,
-    response.status === 409 && code === 'position_not_evaluable' && isOneOf(body.reason, NOT_EVALUABLE_REASONS)
-      ? body.reason
+    traceId,
+    response.status === 409 && code === 'position_not_evaluable' && isOneOf(reason, NOT_EVALUABLE_REASONS)
+      ? reason
       : null,
   );
 }

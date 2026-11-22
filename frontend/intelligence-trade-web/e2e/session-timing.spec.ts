@@ -29,6 +29,18 @@ test('предупреждение при 320 CSS px сохраняет форм
   const name = page.getByLabel('Название *', { exact: true });
   await name.fill('Черновик подключения');
   await name.focus();
+  // Замедляем существующий переход, чтобы проверка первого фокуса не зависела от скорости браузера.
+  await page.addStyleTag({ content: '.mantine-Modal-content { transition-duration: 1s !important; }' });
+  await page.evaluate(() => {
+    document.addEventListener('focusin', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLButtonElement) || target.textContent?.trim() !== 'Продлить сессию') return;
+      const dialog = target.closest('[role="dialog"]');
+      if (dialog && !dialog.hasAttribute('data-opacity-at-first-focus')) {
+        dialog.setAttribute('data-opacity-at-first-focus', getComputedStyle(dialog).opacity);
+      }
+    });
+  });
   warned = true;
   for (const tab of [other, page]) {
     await tab.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -38,11 +50,15 @@ test('предупреждение при 320 CSS px сохраняет форм
   const dialog = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
   const extend = dialog.getByRole('button', { name: 'Продлить сессию' });
   await expect(extend).toBeFocused();
+  await expect(dialog).toHaveAttribute('data-opacity-at-first-focus', '1');
   await expect(dialog).toHaveAccessibleDescription('Продлите сессию, чтобы сохранить доступ к приложению.');
   const audit = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
-  expect(audit.violations.map(({ id }) => id)).toEqual([]);
+  expect(audit.violations.map(({ id, nodes }) => ({
+    id,
+    nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+  }))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 
   extended = true;
@@ -81,6 +97,27 @@ test('сбой продления оставляет предупреждени�
   await expect(ended.getByRole('button', { name: 'Продлить сессию' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Обзор' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Возобновить автообновление' })).toHaveCount(0);
+});
+
+test('истечение в открытом предупреждении переносит фокус на повторный вход', async ({ page }) => {
+  await loginThroughLanding(page);
+  let expired = false;
+  await page.route(timingPath, (route) => expired
+    ? route.fulfill({ status: 401 })
+    : route.fulfill({ json: timing(100_000) }));
+  await page.reload();
+  const warning = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
+  const extend = warning.getByRole('button', { name: 'Продлить сессию' });
+  await expect(extend).toBeFocused();
+
+  expired = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+  const ended = page.getByRole('dialog', { name: 'Сессия завершена' });
+  const login = ended.getByRole('button', { name: 'Войти снова' });
+  await expect(login).toBeFocused();
+  await expect(ended).toHaveAccessibleDescription('Войдите снова, чтобы продолжить работу.');
+  await page.keyboard.press('Tab');
+  await expect(login).toBeFocused();
 });
 
 test('повторный вход в другой вкладке восстанавливает исходный маршрут', async ({ page, context }) => {

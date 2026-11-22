@@ -1,14 +1,15 @@
+import { presentError } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent } from 'react';
-import { explicitPresentation, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import type { SessionReadContext } from '../auth/authTypes';
+import { resourceUnavailable, explicitPresentation, isStaleSessionAccessFailure, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
-import { PositionApiError, TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
+import { TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
 import { PositionTimelineItem } from './PositionTimelineItem';
 import { TIMELINE_FILTER_LABELS, timelineItemKey } from './positionTimelineFormatting';
 import type { PositionTimelineItem as TimelineItem, PositionTimelineItemType, PositionTimelinePage } from './positionTypes';
 
-const SESSION_ENDED = 'Сессия завершена. Войдите снова.';
-const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 
 type LoadPhase = 'initial' | 'more' | 'refresh';
 type LoadSource = 'default' | 'manual-refresh';
@@ -36,6 +37,7 @@ interface TimelineNotice {
   traceId: string | null;
   sessionEnded: boolean;
   canRetry: boolean;
+  background?: boolean;
 }
 
 interface TimelineState {
@@ -64,46 +66,34 @@ interface PositionTimelineProps {
   positionId: string;
   settlementAsset: string;
   onLogin: () => void;
+  captureSessionRead?: () => SessionReadContext;
+  isPositionAccessible?: () => boolean;
+  isPositionRevoked?: () => boolean;
 }
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail не показываются.
-function toNotice(error: unknown, phase: LoadPhase): TimelineNotice {
-  const notice = (text: string, traceId: string | null = null): TimelineNotice => ({
-    text,
-    traceId,
-    sessionEnded: false,
-    canRetry: true,
+function toNotice(error: unknown, phase: LoadPhase, background = false): TimelineNotice {
+  const notice = presentError(error, {
+    fallback: PHASE_FALLBACKS[phase],
+    retry: true,
+    messages: {
+      internal_error: PHASE_FALLBACKS[phase],
+      missing: 'История позиции недоступна.',
+      resource_not_found: 'История позиции недоступна.',
+      validation: 'Запрос истории отклонён: некорректные параметры запроса.',
+      validation_failed: 'Запрос истории отклонён: некорректные параметры запроса.',
+      forbidden: 'Недостаточно прав для просмотра истории позиции.',
+      access_forbidden: 'Недостаточно прав для просмотра истории позиции.',
+      'invalid-response': 'Получены некорректные данные истории позиции.',
+    },
   });
-
-  if (!(error instanceof PositionApiError)) {
-    return notice(SERVICE_UNAVAILABLE);
-  }
-
-  if (error.status === 401 || error.code === 'authentication_required') {
-    return { text: SESSION_ENDED, traceId: null, sessionEnded: true, canRetry: false };
-  }
-
-  if (error.status === 404 || error.code === 'resource_not_found') {
-    return { ...notice('История позиции недоступна.', error.traceId), canRetry: false };
-  }
-
-  if (error.status === 400) {
-    return notice('Запрос истории отклонён: некорректные параметры запроса.', error.traceId);
-  }
-
-  if (error.status === 403) {
-    return { ...notice('Недостаточно прав для просмотра истории позиции.', error.traceId), canRetry: false };
-  }
-
-  if (error.status === 503) {
-    return notice(SERVICE_UNAVAILABLE, error.traceId);
-  }
-
-  if (error.status >= 200 && error.status < 300) {
-    return notice('Получены некорректные данные истории позиции.', error.traceId);
-  }
-
-  return notice(PHASE_FALLBACKS[phase], error.traceId);
+  return {
+    text: notice.text,
+    traceId: notice.traceId,
+    sessionEnded: notice.action === 'login',
+    canRetry: notice.action === 'retry',
+    background: background && !resourceUnavailable(error),
+  };
 }
 
 function appendUnique(current: readonly TimelineItem[], page: readonly TimelineItem[]): TimelineItem[] {
@@ -127,7 +117,7 @@ function appendUnique(current: readonly TimelineItem[], page: readonly TimelineI
  * unmount отменяют прежний запрос, а его поздний ответ не применяется. Polling, sync и оценку
  * блок не запускает.
  */
-export function PositionTimeline({ positionId, settlementAsset, onLogin }: PositionTimelineProps) {
+export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionRead, isPositionAccessible, isPositionRevoked }: PositionTimelineProps) {
   const updates = useAutoUpdates();
   const titleId = useId();
   const contentId = useId();
@@ -175,7 +165,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
   ): Promise<void> => {
     if (view.kind === 'silent' || view.kind === 'resume') {
       const version = generation.current;
-      const isCurrent = () => isOpenRef.current && generation.current === version && !schedulerSignal?.aborted;
+      const isCurrent = () => isOpenRef.current && generation.current === version && !schedulerSignal?.aborted && isPositionAccessible?.() !== false;
       return getPositionTimeline(positionId, { types, cursor }, schedulerSignal).then(
         (page) => view.apply(() => {
           if (!isCurrent()) return;
@@ -183,7 +173,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           appliedInvalidationVersion.current = invalidationVersion.current;
           setManualLoadStatus('');
           setState((current) => applyPage(current, phase, cursor, page));
-        }),
+        }, isCurrent),
         (error: unknown) => {
           if (!isCurrent()) return;
           view.fail(error, () => {
@@ -191,7 +181,11 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
             cancelActive();
             setManualLoadStatus('');
             setState((current) => ({ ...current, pending: null, error: { phase, notice: toNotice(error, phase) } }));
-          });
+          }, () => {
+            cancelActive();
+            setManualLoadStatus('');
+            setState({ ...INITIAL_STATE, isOpen: true, error: view.kind === 'silent' ? null : { phase, notice: toNotice(error, phase) } });
+          }, isCurrent);
         },
       );
     }
@@ -205,7 +199,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     const requestController = new AbortController();
     const request = { controller: requestController, generation: requestGeneration, source };
     activeLoad.current = request;
-    const isCurrent = () => requestGeneration === generation.current && !requestController.signal.aborted;
+    const isCurrent = () => requestGeneration === generation.current && !requestController.signal.aborted && isPositionAccessible?.() !== false;
     const readDeferredInvalidation = () => {
       if (source === 'manual-refresh' && isCurrent() && isOpenRef.current
         && invalidationVersion.current > requestInvalidationVersion) {
@@ -242,6 +236,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
     schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
     if (schedulerSignal?.aborted) abortRequest();
 
+    const session = view === explicitPresentation ? captureSessionRead?.() : undefined;
     return getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
       (page) => {
         if (!isCurrent()) {
@@ -255,7 +250,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
             appliedInvalidationVersion.current = Math.max(appliedInvalidationVersion.current, requestInvalidationVersion);
           }
           setState((current) => applyPage(current, phase, cursor, page));
-        });
+        }, isCurrent);
         readDeferredInvalidation();
       },
       (error: unknown) => {
@@ -263,16 +258,41 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
           return;
         }
 
-        activeLoad.current = null;
-        const notice = toNotice(error, phase);
-        view.fail(error, () => {
+        const finishDiscarded = () => {
+          if (activeLoad.current !== request) return;
+          activeLoad.current = null;
+          setManualLoadStatus('');
+          setState((current) => current.pending?.generation === requestGeneration
+            ? { ...current, pending: null }
+            : current);
+          readDeferredInvalidation();
+        };
+        if (isStaleSessionAccessFailure(error, session)) {
+          finishDiscarded();
+          return;
+        }
+        const notice = toNotice(error, phase, view.kind === 'live');
+        if (view === explicitPresentation) {
+          if (notice.sessionEnded) session?.endSession(notice.traceId);
+          else updates.reportAccessFailure(error);
+        }
+        const outcome = view.fail(error, () => {
           setManualLoadStatus('');
           setState((current) => ({ ...current, pending: null, error: { phase, notice } }));
-        });
+        }, () => {
+          cancelActive();
+          setManualLoadStatus('');
+          setState({ ...INITIAL_STATE, isOpen: true, error: { phase, notice } });
+        }, isCurrent);
+        if (outcome === 'stale-session') {
+          finishDiscarded();
+          return;
+        }
+        if (activeLoad.current === request) activeLoad.current = null;
         if (!notice.sessionEnded) readDeferredInvalidation();
       },
     ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
-  }, [cancelActive, positionId]);
+  }, [cancelActive, positionId, captureSessionRead, isPositionAccessible, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader((signal, view) => {
@@ -282,8 +302,11 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
       return load(current.hasLoaded ? 'refresh' : 'initial', current.selectedTypes, null, { schedulerSignal: signal, view });
     });
     realtimeRead.current = scheduler;
-    return () => { realtimeRead.current = null; scheduler.dispose(); };
-  }, [hasCurrentManualLoad, load, updates]);
+    return () => {
+      realtimeRead.current = null;
+      scheduler.dispose(isPositionRevoked?.() ? 'access-revoked' : undefined);
+    };
+  }, [hasCurrentManualLoad, isPositionRevoked, load, updates]);
 
   useRealtimeInvalidation((event) => {
     if (sessionEnded || !(event.type === 'recovery'
@@ -474,7 +497,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin }: Posit
         {error?.phase === 'more' && (
           <TimelineAlert
             notice={error.notice}
-            note="Ранее загруженные события сохранены."
+            note={items.length > 0 ? 'Ранее загруженные события сохранены.' : null}
             retry={retry}
             onLogin={onLogin}
           />
@@ -544,20 +567,15 @@ interface TimelineAlertProps {
 
 function TimelineAlert({ notice, note, retry, onLogin }: TimelineAlertProps) {
   return (
-    <div className="alert" role="alert">
-      <p className="notice-text">{notice.text}</p>
-      {note && <p className="notice-text">{note}</p>}
-      {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
-      {notice.sessionEnded && (
-        <button type="button" className="button button-secondary" onClick={onLogin}>
-          Войти снова
-        </button>
-      )}
-      {notice.canRetry && retry !== null && (
-        <button type="button" className="button button-secondary" onClick={retry.run}>
-          {retry.label}
-        </button>
-      )}
-    </div>
+    <StatusMessage kind={notice.background ? 'warning' : 'error'} text={notice.text} details={note} traceId={notice.traceId} actions={
+      <>
+        {notice.sessionEnded && (
+          <button type="button" className="button button-secondary" onClick={onLogin}>Войти снова</button>
+        )}
+        {notice.canRetry && retry !== null && (
+          <button type="button" className="button button-secondary" onClick={retry.run}>{retry.label}</button>
+        )}
+      </>
+    } />
   );
 }

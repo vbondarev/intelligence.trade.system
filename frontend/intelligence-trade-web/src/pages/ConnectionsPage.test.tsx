@@ -6,6 +6,7 @@ import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { jsonResponse, mockFetch, stubLocationAssign, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { SessionRecheck } from '../test/SessionRecheck';
 import { emitRealtime } from '../test/realtimeTestDriver';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
@@ -58,6 +59,7 @@ function renderAtConnections() {
     <AuthProvider>
       <MemoryRouter initialEntries={[CONNECTIONS_PATH]}>
         <AppRoutes />
+        <SessionRecheck userId={authenticatedSession.user.userId} />
       </MemoryRouter>
     </AuthProvider>,
     { wrapper: MantineProvider },
@@ -151,7 +153,8 @@ describe('ConnectionsPage list', () => {
 
     renderAtConnections();
 
-    expect(await screen.findByText('Загружаем подключения…')).toHaveAttribute('role', 'status');
+    const loading = await screen.findByText('Загружаем подключения…');
+    expect(loading.closest('[role="status"]')).toBeVisible();
   });
 
   it('shows active and disabled connections with their details', async () => {
@@ -195,9 +198,9 @@ describe('ConnectionsPage list', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена');
-    await userEvent.click(within(alert).getByRole('button', { name: 'Войти снова' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Войти снова' }));
 
-    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=/app');
+    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections');
   });
 });
 
@@ -264,12 +267,24 @@ describe('ConnectionsPage add', () => {
     const user = userEvent.setup();
     await screen.findByText(EMPTY_STATE);
 
-    await user.type(screen.getByLabelText('Название *'), '   ');
+    const name = screen.getByLabelText('Название *');
+    await user.type(name, '   ');
     await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
     await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    const descriptionOnFocus = vi.fn(() => {
+      const description = name.getAttribute('aria-describedby');
+      return {
+        invalid: name.getAttribute('aria-invalid'),
+        text: description ? document.getElementById(description)?.textContent : null,
+      };
+    });
+    name.addEventListener('focus', descriptionOnFocus);
     await user.click(screen.getByRole('button', { name: 'Подключить' }));
 
     expect(await screen.findByText('Укажите название подключения.')).toBeVisible();
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(descriptionOnFocus).toHaveBeenCalledOnce();
+    expect(descriptionOnFocus).toHaveReturnedWith({ invalid: 'true', text: 'Укажите название подключения.' });
     expect(mutations(requests)).toHaveLength(0);
   });
 
@@ -320,8 +335,58 @@ describe('ConnectionsPage add', () => {
     );
   });
 
+  it.each([503, 401])('обрабатывает отказ создания подключения по HTTP-статусу %s', async (status) => {
+    const assign = stubLocationAssign();
+    const requests = renderConnections({
+      list: () => [],
+      onCollection: () => status === 401 ? new Response(null, { status }) : problem(status, 'authentication_required'),
+    });
+    const user = userEvent.setup();
+    await screen.findByText(EMPTY_STATE);
+    await user.type(screen.getByLabelText('Название *'), 'Основной');
+    await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
+    await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    await user.click(screen.getByRole('button', { name: 'Подключить' }));
+
+    if (status === 401) {
+      await user.click(await screen.findByRole('button', { name: 'Войти снова' }));
+      expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections');
+      expect(listRequests(requests)).toHaveLength(1);
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent('Сервис временно недоступен');
+      expect(screen.getByRole('heading', { name: 'Подключения' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Войти снова' })).not.toBeInTheDocument();
+      expect(listRequests(requests)).toHaveLength(2);
+    }
+    expect(mutations(requests)).toHaveLength(1);
+  });
+
+  it('сохраняет список после старого отказа чтения по завершении мутации', async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let reads = 0;
+    const requests = renderConnections({
+      list: () => ++reads === 1 ? [mainAccount] : pending,
+      onCollection: () => jsonResponse({ ...mainAccount, displayName: 'Новое имя' }, 201),
+    });
+    const user = userEvent.setup();
+    const name = await screen.findByText(mainAccount.displayName);
+    await user.type(screen.getByLabelText('Название *'), 'Новое имя');
+    await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
+    await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    await user.click(screen.getByRole('button', { name: 'Подключить' }));
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    await act(async () => finish(new Response(null, { status: 403 })));
+
+    expect(name).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(requests.filter(({ url }) => url === '/bff/auth/session')).toHaveLength(2);
+    expect(mutations(requests)).toHaveLength(1);
+  });
+
   it('clears secrets but keeps the name when create is rejected', async () => {
-    renderConnections({ list: () => [], onCollection: () => problem(400, 'exchange_permissions_rejected') });
+    renderConnections({ list: () => [], onCollection: () => problem(403, 'exchange_permissions_rejected') });
     const user = userEvent.setup();
     await screen.findByText(EMPTY_STATE);
 
@@ -682,7 +747,8 @@ describe('recovery failure', () => {
     renderConnections({ list: () => ++calls === 1 ? [mainAccount] : problem(503, 'exchange_unavailable') });
     await findCard('Основной');
     act(() => emitRealtime({ type: 'recovery' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Bybit сейчас недоступен');
+    expect(await screen.findByText(/Bybit сейчас недоступен/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeVisible();
     expect(await findCard('Основной')).toBeInTheDocument();
   });
 });

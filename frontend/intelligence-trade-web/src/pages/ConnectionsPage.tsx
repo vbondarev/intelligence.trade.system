@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { presentError } from '../errors/errorPresentation';
+import { StatusMessage } from '../ui/StatusMessage';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { explicitPresentation, isStaleSessionAccessFailure, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import {
@@ -52,7 +54,6 @@ const ERROR_MESSAGES: Record<ConnectionErrorCode, string> = {
 };
 
 const FALLBACK_ERROR = 'Не удалось выполнить операцию. Повторите попытку позже.';
-const SERVICE_UNAVAILABLE = 'Сервис временно недоступен. Повторите попытку позже.';
 
 const INPUT_HINTS = {
   displayName: 'Укажите название подключения до 100 символов.',
@@ -72,19 +73,26 @@ const CREATE_FIELDS = [...NAME_FIELDS, ...KEY_FIELDS];
 function useFormErrors(fields: readonly InputName[], operation: string) {
   const [errors, setErrors] = useState<FormErrors>({});
   const id = useId();
+  const pendingFocus = useRef<{ form: HTMLFormElement; field: InputName } | null>(null);
+
+  useLayoutEffect(() => {
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    if (!target) return;
+    // Браузер должен получить состояние ошибки до события фокуса.
+    const frame = requestAnimationFrame(() => {
+      if (!target.form.isConnected || !target.form.contains(document.activeElement)) return;
+      const input = target.form.elements.namedItem(target.field);
+      if (input instanceof HTMLInputElement && input !== document.activeElement) input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [errors]);
 
   function show(form: HTMLFormElement, next: FormErrors) {
     if (!form.isConnected) return;
+    const field = fields.find((name) => next[name]) ?? (next.credentials ? 'apiKey' : undefined);
+    pendingFocus.current = field && form.contains(document.activeElement) ? { form, field } : null;
     setErrors(next);
-    const first = fields.find((field) => next[field]) ?? (next.credentials ? 'apiKey' : undefined);
-    if (first && form.contains(document.activeElement)) {
-      requestAnimationFrame(() => {
-        if (form.isConnected && form.contains(document.activeElement)) {
-          const input = form.elements.namedItem(first);
-          if (input instanceof HTMLInputElement) input.focus();
-        }
-      });
-    }
   }
 
   function report(form: HTMLFormElement): ReportError {
@@ -156,43 +164,14 @@ interface Notice {
   text: string;
   traceId?: string | null;
   sessionEnded?: boolean;
+  background?: boolean;
   operation?: string;
-}
-
-function messageForCode(code: string | null): string | undefined {
-  return code !== null && Object.hasOwn(ERROR_MESSAGES, code) ? ERROR_MESSAGES[code as ConnectionErrorCode] : undefined;
-}
-
-function isSessionEnded(error: unknown): boolean {
-  return error instanceof ConnectionsApiError && (error.status === 401 || error.code === 'authentication_required');
 }
 
 // UI ветвится только по HTTP status и machine-readable code: title/detail ProblemDetails не показываются.
 function toErrorNotice(error: unknown): Notice {
-  if (!(error instanceof ConnectionsApiError)) {
-    return { tone: 'error', text: FALLBACK_ERROR };
-  }
-
-  if (isSessionEnded(error)) {
-    return { tone: 'error', text: ERROR_MESSAGES.authentication_required, sessionEnded: true };
-  }
-
-  let text = messageForCode(error.code);
-  if (text === undefined) {
-    if (error.status === 403) {
-      text = ERROR_MESSAGES.access_forbidden;
-    } else if (error.status === 404) {
-      text = ERROR_MESSAGES.resource_not_found;
-    } else if (error.status === 400) {
-      text = ERROR_MESSAGES.validation_failed;
-    } else if (error.status === 503) {
-      text = SERVICE_UNAVAILABLE;
-    } else {
-      text = FALLBACK_ERROR;
-    }
-  }
-
-  return { tone: 'error', text, traceId: error.traceId };
+  const errorNotice = presentError(error, { fallback: FALLBACK_ERROR, messages: { ...ERROR_MESSAGES, forbidden: ERROR_MESSAGES.access_forbidden, missing: ERROR_MESSAGES.resource_not_found, validation: ERROR_MESSAGES.validation_failed } });
+  return { tone: 'error', text: errorNotice.text, traceId: errorNotice.traceId, sessionEnded: errorNotice.action === 'login' };
 }
 
 function validateDisplayName(displayName: string): string | null {
@@ -231,7 +210,7 @@ function formatTimestamp(value: string): string {
 }
 
 export function ConnectionsPage() {
-  const { login } = useAuth();
+  const { login, captureSessionEnd, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [loadError, setLoadError] = useState<Notice | null>(null);
@@ -246,6 +225,7 @@ export function ConnectionsPage() {
   // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
   // более раннего GET не должны перезаписать результат reload после mutation.
   const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
+    const session = view === explicitPresentation ? captureSessionRead() : undefined;
     const generation = view.kind === 'silent' ? listGeneration.current : ++listGeneration.current;
     const isCurrent = () => generation === listGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
@@ -254,14 +234,25 @@ export function ConnectionsPage() {
           setAccounts(items);
           setLoadError(null);
         }
-      }),
+      }, isCurrent),
       (error: unknown) => {
-        if (isCurrent()) {
-          view.fail(error, () => { if (isCurrent()) setLoadError(toErrorNotice(error)); });
+        if (isCurrent() && !isStaleSessionAccessFailure(error, session)) {
+          const message = toErrorNotice(error);
+          if (view === explicitPresentation) {
+            if (message.sessionEnded) session?.endSession(message.traceId);
+            else updates.reportAccessFailure(error);
+          }
+          view.fail(error, () => {
+            if (isCurrent()) setLoadError({ ...message, background: view.kind === 'live' && !message.sessionEnded });
+          }, () => {
+            listGeneration.current += 1;
+            setAccounts(null);
+            if (view.kind !== 'silent') setLoadError(message);
+          }, isCurrent);
         }
       },
     );
-  }, []);
+  }, [captureSessionRead, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader(loadAccounts);
@@ -284,6 +275,7 @@ export function ConnectionsPage() {
   const runMutation = useCallback(
     async (action: () => Promise<string>, report?: ReportError): Promise<boolean> => {
       if (mutationPending.current) return false;
+      const endSession = captureSessionEnd();
       mutationPending.current = true;
       updates.cancelResume();
       setPending(true);
@@ -295,8 +287,10 @@ export function ConnectionsPage() {
         setPanel(null);
         succeeded = true;
       } catch (error) {
-        sessionEnded = isSessionEnded(error);
-        if (!report?.handle(error)) setNotice({ ...toErrorNotice(error), operation: report?.operation });
+        const message = toErrorNotice(error);
+        sessionEnded = message.sessionEnded === true;
+        if (sessionEnded) endSession(message.traceId);
+        if (!report?.handle(error)) setNotice({ ...message, operation: report?.operation });
       }
 
       try {
@@ -308,7 +302,7 @@ export function ConnectionsPage() {
 
       return succeeded;
     },
-    [loadAccounts, updates],
+    [loadAccounts, updates, captureSessionEnd],
   );
 
   const handleCreate = (displayName: string, credentials: ExchangeCredentials, report: ReportError) =>
@@ -373,12 +367,15 @@ export function ConnectionsPage() {
       <AddConnectionForm pending={pending} onSubmit={handleCreate} />
 
       <h2 className="section-title">Мои подключения</h2>
-      {loadError && <NoticeMessage notice={loadError} onLogin={login} />}
+      {loadError && (
+        <NoticeMessage
+          notice={{ ...loadError, background: loadError.background && accounts !== null }}
+          onLogin={login}
+          onRetry={() => realtimeRead.current?.refresh()}
+        />
+      )}
       {accounts === null && loadError === null && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем подключения…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем подключения…" />
       )}
       {accounts !== null && accounts.length === 0 && (
         <p className="muted">Подключений пока нет. Добавьте read-only ключ Bybit.</p>
@@ -408,27 +405,13 @@ export function ConnectionsPage() {
   );
 }
 
-function NoticeMessage({ notice, onLogin }: { notice: Notice; onLogin: () => void }) {
-  if (notice.tone === 'success') {
-    return (
-      <p className="notice notice-success" role="status">
-        {notice.text}
-      </p>
-    );
-  }
-
-  return (
-    <div className="alert" role="alert">
-      {notice.operation && <p className="notice-text">{notice.operation}</p>}
-      <p className="notice-text">{notice.text}</p>
-      {notice.traceId && <p className="notice-trace">Код диагностики: {notice.traceId}</p>}
-      {notice.sessionEnded && (
-        <button type="button" className="button button-secondary" onClick={onLogin}>
-          Войти снова
-        </button>
-      )}
-    </div>
-  );
+function NoticeMessage({ notice, onLogin, onRetry }: { notice: Notice; onLogin: () => void; onRetry?: () => void }) {
+  const actions = notice.sessionEnded && (
+    <button type="button" className="button button-secondary" onClick={onLogin}>
+      Войти снова
+    </button>
+  ) || (onRetry && <button type="button" className="button button-secondary" onClick={onRetry}>Повторить</button>);
+  return <StatusMessage kind={notice.background ? 'warning' : notice.tone} text={notice.text} traceId={notice.traceId} label={notice.operation} actions={actions} />;
 }
 
 function AddConnectionForm({

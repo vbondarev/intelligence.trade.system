@@ -395,9 +395,10 @@ describe('PositionPage evaluation command', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
 
-    const alert = await within(evaluationPanel()).findByRole('alert');
+    const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(within(alert).getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
   });
 
   it('does not apply an evaluation result to another position', async () => {
@@ -754,6 +755,67 @@ describe('PositionPage evaluation validity on an open page', () => {
 
 
 describe('realtime position invalidation', () => {
+  it('при фоновом 403 с несовместимым кодом показывает отказ в доступе и скрывает снимок', async () => {
+    let accessRevoked = false;
+    renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => accessRevoked
+        ? problem(403, 'resource_not_found', { traceId: 'trace-position-forbidden' })
+        : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    await findTitle(/BTCUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+
+    accessRevoked = true;
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Недостаточно прав для просмотра позиции.');
+    expect(alert).toHaveTextContent('trace-position-forbidden');
+    expect(screen.queryByText('Позиция не найдена или недоступна для текущего пользователя.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /BTCUSDT/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+  });
+
+  it('сохраняет применённый пустой снимок оценки при фоновом сбое и повторе', async () => {
+    let calls = 0;
+    const empty = 'Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».';
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [evaluationUrl()]: () => new Response(null, { status: ++calls === 2 ? 503 : 204 }),
+    }));
+    expect(await screen.findByText(empty)).toBeVisible();
+
+    act(() => emitRealtime({ type: 'evaluation.updated', positionId: POSITION_ID }));
+
+    const retry = await screen.findByRole('button', { name: 'Повторить' });
+    expect(screen.getByText(empty)).toBeVisible();
+    expect(retry.closest('[role="status"]')).toHaveTextContent('Сервис временно недоступен');
+    await userEvent.click(retry);
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(screen.getByText(empty)).toBeVisible();
+    expect(urls(requests, evaluationUrl())).toHaveLength(3);
+  });
+
+  it('сохраняет позицию при фоновом сбое и повторяет чтение через GET', async () => {
+    let calls = 0;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => ++calls === 2
+        ? new Response(null, { status: 503 })
+        : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    const title = await findTitle(/BTCUSDT/);
+
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+
+    const retry = await screen.findByRole('button', { name: 'Повторить' });
+    expect(title).toBeVisible();
+    await userEvent.click(retry);
+
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(title).toBeVisible();
+    expect(urls(requests, positionUrl())).toHaveLength(3);
+    expect(evaluationPosts(requests)).toHaveLength(0);
+  });
+
   it('keeps history lazy and recovers every displayed resource without POST', async () => {
     const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, { [timelineUrl()]: () => jsonResponse(firstTimelinePage) }));
     await findTitle(/BTCUSDT/);
@@ -810,6 +872,33 @@ describe('recovery of a pending position read', () => {
 
 
 describe('recovery of pending timeline', () => {
+  it('отбрасывает подготовленную оценку после отзыва позиции при возобновлении', async () => {
+    const unavailable = deferred<Response>();
+    const market = deferred<Response>();
+    let resuming = false;
+    const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => resuming ? unavailable.promise : jsonResponse(positionFixture()),
+      [evaluationUrl()]: () => jsonResponse(evaluationFixture()),
+      [marketUrl()]: () => resuming ? market.promise : new Response(null, { status: 503 }),
+      [timelineUrl()]: () => resuming ? new Promise<Response>(() => {}) : jsonResponse(firstTimelinePage()),
+    }));
+    await screen.findByText('Удерживать');
+    await userEvent.click(await screen.findByRole('button', { name: 'История позиции' }));
+    await waitFor(() => expect(urls(requests, timelineUrl())).toHaveLength(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    resuming = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await waitFor(() => expect(urls(requests, evaluationUrl())).toHaveLength(2));
+    await act(async () => unavailable.resolve(new Response(null, { status: 404 })));
+
+    await screen.findByRole('heading', { name: 'Позиция недоступна' });
+    expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'История позиции' })).not.toBeInTheDocument();
+    await act(async () => market.resolve(new Response(null, { status: 503 })));
+    expect(await screen.findByRole('button', { name: 'Приостановить автообновление' })).toBeEnabled();
+  });
+
   it('keeps a closed history lazy and replaces a hung open history read', async () => {
     const slow = deferred<Response>();
     let calls = 0;

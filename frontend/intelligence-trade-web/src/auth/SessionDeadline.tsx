@@ -1,5 +1,5 @@
 import { Modal } from '@mantine/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { extendSession, fetchSessionTiming, type SessionTiming } from './authApi';
 
 const WARNING_MS = 120_000;
@@ -7,6 +7,12 @@ const POLL_MS = 60_000;
 const RETRY_MS = 5_000;
 const REQUEST_MS = 8_000;
 const CHANNEL = 'trade-bff-session-timing';
+const SESSION_DIALOG_TRANSITION = {
+  // Текст должен оставаться контрастным уже в момент установки фокуса.
+  transitionProperty: 'transform',
+  in: { transform: 'translateY(0)' },
+  out: { transform: 'translateY(-30px)' },
+};
 
 type Deadline = { kind: 'unknown' | 'active' | 'expired' } | { kind: 'warning'; expiresAt: number };
 
@@ -20,6 +26,8 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
   const [extending, setExtending] = useState(false);
   const [extensionError, setExtensionError] = useState(false);
   const extend = useRef<() => void>(() => {});
+  const reentryButton = useRef<HTMLButtonElement>(null);
+  const wasWarningOpen = useRef(false);
 
   useEffect(() => {
     const lifetime = new AbortController();
@@ -133,9 +141,13 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
   const dismiss = () => {
     if (deadline.kind === 'warning' && !extending) setDismissed(deadline.expiresAt);
   };
-  const focusReentry = useCallback((button: HTMLButtonElement | null) => {
-    if (button) requestAnimationFrame(() => { if (button.isConnected) button.focus(); });
-  }, []);
+  useLayoutEffect(() => {
+    const button = reentryButton.current;
+    if (expired && wasWarningOpen.current && button?.isConnected && document.activeElement !== button) {
+      button.focus({ preventScroll: true });
+    }
+    wasWarningOpen.current = warning && opened;
+  }, [expired, warning, opened]);
 
   return (
     <>
@@ -151,7 +163,7 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
         closeOnEscape={!expired && !extending}
       >
         <Modal.Overlay />
-        <Modal.Content>
+        <Modal.Content transitionProps={{ transition: SESSION_DIALOG_TRANSITION }}>
           <Modal.Header>
             <Modal.Title>{expired ? 'Сессия завершена' : 'Сессия скоро завершится'}</Modal.Title>
           </Modal.Header>
@@ -164,7 +176,7 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
             )}
             <div className="form-actions">
               {expired ? (
-                <button ref={focusReentry} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
+                <button ref={reentryButton} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
               ) : (
                 <>
                   <button type="button" className="button" data-autofocus aria-disabled={extending || undefined} onClick={() => extend.current()}>

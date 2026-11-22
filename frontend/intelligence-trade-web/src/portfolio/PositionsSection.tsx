@@ -1,3 +1,4 @@
+import { StatusMessage } from '../ui/StatusMessage';
 import { useId, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MarketValuationDetails } from '../freshness/FreshnessDetails';
@@ -158,13 +159,10 @@ export function PositionsSection({
       </div>
 
       {list.loading && (
-        <p className="inline-status" role="status">
-          <span className="spinner" aria-hidden="true" />
-          Загружаем позиции…
-        </p>
+        <StatusMessage kind="loading" text="Загружаем позиции…" />
       )}
       {!list.loading && list.items.length === 0 && list.error === null && (
-        <p className="muted">{filters.view === 'closed' ? 'Закрытых позиций нет.' : 'Текущих позиций нет.'}</p>
+        <StatusMessage kind="empty" text={filters.view === 'closed' ? 'Закрытых позиций нет.' : 'Текущих позиций нет.'} />
       )}
       {list.items.length > 0 && (
         <PositionCards items={list.items} returnTo={returnTo} accountName={accountName} />

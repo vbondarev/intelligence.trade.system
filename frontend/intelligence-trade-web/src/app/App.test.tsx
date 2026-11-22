@@ -6,6 +6,7 @@ import { AuthProvider } from '../auth/AuthProvider';
 import { useAuth } from '../auth/authContext';
 import type { AuthState } from '../auth/authTypes';
 import { jsonResponse, mockFetch, stubLocationAssign } from '../test/fetchMock';
+import { SessionRecheck } from '../test/SessionRecheck';
 import { emitRealtime } from '../test/realtimeTestDriver';
 import { AppRoutes } from './router';
 
@@ -92,6 +93,118 @@ describe('App routing and session bootstrap', () => {
       expect(heading).toBeVisible();
       expect(screen.getByRole('button', { name: 'Возобновить автообновление' })).toBeVisible();
     }
+  });
+
+  it.each([false, true])('игнорирует старый 401 при перепроверке сессии (перепроверка завершена: %s)', async (confirmed) => {
+    const assign = stubLocationAssign();
+    let finishOldRead!: (response: Response) => void;
+    const oldRead = new Promise<Response>((resolve) => { finishOldRead = resolve; });
+    let finishCheck!: (response: Response) => void;
+    const check = new Promise<Response>((resolve) => { finishCheck = resolve; });
+    let sessionReads = 0;
+    let accountReads = 0;
+    const requests = mockFetch({
+      '/bff/auth/session': () => ++sessionReads === 1 ? jsonResponse(authenticatedSession) : check,
+      '/bff/me/exchange-accounts': () => {
+        accountReads += 1;
+        if (accountReads === 1) return oldRead;
+        return new Response(null, { status: accountReads === 2 ? 403 : 401 });
+      },
+    });
+    renderAt('/app');
+    const heading = await screen.findByRole('heading', { name: 'Обзор' });
+    await waitFor(() => expect(accountReads).toBe(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    await waitFor(() => expect(authRequestUrls(requests).filter((url) => url === '/bff/auth/session')).toHaveLength(2));
+
+    if (confirmed) await act(async () => finishCheck(jsonResponse(authenticatedSession)));
+    await act(async () => finishOldRead(new Response(null, { status: 401 })));
+    expect(heading).toBeVisible();
+    if (!confirmed) await act(async () => finishCheck(jsonResponse(authenticatedSession)));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Войти снова' }));
+    expect(heading).not.toBeInTheDocument();
+    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp');
+  });
+
+  it('сохраняет снимок на паузе после запоздалого 403 прежней эпохи', async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let finishCheck!: (response: Response) => void;
+    const accessCheck = new Promise<Response>((resolve) => { finishCheck = resolve; });
+    let reads = 0;
+    let checks = 0;
+    const account = {
+      id: '2f6f4e0a-9b0b-4a3b-8db2-07e3c4b1d9a6', displayName: 'Контрольное подключение',
+      exchange: 'bybit', connectionStatus: 'connected', capabilities: [], lastSyncedAt: null,
+    };
+    const requests = mockFetch({
+      '/bff/auth/session': () => ++checks === 3 ? accessCheck : jsonResponse(authenticatedSession),
+      '/bff/me/exchange-accounts': () => {
+        reads += 1;
+        if (reads === 1) return jsonResponse({ items: [account] });
+        return reads === 2 ? pending : new Response(null, { status: 403 });
+      },
+    });
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/app/settings/connections']}>
+          <AppRoutes />
+          <SessionRecheck userId={authenticatedSession.user.userId} />
+        </MemoryRouter>
+      </AuthProvider>,
+      { wrapper: MantineProvider },
+    );
+
+    const name = await screen.findByText(account.displayName);
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    expect(reads).toBe(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    expect(authRequestUrls(requests).filter((url) => url === '/bff/auth/session')).toHaveLength(2);
+    await act(async () => finish(new Response(null, { status: 403 })));
+
+    expect(name).toBeVisible();
+    expect(authRequestUrls(requests).filter((url) => url === '/bff/auth/session')).toHaveLength(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    expect(name).not.toBeInTheDocument();
+    expect(checks).toBe(3);
+    await act(async () => emitRealtime({ type: 'recovery' }));
+    expect(reads).toBe(4);
+    expect(checks).toBe(3);
+    await act(async () => finishCheck(jsonResponse(authenticatedSession)));
+  });
+
+  it('перекрывающиеся проверки сохраняют reconnect подтверждённого пользователя', async () => {
+    let finishFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { finishFirst = resolve; });
+    let finishSecond!: (response: Response) => void;
+    const second = new Promise<Response>((resolve) => { finishSecond = resolve; });
+    let reads = 0;
+    mockFetch({
+      '/bff/auth/session': () => [jsonResponse(authenticatedSession), first, second][reads++]!,
+    });
+    let revalidate!: ReturnType<typeof useAuth>['revalidate'];
+    function Probe() {
+      const auth = useAuth();
+      revalidate = auth.revalidate;
+      return <p>{auth.user?.subject}</p>;
+    }
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await screen.findByText(authenticatedSession.user.subject);
+    const check = () => revalidate(authenticatedSession.user.userId, new AbortController().signal);
+    const reconnectCheck = check();
+    const accessCheck = check();
+
+    await act(async () => finishSecond(jsonResponse(authenticatedSession)));
+    await expect(accessCheck).resolves.toBe(true);
+    await act(async () => finishFirst(new Response(null, { status: 403 })));
+    await expect(reconnectCheck).resolves.toBe(true);
+    expect(screen.getByText(authenticatedSession.user.subject)).toBeVisible();
   });
 
   it.each(['отмена', 'смена пользователя'])('игнорирует поздний 403: %s', async (reason) => {

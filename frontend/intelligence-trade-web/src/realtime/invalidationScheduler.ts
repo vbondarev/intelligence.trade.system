@@ -13,8 +13,9 @@ const RECOVERY_RETRY_DELAYS_MS = [250, 500];
 
 // Обычные события объединяются; recovery освобождает ожидание отменённого GET.
 export function createInvalidationScheduler(
-  read: (signal: AbortSignal) => Promise<void>,
+  read: (signal: AbortSignal, hasRecoveryRetry: () => boolean) => Promise<void>,
   canInterruptForRetry: () => boolean = () => true,
+  hasExplicitRead: () => boolean = () => false,
 ): InvalidationScheduler {
   let dirty = false;
   let running = false;
@@ -81,14 +82,19 @@ export function createInvalidationScheduler(
     active?.abort();
   }
 
+  function canDrain() {
+    return dirty && !disposed && (hasExplicitRead() || recoveryPending || (!waitingForOnline && retryTimer === undefined));
+  }
+
   async function drain() {
     if (running || disposed) return;
     running = true;
     try {
-      while (dirty && !disposed) {
-        dirty = false;
-        const cycle = recoveryPending ? recovery : null;
-        recoveryPending = false;
+      while (canDrain()) {
+        const explicit = hasExplicitRead();
+        const cycle = recoveryPending && !explicit ? recovery : null;
+        if (!explicit) recoveryPending = false;
+        dirty = recoveryPending;
         active?.abort();
         const controller = new AbortController();
         active = controller;
@@ -98,7 +104,9 @@ export function createInvalidationScheduler(
           controller.signal.addEventListener('abort', onAbort, { once: true });
         });
         try {
-          await Promise.race([(async () => read(controller.signal))(), aborted]);
+          const hasRecoveryRetry = () => cycle !== null && recovery === cycle && !controller.signal.aborted
+            && RECOVERY_RETRY_DELAYS_MS[cycle.retries] !== undefined;
+          await Promise.race([(async () => read(controller.signal, hasRecoveryRetry))(), aborted]);
           if (cycle && recovery === cycle && !controller.signal.aborted) clearRecovery();
         } catch (error) {
           if (cycle && recovery === cycle && !controller.signal.aborted) {
@@ -112,7 +120,7 @@ export function createInvalidationScheduler(
       }
     } finally {
       running = false;
-      if (dirty && !disposed) void drain();
+      if (canDrain()) void drain();
     }
   }
 

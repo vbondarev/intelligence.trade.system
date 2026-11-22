@@ -1,3 +1,4 @@
+import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { POSITION_SEARCH_PATH } from '../position/positionNavigation';
@@ -14,16 +15,16 @@ export function AppShell() {
 }
 
 function DataUpdatesShell() {
-  const { user, revalidate } = useAuth();
-  const [updates] = useState(createAutoUpdates);
+  const { user, revalidate, captureSessionRead } = useAuth();
+  const [updates] = useState(() => createAutoUpdates(captureSessionRead));
   const userId = user?.userId;
 
   useEffect(() => {
     if (!userId) return;
     const lifetime = new AbortController();
     let checking = false;
-    updates.setAccessCheck(() => {
-      if (checking) return;
+    updates.setAccessCheck((status) => {
+      if (status !== 403 || checking) return;
       checking = true;
       void revalidate(userId, lifetime.signal).finally(() => { checking = false; });
     });
@@ -107,9 +108,7 @@ function AuthenticatedShell() {
           </div>
         )}
         {error && (
-          <p className="alert" role="alert">
-            {error}
-          </p>
+          <StatusMessage kind="error" text={error} />
         )}
         {!sessionEnded && <Outlet />}
       </main>

@@ -1,3 +1,5 @@
+import { AuthContext } from '../auth/authContext';
+import type { SessionReadContext } from '../auth/authTypes';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -7,7 +9,7 @@ import { AutoUpdatesContext } from '../realtime/autoUpdatesContext';
 import { RealtimeContext } from '../realtime/realtimeContext';
 import type { RealtimeInvalidation, RealtimeListener } from '../realtime/realtimeTypes';
 import { jsonResponse, mockFetch, type RouteHandler } from '../test/fetchMock';
-import { positionFixture } from '../test/positionFixtures';
+import { ACCOUNT_ID, positionFixture } from '../test/positionFixtures';
 import { PositionSearchPage } from './PositionSearchPage';
 
 const empty = () => jsonResponse({ items: [], hasMore: false, nextCursor: null });
@@ -15,13 +17,16 @@ const results = (symbol: string, averageEntryPrice = 60000) => jsonResponse({
   items: [positionFixture({ symbol, averageEntryPrice })], hasMore: false, nextCursor: null,
 });
 
-function renderSearch(routes: Record<string, RouteHandler>) {
+function renderSearch(
+  routes: Record<string, RouteHandler>,
+  captureSessionRead: () => SessionReadContext = () => ({ isCurrent: () => true, endSession: vi.fn() }),
+) {
   const requests = mockFetch({
     '/bff/me/exchange-accounts': () => jsonResponse({ items: [] }),
     '/bff/me/positions?trackingState=closed&symbol=BTCUSDT': empty,
     ...routes,
   });
-  const updates = createAutoUpdates();
+  const updates = createAutoUpdates(captureSessionRead);
   const listeners = new Set<RealtimeListener>();
   const realtime = {
     state: 'ready' as const,
@@ -35,7 +40,12 @@ function renderSearch(routes: Record<string, RouteHandler>) {
     <MemoryRouter initialEntries={['/app/positions/search?symbol=BTCUSDT']}>
       <AutoUpdatesContext.Provider value={updates}>
         <RealtimeContext.Provider value={realtime}>
-          <PositionSearchPage />
+          <AuthContext.Provider value={{
+            authenticated: true, loading: false, user: null, error: null, logoutAvailable: false,
+            login: vi.fn(), logout: vi.fn(), retry: vi.fn(), revalidate: vi.fn(), captureSessionRead, captureSessionEnd: () => captureSessionRead().endSession,
+          }}>
+            <PositionSearchPage />
+          </AuthContext.Provider>
         </RealtimeContext.Provider>
       </AutoUpdatesContext.Provider>
     </MemoryRouter>,
@@ -48,6 +58,163 @@ function renderSearch(routes: Record<string, RouteHandler>) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it('при 403 очередной страницы скрывает результаты и проверяет общую сессию', async () => {
+  const { updates } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => jsonResponse({
+      items: [positionFixture({ symbol: 'BTCUSDT' })], hasMore: true, nextCursor: 'next',
+    }),
+    '/bff/me/positions?symbol=BTCUSDT&cursor=next': () => new Response(null, { status: 403 }),
+  });
+  const checkAccess = vi.fn();
+  updates.setAccessCheck(checkAccess);
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Загрузить ещё' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Доступ к поиску недоступен');
+  expect(screen.queryByRole('link', { name: /^BTCUSDT/ })).not.toBeInTheDocument();
+  expect(checkAccess).toHaveBeenCalledExactlyOnceWith(403, null);
+});
+
+it.each(['справочник', 'группа'] as const)('отбрасывает подготовленный снимок после отзыва: %s', async (area) => {
+  const accountsUrl = '/bff/me/exchange-accounts';
+  const positionsUrl = '/bff/me/positions?symbol=BTCUSDT';
+  const account = { id: ACCOUNT_ID, displayName: 'Старое имя', exchange: 'bybit',
+    connectionStatus: 'connected', capabilities: [], lastSyncedAt: null };
+  let targetReads = 0;
+  const accountResult = () => jsonResponse({ items: [account] });
+  const positionResult = () => jsonResponse({
+    items: [positionFixture()], hasMore: true, nextCursor: 'old',
+  });
+  const afterRevocation = new Promise<Response>(() => {});
+  const readTarget = (response: () => Response) => {
+    targetReads += 1;
+    if (targetReads < 3) return response();
+    return targetReads === 3 ? new Response(null, { status: 403 }) : afterRevocation;
+  };
+  const { updates, emit } = renderSearch({
+    [accountsUrl]: area === 'справочник' ? () => readTarget(accountResult) : accountResult,
+    [positionsUrl]: area === 'группа' ? () => readTarget(positionResult) : positionResult,
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const independent = updates.createReader(async (_, view) => {
+    if (view.kind === 'resume') await pending;
+  });
+  const name = area === 'справочник' ? /Старое имя/ : /^BTCUSDT/;
+  expect(await screen.findByRole('link', { name })).toBeVisible();
+  await act(async () => updates.toggle());
+  await act(async () => updates.toggle());
+  expect(targetReads).toBe(2);
+
+  await act(async () => emit({ type: 'recovery' }));
+  expect(targetReads).toBe(3);
+  expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+  await act(async () => finish());
+
+  expect(updates.getSnapshot().mode).toBe('live');
+  expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+  if (area === 'группа') expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
+  independent.dispose();
+});
+
+it.each([false, true])('привязывает 401 к старту GET после ручной страницы (смена эпохи перед GET: %s)', async (beforeRead) => {
+  let epoch = 0;
+  const endSession = vi.fn();
+  const capture = () => {
+    const captured = epoch;
+    return { isCurrent: () => captured === epoch, endSession: () => { if (captured === epoch) endSession(); } };
+  };
+  let finishPage!: (response: Response) => void;
+  let finishRead!: (response: Response) => void;
+  const pendingPage = new Promise<Response>((resolve) => { finishPage = resolve; });
+  const pendingRead = new Promise<Response>((resolve) => { finishRead = resolve; });
+  let reads = 0;
+  const { updates } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => ++reads === 1
+      ? jsonResponse({ items: [positionFixture()], hasMore: true, nextCursor: 'next' }) : pendingRead,
+    '/bff/me/positions?symbol=BTCUSDT&cursor=next': () => pendingPage,
+  }, capture);
+
+  await screen.findByRole('link', { name: /^BTCUSDT/ });
+  await act(async () => updates.toggle());
+  await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+  await act(async () => updates.toggle());
+  expect(reads).toBe(1);
+  if (beforeRead) epoch += 1;
+  await act(async () => finishPage(new Response(null, { status: 503 })));
+  await waitFor(() => expect(reads).toBe(2));
+  if (!beforeRead) epoch += 1;
+  await act(async () => finishRead(new Response(null, { status: 401 })));
+
+  expect(endSession).toHaveBeenCalledTimes(beforeRead ? 1 : 0);
+  expect(updates.getSnapshot().mode).toBe(beforeRead ? 'failed' : 'live');
+});
+
+it('прекращает чтение снимка при смене эпохи между страницами', async () => {
+  let epoch = 0;
+  const capture = () => {
+    const captured = epoch;
+    return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+  };
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { finish = resolve; });
+  let reads = 0;
+  let continuations = 0;
+  const first = (price: number) => jsonResponse({
+    items: [positionFixture({ averageEntryPrice: price })], hasMore: true, nextCursor: 'next',
+  });
+  const { updates } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': () => ++reads === 1 ? first(60000) : pending,
+    '/bff/me/positions?symbol=BTCUSDT&cursor=next': () => {
+      continuations += 1;
+      return jsonResponse({ items: [positionFixture({ id: 'other', averageEntryPrice: 65000 })], hasMore: false, nextCursor: null });
+    },
+  }, capture);
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Загрузить ещё' }));
+  expect(await screen.findByRole('link', { name: /65\s000/ })).toBeVisible();
+  await act(async () => updates.toggle());
+  await act(async () => updates.toggle());
+  expect(reads).toBe(2);
+  epoch += 1;
+  await act(async () => finish(first(70000)));
+
+  expect(updates.getSnapshot().mode).toBe('live');
+  expect(continuations).toBe(1);
+  expect(screen.queryByRole('link', { name: /70\s000/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /60\s000/ })).toBeVisible();
+});
+
+it.each([403, 404])('сохраняет ручную страницу после старого отказа %s', async (status) => {
+  let epoch = 0;
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { finish = resolve; });
+  const initial = () => jsonResponse({ items: [positionFixture()], hasMore: true, nextCursor: 'next' });
+  const nextUrl = '/bff/me/positions?symbol=BTCUSDT&cursor=next';
+  let continuations = 0;
+  const { updates, requests } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': initial,
+    [nextUrl]: () => ++continuations === 1 ? pending : empty(),
+  }, () => {
+    const captured = epoch;
+    return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+  });
+  const check = vi.fn();
+  updates.setAccessCheck(check);
+  const more = await screen.findByRole('button', { name: 'Загрузить ещё' });
+  await userEvent.click(more);
+  expect(continuations).toBe(1);
+  epoch += 1;
+  await act(async () => finish(new Response(null, { status })));
+
+  expect(screen.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(check).not.toHaveBeenCalled();
+  expect(more).toBeEnabled();
+  await userEvent.click(more);
+  expect(requests.filter(({ url }) => url === nextUrl)).toHaveLength(2);
 });
 
 it('оставляет фокус и DOM поля после поиска с клавиатуры', async () => {
@@ -210,11 +377,12 @@ it.each([false, true])('сохраняет ручную страницу при 
   expect(screen.queryByRole('link', { name: /^BTCUSDT.*61\s000/ })).not.toBeInTheDocument();
 });
 
-it('сохраняет снимок на паузе при отказе REST и передаёт отказ проверке доступа', async () => {
+it('обрабатывает отказы REST на паузе и скрывает снимок при отзыве доступа', async () => {
   let status = 200;
+  const endSession = vi.fn();
   const { updates, emit } = renderSearch({
     '/bff/me/positions?symbol=BTCUSDT': () => status === 200 ? results('BTCUSDT') : jsonResponse(null, status),
-  });
+  }, () => ({ isCurrent: () => true, endSession }));
   await screen.findByRole('link', { name: /^BTCUSDT.*60\s000/ });
   const checkAccess = vi.fn();
   updates.setAccessCheck(checkAccess);
@@ -223,8 +391,9 @@ it('сохраняет снимок на паузе при отказе REST и 
     status = failure;
     await act(async () => emit({ type: 'recovery' }));
   }
-  expect(checkAccess).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole('link', { name: /^BTCUSDT.*60\s000/ })).toBeVisible();
+  expect(endSession).toHaveBeenCalledExactlyOnceWith(null);
+  expect(checkAccess).toHaveBeenCalledExactlyOnceWith(403, null);
+  expect(screen.queryByRole('link', { name: /^BTCUSDT.*60\s000/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 

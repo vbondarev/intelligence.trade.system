@@ -8,6 +8,7 @@ import type { ExchangeAccount } from '../connections/connectionTypes';
 import type { Portfolio, PositionListItem } from '../portfolio/portfolioTypes';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
 import { positionFixture } from '../test/positionFixtures';
+import { SessionRecheck } from '../test/SessionRecheck';
 import { emitRealtime } from '../test/realtimeTestDriver';
 
 // jsdom не реализует canvas, который нужен графику страницы позиции.
@@ -137,6 +138,7 @@ function renderHome(path: string, routes: Record<string, RouteHandler>): Recorde
       <MemoryRouter initialEntries={[path]}>
         <AppRoutes />
         <LocationProbe />
+        <SessionRecheck userId={authenticatedSession.user.userId} />
       </MemoryRouter>
     </AuthProvider>,
     { wrapper: MantineProvider },
@@ -457,6 +459,45 @@ describe('HomePage positions', () => {
     expect(searchParams().get('symbol')).toBe('ETHUSDC');
   });
 
+  it('повторяет проваленную страницу списка с исходным cursor', async () => {
+    const second = position({ id: 'second', symbol: 'SOLUSDT', size: 10 });
+    const firstUrl = positionsUrl(MAIN_ID);
+    const nextUrl = positionsUrl(MAIN_ID, '&cursor=opaque%2Bcursor%2F%3D');
+    let continuationReads = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'opaque+cursor/=') }),
+      [nextUrl]: () => ++continuationReads === 1 ? new Response(null, { status: 503 }) : page([second]),
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Повторить' }));
+
+    expect(await screen.findAllByRole('article', { name: 'SOLUSDT · 10 LONG' })).toHaveLength(1);
+    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(urls(requests, firstUrl)).toHaveLength(1);
+    expect(urls(requests, nextUrl)).toHaveLength(2);
+  });
+
+  it('сохраняет позиции и cursor после старого отказа продолжения', async () => {
+    const pending = deferred<Response>();
+    const nextUrl = positionsUrl(MAIN_ID, '&cursor=next');
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'next') }),
+      [nextUrl]: () => pending.promise,
+    });
+    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    expect(urls(requests, nextUrl)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    await act(async () => pending.resolve(new Response(null, { status: 403 })));
+
+    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(urls(requests, '/bff/auth/session')).toHaveLength(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+    expect(urls(requests, nextUrl)).toHaveLength(2);
+  });
+
   it('appends the next page with the opaque cursor', async () => {
     const second = position({ id: 'second', symbol: 'SOLUSDT', size: 10 });
     const requests = renderHome('/app', {
@@ -505,6 +546,26 @@ describe('HomePage manual sync', () => {
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(2);
     expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2);
     expect(requests.some((request) => request.url.includes('evaluation'))).toBe(false);
+  });
+
+  it('сохраняет подключение, если отказ после синхронизации устарел', async () => {
+    const pending = deferred<Response>();
+    let reads = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount]),
+      [ACCOUNTS_URL]: () => ++reads === 1 ? jsonResponse({ items: [mainAccount] }) : pending.promise,
+      [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
+    });
+    await findSummary();
+    await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
+    await waitFor(() => expect(reads).toBe(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    await act(async () => pending.resolve(new Response(null, { status: 403 })));
+
+    expect(screen.getByRole('region', { name: 'Сводка' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(urls(requests, '/bff/auth/session')).toHaveLength(2);
+    expect(urls(requests, syncUrl(MAIN_ID))).toHaveLength(1);
   });
 
   it('keeps the last successful portfolio and positions visible when the post-sync reload fails', async () => {
@@ -572,7 +633,7 @@ describe('HomePage manual sync', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Сессия завершена. Войдите снова.');
-    expect(within(alert).getByRole('button', { name: 'Войти снова' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Войти снова' })).toBeVisible();
     expect(urls(requests, ACCOUNTS_URL)).toHaveLength(1);
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(1);
   });

@@ -253,7 +253,7 @@ public sealed partial class AuthenticationIntegrationTests(
         failedLogin.Headers.Location.Should().BeNull();
         failedLogin.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
         var failedHtml = await failedLogin.Content.ReadAsStringAsync();
-        failedHtml.Should().Contain("role=\"alert\">Неверное имя пользователя или пароль.<")
+        failedHtml.Should().MatchRegex("""role="alert">\s*<p[^>]*>Неверное имя пользователя или пароль\.</p>\s*</div>""")
             .And.Contain($"name=\"returnUrl\" value=\"{returnUrl}\"")
             .And.Contain($"value=\"{username}\"")
             .And.NotContain(password);
