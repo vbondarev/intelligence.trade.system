@@ -755,6 +755,27 @@ describe('PositionPage evaluation validity on an open page', () => {
 
 
 describe('realtime position invalidation', () => {
+  it('при фоновом 403 с несовместимым кодом показывает отказ в доступе и скрывает снимок', async () => {
+    let accessRevoked = false;
+    renderPage(pagePath(), positionRoutes(POSITION_ID, {
+      [positionUrl()]: () => accessRevoked
+        ? problem(403, 'resource_not_found', { traceId: 'trace-position-forbidden' })
+        : jsonResponse(positionFixture({ id: POSITION_ID, symbol: 'BTCUSDT' })),
+    }));
+    await findTitle(/BTCUSDT/);
+    expect(await screen.findByText('Удерживать')).toBeVisible();
+
+    accessRevoked = true;
+    act(() => emitRealtime({ type: 'position.updated', positionId: POSITION_ID }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Недостаточно прав для просмотра позиции.');
+    expect(alert).toHaveTextContent('trace-position-forbidden');
+    expect(screen.queryByText('Позиция не найдена или недоступна для текущего пользователя.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /BTCUSDT/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
+  });
+
   it('сохраняет применённый пустой снимок оценки при фоновом сбое и повторе', async () => {
     let calls = 0;
     const empty = 'Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».';

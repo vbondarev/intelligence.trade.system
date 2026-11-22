@@ -75,7 +75,7 @@ function toErrorNotice(error: unknown, fallback: string, background = false): No
 }
 
 function isNotFound(error: unknown): boolean {
-  return error instanceof PositionApiError && (error.status === 404 || error.code === 'resource_not_found');
+  return error instanceof PositionApiError && error.status === 404;
 }
 
 function loaded<T>(key: string, value: T): Load<T> {

@@ -16,6 +16,26 @@ test('пустой результат портфеля отличается от
   await expect(page.getByRole('alert')).toContainText('Сервис временно недоступен.');
 });
 
+test('позиция при 403 с несовместимым кодом показывает отказ в доступе', async ({ page }) => {
+  await mockBusinessData(page);
+  await mockPositionPage(page);
+  await loginThroughLanding(page);
+  await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+  await expect(page.getByRole('heading', { name: /BTCUSDT/ })).toBeVisible();
+
+  await page.route('**/bff/me/positions/btc', (route) => route.fulfill({
+    status: 403,
+    contentType: 'application/problem+json',
+    json: { code: 'resource_not_found', traceId: 'trace-position-forbidden' },
+  }));
+  await page.reload();
+
+  const alert = page.getByRole('alert').filter({ hasText: 'Недостаточно прав для просмотра позиции.' });
+  await expect(alert).toContainText('trace-position-forbidden');
+  await expect(page.getByRole('heading', { name: /BTCUSDT/ })).toHaveCount(0);
+  await expect(page.getByText('Позиция не найдена или недоступна для текущего пользователя.')).toHaveCount(0);
+});
+
 test('пустой 401 после переоценки скрывает позицию и оставляет повторный вход', async ({ page }) => {
   await mockBusinessData(page);
   await mockPositionPage(page);

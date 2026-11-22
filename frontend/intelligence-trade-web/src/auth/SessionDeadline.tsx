@@ -7,6 +7,12 @@ const POLL_MS = 60_000;
 const RETRY_MS = 5_000;
 const REQUEST_MS = 8_000;
 const CHANNEL = 'trade-bff-session-timing';
+const SESSION_DIALOG_TRANSITION = {
+  // Текст должен оставаться контрастным уже в момент установки фокуса.
+  transitionProperty: 'transform',
+  in: { transform: 'translateY(0)' },
+  out: { transform: 'translateY(-30px)' },
+};
 
 type Deadline = { kind: 'unknown' | 'active' | 'expired' } | { kind: 'warning'; expiresAt: number };
 
@@ -157,7 +163,7 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
         closeOnEscape={!expired && !extending}
       >
         <Modal.Overlay />
-        <Modal.Content>
+        <Modal.Content transitionProps={{ transition: SESSION_DIALOG_TRANSITION }}>
           <Modal.Header>
             <Modal.Title>{expired ? 'Сессия завершена' : 'Сессия скоро завершится'}</Modal.Title>
           </Modal.Header>

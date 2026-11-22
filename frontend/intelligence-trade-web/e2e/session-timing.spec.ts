@@ -29,6 +29,18 @@ test('предупреждение при 320 CSS px сохраняет форм
   const name = page.getByLabel('Название *', { exact: true });
   await name.fill('Черновик подключения');
   await name.focus();
+  // Замедляем существующий переход, чтобы проверка первого фокуса не зависела от скорости браузера.
+  await page.addStyleTag({ content: '.mantine-Modal-content { transition-duration: 1s !important; }' });
+  await page.evaluate(() => {
+    document.addEventListener('focusin', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLButtonElement) || target.textContent?.trim() !== 'Продлить сессию') return;
+      const dialog = target.closest('[role="dialog"]');
+      if (dialog && !dialog.hasAttribute('data-opacity-at-first-focus')) {
+        dialog.setAttribute('data-opacity-at-first-focus', getComputedStyle(dialog).opacity);
+      }
+    });
+  });
   warned = true;
   for (const tab of [other, page]) {
     await tab.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -38,11 +50,15 @@ test('предупреждение при 320 CSS px сохраняет форм
   const dialog = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
   const extend = dialog.getByRole('button', { name: 'Продлить сессию' });
   await expect(extend).toBeFocused();
+  await expect(dialog).toHaveAttribute('data-opacity-at-first-focus', '1');
   await expect(dialog).toHaveAccessibleDescription('Продлите сессию, чтобы сохранить доступ к приложению.');
   const audit = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
-  expect(audit.violations.map(({ id }) => id)).toEqual([]);
+  expect(audit.violations.map(({ id, nodes }) => ({
+    id,
+    nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+  }))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 
   extended = true;
