@@ -137,7 +137,8 @@ function ResultGroup({ symbol, accounts, closed }: {
       const generation = resultGeneration.current;
       const startingSnapshot = snapshot.current;
       const manualAtStart = pagination.current !== null;
-      const isCurrent = () => !signal.aborted && resultGeneration.current === generation;
+      const isSessionCurrent = view.beginRequest?.();
+      const isCurrent = () => !signal.aborted && resultGeneration.current === generation && isSessionCurrent?.() !== false;
       function deferLiveCommit() {
         if (view.kind !== 'live') return false;
         if (!manualAtStart && !pagination.current && snapshot.current === startingSnapshot) return false;
@@ -152,8 +153,8 @@ function ResultGroup({ symbol, accounts, closed }: {
       try {
         const query = { symbol, trackingState: closed ? 'closed' as const : undefined };
         const pageCount = view.kind === 'silent' ? 1 : startingSnapshot?.pageCount ?? 1;
-        const next = await readSearchSnapshot(query, pageCount, signal);
-        if (!signal.aborted) view.apply(() => {
+        const next = await readSearchSnapshot(query, pageCount, signal, isCurrent);
+        if (next && isCurrent()) view.apply(() => {
           if (deferLiveCommit()) return;
           pagination.current?.controller.abort();
           pagination.current = null;
@@ -168,7 +169,7 @@ function ResultGroup({ symbol, accounts, closed }: {
         }, isCurrent);
       } catch (failure) {
         const notice = searchError(failure);
-        if (!signal.aborted) view.fail(failure, () => {
+        if (isCurrent()) view.fail(failure, () => {
           if (isCurrent() && !deferLiveCommit()) {
             setError(notice);
             setBackgroundError(view.kind === 'live' && snapshot.current !== null);
@@ -317,10 +318,15 @@ function appendSearchPage(current: SearchSnapshot, cursor: string, next: Positio
   return { page: { items, nextCursor, hasMore: nextCursor !== null }, pageCount: current.pageCount + 1, usedCursors };
 }
 
-async function readSearchSnapshot(query: PositionListQuery, pageCount: number, signal: AbortSignal): Promise<SearchSnapshot> {
+async function readSearchSnapshot(
+  query: PositionListQuery,
+  pageCount: number,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+): Promise<SearchSnapshot | null> {
   let result: SearchSnapshot = { page: await listPositions(query, signal), pageCount: 1, usedCursors: new Set() };
   while (result.pageCount < pageCount && result.page.hasMore && result.page.nextCursor) {
-    signal.throwIfAborted();
+    if (!isCurrent()) return null;
     const cursor = result.page.nextCursor;
     result = appendSearchPage(result, cursor, await listPositions({ ...query, cursor }, signal));
   }

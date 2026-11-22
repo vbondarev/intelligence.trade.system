@@ -73,6 +73,64 @@ describe('пауза автоматических обновлений', () => {
     readers.forEach((reader) => reader.dispose());
   });
 
+  it.each([false, true])('проверяет эпоху результата resume (смена после подготовки: %s)', async (prepared) => {
+    let epoch = 0;
+    const updates = createAutoUpdates(() => {
+      const captured = epoch;
+      return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+    });
+    const read = deferred();
+    const release = deferred();
+    const expired = vi.fn();
+    const accepted = vi.fn();
+    updates.createReader(async (_, view) => {
+      if (!prepared) await read.promise;
+      view.apply(expired);
+    });
+    updates.createReader(async (_, view) => {
+      await release.promise;
+      view.beginRequest?.();
+      view.apply(accepted);
+    });
+
+    updates.toggle();
+    updates.toggle();
+    epoch += 1;
+    read.resolve();
+    release.resolve();
+
+    await vi.waitFor(() => expect(updates.getSnapshot().mode).toBe('live'));
+    expect(expired).not.toHaveBeenCalled();
+    expect(accepted).toHaveBeenCalledOnce();
+  });
+
+  it.each([403, 404, 503])('игнорирует устаревший %s во время resume', async (status) => {
+    let epoch = 0;
+    const updates = createAutoUpdates(() => {
+      const captured = epoch;
+      return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+    });
+    const accessCheck = vi.fn();
+    const hide = vi.fn();
+    const notify = vi.fn();
+    const pending = deferred();
+    updates.setAccessCheck(accessCheck);
+    updates.createReader(async (_, view) => {
+      await pending.promise;
+      view.fail({ status }, notify, hide);
+    });
+
+    updates.toggle();
+    updates.toggle();
+    epoch += 1;
+    pending.resolve();
+
+    await vi.waitFor(() => expect(updates.getSnapshot().mode).toBe('live'));
+    expect(hide).not.toHaveBeenCalled();
+    expect(accessCheck).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it('завершает resume после удаления зависимого reader с незавершённым GET', async () => {
     const updates = createAutoUpdates();
     const remaining = deferred();

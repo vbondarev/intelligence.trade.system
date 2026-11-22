@@ -95,6 +95,7 @@ describe('App routing and session bootstrap', () => {
   });
 
   it.each([false, true])('игнорирует старый 401 при перепроверке сессии (перепроверка завершена: %s)', async (confirmed) => {
+    const assign = stubLocationAssign();
     let finishOldRead!: (response: Response) => void;
     const oldRead = new Promise<Response>((resolve) => { finishOldRead = resolve; });
     let finishCheck!: (response: Response) => void;
@@ -122,8 +123,9 @@ describe('App routing and session bootstrap', () => {
     if (!confirmed) await act(async () => finishCheck(jsonResponse(authenticatedSession)));
 
     await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
-    expect(await screen.findByRole('button', { name: 'Войти снова' })).toBeVisible();
+    await userEvent.click(await screen.findByRole('button', { name: 'Войти снова' }));
     expect(heading).not.toBeInTheDocument();
+    expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp');
   });
 
   it('перекрывающиеся проверки сохраняют reconnect подтверждённого пользователя', async () => {

@@ -18,10 +18,16 @@ export interface AuthState {
   sessionTraceId?: string | null;
 }
 
+export interface SessionReadContext {
+  isCurrent: () => boolean;
+  endSession: (traceId?: string | null) => void;
+}
+
 export interface AuthContextValue extends AuthState {
   login: () => void;
   logout: () => Promise<void>;
   retry: () => void;
   revalidate: (expectedUserId: string, signal: AbortSignal) => Promise<boolean>;
+  captureSessionRead: () => SessionReadContext;
   captureSessionEnd: () => (traceId?: string | null) => void;
 }

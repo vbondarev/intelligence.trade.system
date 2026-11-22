@@ -19,6 +19,7 @@ vi.mock('./realtimeClient', () => ({
 const auth: AuthContextValue = {
   loading: false, authenticated: true, user: { userId: 'one', subject: 'one' }, error: null,
   logoutAvailable: false, login: vi.fn(), logout: vi.fn(), retry: vi.fn(), revalidate: vi.fn(),
+  captureSessionRead: () => ({ isCurrent: () => true, endSession: vi.fn() }),
   captureSessionEnd: () => vi.fn(),
 };
 

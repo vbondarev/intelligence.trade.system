@@ -1,8 +1,10 @@
 import { createInvalidationScheduler, throwIfNetworkFailure, type InvalidationScheduler } from './invalidationScheduler';
 import { HttpFailure } from '../errors/httpFailure';
+import type { SessionReadContext } from '../auth/authTypes';
 
 export interface ReadPresentation {
   kind: 'explicit' | 'live' | 'silent' | 'resume';
+  beginRequest?: () => () => boolean;
   apply: (commit: () => void, isCurrent?: () => boolean) => void;
   fail: (error: unknown, commit: () => void, revoke?: () => void, isCurrent?: () => boolean) => void;
 }
@@ -13,7 +15,7 @@ export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending' | 'dispos
   refresh: () => void;
   supersedeExplicitRead: () => void;
 };
-type EndSession = (traceId?: string | null) => void;
+type EndSession = SessionReadContext['endSession'];
 type Mode = 'live' | 'paused' | 'resuming' | 'failed';
 type Snapshot = { mode: Mode; pausedAt: number | null; announcement: string };
 
@@ -40,7 +42,7 @@ export function resourceUnavailable(error: unknown): boolean {
   return status === 404 || (status === 403 && code !== 'exchange_permissions_rejected');
 }
 
-export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
+export function createAutoUpdates(captureSessionRead?: () => SessionReadContext) {
   let snapshot = LIVE;
   let generation = 0;
   let resume: { controller: AbortController; participants: Map<ScreenReader, AbortController> } | null = null;
@@ -98,7 +100,7 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
         return Promise.resolve();
       }
       activeRead = current;
-      const endSession = captureSessionEnd?.();
+      const endSession = captureSessionRead?.().endSession;
       const finish = () => { if (activeRead === current) activeRead = null; };
       const isExplicitCurrent = () => activeRead === current && current.explicit && !signal.aborted;
       if (current.explicit && !replacedExplicit) {
@@ -132,7 +134,7 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
       }).finally(finish);
     }, () => activeRead?.explicit !== true, () => explicitPending && !replacementExplicit);
     const silent = createInvalidationScheduler((signal) => {
-      const endSession = captureSessionEnd?.();
+      const endSession = captureSessionRead?.().endSession;
       return read(signal, {
         kind: 'silent',
         apply: () => {},
@@ -206,7 +208,11 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
         const participant = new AbortController();
         participants.set(reader, participant);
         const readSignal = AbortSignal.any([signal, participant.signal]);
-        const endSession = captureSessionEnd?.();
+        let session = captureSessionRead?.();
+        const captureEligibility = (eligible?: () => boolean) => {
+          const requestSession = session;
+          return () => !readSignal.aborted && requestSession?.isCurrent() !== false && eligible?.() !== false;
+        };
         let finishRead = () => {};
         const abandoned = new Promise<void>((resolve) => {
           finishRead = resolve;
@@ -215,14 +221,19 @@ export function createAutoUpdates(captureSessionEnd?: () => EndSession) {
         try {
           await Promise.race([read(readSignal, {
             kind: 'resume',
+            beginRequest() {
+              // Ожидание ручной страницы предшествует первому GET этого чтения.
+              session = captureSessionRead?.();
+              return session?.isCurrent ?? (() => true);
+            },
             apply: (commit, eligible) => {
-              const current = () => !readSignal.aborted && eligible?.() !== false;
+              const current = captureEligibility(eligible);
               if (current()) writes.push(() => { if (current()) commit(); });
             },
             fail: (error, commit, revoke, eligible) => {
-              const current = () => !readSignal.aborted && eligible?.() !== false;
+              const current = captureEligibility(eligible);
               if (!current()) return;
-              handleAccess(error, revoke, endSession);
+              handleAccess(error, revoke, session?.endSession);
               if (statusOf(error) !== 404) throw error;
               if (!revoke) writes.push(() => { if (current()) commit(); });
             },

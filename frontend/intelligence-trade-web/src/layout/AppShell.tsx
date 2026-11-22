@@ -15,8 +15,8 @@ export function AppShell() {
 }
 
 function DataUpdatesShell() {
-  const { user, revalidate, captureSessionEnd } = useAuth();
-  const [updates] = useState(() => createAutoUpdates(captureSessionEnd));
+  const { user, revalidate, captureSessionRead } = useAuth();
+  const [updates] = useState(() => createAutoUpdates(captureSessionRead));
   const userId = user?.userId;
 
   useEffect(() => {

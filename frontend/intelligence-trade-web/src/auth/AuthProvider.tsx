@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthApiError, fetchSession, logout as logoutRequest, startLogin } from './authApi';
 import { AuthContext } from './authContext';
-import type { AuthContextValue, AuthState, BrowserSession } from './authTypes';
+import type { AuthContextValue, AuthState, BrowserSession, SessionReadContext } from './authTypes';
 
 const LOADING_STATE: AuthState = {
   loading: true,
@@ -95,19 +95,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const captureSessionEnd = useCallback(() => {
+  const captureSessionRead = useCallback((): SessionReadContext => {
     const requestedEpoch = epoch.current;
-    return (traceId?: string | null) => {
-      if (epoch.current !== requestedEpoch) return;
-      epoch.current += 1;
-      currentUserId.current = null;
-      setState({ ...toAuthState({ authenticated: false }), sessionEnded: true, sessionTraceId: traceId });
+    const isCurrent = () => epoch.current === requestedEpoch;
+    return {
+      isCurrent,
+      endSession(traceId) {
+        if (!isCurrent()) return;
+        epoch.current += 1;
+        currentUserId.current = null;
+        setState({ ...toAuthState({ authenticated: false }), sessionEnded: true, sessionTraceId: traceId });
+      },
     };
   }, []);
+  const captureSessionEnd = useCallback(() => captureSessionRead().endSession, [captureSessionRead]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login: startLogin, logout, retry, revalidate, captureSessionEnd }),
-    [state, logout, retry, revalidate, captureSessionEnd],
+    () => ({ ...state, login: startLogin, logout, retry, revalidate, captureSessionRead, captureSessionEnd }),
+    [state, logout, retry, revalidate, captureSessionRead, captureSessionEnd],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
