@@ -7,7 +7,7 @@ import { listConnections } from '../connections/connectionsApi';
 import { PositionCards } from '../portfolio/PositionsSection';
 import { listPositions } from '../portfolio/portfolioApi';
 import type { PositionListQuery, PositionPage } from '../portfolio/portfolioTypes';
-import { resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
+import { isStaleSessionAccessFailure, resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 
@@ -115,7 +115,7 @@ function ResultGroup({ symbol, accounts, closed }: {
 }) {
   const updates = useAutoUpdates();
   const location = useLocation();
-  const { login, captureSessionEnd } = useAuth();
+  const { login, captureSessionRead } = useAuth();
   const id = useId();
   const [result, setResult] = useState<PositionPage | null>(null);
   const [error, setError] = useState<ErrorPresentation | null>(null);
@@ -209,7 +209,6 @@ function ResultGroup({ symbol, accounts, closed }: {
   });
 
   async function loadMore() {
-    const endSession = captureSessionEnd();
     const current = snapshot.current;
     const cursor = current?.page.nextCursor;
     if (!current || !cursor || pagination.current) return;
@@ -224,6 +223,7 @@ function ResultGroup({ symbol, accounts, closed }: {
     setLoadingMore(true);
     setError(null);
     setBackgroundError(false);
+    const session = captureSessionRead();
     try {
       const next = await listPositions({
         symbol, trackingState: closed ? 'closed' : undefined, cursor,
@@ -234,11 +234,11 @@ function ResultGroup({ symbol, accounts, closed }: {
         setResult(appended.page);
       }
     } catch (failure) {
-      if (isCurrent()) {
+      if (isCurrent() && !isStaleSessionAccessFailure(failure, session)) {
         const revoked = resourceUnavailable(failure);
         failed = !revoked;
         const notice = searchError(failure);
-        if (notice.action === 'login') endSession(notice.traceId);
+        if (notice.action === 'login') session.endSession(notice.traceId);
         else updates.reportAccessFailure(failure);
         if (revoked) {
           resultGeneration.current += 1;

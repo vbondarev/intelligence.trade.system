@@ -83,6 +83,27 @@ test('сбой продления оставляет предупреждени�
   await expect(page.getByRole('button', { name: 'Возобновить автообновление' })).toHaveCount(0);
 });
 
+test('истечение в открытом предупреждении переносит фокус на повторный вход', async ({ page }) => {
+  await loginThroughLanding(page);
+  let expired = false;
+  await page.route(timingPath, (route) => expired
+    ? route.fulfill({ status: 401 })
+    : route.fulfill({ json: timing(100_000) }));
+  await page.reload();
+  const warning = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
+  const extend = warning.getByRole('button', { name: 'Продлить сессию' });
+  await expect(extend).toBeFocused();
+
+  expired = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+  const ended = page.getByRole('dialog', { name: 'Сессия завершена' });
+  const login = ended.getByRole('button', { name: 'Войти снова' });
+  await expect(login).toBeFocused();
+  await expect(ended).toHaveAccessibleDescription('Войдите снова, чтобы продолжить работу.');
+  await page.keyboard.press('Tab');
+  await expect(login).toBeFocused();
+});
+
 test('повторный вход в другой вкладке восстанавливает исходный маршрут', async ({ page, context }) => {
   await loginThroughLanding(page);
   const path = '/app/settings/connections';

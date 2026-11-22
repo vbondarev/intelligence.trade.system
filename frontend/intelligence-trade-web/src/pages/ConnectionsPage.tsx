@@ -1,9 +1,9 @@
 import { presentError } from '../errors/errorPresentation';
 import { StatusMessage } from '../ui/StatusMessage';
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { explicitPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import { explicitPresentation, isStaleSessionAccessFailure, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import {
@@ -73,19 +73,26 @@ const CREATE_FIELDS = [...NAME_FIELDS, ...KEY_FIELDS];
 function useFormErrors(fields: readonly InputName[], operation: string) {
   const [errors, setErrors] = useState<FormErrors>({});
   const id = useId();
+  const pendingFocus = useRef<{ form: HTMLFormElement; field: InputName } | null>(null);
+
+  useLayoutEffect(() => {
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    if (!target) return;
+    // Браузер должен получить состояние ошибки до события фокуса.
+    const frame = requestAnimationFrame(() => {
+      if (!target.form.isConnected || !target.form.contains(document.activeElement)) return;
+      const input = target.form.elements.namedItem(target.field);
+      if (input instanceof HTMLInputElement && input !== document.activeElement) input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [errors]);
 
   function show(form: HTMLFormElement, next: FormErrors) {
     if (!form.isConnected) return;
+    const field = fields.find((name) => next[name]) ?? (next.credentials ? 'apiKey' : undefined);
+    pendingFocus.current = field && form.contains(document.activeElement) ? { form, field } : null;
     setErrors(next);
-    const first = fields.find((field) => next[field]) ?? (next.credentials ? 'apiKey' : undefined);
-    if (first && form.contains(document.activeElement)) {
-      requestAnimationFrame(() => {
-        if (form.isConnected && form.contains(document.activeElement)) {
-          const input = form.elements.namedItem(first);
-          if (input instanceof HTMLInputElement) input.focus();
-        }
-      });
-    }
   }
 
   function report(form: HTMLFormElement): ReportError {
@@ -203,7 +210,7 @@ function formatTimestamp(value: string): string {
 }
 
 export function ConnectionsPage() {
-  const { login, captureSessionEnd } = useAuth();
+  const { login, captureSessionEnd, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [loadError, setLoadError] = useState<Notice | null>(null);
@@ -218,7 +225,7 @@ export function ConnectionsPage() {
   // Каждое чтение списка делает все предыдущие устаревшими: поздний ответ или ошибка
   // более раннего GET не должны перезаписать результат reload после mutation.
   const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
-    const endSession = captureSessionEnd();
+    const session = view === explicitPresentation ? captureSessionRead() : undefined;
     const generation = view.kind === 'silent' ? listGeneration.current : ++listGeneration.current;
     const isCurrent = () => generation === listGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
@@ -229,10 +236,10 @@ export function ConnectionsPage() {
         }
       }, isCurrent),
       (error: unknown) => {
-        if (isCurrent()) {
+        if (isCurrent() && !isStaleSessionAccessFailure(error, session)) {
           const message = toErrorNotice(error);
           if (view === explicitPresentation) {
-            if (message.sessionEnded) endSession(message.traceId);
+            if (message.sessionEnded) session?.endSession(message.traceId);
             else updates.reportAccessFailure(error);
           }
           view.fail(error, () => {
@@ -245,7 +252,7 @@ export function ConnectionsPage() {
         }
       },
     );
-  }, [captureSessionEnd, updates]);
+  }, [captureSessionRead, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader(loadAccounts);

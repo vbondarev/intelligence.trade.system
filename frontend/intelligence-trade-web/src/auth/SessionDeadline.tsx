@@ -1,5 +1,5 @@
 import { Modal } from '@mantine/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { extendSession, fetchSessionTiming, type SessionTiming } from './authApi';
 
 const WARNING_MS = 120_000;
@@ -20,6 +20,8 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
   const [extending, setExtending] = useState(false);
   const [extensionError, setExtensionError] = useState(false);
   const extend = useRef<() => void>(() => {});
+  const reentryButton = useRef<HTMLButtonElement>(null);
+  const wasWarningOpen = useRef(false);
 
   useEffect(() => {
     const lifetime = new AbortController();
@@ -133,9 +135,13 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
   const dismiss = () => {
     if (deadline.kind === 'warning' && !extending) setDismissed(deadline.expiresAt);
   };
-  const focusReentry = useCallback((button: HTMLButtonElement | null) => {
-    if (button) requestAnimationFrame(() => { if (button.isConnected) button.focus(); });
-  }, []);
+  useLayoutEffect(() => {
+    const button = reentryButton.current;
+    if (expired && wasWarningOpen.current && button?.isConnected && document.activeElement !== button) {
+      button.focus({ preventScroll: true });
+    }
+    wasWarningOpen.current = warning && opened;
+  }, [expired, warning, opened]);
 
   return (
     <>
@@ -164,7 +170,7 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
             )}
             <div className="form-actions">
               {expired ? (
-                <button ref={focusReentry} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
+                <button ref={reentryButton} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
               ) : (
                 <>
                   <button type="button" className="button" data-autofocus aria-disabled={extending || undefined} onClick={() => extend.current()}>

@@ -1,7 +1,8 @@
 import { presentError } from '../errors/errorPresentation';
 import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent } from 'react';
-import { resourceUnavailable, explicitPresentation, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
+import type { SessionReadContext } from '../auth/authTypes';
+import { resourceUnavailable, explicitPresentation, isStaleSessionAccessFailure, type ReadPresentation, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { TIMELINE_ITEM_TYPES, getPositionTimeline } from './positionApi';
@@ -65,7 +66,7 @@ interface PositionTimelineProps {
   positionId: string;
   settlementAsset: string;
   onLogin: () => void;
-  captureSessionEnd?: () => (traceId?: string | null) => void;
+  captureSessionRead?: () => SessionReadContext;
   isPositionAccessible?: () => boolean;
   isPositionRevoked?: () => boolean;
 }
@@ -116,7 +117,7 @@ function appendUnique(current: readonly TimelineItem[], page: readonly TimelineI
  * unmount отменяют прежний запрос, а его поздний ответ не применяется. Polling, sync и оценку
  * блок не запускает.
  */
-export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionEnd, isPositionAccessible, isPositionRevoked }: PositionTimelineProps) {
+export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionRead, isPositionAccessible, isPositionRevoked }: PositionTimelineProps) {
   const updates = useAutoUpdates();
   const titleId = useId();
   const contentId = useId();
@@ -162,7 +163,6 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
     cursor: string | null,
     { schedulerSignal, view = explicitPresentation, source = 'default' }: LoadOptions = {},
   ): Promise<void> => {
-    const endSession = captureSessionEnd?.();
     if (view.kind === 'silent' || view.kind === 'resume') {
       const version = generation.current;
       const isCurrent = () => isOpenRef.current && generation.current === version && !schedulerSignal?.aborted && isPositionAccessible?.() !== false;
@@ -236,6 +236,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
     schedulerSignal?.addEventListener('abort', abortRequest, { once: true });
     if (schedulerSignal?.aborted) abortRequest();
 
+    const session = view === explicitPresentation ? captureSessionRead?.() : undefined;
     return getPositionTimeline(positionId, { types, cursor }, requestController.signal).then(
       (page) => {
         if (!isCurrent()) {
@@ -257,13 +258,25 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
           return;
         }
 
-        activeLoad.current = null;
+        const finishDiscarded = () => {
+          if (activeLoad.current !== request) return;
+          activeLoad.current = null;
+          setManualLoadStatus('');
+          setState((current) => current.pending?.generation === requestGeneration
+            ? { ...current, pending: null }
+            : current);
+          readDeferredInvalidation();
+        };
+        if (isStaleSessionAccessFailure(error, session)) {
+          finishDiscarded();
+          return;
+        }
         const notice = toNotice(error, phase, view.kind === 'live');
         if (view === explicitPresentation) {
-          if (notice.sessionEnded) endSession?.(notice.traceId);
+          if (notice.sessionEnded) session?.endSession(notice.traceId);
           else updates.reportAccessFailure(error);
         }
-        view.fail(error, () => {
+        const outcome = view.fail(error, () => {
           setManualLoadStatus('');
           setState((current) => ({ ...current, pending: null, error: { phase, notice } }));
         }, () => {
@@ -271,10 +284,15 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
           setManualLoadStatus('');
           setState({ ...INITIAL_STATE, isOpen: true, error: { phase, notice } });
         }, isCurrent);
+        if (outcome === 'stale-session') {
+          finishDiscarded();
+          return;
+        }
+        if (activeLoad.current === request) activeLoad.current = null;
         if (!notice.sessionEnded) readDeferredInvalidation();
       },
     ).finally(() => schedulerSignal?.removeEventListener('abort', abortRequest));
-  }, [cancelActive, positionId, captureSessionEnd, isPositionAccessible, updates]);
+  }, [cancelActive, positionId, captureSessionRead, isPositionAccessible, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader((signal, view) => {

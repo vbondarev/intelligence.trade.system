@@ -6,7 +6,7 @@ export interface ReadPresentation {
   kind: 'explicit' | 'live' | 'silent' | 'resume';
   beginRequest?: () => () => boolean;
   apply: (commit: () => void, isCurrent?: () => boolean) => void;
-  fail: (error: unknown, commit: () => void, revoke?: () => void, isCurrent?: () => boolean) => void;
+  fail: (error: unknown, commit: () => void, revoke?: () => void, isCurrent?: () => boolean) => void | 'stale-session';
 }
 
 type Read = (signal: AbortSignal, presentation: ReadPresentation) => Promise<void>;
@@ -40,6 +40,10 @@ export function resourceUnavailable(error: unknown): boolean {
   const status = statusOf(error);
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   return status === 404 || (status === 403 && code !== 'exchange_permissions_rejected');
+}
+
+export function isStaleSessionAccessFailure(error: unknown, session?: SessionReadContext): boolean {
+  return session?.isCurrent() === false && (statusOf(error) === 401 || resourceUnavailable(error));
 }
 
 export function createAutoUpdates(captureSessionRead?: () => SessionReadContext) {
@@ -100,7 +104,7 @@ export function createAutoUpdates(captureSessionRead?: () => SessionReadContext)
         return Promise.resolve();
       }
       activeRead = current;
-      const endSession = captureSessionRead?.().endSession;
+      const session = captureSessionRead?.();
       const finish = () => { if (activeRead === current) activeRead = null; };
       const isExplicitCurrent = () => activeRead === current && current.explicit && !signal.aborted;
       if (current.explicit && !replacedExplicit) {
@@ -109,7 +113,8 @@ export function createAutoUpdates(captureSessionRead?: () => SessionReadContext)
           apply: (commit, eligible) => { if (isExplicitCurrent() && eligible?.() !== false) commit(); },
           fail: (error, commit, revoke, eligible) => {
             if (!isExplicitCurrent() || eligible?.() === false) return;
-            handleAccess(error, revoke, endSession);
+            if (isStaleSessionAccessFailure(error, session)) return 'stale-session';
+            handleAccess(error, revoke, session?.endSession);
             commit();
             throwIfNetworkFailure(error, signal);
           },
@@ -127,20 +132,22 @@ export function createAutoUpdates(captureSessionRead?: () => SessionReadContext)
         apply,
         fail: (error, commit, revoke, eligible) => {
           if (!isCurrent() || eligible?.() === false) return;
-          handleAccess(error, revoke, endSession);
+          if (isStaleSessionAccessFailure(error, session)) return 'stale-session';
+          handleAccess(error, revoke, session?.endSession);
           if (!(error instanceof TypeError && hasRecoveryRetry())) apply(commit);
           throwIfNetworkFailure(error, signal);
         },
       }).finally(finish);
     }, () => activeRead?.explicit !== true, () => explicitPending && !replacementExplicit);
     const silent = createInvalidationScheduler((signal) => {
-      const endSession = captureSessionRead?.().endSession;
+      const session = captureSessionRead?.();
       return read(signal, {
         kind: 'silent',
         apply: () => {},
         fail: (error, _, revoke, eligible) => {
           if (signal.aborted || eligible?.() === false) return;
-          handleAccess(error, revoke, endSession);
+          if (isStaleSessionAccessFailure(error, session)) return 'stale-session';
+          handleAccess(error, revoke, session?.endSession);
           throwIfNetworkFailure(error, signal);
         },
       });

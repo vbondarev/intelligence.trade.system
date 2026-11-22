@@ -187,6 +187,36 @@ it('прекращает чтение снимка при смене эпохи 
   expect(screen.getByRole('link', { name: /60\s000/ })).toBeVisible();
 });
 
+it.each([403, 404])('сохраняет ручную страницу после старого отказа %s', async (status) => {
+  let epoch = 0;
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { finish = resolve; });
+  const initial = () => jsonResponse({ items: [positionFixture()], hasMore: true, nextCursor: 'next' });
+  const nextUrl = '/bff/me/positions?symbol=BTCUSDT&cursor=next';
+  let continuations = 0;
+  const { updates, requests } = renderSearch({
+    '/bff/me/positions?symbol=BTCUSDT': initial,
+    [nextUrl]: () => ++continuations === 1 ? pending : empty(),
+  }, () => {
+    const captured = epoch;
+    return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+  });
+  const check = vi.fn();
+  updates.setAccessCheck(check);
+  const more = await screen.findByRole('button', { name: 'Загрузить ещё' });
+  await userEvent.click(more);
+  expect(continuations).toBe(1);
+  epoch += 1;
+  await act(async () => finish(new Response(null, { status })));
+
+  expect(screen.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(check).not.toHaveBeenCalled();
+  expect(more).toBeEnabled();
+  await userEvent.click(more);
+  expect(requests.filter(({ url }) => url === nextUrl)).toHaveLength(2);
+});
+
 it('оставляет фокус и DOM поля после поиска с клавиатуры', async () => {
   renderSearch({
     '/bff/me/positions?symbol=BTCUSDT': () => results('BTCUSDT'),

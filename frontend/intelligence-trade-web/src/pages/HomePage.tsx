@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
-import { explicitPresentation, resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
+import { explicitPresentation, isStaleSessionAccessFailure, resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
 import { listConnections, syncConnection } from '../connections/connectionsApi';
@@ -125,7 +125,7 @@ function toQuery(accountId: string, filters: PositionFilters): PositionListQuery
 }
 
 export function HomePage() {
-  const { login, captureSessionEnd } = useAuth();
+  const { login, captureSessionEnd, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<AccountsLoad | null>(null);
@@ -165,7 +165,7 @@ export function HomePage() {
 
   // Каждое чтение делает предыдущие устаревшими: поздний ответ не перезаписывает более новый state.
   const loadAccounts = useCallback((signal?: AbortSignal, view = explicitPresentation): Promise<void> => {
-    const endSession = captureSessionEnd();
+    const session = view === explicitPresentation ? captureSessionRead() : undefined;
     const generation = view.kind === 'silent' ? accountsGeneration.current : ++accountsGeneration.current;
     const isCurrent = () => generation === accountsGeneration.current && signal?.aborted !== true;
     return listConnections(signal).then(
@@ -176,10 +176,10 @@ export function HomePage() {
         }
       }, isCurrent),
       (error: unknown) => {
-        if (isCurrent()) {
+        if (isCurrent() && !isStaleSessionAccessFailure(error, session)) {
           const notice = toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.', view.kind === 'live');
           if (view === explicitPresentation) {
-            if (notice.sessionEnded) endSession(notice.traceId);
+            if (notice.sessionEnded) session?.endSession(notice.traceId);
             else updates.reportAccessFailure(error);
           }
           view.fail(error, () => {
@@ -197,7 +197,7 @@ export function HomePage() {
         }
       },
     );
-  }, [captureSessionEnd, updates]);
+  }, [captureSessionRead, updates]);
 
   useEffect(() => {
     const scheduler = updates.createReader(loadAccounts);
@@ -421,7 +421,6 @@ export function HomePage() {
 
     updates.cancelResume();
     const key = positions.key;
-    const endSession = captureSessionEnd();
     const cursor = positions.nextCursor;
     const query: PositionListQuery = { ...(JSON.parse(key) as PositionListQuery), cursor };
     const generation = positionsGeneration.current;
@@ -434,6 +433,7 @@ export function HomePage() {
       && invalidationVersion === positionsInvalidationVersion.current && !signal.aborted
       && queryKeyRef.current === key;
     setPositions((current) => (current?.key === key ? { ...current, loadingMore: true, error: null } : current));
+    const session = captureSessionRead();
     listPositions(query, signal).then(
       (page) => {
         if (isCurrent()) {
@@ -452,8 +452,17 @@ export function HomePage() {
       },
       (error: unknown) => {
         if (isCurrent()) {
+          if (isStaleSessionAccessFailure(error, session)) {
+            if (pagination.current === controller) {
+              pagination.current = null;
+              setPositions((current) => current?.key === key && current.reload === reloadToken
+                ? { ...current, loadingMore: false }
+                : current);
+            }
+            return;
+          }
           const notice = toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.');
-          if (notice.sessionEnded) endSession(notice.traceId);
+          if (notice.sessionEnded) session.endSession(notice.traceId);
           else updates.reportAccessFailure(error);
           const revoked = resourceUnavailable(error);
           setPositions((current) =>

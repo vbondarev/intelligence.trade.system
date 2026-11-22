@@ -6,6 +6,7 @@ import { AuthProvider } from '../auth/AuthProvider';
 import { AppRoutes } from '../app/router';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import { jsonResponse, mockFetch, stubLocationAssign, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
+import { SessionRecheck } from '../test/SessionRecheck';
 import { emitRealtime } from '../test/realtimeTestDriver';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
@@ -58,6 +59,7 @@ function renderAtConnections() {
     <AuthProvider>
       <MemoryRouter initialEntries={[CONNECTIONS_PATH]}>
         <AppRoutes />
+        <SessionRecheck userId={authenticatedSession.user.userId} />
       </MemoryRouter>
     </AuthProvider>,
     { wrapper: MantineProvider },
@@ -265,12 +267,24 @@ describe('ConnectionsPage add', () => {
     const user = userEvent.setup();
     await screen.findByText(EMPTY_STATE);
 
-    await user.type(screen.getByLabelText('Название *'), '   ');
+    const name = screen.getByLabelText('Название *');
+    await user.type(name, '   ');
     await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
     await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    const descriptionOnFocus = vi.fn(() => {
+      const description = name.getAttribute('aria-describedby');
+      return {
+        invalid: name.getAttribute('aria-invalid'),
+        text: description ? document.getElementById(description)?.textContent : null,
+      };
+    });
+    name.addEventListener('focus', descriptionOnFocus);
     await user.click(screen.getByRole('button', { name: 'Подключить' }));
 
     expect(await screen.findByText('Укажите название подключения.')).toBeVisible();
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(descriptionOnFocus).toHaveBeenCalledOnce();
+    expect(descriptionOnFocus).toHaveReturnedWith({ invalid: 'true', text: 'Укажите название подключения.' });
     expect(mutations(requests)).toHaveLength(0);
   });
 
@@ -344,6 +358,30 @@ describe('ConnectionsPage add', () => {
       expect(screen.queryByRole('button', { name: 'Войти снова' })).not.toBeInTheDocument();
       expect(listRequests(requests)).toHaveLength(2);
     }
+    expect(mutations(requests)).toHaveLength(1);
+  });
+
+  it('сохраняет список после старого отказа чтения по завершении мутации', async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let reads = 0;
+    const requests = renderConnections({
+      list: () => ++reads === 1 ? [mainAccount] : pending,
+      onCollection: () => jsonResponse({ ...mainAccount, displayName: 'Новое имя' }, 201),
+    });
+    const user = userEvent.setup();
+    const name = await screen.findByText(mainAccount.displayName);
+    await user.type(screen.getByLabelText('Название *'), 'Новое имя');
+    await user.type(screen.getByLabelText('API key *'), FAKE_KEY);
+    await user.type(screen.getByLabelText('API secret *'), FAKE_SECRET);
+    await user.click(screen.getByRole('button', { name: 'Подключить' }));
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    await act(async () => finish(new Response(null, { status: 403 })));
+
+    expect(name).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(requests.filter(({ url }) => url === '/bff/auth/session')).toHaveLength(2);
     expect(mutations(requests)).toHaveLength(1);
   });
 

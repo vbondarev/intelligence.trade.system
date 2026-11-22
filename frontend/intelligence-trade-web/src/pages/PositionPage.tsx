@@ -96,7 +96,7 @@ function failed<T>(key: string, error: Notice, previous: Load<T> | null): Load<T
 export function PositionPage() {
   const { id = '' } = useParams();
   const location = useLocation();
-  const { login, captureSessionEnd } = useAuth();
+  const { login, captureSessionEnd, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const { pausedAt } = useAutoUpdateState();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -514,7 +514,7 @@ export function PositionPage() {
           positionId={id}
           settlementAsset={positionValue.settlementAsset}
           onLogin={login}
-          captureSessionEnd={captureSessionEnd}
+          captureSessionRead={captureSessionRead}
           isPositionAccessible={isPositionAccessible}
           isPositionRevoked={isPositionRevoked}
         />

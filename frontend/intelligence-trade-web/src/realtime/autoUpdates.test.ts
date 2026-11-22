@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HttpFailure, readSuccessJson } from '../errors/httpFailure';
-import { createAutoUpdates } from './autoUpdates';
+import { createAutoUpdates, type ReadPresentation } from './autoUpdates';
 
 function deferred() {
   let resolve!: () => void;
@@ -129,6 +129,47 @@ describe('пауза автоматических обновлений', () => {
     expect(hide).not.toHaveBeenCalled();
     expect(accessCheck).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  describe.each(['explicit', 'live', 'silent'] as const)('эпоха отказа в режиме %s', (mode) => {
+    it.each([401, 403, 404, 503, 'bybit'] as const)('проверяет актуальность ответа %s', async (outcome) => {
+      for (const stale of [false, true]) {
+        let epoch = 0;
+        const endSession = vi.fn();
+        const updates = createAutoUpdates(() => {
+          const captured = epoch;
+          return { isCurrent: () => captured === epoch, endSession };
+        });
+        const pending = deferred();
+        const finished = deferred();
+        const checkAccess = vi.fn();
+        const revoke = vi.fn();
+        const publish = vi.fn();
+        const status = outcome === 'bybit' ? 403 : outcome;
+        const error = new HttpFailure('Отказ', status, outcome === 'bybit' ? 'exchange_permissions_rejected' : null, 'trace');
+        updates.setAccessCheck(checkAccess);
+        const read = vi.fn(async (_: AbortSignal, view: ReadPresentation) => {
+          await pending.promise;
+          view.fail(error, publish, revoke);
+          finished.resolve();
+        });
+        const reader = updates.createReader(read);
+        if (mode === 'silent') updates.toggle();
+        if (mode === 'explicit') reader.refresh();
+        else reader.recover();
+        expect(read).toHaveBeenCalledOnce();
+        if (stale) epoch += 1;
+        pending.resolve();
+        await finished.promise;
+        const accepted = !stale || outcome === 'bybit' || outcome === 503;
+        expect(revoke).toHaveBeenCalledTimes(accepted && (outcome === 403 || outcome === 404) ? 1 : 0);
+        expect(checkAccess).toHaveBeenCalledTimes(accepted && outcome === 403 ? 1 : 0);
+        expect(endSession).toHaveBeenCalledTimes(accepted && outcome === 401 ? 1 : 0);
+        expect(publish).toHaveBeenCalledTimes(accepted && mode !== 'silent' ? 1 : 0);
+        expect(read).toHaveBeenCalledOnce();
+        reader.dispose();
+      }
+    });
   });
 
   it('завершает resume после удаления зависимого reader с незавершённым GET', async () => {

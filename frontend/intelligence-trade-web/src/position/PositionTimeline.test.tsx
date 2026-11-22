@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { SessionReadContext } from '../auth/authTypes';
 import { createAutoUpdates } from '../realtime/autoUpdates';
 import { AutoUpdatesContext } from '../realtime/autoUpdatesContext';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
@@ -69,12 +70,16 @@ function sequence(...handlers: RouteHandler[]): RouteHandler {
 
 const page = (body: PositionTimelinePage): RouteHandler => () => jsonResponse(body);
 
-function renderTimeline(routes: Record<string, RouteHandler>, updates = createAutoUpdates()) {
+function renderTimeline(
+  routes: Record<string, RouteHandler>,
+  updates = createAutoUpdates(),
+  captureSessionRead?: () => SessionReadContext,
+) {
   const requests = mockFetch(routes);
   const onLogin = vi.fn();
   const view = render(
     <AutoUpdatesContext.Provider value={updates}>
-      <PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} />
+      <PositionTimeline positionId={POSITION_ID} settlementAsset="USDT" onLogin={onLogin} captureSessionRead={captureSessionRead} />
     </AutoUpdatesContext.Provider>,
   );
   return { requests, onLogin, view };
@@ -362,6 +367,78 @@ describe('PositionTimeline pagination', () => {
     expect(await screen.findByRole('alert')).not.toHaveTextContent('Ранее загруженные события сохранены');
     expect(screen.queryByRole('list', { name: 'События истории позиции' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Повторить загрузку продолжения' })).not.toBeInTheDocument();
+  });
+
+  it.each(['прямой', 'плановый'])('завершает индикатор истории после старого отказа: %s GET', async (kind) => {
+    let epoch = 0;
+    const capture = () => {
+      const captured = epoch;
+      return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+    };
+    const updates = createAutoUpdates(capture);
+    const check = vi.fn();
+    updates.setAccessCheck(check);
+    const pending = deferred<Response>();
+    const direct = kind === 'прямой';
+    const { requests } = renderTimeline({
+      [BASE]: direct ? page(firstTimelinePage()) : sequence(() => pending.promise, page(firstTimelinePage())),
+      [MORE_URL]: sequence(() => pending.promise, page(continuationTimelinePage(null))),
+    }, updates, capture);
+    await userEvent.click(toggle());
+    if (direct) {
+      await findEvents(3);
+      await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    }
+    expect(requestUrls(requests)).toEqual(direct ? [BASE, MORE_URL] : [BASE]);
+    epoch += 1;
+    await act(async () => pending.resolve(new Response(null, { status: 403 })));
+    expect(check).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    if (direct) {
+      expect(events()).toHaveLength(3);
+      await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+      await findEvents(5);
+      expect(requestUrls(requests)).toEqual([BASE, MORE_URL, MORE_URL]);
+    } else {
+      expect(screen.queryByText('Загружаем историю…')).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^Обновить$/ }));
+      await findEvents(3);
+      expect(requestUrls(requests)).toEqual([BASE, BASE]);
+    }
+  });
+
+  it('не снимает индикатор нового запроса при запоздалом отказе старого', async () => {
+    let epoch = 0;
+    const capture = () => {
+      const captured = epoch;
+      return { isCurrent: () => captured === epoch, endSession: vi.fn() };
+    };
+    const updates = createAutoUpdates(capture);
+    const check = vi.fn();
+    updates.setAccessCheck(check);
+    const earlier = deferred<Response>();
+    const later = deferred<Response>();
+    const { requests } = renderTimeline({
+      [BASE]: page(firstTimelinePage()),
+      [MORE_URL]: () => earlier.promise,
+      [WITHOUT_POSITION_CHANGES_URL]: () => later.promise,
+    }, updates, capture);
+
+    await userEvent.click(toggle());
+    await findEvents(3);
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    epoch += 1;
+    await userEvent.click(filter('Изменения позиции'));
+    expect(requestUrls(requests)).toEqual([BASE, MORE_URL, WITHOUT_POSITION_CHANGES_URL]);
+    await act(async () => earlier.resolve(new Response(null, { status: 403 })));
+
+    expect(screen.getAllByText('Загружаем историю…').length).toBeGreaterThan(0);
+    expect(check).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => later.resolve(jsonResponse(firstTimelinePage())));
+    await findEvents(3);
+    expect(screen.queryByText('Загружаем историю…')).not.toBeInTheDocument();
   });
 
   it('does not repeat a continuation that returns the same cursor', async () => {
