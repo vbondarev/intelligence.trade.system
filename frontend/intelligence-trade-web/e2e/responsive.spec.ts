@@ -117,6 +117,7 @@ for (const viewport of viewports) {
     await page.getByRole('link', { name: /^BTCUSDT/ }).click();
     await expect(page).toHaveURL(/\/app\/positions\/btc$/);
     await expect(page.getByRole('heading', { level: 1, name: /^BTCUSDT/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /^BTCUSDT/ })).toBeFocused();
 
     const chart = page.getByRole('group', { name: /^Свечной график BTCUSDT/ });
     await expect(chart.locator('canvas').first()).toBeVisible();
