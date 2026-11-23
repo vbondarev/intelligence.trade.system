@@ -1,6 +1,6 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.78
+Версия документа: 3.79
 Дата актуализации: 23 ноября 2026 года
 Проверенная база перед G-06 / PR-5: `develop` @ `c7f4d544dd59beed487b2cdaaf61352bf2da0442` (слияние PR #219). G-06 / PR-3, связанные follow-up и PR-4 уже вошли в `develop`; PR-5 реализован в Issue #202 / PR #220.
 Последнее подтверждённое изменение базовой ветки перед PR-5 — завершение PR #219. История предыдущих PR и проверенных SHA сохраняется в журнале изменений.
@@ -8,7 +8,7 @@
 ROADMAP в ветке PR #221 подготовлен как целевое состояние после успешного merge и не подтверждает сам факт слияния; указанная база PR-6 не является будущим merge commit.
 Проверенная база G-07 / PR #224: `develop` @ `4353b70ac0f4057ea27e6288ac3270496deb0f7b`. Реализация G-07 по Issue #223 завершена и принята к слиянию 12 ноября 2026 года: независимый Re-review завершился без подтверждённых блокеров, exact-head CI [#43094745697](https://github.com/vbondarev/intelligence.trade.system/actions/runs/43094745697) (attempt 3) — SUCCESS на `0a5b0d509af1a1e14c3a349367392c41da9d022e`. PR #224 слит в `develop` 12 ноября 2026 года коммитом `a870c5baa28d60b589933f3cf5410fca5601670b`, Issue #223 закрыт.
 Проверенная база G-08 / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227): `develop` @ `a870c5baa28d60b589933f3cf5410fca5601670b`. PR #227 слит в `develop` 21 ноября 2026 года коммитом `822d6b9a213ffa54a8f022d96489e0aa074e3f37`.
-Текущий этап: **G — основной Web-клиент и realtime-контур**. G-01–G-07 завершены. Приёмка **G-08** продолжается. Базовая дизайн-система и единая обработка ошибок **G-09** реализованы. Приёмка [Issue #228](https://github.com/vbondarev/intelligence.trade.system/issues/228) остаётся открытой. Этап G остаётся в работе до завершения G-08 и G-09. **AC-12: `DEFERRED / NOT_VERIFIED` → [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222); реальный SLO p95 ≤ 5 секунд не подтверждён.**
+Текущий этап: **G — основной Web-клиент и realtime-контур**. G-01–G-07 завершены. Приёмка **G-08** продолжается. Базовая дизайн-система и единая обработка ошибок **G-09** реализованы. Issue [#228](https://github.com/vbondarev/intelligence.trade.system/issues/228) закрыта. Остаток AC‑07 отслеживается в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). Приёмка G‑09 остаётся открытой. Этап G остаётся в работе до завершения G-08 и G-09. **AC-12: `DEFERRED / NOT_VERIFIED` → [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222); реальный SLO p95 ≤ 5 секунд не подтверждён.**
 
 Проверенная база G-09 — `develop` @ `822d6b9a213ffa54a8f022d96489e0aa074e3f37` ([PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227)).
 Статус документа: **основная и единственная актуальная дорожная карта проекта**
@@ -180,7 +180,7 @@ ROADMAP в ветке PR #221 подготовлен как целевое со�
 ### Частично реализовано
 
 - 🟡 G-08 / [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) — адаптивная оболочка, улучшения клавиатурной и семантической доступности, таблица свечей и ценовых уровней, предупреждение и продление сессии, обновлённый вход Identity и пауза автообновления с сохранением REST recovery. Приёмка остаётся открытой.
-- 🟡 G-09 — базовая дизайн-система и единая обработка ошибок реализованы ([PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229)). Приёмка [Issue #228](https://github.com/vbondarev/intelligence.trade.system/issues/228) остаётся открытой.
+- 🟡 G-09 — базовая дизайн-система и единая обработка ошибок реализованы ([PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229)). Issue [#228](https://github.com/vbondarev/intelligence.trade.system/issues/228) закрыта. Остаток AC‑07 отслеживается в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). Приёмка G‑09 остаётся открытой.
 
 ### Есть только как заготовка
 
@@ -407,7 +407,7 @@ Stage G поэтому является cross-stack этапом и включа
 
 **Частичная реализация G-09.** [PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229) вводит общие токены и состояния React, обработку ошибок по HTTP-статусам и машинным кодам, согласованное оформление формы входа Identity и защиту от устаревших отказов доступа. Issue #228 закрыта после слияния PR #229. Остаток проверки AC‑07 ведётся в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). На сборке по Amendment 3 NVDA с автоматическим Say All дважды объявил «Войти снова». На `6dfbd25` повторно подтверждён браузерный фокус при истечении сессии. Однократное объявление NVDA остаётся неподтверждённым. В Windows mobile WebKit сохраняется `FAIL` по [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226). Условия приёмки и релиза действуют согласно [Amendment 2](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7069306806) и [Amendment 3](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7080146360).
 
-В [протоколе #230](docs/testing/g09-session-expiry-nvda.md) подтверждены устойчивость диалога, фокус и Enter при реальном истечении. Владелец принял два ограничения речи NVDA согласно [Amendment v1.1](https://github.com/vbondarev/intelligence.trade.system/issues/230#issuecomment-7106128763). Полного PASS ручной матрицы NVDA нет. IMP-05 остаётся частичным, пока действует #226.
+Исправление сценария истечения сессии по [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230) входит в [PR #231](https://github.com/vbondarev/intelligence.trade.system/pull/231). [Протокол проверки](docs/testing/g09-session-expiry-nvda.md) подтверждает устойчивость диалога, фокус и Enter. Для недопустимого `returnUrl` повторный вход использует `/app`. Владелец принял два наблюдения по речи по [Amendment v1.1](https://github.com/vbondarev/intelligence.trade.system/issues/230#issuecomment-7106128763). Повторная матрица имеет статус `PAUSED_BY_OWNER` и не блокирует слияние PR #231 по [Amendment v1.3](https://github.com/vbondarev/intelligence.trade.system/issues/230#issuecomment-7108566111). Полного `PASS` NVDA нет. IMP‑05 остаётся частичным, пока действует [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226).
 
 **Выполнение G-09 по Approved Plan**
 
@@ -418,6 +418,7 @@ Stage G поэтому является cross-stack этапом и включа
 | G-09 / IMP-03 | Отложенные ошибки чтения и доступ | ✅ Завершено |
 | G-09 / IMP-04 | Согласование входа Identity | ✅ Завершено |
 | G-09 / IMP-05 | Приёмочные проверки и документация | 🟡 Частично |
+| G-09 / IMP-05 · #230 | Реализация исправления диалога истечения сессии и автоматические регрессии ([PR #231](https://github.com/vbondarev/intelligence.trade.system/pull/231)) | ✅ Завершено |
 
 При следующем Discovery из очереди исключаются шаги со статусом `✅ Завершено`. Открытый остаток этапа G — приёмка G‑08 и G‑09.
 
@@ -639,7 +640,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
-| 2026-11-23 | 3.79 | Добавлен протокол #230. Зафиксированы результаты проверки диалога и принятие ограничений NVDA. Сохранён блокер #226. |
+| 2026-11-23 | 3.79 | Отражены целевое состояние исправления истечения сессии в PR #231, закрытие #228, остаток AC‑07 в #230 и статус `PAUSED_BY_OWNER`. Условие #226 сохраняется. |
 | 2026-11-23 | 3.78 | Выделены завершённые шаги реализации G-09. Зафиксированы результаты RR‑03 и RR‑04, открытая приёмка G‑08/G‑09 и сохранение условий релиза. |
 | 2026-11-22 | 3.77 | Отражены реализация G-09 в PR #229, открытая приёмка #228 и факт слияния PR #227. Сохранены условия AC‑07, #226 и релиза. |
 | 2026-11-22 | 3.76 | Реализация G-09 по #228 подготовлена к Draft PR. Amendments разрешают работу до завершения приёмки G-08 и публикацию Draft PR с известным результатом FAIL в Windows mobile WebKit. Условия приёмки #226 и релиза сохраняются. |
