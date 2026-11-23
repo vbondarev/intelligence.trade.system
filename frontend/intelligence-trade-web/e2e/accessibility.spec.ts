@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
-import { firstTimelinePage } from '../src/test/positionFixtures';
+import { expect, test, type Locator } from '@playwright/test';
+import { continuationTimelinePage, firstTimelinePage } from '../src/test/positionFixtures';
 import { loginThroughLanding, openIdentityLoginThroughLanding } from './support';
 import { LONG_DISPLAY_NAME, MAIN_ID, mockBusinessData, mockPositionPage } from './uiMock';
 
@@ -347,6 +347,81 @@ test('повтор первого чтения истории сохраняет
   await expect(history.getByRole('alert')).toContainText('Сервис временно недоступен');
   await expect(history.getByRole('checkbox').first()).toBeFocused();
 });
+
+for (const focusAfterRetry of ['Обновить', 'фильтр'] as const) {
+  test(`фокус при пагинации истории остаётся на «${focusAfterRetry}»`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    await mockBusinessData(page);
+    await mockPositionPage(page);
+    await loginThroughLanding(page);
+    await page.goto('/app/positions/btc');
+
+    const history = page.getByRole('region', { name: 'История позиции' });
+    await expect(history).toBeVisible();
+    await expect(page.getByText(/^Realtime:/)).toBeHidden();
+
+    let releaseFailure!: () => void;
+    let releaseContinuation!: () => void;
+    const failureGate = new Promise<void>((resolve) => { releaseFailure = resolve; });
+    const continuationGate = new Promise<void>((resolve) => { releaseContinuation = resolve; });
+    const requestedCursors: string[] = [];
+    await page.route((url) => url.pathname === '/bff/me/positions/btc/timeline' && url.searchParams.has('cursor'), async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      requestedCursors.push(new URL(route.request().url()).searchParams.get('cursor')!);
+      if (requestedCursors.length === 1) {
+        await failureGate;
+        return route.fulfill({ status: 503, json: { code: 'service_unavailable' } });
+      }
+      await continuationGate;
+      return route.fulfill({ json: continuationTimelinePage() });
+    });
+
+    const reachByTab = async (target: Locator) => {
+      await expect(target).toBeVisible();
+      for (let step = 0; step < 16; step += 1) {
+        if (await target.evaluate((element) => element === element.ownerDocument.activeElement)) break;
+        await page.keyboard.press('Tab');
+      }
+      await expect(target).toBeFocused();
+    };
+    const refresh = history.getByRole('button', { name: 'Обновить', exact: true });
+    const more = history.getByRole('button', { name: 'Показать ещё', exact: true });
+    const events = history.getByRole('list', { name: 'События истории позиции' }).getByRole('article');
+    const firstFilter = history.getByRole('checkbox').first();
+    try {
+      await history.getByRole('button', { name: /История позиции$/ }).press('Enter');
+      await expect(events).toHaveCount(3);
+      await reachByTab(more);
+      await page.keyboard.press('Enter');
+      await expect(refresh).toBeFocused();
+      await expect(history.getByRole('status')).toHaveText('Загружаем продолжение истории…');
+
+      releaseFailure();
+      const alert = history.getByRole('alert');
+      await expect(alert).toContainText('Сервис временно недоступен');
+      await expect(events).toHaveCount(3);
+      await expect(refresh).toBeFocused();
+      await reachByTab(alert.getByRole('button', { name: 'Повторить загрузку продолжения', exact: true }));
+      await page.keyboard.press('Enter');
+      await expect(refresh).toBeFocused();
+      await expect(history.getByRole('status')).toHaveText('Загружаем продолжение истории…');
+      if (focusAfterRetry === 'фильтр') {
+        await page.keyboard.press('Tab');
+        await expect(firstFilter).toBeFocused();
+      }
+
+      releaseContinuation();
+      await expect(events).toHaveCount(5);
+      await expect(more).toHaveCount(0);
+      await expect(focusAfterRetry === 'фильтр' ? firstFilter : refresh).toBeFocused();
+      const firstCursor = firstTimelinePage().nextCursor;
+      expect(requestedCursors).toEqual([firstCursor, firstCursor]);
+    } finally {
+      releaseFailure();
+      releaseContinuation();
+    }
+  });
+}
 
 for (const reducedMotion of ['no-preference', 'reduce'] as const) {
   test(`индикатор длительной загрузки истории сохраняет статус (${reducedMotion})`, async ({ page }) => {
