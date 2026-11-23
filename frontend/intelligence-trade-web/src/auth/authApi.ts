@@ -40,6 +40,26 @@ export function startLoginAt(returnUrl: string): void {
   window.location.assign('/bff/auth/login?' + new URLSearchParams({ returnUrl }).toString());
 }
 
+export function startLoginAfterExpiry(returnUrl: string): void {
+  if (isAcceptedReturnPath(returnUrl)) {
+    startLoginAt(returnUrl);
+  } else {
+    startLogin();
+  }
+}
+
+function isAcceptedReturnPath(returnUrl: string): boolean {
+  if (returnUrl.length > 2048) return false;
+
+  // BFF проверяет локальность и символы до и после percent-decoding.
+  const isAllowed = (path: string) => isSameOriginPath(path) && !/[\p{Cc}\p{Z}]/u.test(path);
+  try {
+    return isAllowed(returnUrl) && isAllowed(decodeURIComponent(returnUrl));
+  } catch {
+    return false;
+  }
+}
+
 async function fetchAntiforgeryToken(signal?: AbortSignal): Promise<string> {
   const tokenResponse = await fetch(ANTIFORGERY_URL, {
     credentials: 'same-origin',

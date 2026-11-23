@@ -1,8 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { jsonResponse, mockFetch, stubLocationAssign } from '../test/fetchMock';
-import { AuthApiError, fetchSession, LOGIN_URL, logout, startLogin } from './authApi';
+import { AuthApiError, fetchSession, LOGIN_URL, logout, startLogin, startLoginAfterExpiry } from './authApi';
 
 describe('authApi', () => {
+  it('сохраняет допустимый маршрут повторного входа вместе с query и fragment', () => {
+    const assign = stubLocationAssign();
+    const returnUrl = '/app/positions/search?symbol=BTC%2FUSDT&view=%D0%90#results';
+
+    startLoginAfterExpiry(returnUrl);
+
+    expect(assign).toHaveBeenCalledExactlyOnceWith(
+      '/bff/auth/login?' + new URLSearchParams({ returnUrl }).toString(),
+    );
+  });
+
+  it.each([
+    '/app/positions/search?symbol=BTC%C2%A0USDT',
+    '/app/%5Cposition',
+    '//example.test/app',
+    '/%2Fexample.test/app',
+    '/app/%00',
+    '/app/' + 'a'.repeat(2044),
+    '/app/%',
+  ])('использует штатный маршрут входа для недопустимого returnUrl %s', (returnUrl) => {
+    const assign = stubLocationAssign();
+
+    startLoginAfterExpiry(returnUrl);
+
+    expect(assign).toHaveBeenCalledExactlyOnceWith(LOGIN_URL);
+  });
+
   it('reads anonymous session without credentials leaving the origin', async () => {
     const requests = mockFetch({ '/bff/auth/session': () => jsonResponse({ authenticated: false }) });
 

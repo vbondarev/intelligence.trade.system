@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { POSITION_SEARCH_PATH } from '../position/positionNavigation';
 import { useAuth } from '../auth/authContext';
-import { startLoginAt } from '../auth/authApi';
+import { startLoginAfterExpiry } from '../auth/authApi';
 import { SessionDeadline } from '../auth/SessionDeadline';
 import { RealtimeProvider } from '../realtime/RealtimeProvider';
 import { useRealtime } from '../realtime/realtimeContext';
@@ -68,7 +68,7 @@ export function AppShell() {
         </>
       )}
       <main ref={mainRef} id="main-content" className="app-main" tabIndex={-1}>
-        <SessionDeadline key={sessionInstance} onLogin={() => startLoginAt(returnRoute.current)} />
+        <SessionDeadline key={sessionInstance} onLogin={() => startLoginAfterExpiry(returnRoute.current)} />
         {!sessionExpired && user && (
           <RealtimeProvider key={user.userId}><DataUpdatesShell /></RealtimeProvider>
         )}
