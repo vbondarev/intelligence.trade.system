@@ -380,20 +380,24 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
     load(state.hasLoaded ? 'refresh' : 'initial', state.selectedTypes, null, { source: 'manual-refresh' });
   };
 
-  const handleShowMore = () => {
+  const moveFocusToRefresh = (button: HTMLButtonElement) => {
+    // Запуск чтения сразу убирает кнопку действия из DOM.
+    if (button.ownerDocument.activeElement === button) refreshButton.current?.focus();
+  };
+
+  const handleShowMore = (event: MouseEvent<HTMLButtonElement>) => {
     if ((activeLoad.current && updates.isLive()) || state.pending !== null || state.nextCursor === null) {
       return;
     }
 
+    moveFocusToRefresh(event.currentTarget);
     updates.cancelResume();
     setManualLoadStatus('Загружаем продолжение истории…');
     load('more', state.selectedTypes, state.nextCursor);
   };
 
   const handleRetry = (event: MouseEvent<HTMLButtonElement>) => {
-    const button = event.currentTarget;
-    // Запуск чтения сразу убирает кнопку ошибки из DOM.
-    if (button.ownerDocument.activeElement === button) refreshButton.current?.focus();
+    moveFocusToRefresh(event.currentTarget);
     handleRefresh();
   };
 

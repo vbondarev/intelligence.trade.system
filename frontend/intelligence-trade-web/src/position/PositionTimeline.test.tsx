@@ -313,6 +313,50 @@ describe('PositionTimeline pagination', () => {
     expect(screen.queryByRole('button', { name: 'Показать ещё' })).not.toBeInTheDocument();
   });
 
+  it.each(['Обновить', 'фильтр'] as const)(
+    'сохраняет клавиатурный фокус на «%s» при загрузке и повторе продолжения',
+    async (focusAfterRetry) => {
+      const user = userEvent.setup();
+      const failure = deferred<Response>();
+      const continuation = deferred<Response>();
+      const { requests } = renderTimeline({
+        [BASE]: page(firstTimelinePage()),
+        [MORE_URL]: sequence(() => failure.promise, () => continuation.promise),
+      });
+      await user.click(toggle());
+      await findEvents(3);
+
+      const refresh = screen.getByRole('button', { name: 'Обновить' });
+      const more = screen.getByRole('button', { name: 'Показать ещё' });
+      more.focus();
+      await user.keyboard('{Enter}');
+      expect(more).not.toBeInTheDocument();
+      expect(refresh).toHaveFocus();
+
+      await act(async () => failure.resolve(problem(503, 'service_unavailable')));
+      const alert = await screen.findByRole('alert');
+      const retry = within(alert).getByRole('button', { name: 'Повторить загрузку продолжения' });
+      expect(events()).toHaveLength(3);
+      expect(refresh).toHaveFocus();
+
+      retry.focus();
+      await user.keyboard('{Enter}');
+      expect(retry).not.toBeInTheDocument();
+      expect(refresh).toHaveFocus();
+
+      const firstFilter = screen.getAllByRole('checkbox')[0]!;
+      if (focusAfterRetry === 'фильтр') {
+        await user.tab();
+        expect(firstFilter).toHaveFocus();
+      }
+      await act(async () => continuation.resolve(jsonResponse(continuationTimelinePage())));
+      await findEvents(5);
+      expect(requestUrls(requests)).toEqual([BASE, MORE_URL, MORE_URL]);
+      expect(screen.queryByRole('button', { name: 'Показать ещё' })).not.toBeInTheDocument();
+      expect(focusAfterRetry === 'фильтр' ? firstFilter : refresh).toHaveFocus();
+    },
+  );
+
   it('sends a single continuation request on a repeated click', async () => {
     const response = deferred<Response>();
     const { requests } = renderTimeline({ [BASE]: page(firstTimelinePage()), [MORE_URL]: () => response.promise });
