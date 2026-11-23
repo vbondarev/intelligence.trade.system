@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { useAuth } from '../auth/authContext';
@@ -308,7 +308,10 @@ describe('App routing and session bootstrap', () => {
     let timingReads = 0;
     let sessionReads = 0;
     let check!: () => Promise<boolean>;
+    let back!: () => void;
     function RealtimeRecheck() {
+      const navigate = useNavigate();
+      back = () => navigate(-1);
       const { revalidate } = useAuth();
       check = () => revalidate(authenticatedSession.user.userId, new AbortController().signal);
       return null;
@@ -325,7 +328,7 @@ describe('App routing and session bootstrap', () => {
     });
     render(
       <AuthProvider>
-        <MemoryRouter initialEntries={['/app/settings/connections?source=test#section']}>
+        <MemoryRouter initialEntries={['/app', '/app/settings/connections?source=test#section']}>
           <AppRoutes />
           <RealtimeRecheck />
         </MemoryRouter>
@@ -365,11 +368,44 @@ describe('App routing and session bootstrap', () => {
       expect(login).toHaveFocus();
       expect(focusTargets.filter((target) => target === login)).toHaveLength(1);
       expect(sessionReads).toBe(2);
+      await act(async () => back());
+      expect(screen.getByRole('dialog', { name: 'Сессия завершена' })).toBe(dialog);
+      expect(login).toHaveFocus();
       await userEvent.keyboard('{Enter}');
       expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections%3Fsource%3Dtest%23section');
     } finally {
       document.removeEventListener('focusin', recordFocus);
     }
+  });
+
+  it('сбрасывает предупреждение и запрашивает новый срок при смене пользователя', async () => {
+    const nextUser = { userId: 'next-user', subject: 'Новый пользователь' };
+    let sessionReads = 0;
+    let timingReads = 0;
+    mockFetch({
+      ...noConnections,
+      '/bff/auth/session': () => jsonResponse(++sessionReads === 1
+        ? authenticatedSession
+        : { authenticated: true, user: nextUser }),
+      '/bff/auth/session/timing': () => jsonResponse({
+        serverTimeUtc: '2026-11-19T12:00:00Z',
+        expiresAtUtc: ++timingReads === 1 ? '2026-11-19T12:01:40Z' : '2026-11-19T12:05:00Z',
+      }),
+    });
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/app/settings/connections']}>
+          <AppRoutes />
+          <SessionRecheck userId={authenticatedSession.user.userId} />
+        </MemoryRouter>
+      </AuthProvider>,
+      { wrapper: MantineProvider },
+    );
+    await screen.findByRole('dialog', { name: 'Сессия скоро завершится' });
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    expect(await screen.findByText(nextUser.subject)).toBeVisible();
+    await waitFor(() => expect(timingReads).toBe(2));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Сессия скоро завершится' })).not.toBeInTheDocument());
   });
 
   it('сохраняет явный logout при 401 от timing до завершения выхода', async () => {

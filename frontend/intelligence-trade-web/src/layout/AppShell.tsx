@@ -1,5 +1,5 @@
 import { StatusMessage } from '../ui/StatusMessage';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { POSITION_SEARCH_PATH } from '../position/positionNavigation';
 import { useAuth } from '../auth/authContext';
@@ -11,11 +11,16 @@ import { createAutoUpdates } from '../realtime/autoUpdates';
 import { AutoUpdatesContext, useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 
 export function AppShell() {
-  const { user, logout, sessionExpired } = useAuth();
-  const location = useLocation();
-  const { pathname } = location;
+  const { user, logout, sessionExpired, sessionInstance } = useAuth();
+  const { pathname, search, hash } = useLocation();
+  const route = pathname + search + hash;
+  const returnRoute = useRef(route);
   const previousPath = useRef(pathname);
   const mainRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (!sessionExpired) returnRoute.current = route;
+  }, [route, sessionExpired]);
 
   useEffect(() => {
     const main = mainRef.current;
@@ -63,7 +68,7 @@ export function AppShell() {
         </>
       )}
       <main ref={mainRef} id="main-content" className="app-main" tabIndex={-1}>
-        <SessionDeadline onLogin={() => startLoginAt(pathname + location.search + location.hash)} />
+        <SessionDeadline key={sessionInstance} onLogin={() => startLoginAt(returnRoute.current)} />
         {!sessionExpired && user && (
           <RealtimeProvider key={user.userId}><DataUpdatesShell /></RealtimeProvider>
         )}

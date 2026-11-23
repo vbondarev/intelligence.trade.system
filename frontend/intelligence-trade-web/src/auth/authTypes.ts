@@ -25,6 +25,7 @@ export interface SessionReadContext {
 }
 
 export interface AuthContextValue extends AuthState {
+  sessionInstance: number;
   login: () => void;
   logout: () => Promise<void>;
   retry: () => void;

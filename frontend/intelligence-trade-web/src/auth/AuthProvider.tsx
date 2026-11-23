@@ -20,7 +20,7 @@ function toAuthState(session: BrowserSession): AuthState {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>(LOADING_STATE);
+  const [state, setState] = useState<AuthState & { sessionInstance: number }>({ ...LOADING_STATE, sessionInstance: 0 });
   const [attempt, setAttempt] = useState(0);
   const epoch = useRef(0);
   const sessionGeneration = useRef(0);
@@ -33,7 +33,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionGeneration.current += 1;
     currentUserId.current = next.user?.userId ?? null;
     expired.current = next.sessionExpired === true;
-    setState(next);
+    setState((current) => ({
+      ...next,
+      sessionInstance: next.authenticated ? current.sessionInstance + 1 : current.sessionInstance,
+    }));
   }, []);
 
   useEffect(() => {

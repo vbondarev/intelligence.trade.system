@@ -43,7 +43,7 @@ function renderSearch(
           <AuthContext.Provider value={{
             authenticated: true, loading: false, user: null, error: null, logoutAvailable: false,
             login: vi.fn(), logout: vi.fn(), retry: vi.fn(), revalidate: vi.fn(), captureSessionRead, captureSessionEnd: () => captureSessionRead().endSession,
-            captureTimingCheck: () => () => true, expireSession: vi.fn(), restoreSession: vi.fn(),
+            sessionInstance: 1, captureTimingCheck: () => () => true, expireSession: vi.fn(), restoreSession: vi.fn(),
           }}>
             <PositionSearchPage />
           </AuthContext.Provider>
