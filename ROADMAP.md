@@ -1,13 +1,14 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.79
-Дата актуализации: 23 ноября 2026 года
+Версия документа: 3.80
+Дата актуализации: 24 ноября 2026 года
 Проверенная база перед G-06 / PR-5: `develop` @ `c7f4d544dd59beed487b2cdaaf61352bf2da0442` (слияние PR #219). G-06 / PR-3, связанные follow-up и PR-4 уже вошли в `develop`; PR-5 реализован в Issue #202 / PR #220.
 Последнее подтверждённое изменение базовой ветки перед PR-5 — завершение PR #219. История предыдущих PR и проверенных SHA сохраняется в журнале изменений.
 База подготовки G-06 / PR-6: `develop` @ `e1efcd11b23732db4416339d07665cc2f62a2822`; завершающий PR — [#221](https://github.com/vbondarev/intelligence.trade.system/pull/221).
 ROADMAP в ветке PR #221 подготовлен как целевое состояние после успешного merge и не подтверждает сам факт слияния; указанная база PR-6 не является будущим merge commit.
 Проверенная база G-07 / PR #224: `develop` @ `4353b70ac0f4057ea27e6288ac3270496deb0f7b`. Реализация G-07 по Issue #223 завершена и принята к слиянию 12 ноября 2026 года: независимый Re-review завершился без подтверждённых блокеров, exact-head CI [#43094745697](https://github.com/vbondarev/intelligence.trade.system/actions/runs/43094745697) (attempt 3) — SUCCESS на `0a5b0d509af1a1e14c3a349367392c41da9d022e`. PR #224 слит в `develop` 12 ноября 2026 года коммитом `a870c5baa28d60b589933f3cf5410fca5601670b`, Issue #223 закрыт.
 Проверенная база G-08 / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227): `develop` @ `a870c5baa28d60b589933f3cf5410fca5601670b`. PR #227 слит в `develop` 21 ноября 2026 года коммитом `822d6b9a213ffa54a8f022d96489e0aa074e3f37`.
+Проверенная база [PR #232](https://github.com/vbondarev/intelligence.trade.system/pull/232) — `develop` @ `743ea5ea29266eb493927b0be5a3fa66064555a8`. Запись о клавиатурной пагинации описывает целевое состояние после успешного слияния #232.
 Текущий этап: **G — основной Web-клиент и realtime-контур**. G-01–G-07 завершены. Приёмка **G-08** продолжается. Базовая дизайн-система и единая обработка ошибок **G-09** реализованы. Issue [#228](https://github.com/vbondarev/intelligence.trade.system/issues/228) закрыта. Остаток AC‑07 отслеживается в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). Приёмка G‑09 остаётся открытой. Этап G остаётся в работе до завершения G-08 и G-09. **AC-12: `DEFERRED / NOT_VERIFIED` → [Issue #222](https://github.com/vbondarev/intelligence.trade.system/issues/222); реальный SLO p95 ≤ 5 секунд не подтверждён.**
 
 Проверенная база G-09 — `develop` @ `822d6b9a213ffa54a8f022d96489e0aa074e3f37` ([PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227)).
@@ -179,7 +180,7 @@ ROADMAP в ветке PR #221 подготовлен как целевое со�
 
 ### Частично реализовано
 
-- 🟡 G-08 / [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) — адаптивная оболочка, улучшения клавиатурной и семантической доступности, таблица свечей и ценовых уровней, предупреждение и продление сессии, обновлённый вход Identity и пауза автообновления с сохранением REST recovery. Приёмка остаётся открытой.
+- 🟡 G-08 / [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) / [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) — адаптивная оболочка, улучшения клавиатурной и семантической доступности, таблица свечей и ценовых уровней, предупреждение и продление сессии, обновлённый вход Identity и пауза автообновления с сохранением REST recovery. В целевом состоянии [PR #232](https://github.com/vbondarev/intelligence.trade.system/pull/232) завершено исправление фокуса при клавиатурной пагинации истории. Приёмка остаётся открытой.
 - 🟡 G-09 — базовая дизайн-система и единая обработка ошибок реализованы ([PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229)). Issue [#228](https://github.com/vbondarev/intelligence.trade.system/issues/228) закрыта. Остаток AC‑07 отслеживается в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). Приёмка G‑09 остаётся открытой.
 
 ### Есть только как заготовка
@@ -404,6 +405,8 @@ Stage G поэтому является cross-stack этапом и включа
 **Завершённая и проверенная реализация G-07 (Issue #223, [PR #224](https://github.com/vbondarev/intelligence.trade.system/pull/224); слит в `develop`).** Реализован защищённый browser-facing SignalR через BFF, связанный с действующей server-side session и проверенной пользовательской идентичностью. BFF подключается к API с server-side Bearer и передаёт четыре существующих события v1 без изменения их контрактов; `bff.realtime.ready` инициирует REST recovery. React автоматически обновляет открытые списки подключений и позиций, account-scoped портфель, карточку позиции, сохранённую оценку и раскрытую историю. Для reconnect, logout и смены пользователя реализованы безопасный lifecycle, ограниченные повторные попытки и защита от гонок `start/stop`. Сохранены действующие фильтры, изоляция асинхронных ответов и cursor pagination. Отдельно отображаются признаки фактической свежести и производной рыночной оценки G-06. Full-stack E2E подтверждает путь от сохранённого backend-изменения через transactional outbox, API SignalR и BFF до REST-восстановления Web, включая пропущенное при разрыве событие. Скрытая синхронизация, автоматическая evaluation, торговые операции и изменение Bybit ingress не вводились. Этап G остаётся в работе до G-08 и G-09; эксплуатационное подтверждение AC-12 из G-06 остаётся за Issue #222.
 
 **Частичная реализация G-08.** [PR #227](https://github.com/vbondarev/intelligence.trade.system/pull/227) слит в `develop` 21 ноября 2026 года коммитом `822d6b9a213ffa54a8f022d96489e0aa074e3f37`. Приёмка G-08 / #225 остаётся `BLOCKED_BY_VERIFICATION`. Все IMP-01–IMP-07 и их критерии сохраняются. IMP-07, релиз и закрытие #225 заблокированы до PASS обязательного Windows WebKit gate в [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226) и выполнения остальных критериев приёмки. Доказательства и границы проверок приведены в [аудите G-08](docs/testing/g08-acceptance-audit.md).
+
+**Клавиатурная пагинация истории позиции — ✅ Завершено.** [PR #232](https://github.com/vbondarev/intelligence.trade.system/pull/232) сохраняет фокус при загрузке и повторе продолжения истории. Клавиатурная регрессия подтверждает результат в Chromium и mobile WebKit. Приёмка #225 остаётся `BLOCKED_BY_VERIFICATION` до PASS по #226 и выполнения остальных критериев IMP‑07.
 
 **Частичная реализация G-09.** [PR #229](https://github.com/vbondarev/intelligence.trade.system/pull/229) вводит общие токены и состояния React, обработку ошибок по HTTP-статусам и машинным кодам, согласованное оформление формы входа Identity и защиту от устаревших отказов доступа. Issue #228 закрыта после слияния PR #229. Остаток проверки AC‑07 ведётся в [#230](https://github.com/vbondarev/intelligence.trade.system/issues/230). На сборке по Amendment 3 NVDA с автоматическим Say All дважды объявил «Войти снова». На `6dfbd25` повторно подтверждён браузерный фокус при истечении сессии. Однократное объявление NVDA остаётся неподтверждённым. В Windows mobile WebKit сохраняется `FAIL` по [#226](https://github.com/vbondarev/intelligence.trade.system/issues/226). Условия приёмки и релиза действуют согласно [Amendment 2](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7069306806) и [Amendment 3](https://github.com/vbondarev/intelligence.trade.system/issues/228#issuecomment-7080146360).
 
@@ -640,6 +643,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-11-24 | 3.80 | Подготовлено целевое состояние G‑08 после слияния PR #232. Завершена проверяемая часть по клавиатурной пагинации истории. Условия приёмки #225, #226 и релиза сохраняются. |
 | 2026-11-23 | 3.79 | Отражены целевое состояние исправления истечения сессии в PR #231, закрытие #228, остаток AC‑07 в #230 и статус `PAUSED_BY_OWNER`. Условие #226 сохраняется. |
 | 2026-11-23 | 3.78 | Выделены завершённые шаги реализации G-09. Зафиксированы результаты RR‑03 и RR‑04, открытая приёмка G‑08/G‑09 и сохранение условий релиза. |
 | 2026-11-22 | 3.77 | Отражены реализация G-09 в PR #229, открытая приёмка #228 и факт слияния PR #227. Сохранены условия AC‑07, #226 и релиза. |
