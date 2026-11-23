@@ -1,6 +1,6 @@
 # Issue #225: аудит готовности G-08
 
-Обновлено 23 ноября 2026 года. [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) · [Approved Plan](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6877298059) · [Amendment по результатам аудита WCAG](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6958879377) · [Обязательный Windows WebKit gate](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6884893121)
+Обновлено 24 ноября 2026 года. [Issue #225](https://github.com/vbondarev/intelligence.trade.system/issues/225) · [Approved Plan](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6877298059) · [Amendment по результатам аудита WCAG](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6958879377) · [Обязательный Windows WebKit gate](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-6884893121)
 
 Этот документ отделяет наличие реализации от доказанного выполнения критериев. Ручные результаты пользователя учитываются как его сообщение, без приписывания агенту самостоятельного наблюдения. Подробная применимость WCAG — в [матрице](g08-wcag22-aa-matrix.md); протокол ручной проверки — в [инструкции](g08-manual-wcag-protocol.md).
 
@@ -16,7 +16,7 @@
 
 В Playwright 1.63.0 на Windows прошли четыре изолированных браузерных сценария при ширине 320 CSS px: по два в Chromium 153.0.8010.12 и WebKit 26.6. С помощью Tab и Enter запустили «Показать ещё», получили тестовый `503`, повторили запрос с тем же курсором и получили последнюю страницу. При запуске обоих запросов фокус переходил на «Обновить». При ответе он оставался там или на фильтре, если пользователь сам перешёл на него клавишей Tab. Ранее загруженные события сохранились, после успешного повтора добавились новые, кнопка «Показать ещё» исчезла. Проверка покрывает клавиатурное поведение компонента с тестовыми ответами API. Условия IMP-07 и #226 действуют.
 
-Ту же последовательность закрепили в [Playwright-наборе доступности](../../frontend/intelligence-trade-web/e2e/accessibility.spec.ts). На Windows против штатного frontend из изолированного Compose с реальным входом через Identity прошли 4/4 сценария при 320 CSS px: два в `chromium` и два в `mobile-webkit`. Ответы подменялись только для чтения бизнес-данных. Для продолжения истории тест проверяет достижимость кнопок через Tab, переход фокуса при Enter и сохранение выбора пользователя после ответа. Проверка относится к пагинации. Результаты full-stack realtime recovery и обязательного HTTPS gate учитываются отдельно по [Amendment для PR #232](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-7113108623).
+Ту же последовательность закрепили в [Playwright-наборе доступности](../../frontend/intelligence-trade-web/e2e/accessibility.spec.ts). На [`712cc61`](https://github.com/vbondarev/intelligence.trade.system/commit/712cc61a75787efc0818de442fc45c9e2d494c24) на Windows против штатного frontend из изолированного Compose с реальным входом через Identity прошли 4/4 сценария при 320 CSS px: два в `chromium` и два в `mobile-webkit`. Ответы подменялись только для чтения бизнес-данных. Для продолжения истории тест проверяет достижимость кнопок через Tab, переход фокуса при Enter и сохранение выбора пользователя после ответа. Проверка относится к пагинации. Результаты full-stack realtime recovery и обязательного HTTPS gate учитываются отдельно по [Amendment для PR #232](https://github.com/vbondarev/intelligence.trade.system/issues/225#issuecomment-7113108623).
 
 ## Проверка FIX-20
 
@@ -81,7 +81,7 @@ FIX-06 уже подтверждён в Linux CI на `ff6e5a2`. В Chrome 157 �
 | IMP-04 | Код и автоматические проверки выполнены | Клавиатура, формы и фокус покрыты component/E2E. Все ручные сценарии NVDA — PASS по сообщению пользователя; подробные фразы по каждому действию не предоставлены. |
 | IMP-05 | Частично | RR-01 проверен регрессией по истории на паузе. Speech Viewer подтвердил ручную загрузку, паузу и возобновление. Ручной охват всех финансовых состояний и фоновых объявлений остаётся неполным. |
 | IMP-06 | Код и автоматические проверки выполнены | Canvas и семантические таблицы получают общие свечи и уровни; component/E2E покрывают 200 свечей, состояния и клавиатурную прокрутку. Навигация NVDA по таблице наблюдалась агентом, общий ручной PASS подтверждён пользователем. |
-| IMP-07 | Не завершён | Требуются закрытые IMP-01 и WCAG 2.2 AA без непроверенных обязательных критериев, повтор итоговых проверок, final self-review и подготовка Draft PR. |
+| IMP-07 | Не завершён | Остаются PASS обязательного Windows WebKit HTTPS gate по #226, подтверждение остальных обязательных критериев WCAG 2.2 AA и итоговые проверки по действующему плану. |
 
 ## Критерии Issue
 
