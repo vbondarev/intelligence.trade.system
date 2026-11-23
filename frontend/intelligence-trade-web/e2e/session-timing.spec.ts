@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { IDENTITY_COOKIE, loginThroughLanding, SESSION_COOKIE } from './support';
+import { identityBaseUrl, IDENTITY_COOKIE, loginThroughLanding, SESSION_COOKIE } from './support';
 
 const timingPath = '**/bff/auth/session/timing';
 const serverTime = Date.UTC(2026, 10, 17);
@@ -109,6 +109,14 @@ test('истечение в открытом предупреждении пер
   const warning = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
   const extend = warning.getByRole('button', { name: 'Продлить сессию' });
   await expect(extend).toBeFocused();
+  const warningButton = await extend.elementHandle();
+  await page.evaluate(() => {
+    document.addEventListener('focusin', ({ target }) => {
+      if (target instanceof HTMLButtonElement && target.textContent?.trim() === 'Войти снова') {
+        target.dataset.focusCount = String(Number(target.dataset.focusCount ?? '0') + 1);
+      }
+    });
+  });
 
   expired = true;
   await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
@@ -116,8 +124,43 @@ test('истечение в открытом предупреждении пер
   const login = ended.getByRole('button', { name: 'Войти снова' });
   await expect(login).toBeFocused();
   await expect(ended).toHaveAccessibleDescription('Войдите снова, чтобы продолжить работу.');
+  expect(await warningButton?.evaluate((button) => button.isConnected)).toBe(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(login).toHaveAttribute('data-focus-count', '1');
+  await expect(page.getByRole('heading', { name: 'Обзор' })).toHaveCount(0);
   await page.keyboard.press('Tab');
   await expect(login).toBeFocused();
+});
+
+test('повторный вход с недопустимым маршрутом поиска открывает форму Identity', async ({ page, context }) => {
+  await loginThroughLanding(page);
+  await page.goto('/app/positions/search');
+  await page.getByLabel('Символ').fill('BTC\u00a0USDT');
+  await page.getByRole('button', { name: 'Найти' }).click();
+  await expect(page).toHaveURL(/\/app\/positions\/search\?symbol=BTC%C2%A0USDT$/);
+
+  // Подменяем только сигнал об истечении. BFF и Identity обрабатывают повторный вход штатно.
+  await page.route(timingPath, (route) => route.fulfill({ status: 401 }));
+  const login = page.getByRole('dialog', { name: 'Сессия завершена' })
+    .getByRole('button', { name: 'Войти снова' });
+  await expect(async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(login).toBeFocused({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+
+  // Удаляем cookie после перехода в диалог, чтобы ответ бизнес-запроса не опередил timing.
+  await context.clearCookies({ name: SESSION_COOKIE });
+  await context.clearCookies({ name: IDENTITY_COOKIE });
+
+  const loginResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/bff/auth/login',
+  );
+  await page.keyboard.press('Enter');
+  const response = await loginResponse;
+  expect(response.status()).toBe(302);
+  expect(new URL(response.url()).searchParams.get('returnUrl')).toBe('/app');
+  await page.waitForURL((url) => url.origin === identityBaseUrl && url.pathname === '/account/login');
+  await expect(page.locator('input[name="username"]')).toBeVisible();
 });
 
 test('повторный вход в другой вкладке восстанавливает исходный маршрут', async ({ page, context }) => {

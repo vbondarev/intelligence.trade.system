@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { useAuth } from '../auth/authContext';
@@ -278,7 +278,7 @@ describe('App routing and session bootstrap', () => {
       verifyAuthPending = true;
       await act(async () => { window.dispatchEvent(new Event('focus')); });
       await waitFor(() => expect(requests.filter(({ url }) => url === '/bff/auth/session').length).toBe(nextSession + 1));
-      expect(screen.getByRole('status')).toHaveTextContent('Проверяем сессию');
+      expect(screen.getByRole('dialog', { name: 'Сессия завершена' })).toBeVisible();
       expect(reads()).toBe(initialReads);
 
       await act(async () => {
@@ -289,17 +289,149 @@ describe('App routing and session bootstrap', () => {
         await screen.findByRole('heading', { name: 'Подключения' });
         await waitFor(() => expect(reads()).toBeGreaterThan(initialReads));
       } else {
-        if (outcome === 'failed') {
-          expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось проверить сессию');
-          expect(screen.getByRole('button', { name: 'Повторить' })).toBeVisible();
-        } else {
-          await screen.findByRole('button', { name: 'Войти' });
-        }
+        expect(screen.getByRole('dialog', { name: 'Сессия завершена' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Войти снова' })).toHaveFocus();
         expect(screen.queryByRole('heading', { name: 'Подключения' })).not.toBeInTheDocument();
         expect(reads()).toBe(initialReads);
       }
     },
   );
+
+
+  it.each(['timing', 'realtime'] as const)('первый сигнал %s сохраняет один диалог истечения и фокус', async (first) => {
+    const assign = stubLocationAssign();
+    let finishTiming!: (response: Response) => void;
+    let finishRealtime!: (response: Response) => void;
+    const pendingTiming = new Promise<Response>((resolve) => { finishTiming = resolve; });
+    const pendingRealtime = new Promise<Response>((resolve) => { finishRealtime = resolve; });
+    const warning = () => jsonResponse({ serverTimeUtc: '2026-11-19T12:00:00Z', expiresAtUtc: '2026-11-19T12:01:40Z' });
+    let timingReads = 0;
+    let sessionReads = 0;
+    let check!: () => Promise<boolean>;
+    let back!: () => void;
+    function RealtimeRecheck() {
+      const navigate = useNavigate();
+      back = () => navigate(-1);
+      const { revalidate } = useAuth();
+      check = () => revalidate(authenticatedSession.user.userId, new AbortController().signal);
+      return null;
+    }
+
+    mockFetch({
+      ...noConnections,
+      '/bff/auth/session': () => ++sessionReads === 1 ? jsonResponse(authenticatedSession) : pendingRealtime,
+      '/bff/auth/session/timing': () => {
+        timingReads += 1;
+        if (timingReads === 1) return warning();
+        return timingReads === 2 ? pendingTiming : jsonResponse(null, 401);
+      },
+    });
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/app', '/app/settings/connections?source=test#section']}>
+          <AppRoutes />
+          <RealtimeRecheck />
+        </MemoryRouter>
+      </AuthProvider>,
+      { wrapper: MantineProvider },
+    );
+    const extend = await screen.findByRole('button', { name: 'Продлить сессию' });
+    await waitFor(() => expect(extend).toHaveFocus());
+
+    const focusTargets: EventTarget[] = [];
+    const recordFocus = (event: FocusEvent) => {
+      if (event.target) focusTargets.push(event.target);
+    };
+    document.addEventListener('focusin', recordFocus);
+    try {
+      await act(async () => window.dispatchEvent(new Event('focus')));
+      const realtime = check();
+      expect(timingReads).toBe(2);
+      await act(async () => {
+        if (first === 'timing') finishTiming(jsonResponse(null, 401));
+        else finishRealtime(jsonResponse({ authenticated: false }));
+      });
+      const dialog = await screen.findByRole('dialog', { name: 'Сессия завершена' });
+      const login = screen.getByRole('button', { name: 'Войти снова' });
+      expect(login).not.toBe(extend);
+      expect(login).toHaveFocus();
+      expect(screen.queryByRole('heading', { name: 'Подключения' })).not.toBeInTheDocument();
+      expect(screen.queryByText(authenticatedSession.user.subject)).not.toBeInTheDocument();
+
+      await act(async () => {
+        if (first === 'timing') finishRealtime(jsonResponse({ authenticated: false }));
+        else finishTiming(warning());
+        await realtime;
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(screen.getByRole('dialog', { name: 'Сессия завершена' })).toBe(dialog);
+      expect(login).toHaveFocus();
+      expect(focusTargets.filter((target) => target === login)).toHaveLength(1);
+      expect(sessionReads).toBe(2);
+      await act(async () => back());
+      expect(screen.getByRole('dialog', { name: 'Сессия завершена' })).toBe(dialog);
+      expect(login).toHaveFocus();
+      await userEvent.keyboard('{Enter}');
+      expect(assign).toHaveBeenCalledWith('/bff/auth/login?returnUrl=%2Fapp%2Fsettings%2Fconnections%3Fsource%3Dtest%23section');
+    } finally {
+      document.removeEventListener('focusin', recordFocus);
+    }
+  });
+
+  it('сбрасывает предупреждение и запрашивает новый срок при смене пользователя', async () => {
+    const nextUser = { userId: 'next-user', subject: 'Новый пользователь' };
+    let sessionReads = 0;
+    let timingReads = 0;
+    mockFetch({
+      ...noConnections,
+      '/bff/auth/session': () => jsonResponse(++sessionReads === 1
+        ? authenticatedSession
+        : { authenticated: true, user: nextUser }),
+      '/bff/auth/session/timing': () => jsonResponse({
+        serverTimeUtc: '2026-11-19T12:00:00Z',
+        expiresAtUtc: ++timingReads === 1 ? '2026-11-19T12:01:40Z' : '2026-11-19T12:05:00Z',
+      }),
+    });
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/app/settings/connections']}>
+          <AppRoutes />
+          <SessionRecheck userId={authenticatedSession.user.userId} />
+        </MemoryRouter>
+      </AuthProvider>,
+      { wrapper: MantineProvider },
+    );
+    await screen.findByRole('dialog', { name: 'Сессия скоро завершится' });
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
+    expect(await screen.findByText(nextUser.subject)).toBeVisible();
+    await waitFor(() => expect(timingReads).toBe(2));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Сессия скоро завершится' })).not.toBeInTheDocument());
+  });
+
+  it('сохраняет явный logout при 401 от timing до завершения выхода', async () => {
+    const assign = stubLocationAssign();
+    let finishLogout!: (response: Response) => void;
+    const pendingLogout = new Promise<Response>((resolve) => { finishLogout = resolve; });
+    let expired = false;
+    const requests = mockFetch({
+      ...noConnections,
+      '/bff/auth/session': () => jsonResponse(authenticatedSession),
+      '/bff/auth/session/timing': () => expired
+        ? jsonResponse(null, 401)
+        : jsonResponse({ serverTimeUtc: '2026-11-19T12:00:00Z', expiresAtUtc: '2026-11-19T12:30:00Z' }),
+      '/bff/auth/antiforgery': () => jsonResponse({ requestToken: 'csrf-token' }),
+      '/bff/auth/logout': () => pendingLogout,
+    });
+    renderAt('/app');
+    await userEvent.click(await screen.findByRole('button', { name: 'Выйти' }));
+    await waitFor(() => expect(authRequestUrls(requests)).toContain('/bff/auth/logout'));
+
+    expired = true;
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.queryByRole('dialog', { name: 'Сессия завершена' })).not.toBeInTheDocument();
+    await act(async () => finishLogout(jsonResponse({ redirectUrl: '/bff/auth/logout/complete' })));
+    expect(assign).toHaveBeenCalledWith('/bff/auth/logout/complete');
+  });
 
   it('moves an authenticated visitor from the landing to /app', async () => {
     mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });

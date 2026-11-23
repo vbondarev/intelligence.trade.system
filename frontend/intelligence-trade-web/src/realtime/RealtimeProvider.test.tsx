@@ -21,6 +21,7 @@ const auth: AuthContextValue = {
   logoutAvailable: false, login: vi.fn(), logout: vi.fn(), retry: vi.fn(), revalidate: vi.fn(),
   captureSessionRead: () => ({ isCurrent: () => true, endSession: vi.fn() }),
   captureSessionEnd: () => vi.fn(),
+  sessionInstance: 1, captureTimingCheck: () => () => true, expireSession: vi.fn(), restoreSession: vi.fn(),
 };
 
 describe('RealtimeProvider', () => {
