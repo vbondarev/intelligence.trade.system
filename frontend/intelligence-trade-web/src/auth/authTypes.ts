@@ -15,6 +15,7 @@ export interface AuthState {
   error: string | null;
   logoutAvailable: boolean;
   sessionEnded?: boolean;
+  sessionExpired?: boolean;
   sessionTraceId?: string | null;
 }
 
@@ -28,6 +29,9 @@ export interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   retry: () => void;
   revalidate: (expectedUserId: string, signal: AbortSignal) => Promise<boolean>;
+  captureTimingCheck: () => () => boolean;
+  expireSession: () => void;
+  restoreSession: (signal: AbortSignal) => Promise<void>;
   captureSessionRead: () => SessionReadContext;
   captureSessionEnd: () => (traceId?: string | null) => void;
 }

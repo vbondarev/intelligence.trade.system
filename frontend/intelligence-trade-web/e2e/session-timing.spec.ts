@@ -109,6 +109,14 @@ test('истечение в открытом предупреждении пер
   const warning = page.getByRole('dialog', { name: 'Сессия скоро завершится' });
   const extend = warning.getByRole('button', { name: 'Продлить сессию' });
   await expect(extend).toBeFocused();
+  const warningButton = await extend.elementHandle();
+  await page.evaluate(() => {
+    document.addEventListener('focusin', ({ target }) => {
+      if (target instanceof HTMLButtonElement && target.textContent?.trim() === 'Войти снова') {
+        target.dataset.focusCount = String(Number(target.dataset.focusCount ?? '0') + 1);
+      }
+    });
+  });
 
   expired = true;
   await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
@@ -116,6 +124,10 @@ test('истечение в открытом предупреждении пер
   const login = ended.getByRole('button', { name: 'Войти снова' });
   await expect(login).toBeFocused();
   await expect(ended).toHaveAccessibleDescription('Войдите снова, чтобы продолжить работу.');
+  expect(await warningButton?.evaluate((button) => button.isConnected)).toBe(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(login).toHaveAttribute('data-focus-count', '1');
+  await expect(page.getByRole('heading', { name: 'Обзор' })).toHaveCount(0);
   await page.keyboard.press('Tab');
   await expect(login).toBeFocused();
 });

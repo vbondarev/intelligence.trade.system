@@ -1,6 +1,7 @@
 import { Modal } from '@mantine/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { extendSession, fetchSessionTiming, type SessionTiming } from './authApi';
+import { useAuth } from './authContext';
 
 const WARNING_MS = 120_000;
 const POLL_MS = 60_000;
@@ -14,13 +15,11 @@ const SESSION_DIALOG_TRANSITION = {
   out: { transform: 'translateY(-30px)' },
 };
 
-type Deadline = { kind: 'unknown' | 'active' | 'expired' } | { kind: 'warning'; expiresAt: number };
+type Deadline = { kind: 'unknown' | 'active' } | { kind: 'warning'; expiresAt: number };
 
-export function SessionDeadline({ onLogin, onExpired, onRestored }: {
-  onLogin: () => void;
-  onExpired: () => void;
-  onRestored: () => void;
-}) {
+export function SessionDeadline({ onLogin }: { onLogin: () => void }) {
+  const { sessionExpired, captureTimingCheck, expireSession, restoreSession } = useAuth();
+  const expired = sessionExpired === true;
   const [deadline, setDeadline] = useState<Deadline>({ kind: 'unknown' });
   const [dismissed, setDismissed] = useState<number>();
   const [extending, setExtending] = useState(false);
@@ -35,21 +34,19 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
     let timer: number | undefined;
     let checking: AbortController | undefined;
     let actionPending = false;
-    let observedExpiry = false;
-    let restoring = false;
     let lastTiming: { expiresAt: number; deadline: number } | undefined;
 
-    function apply(timing: SessionTiming | null) {
+    async function apply(timing: SessionTiming | null, signal: AbortSignal) {
       if (timing === null) {
-        observedExpiry = true;
-        lastTiming = undefined;
-        setDeadline({ kind: 'expired' });
-        onExpired();
+        if (!expired) expireSession();
         return;
       }
-      if (observedExpiry) {
-        restoring = true;
-        onRestored();
+      if (expired) {
+        setDeadline({ kind: 'unknown' });
+        setDismissed(undefined);
+        setExtending(false);
+        setExtensionError(false);
+        await restoreSession(signal);
         return;
       }
 
@@ -65,14 +62,17 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
     }
 
     function refresh() {
-      if (lifetime.signal.aborted || restoring || actionPending || checking || document.visibilityState === 'hidden') return;
+      if (lifetime.signal.aborted || actionPending || checking || document.visibilityState === 'hidden') return;
       window.clearTimeout(timer);
       const current = new AbortController();
       checking = current;
+      const isCurrent = captureTimingCheck();
       const request = AbortSignal.any([current.signal, lifetime.signal, AbortSignal.timeout(REQUEST_MS)]);
       void fetchSessionTiming(request).then(
         (timing) => {
-          if (!current.signal.aborted && !lifetime.signal.aborted) apply(timing);
+          if (request.aborted) return;
+          if (isCurrent()) return apply(timing, request);
+          timer = window.setTimeout(refresh, RETRY_MS);
         },
         () => {
           if (current.signal.aborted || lifetime.signal.aborted) return;
@@ -87,18 +87,23 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
     }
 
     extend.current = () => {
-      if (actionPending || lifetime.signal.aborted) return;
+      if (expired || actionPending || lifetime.signal.aborted) return;
       actionPending = true;
       window.clearTimeout(timer);
       checking?.abort();
       checking = undefined;
       setExtending(true);
       setExtensionError(false);
+      const isCurrent = captureTimingCheck();
       const request = AbortSignal.any([lifetime.signal, AbortSignal.timeout(REQUEST_MS)]);
       void extendSession(request).then(
         (timing) => {
-          if (lifetime.signal.aborted) return;
-          apply(timing);
+          if (request.aborted) return;
+          if (!isCurrent()) {
+            timer = window.setTimeout(refresh, RETRY_MS);
+            return;
+          }
+          void apply(timing, request);
           channel?.postMessage('refresh');
         },
         () => {
@@ -132,14 +137,13 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
       window.removeEventListener('pageshow', refresh);
       window.removeEventListener('online', refresh);
     };
-  }, [onExpired, onRestored]);
+  }, [captureTimingCheck, expireSession, expired, restoreSession]);
 
-  const expired = deadline.kind === 'expired';
-  const warning = deadline.kind === 'warning';
-  const warningDismissed = warning && dismissed === deadline.expiresAt;
+  const warning = !expired && deadline.kind === 'warning';
+  const warningDismissed = warning && dismissed !== undefined && dismissed === deadline.expiresAt;
   const opened = expired || (warning && !warningDismissed);
   const dismiss = () => {
-    if (deadline.kind === 'warning' && !extending) setDismissed(deadline.expiresAt);
+    if (warning && !extending) setDismissed(deadline.expiresAt);
   };
   useLayoutEffect(() => {
     const button = reentryButton.current;
@@ -176,7 +180,7 @@ export function SessionDeadline({ onLogin, onExpired, onRestored }: {
             )}
             <div className="form-actions">
               {expired ? (
-                <button ref={reentryButton} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
+                <button key="reentry" ref={reentryButton} type="button" className="button" data-autofocus onClick={onLogin}>Войти снова</button>
               ) : (
                 <>
                   <button type="button" className="button" data-autofocus aria-disabled={extending || undefined} onClick={() => extend.current()}>

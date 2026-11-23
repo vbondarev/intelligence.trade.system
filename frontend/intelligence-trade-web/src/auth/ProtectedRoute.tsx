@@ -4,14 +4,14 @@ import { useAuth } from './authContext';
 import { LoadingScreen } from '../layout/LoadingScreen';
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { loading, authenticated } = useAuth();
+  const { loading, authenticated, sessionExpired } = useAuth();
   const { pathname, search, hash } = useLocation();
 
   if (loading) {
     return <LoadingScreen />;
   }
 
-  if (!authenticated) {
+  if (!authenticated && !sessionExpired) {
     return <Navigate to="/" replace state={{ returnUrl: pathname + search + hash }} />;
   }
 
