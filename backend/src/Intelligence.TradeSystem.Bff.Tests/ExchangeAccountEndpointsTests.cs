@@ -1,7 +1,11 @@
+using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using Intelligence.TradeSystem.Bff.Authentication;
 using Intelligence.TradeSystem.Bff.Tests.Support;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Intelligence.TradeSystem.Bff.Tests;
 
@@ -108,6 +112,138 @@ public sealed class ExchangeAccountEndpointsTests
         },
         { "DELETE", $"/bff/me/exchange-accounts/{AccountId}", null, $"api/v1/me/exchange-accounts/{AccountId}", 204 },
     };
+
+    [Theory]
+    [MemberData(nameof(BodyOperations))]
+    public async Task Declared_oversized_body_is_rejected_without_reading_or_ending_the_session(
+        string method,
+        string path,
+        string body)
+    {
+        using var factory = new BffApplicationFactory();
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+        var sessionKey = browser.GetSessionKey();
+
+        using var response = await SendAsync(browser, method, path, PadJson(body, 8193), antiforgery);
+
+        await AssertPayloadTooLargeAsync(response);
+        factory.RequestBody.ContentLength.Should().Be(8193);
+        factory.RequestBody.ReadCount.Should().Be(0);
+        factory.Api.Count.Should().Be(0);
+        factory.TokenEndpoint.Count.Should().Be(0);
+        browser.GetSessionKey().Should().Be(sessionKey);
+        (await browser.GetStoredTicketAsync()).Should().NotBeNull();
+    }
+
+    [Theory]
+    [MemberData(nameof(StreamedBodyOperations))]
+    public async Task Body_without_content_length_is_bounded_and_its_buffer_is_cleared(
+        string method,
+        string path,
+        string json,
+        bool oversized)
+    {
+        using var factory = new BffApplicationFactory();
+        var logs = new CapturedLogs();
+        factory.Services.GetRequiredService<ILoggerFactory>().AddProvider(logs);
+        factory.RequestBody.CaptureBuffers = true;
+        factory.RequestBody.MaxReadSize = 1024;
+        factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.OK, AccountJson));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+        var body = PadJson(json, oversized ? 8193 : 8192);
+
+        using var response = await SendAsync(browser, method, path, body, antiforgery, knownLength: false);
+
+        factory.RequestBody.ContentLength.Should().BeNull();
+        factory.RequestBody.ReadCount.Should().BeGreaterThan(1);
+        factory.RequestBody.BytesRead.Should().Be(oversized ? 8193 : 8192);
+        if (oversized)
+        {
+            await AssertPayloadTooLargeAsync(response);
+            factory.Api.Count.Should().Be(0);
+        }
+        else
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            factory.Api.Requests.Should().ContainSingle().Which.Body.Should().Be(body);
+            (await response.Content.ReadAsStringAsync()).Should().Be(AccountJson);
+        }
+
+        factory.TokenEndpoint.Count.Should().Be(0);
+        logs.Messages.Should().OnlyContain(message => !message.Contains(json, StringComparison.Ordinal)
+            && !message.Contains(FakeApiKey, StringComparison.Ordinal)
+            && !message.Contains(FakeApiSecret, StringComparison.Ordinal));
+        AssertClearedBuffer(factory.RequestBody);
+    }
+
+    public static TheoryData<string, string, string, bool> StreamedBodyOperations()
+    {
+        var cases = new TheoryData<string, string, string, bool>();
+        foreach (var (method, path, body) in BodyOperationCases)
+        {
+            cases.Add(method, path, body, false);
+            cases.Add(method, path, body, true);
+        }
+
+        return cases;
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(8191)]
+    [InlineData(8192)]
+    public async Task Declared_body_within_the_limit_is_forwarded_exactly(int byteCount)
+    {
+        using var factory = new BffApplicationFactory();
+        factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.Created, AccountJson));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+        var body = byteCount == 0 ? string.Empty : PadJson(CreateBody, byteCount);
+
+        using var response = await SendAsync(browser, "POST", "/bff/me/exchange-accounts", body, antiforgery);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        factory.RequestBody.ContentLength.Should().Be(byteCount);
+        factory.RequestBody.BytesRead.Should().Be(byteCount);
+        var apiRequest = factory.Api.Requests.Should().ContainSingle().Which;
+        apiRequest.Method.Should().Be(HttpMethod.Post);
+        apiRequest.RequestUri.AbsoluteUri.Should().Be(ApiCollection);
+        apiRequest.AuthorizationScheme.Should().Be("Bearer");
+        apiRequest.AuthorizationParameter.Should().Be("access-1");
+        apiRequest.ContentType.Should().Be("application/json; charset=utf-8");
+        apiRequest.Body.Should().Be(body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task Csrf_and_token_failures_take_precedence_over_declared_body_size(HttpStatusCode status)
+    {
+        using var factory = new BffApplicationFactory();
+        factory.TokenEndpoint.Responder = (_, _) => Task.FromResult(status == HttpStatusCode.Unauthorized
+            ? UpstreamResponses.TokenError(HttpStatusCode.BadRequest, "invalid_grant")
+            : new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync(accessTokenLifetime: TimeSpan.FromSeconds(30));
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+
+        using var response = await SendAsync(browser, "POST", "/bff/me/exchange-accounts", PadJson(CreateBody, 8193),
+            status == HttpStatusCode.BadRequest ? "invalid-token" : antiforgery);
+
+        response.StatusCode.Should().Be(status);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        factory.RequestBody.ContentLength.Should().Be(8193);
+        factory.RequestBody.ReadCount.Should().Be(0);
+        factory.Api.Count.Should().Be(0);
+        factory.TokenEndpoint.Count.Should().Be(status == HttpStatusCode.BadRequest ? 0 : 1);
+    }
 
     [Theory]
     [InlineData(400, "validation_failed")]
@@ -257,12 +393,23 @@ public sealed class ExchangeAccountEndpointsTests
         browser.SessionCookie.Should().BeNull();
     }
 
-    public static TheoryData<string, string, string> BodyOperations() => new()
+    private static readonly (string Method, string Path, string Body)[] BodyOperationCases =
+    [
+        ("POST", "/bff/me/exchange-accounts", CreateBody),
+        ("PATCH", $"/bff/me/exchange-accounts/{AccountId}", "{\"displayName\":\"GinArea\"}"),
+        ("PUT", $"/bff/me/exchange-accounts/{AccountId}/credentials", RotateBody),
+    ];
+
+    public static TheoryData<string, string, string> BodyOperations()
     {
-        { "POST", "/bff/me/exchange-accounts", CreateBody },
-        { "PATCH", $"/bff/me/exchange-accounts/{AccountId}", "{\"displayName\":\"GinArea\"}" },
-        { "PUT", $"/bff/me/exchange-accounts/{AccountId}/credentials", RotateBody },
-    };
+        var cases = new TheoryData<string, string, string>();
+        foreach (var (method, path, body) in BodyOperationCases)
+        {
+            cases.Add(method, path, body);
+        }
+
+        return cases;
+    }
 
     [Fact]
     public async Task Unavailable_token_service_returns_service_unavailable_before_reading_the_body()
@@ -287,6 +434,7 @@ public sealed class ExchangeAccountEndpointsTests
     public async Task Body_read_failure_does_not_reach_the_api_or_leak_credentials()
     {
         using var factory = new BffApplicationFactory();
+        factory.RequestBody.CaptureBuffers = true;
         factory.RequestBody.FailureAfterFirstRead = new IOException("simulated request body failure");
         factory.Api.Responder = (_, _) => Task.FromResult(RecordingHttpHandler.Json(HttpStatusCode.Created, AccountJson));
         using var browser = factory.CreateBrowser();
@@ -303,6 +451,36 @@ public sealed class ExchangeAccountEndpointsTests
         factory.RequestBody.ReadCount.Should().BeGreaterThan(1);
         factory.Api.Count.Should().Be(0);
         factory.TokenEndpoint.Count.Should().Be(0);
+        factory.RequestBody.BytesRead.Should().BePositive();
+        AssertClearedBuffer(factory.RequestBody);
+    }
+
+    [Fact]
+    public async Task Cancellation_after_a_partial_read_clears_the_buffer_without_calling_the_api()
+    {
+        using var factory = new BffApplicationFactory();
+        using var browser = factory.CreateBrowser();
+        await browser.SignInAsync();
+        var antiforgery = await browser.GetAntiforgeryTokenAsync();
+        using var cancellation = new CancellationTokenSource();
+        var partialRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.RequestBody.CaptureBuffers = true;
+        factory.RequestBody.MaxReadSize = 16;
+        factory.RequestBody.WaitForCancellationAfterFirstRead = true;
+        factory.RequestBody.AfterFirstRead = () => partialRead.TrySetResult();
+        factory.RequestBody.AfterRequest = () => requestCompleted.TrySetResult();
+
+        var request = SendAsync(browser, "POST", "/bff/me/exchange-accounts", CreateBody, antiforgery,
+            cancellationToken: cancellation.Token);
+        await partialRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+
+        await FluentActions.Awaiting(() => request).Should().ThrowAsync<OperationCanceledException>();
+        await requestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        factory.RequestBody.BytesRead.Should().Be(16);
+        factory.Api.Count.Should().Be(0);
+        AssertClearedBuffer(factory.RequestBody);
     }
 
     [Fact]
@@ -421,17 +599,45 @@ public sealed class ExchangeAccountEndpointsTests
             .Which.RequestUri.AbsoluteUri.Should().Be(ApiCollection);
     }
 
+    private static string PadJson(string json, int byteCount) =>
+        json + new string(' ', byteCount - Encoding.UTF8.GetByteCount(json));
+
+    private static async Task AssertPayloadTooLargeAsync(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Content.Headers.ContentType.Should().BeNull();
+        (await response.Content.ReadAsByteArrayAsync()).Should().BeEmpty();
+    }
+
+    private static void AssertClearedBuffer(RequestBodyProbe probe)
+    {
+        var readBuffers = probe.ReadBuffers;
+        readBuffers.Should().NotBeEmpty();
+        var buffer = readBuffers[0];
+        readBuffers.Should().OnlyContain(observed => ReferenceEquals(buffer, observed));
+        buffer.Should().HaveCount(8193).And.OnlyContain(value => value == 0);
+    }
+
     private static async Task<HttpResponseMessage> SendAsync(
         BffBrowser browser,
         string method,
         string path,
         string? body,
-        string? antiforgery)
+        string? antiforgery,
+        bool knownLength = true,
+        CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (body is not null)
         {
-            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            request.Content = knownLength
+                ? new StringContent(body, Encoding.UTF8, "application/json")
+                : new UnknownLengthJsonContent(body);
+            if (knownLength)
+            {
+                request.Content.Headers.ContentLength = Encoding.UTF8.GetByteCount(body);
+            }
         }
 
         if (antiforgery is not null)
@@ -439,6 +645,54 @@ public sealed class ExchangeAccountEndpointsTests
             request.Headers.Add(BffAuthenticationExtensions.AntiforgeryHeaderName, antiforgery);
         }
 
-        return await browser.Client.SendAsync(request);
+        return await browser.Client.SendAsync(request, cancellationToken);
+    }
+
+    private sealed class UnknownLengthJsonContent : HttpContent
+    {
+        private readonly byte[] body;
+
+        public UnknownLengthJsonContent(string json)
+        {
+            body = Encoding.UTF8.GetBytes(json);
+            Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(body.AsMemory()).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class CapturedLogs : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new CaptureLogger(Messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CaptureLogger(ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+                Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                messages.Enqueue(formatter(state, exception));
+                if (exception is not null)
+                {
+                    messages.Enqueue(exception.ToString());
+                }
+            }
+        }
     }
 }

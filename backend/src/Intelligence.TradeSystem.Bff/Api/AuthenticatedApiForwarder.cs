@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using Intelligence.TradeSystem.Bff.Authentication;
 using Microsoft.AspNetCore.Authentication;
@@ -13,7 +12,7 @@ internal sealed partial class AuthenticatedApiForwarder(
     BffTokenService tokenService,
     ILogger<AuthenticatedApiForwarder> logger)
 {
-    private const int BodyReadChunkSize = 4096;
+    private const int MaxRequestBodySize = 8192;
 
     public async Task<ApiForwardResponse> ForwardAsync(
         HttpContext httpContext,
@@ -37,7 +36,7 @@ internal sealed partial class AuthenticatedApiForwarder(
     /// </summary>
     public async Task<ApiForwardResponse> ForwardWithBodyAsync(
         HttpContext httpContext,
-        Func<byte[], string, CancellationToken, Task<ApiForwardResponse>> send,
+        Func<ArraySegment<byte>, string, CancellationToken, Task<ApiForwardResponse>> send,
         CancellationToken cancellationToken)
     {
         var token = await tokenService.GetAccessTokenAsync(httpContext, null, cancellationToken);
@@ -46,9 +45,22 @@ internal sealed partial class AuthenticatedApiForwarder(
             return tokenFailure;
         }
 
-        var body = await ReadSensitiveBodyAsync(httpContext.Request.Body, cancellationToken);
+        if (httpContext.Request.ContentLength > MaxRequestBodySize)
+        {
+            return ApiForwardResponse.Status(StatusCodes.Status413PayloadTooLarge);
+        }
+
+        // Дополнительный байт отличает тело ровно на границе от превышения лимита.
+        var buffer = new byte[MaxRequestBodySize + 1];
         try
         {
+            var length = await ReadSensitiveBodyAsync(httpContext.Request.Body, buffer, cancellationToken);
+            if (length > MaxRequestBodySize)
+            {
+                return ApiForwardResponse.Status(StatusCodes.Status413PayloadTooLarge);
+            }
+
+            var body = new ArraySegment<byte>(buffer, 0, length);
             return await SendWithSingleRetryAsync(
                 httpContext,
                 token.AccessToken!,
@@ -57,7 +69,7 @@ internal sealed partial class AuthenticatedApiForwarder(
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(body);
+            CryptographicOperations.ZeroMemory(buffer);
         }
     }
 
@@ -92,40 +104,24 @@ internal sealed partial class AuthenticatedApiForwarder(
         return ApiForwardResponse.Status(StatusCodes.Status401Unauthorized);
     }
 
-    /// <summary>
-    /// Читает body в собственный буфер вместо <see cref="Stream.CopyToAsync(Stream)"/>: при росте
-    /// буфера и при exception/cancellation каждый промежуточный массив очищается, а не остаётся
-    /// в памяти или в общем pool с фрагментами credentials.
-    /// </summary>
-    private static async Task<byte[]> ReadSensitiveBodyAsync(Stream body, CancellationToken cancellationToken)
+    private static async Task<int> ReadSensitiveBodyAsync(
+        Stream body,
+        byte[] buffer,
+        CancellationToken cancellationToken)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(BodyReadChunkSize);
         var length = 0;
-        try
+        while (length < buffer.Length)
         {
-            while (true)
+            var read = await body.ReadAsync(buffer.AsMemory(length), cancellationToken);
+            if (read == 0)
             {
-                if (length == buffer.Length)
-                {
-                    var larger = ArrayPool<byte>.Shared.Rent(buffer.Length * 2);
-                    buffer.AsSpan(0, length).CopyTo(larger);
-                    ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
-                    buffer = larger;
-                }
-
-                var read = await body.ReadAsync(buffer.AsMemory(length), cancellationToken);
-                if (read == 0)
-                {
-                    return buffer.AsSpan(0, length).ToArray();
-                }
-
-                length += read;
+                break;
             }
+
+            length += read;
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
-        }
+
+        return length;
     }
 
     private static ApiForwardResponse? ToFailure(BffAccessTokenResult token) => token.Status switch

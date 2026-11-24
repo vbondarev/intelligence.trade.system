@@ -146,10 +146,13 @@ Browser управляет read-only подключениями Bybit тольк
 | `DELETE /bff/me/exchange-accounts/{id}` | `DELETE /api/v1/me/exchange-accounts/{id}` |
 
 - `{id}` принимается только как GUID. Другие методы и paths под этим prefix, включая `GET` отдельного подключения, не реализованы и возвращают `404` без обращения к `Api`; `portfolio` и `sync` описаны в следующем разделе. Generic proxy и forwarding произвольного path отсутствуют; query string в `Api` не передаётся.
-- Unsafe endpoints проходят centralized CSRF-проверку (см. «CSRF»). JSON body запроса передаётся в `Api` без интерпретации; буфер с body, в том числе с API key/secret, очищается после отправки. Credentials не логируются, не сохраняются в BFF session и не возвращаются browser.
+- Unsafe endpoints проходят centralized CSRF-проверку (см. «CSRF»). JSON body запроса передаётся в `Api` без интерпретации. BFF очищает весь собственный буфер с телом после отправки, отказа, ошибки чтения или отмены. Credentials не логируются, не сохраняются в BFF session и не возвращаются browser.
+- Для `POST /bff/me/exchange-accounts`, `PATCH /bff/me/exchange-accounts/{id}` и `PUT /bff/me/exchange-accounts/{id}/credentials` BFF принимает не более 8 192 байт JSON-тела включительно. Лимит учитывает все байты тела, включая пробелы и JSON-экранирование.
+- BFF проверяет размер после централизованной CSRF-проверки и получения пригодного access token. Если `Content-Length` превышает лимит, BFF отклоняет запрос без чтения тела. Во всех остальных случаях, включая запросы без `Content-Length` (например, chunked), BFF проверяет фактически считанные байты и останавливает чтение на 8 193-м байте.
+- При превышении лимита BFF возвращает `413 Payload Too Large` с пустым телом и `Cache-Control: no-store` без вызова business API. BFF не задаёт `Content-Type` в этом ответе. Отказ сам по себе не вызывает принудительный refresh, повтор запроса или завершение сессии. Ответ при более раннем отказе хоста или reverse proxy определяется этим слоем.
 - Статус и JSON body (`application/json`, `application/problem+json` и другие `+json`) ответа `Api`, кроме `401`, передаются browser без изменения, включая `ProblemDetails` с `code`, `traceId` и `errors`. Non-JSON body отбрасывается.
 - `401` от `Api` приводит к одному принудительному refresh и ровно одному повтору того же запроса с тем же body (см. «Access token и refresh»); повторный `401` завершает BFF session. Других автоматических повторов, в том числе unsafe-запросов после timeout, network error или `5xx`, BFF не выполняет.
-- Ответы, сформированные самим BFF, не содержат body: `401` — нет session или session завершена; `503` — token endpoint Identity или `Api` недоступны (network error, timeout 30 секунд), session при этом сохраняется.
+- Ответы, сформированные самим BFF, не содержат body: `401` — нет session или session завершена; `503` — token endpoint Identity или `Api` недоступны (network error, timeout 30 секунд), session при этом сохраняется. Пустой ответ `413` описан выше.
 
 ### Портфель, ручная синхронизация и позиции
 

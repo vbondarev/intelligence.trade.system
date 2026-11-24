@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+
 namespace Intelligence.TradeSystem.Bff.Tests.Support;
 
 /// <summary>
@@ -6,7 +9,25 @@ namespace Intelligence.TradeSystem.Bff.Tests.Support;
 /// </summary>
 internal sealed class RequestBodyProbe
 {
+    private readonly ConcurrentQueue<byte[]> readBuffers = new();
     private int readCount;
+    private int bytesRead;
+
+    public bool CaptureBuffers { get; set; }
+
+    public IReadOnlyList<byte[]> ReadBuffers => [.. readBuffers];
+
+    public long? ContentLength { get; private set; }
+
+    public int BytesRead => Volatile.Read(ref bytesRead);
+
+    public int MaxReadSize { get; set; } = int.MaxValue;
+
+    public Action? AfterFirstRead { get; set; }
+
+    public Action? AfterRequest { get; set; }
+
+    public bool WaitForCancellationAfterFirstRead { get; set; }
 
     public int ReadCount => Volatile.Read(ref readCount);
 
@@ -16,7 +37,11 @@ internal sealed class RequestBodyProbe
     /// </summary>
     public Exception? FailureAfterFirstRead { get; set; }
 
-    public Stream Wrap(Stream inner) => new ProbeStream(inner, this);
+    public Stream Wrap(Stream inner, long? contentLength)
+    {
+        ContentLength = contentLength;
+        return new ProbeStream(inner, this);
+    }
 
     private void RegisterRead()
     {
@@ -51,10 +76,27 @@ internal sealed class RequestBodyProbe
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             probe.RegisterRead();
-            return inner.ReadAsync(buffer, cancellationToken);
+            if (probe.CaptureBuffers && MemoryMarshal.TryGetArray<byte>(buffer, out var segment))
+            {
+                probe.readBuffers.Enqueue(segment.Array!);
+            }
+
+            if (probe.WaitForCancellationAfterFirstRead && probe.ReadCount > 1)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            var read = await inner.ReadAsync(buffer[..Math.Min(buffer.Length, probe.MaxReadSize)], cancellationToken);
+            Interlocked.Add(ref probe.bytesRead, read);
+            if (probe.ReadCount == 1)
+            {
+                probe.AfterFirstRead?.Invoke();
+            }
+
+            return read;
         }
 
         public override void Flush()

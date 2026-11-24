@@ -194,7 +194,16 @@ internal sealed class BffApplicationFactory : WebApplicationFactory<Program>
             {
                 if (context.Request.Path.StartsWithSegments("/bff/me"))
                 {
-                    context.Request.Body = probe.Wrap(context.Request.Body);
+                    context.Request.Body = probe.Wrap(context.Request.Body, context.Request.ContentLength);
+                    try
+                    {
+                        await nextMiddleware(context);
+                    }
+                    finally
+                    {
+                        probe.AfterRequest?.Invoke();
+                    }
+                    return;
                 }
 
                 await nextMiddleware(context);

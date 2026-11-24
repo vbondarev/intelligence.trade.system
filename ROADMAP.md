@@ -1,6 +1,6 @@
 # Дорожная карта разработки Intelligence.TradeSystem
 
-Версия документа: 3.81
+Версия документа: 3.82
 Дата актуализации: 24 ноября 2026 года
 Проверенная база перед G-06 / PR-5: `develop` @ `c7f4d544dd59beed487b2cdaaf61352bf2da0442` (слияние PR #219). G-06 / PR-3, связанные follow-up и PR-4 уже вошли в `develop`; PR-5 реализован в Issue #202 / PR #220.
 Последнее подтверждённое изменение базовой ветки перед PR-5 — завершение PR #219. История предыдущих PR и проверенных SHA сохраняется в журнале изменений.
@@ -390,6 +390,8 @@ Stage G поэтому является cross-stack этапом и включа
 | G-08 | Добавить адаптивность и базовую доступность | 🟡 Частично | Основные сценарии работают на телефоне и компьютере |
 | G-09 | Зафиксировать базовую дизайн-систему и обработку ошибок | 🟡 Частично | React использует уже стабилизированный backend error contract: validation/auth/not-found/conflict/unavailable/internal, а также loading/stale/risk состояния отображаются единообразно по machine-readable semantics без разбора человекочитаемого `detail` |
 
+**Лимит JSON-тела запросов BFF, follow-up к G-02 — ✅ Завершено.** В целевом состоянии после слияния [PR #234](https://github.com/vbondarev/intelligence.trade.system/pull/234) [Issue #186](https://github.com/vbondarev/intelligence.trade.system/issues/186) выполнена. Для добавления или восстановления подключения, переименования и замены ключей BFF принимает JSON-тело до 8 192 байт включительно. При превышении, в том числе без `Content-Length`, BFF возвращает пустой `413` с `Cache-Control: no-store` до вызова business API. Подробности зафиксированы в [Web BFF contract](docs/web-bff-contract.md).
+
 **Отложенная загрузка страницы позиции, follow-up к G-04 — ✅ Завершено.** [Issue #197](https://github.com/vbondarev/intelligence.trade.system/issues/197) реализована в [PR #233](https://github.com/vbondarev/intelligence.trade.system/pull/233). Модуль страницы позиции и Lightweight Charts исключены из начальной загрузки `/app` и загружаются при открытии страницы позиции. Проверены прямой URL, ожидание, ошибка импорта, ручное восстановление и сохранение пользовательского фокуса. Условия приёмки G-08, G-09 и релиза сохраняются.
 
 **Промежуточный результат G-06 / PR-3 (Issue #202, [PR #208](https://github.com/vbondarev/intelligence.trade.system/pull/208)).** Реализованы application-level согласование приватных WS-наблюдений с REST, persisted PostgreSQL REST ordering evidence, versioned `RecoveryRequestEpoch`, generation/recovery fencing, биржевые cursors, атомарное сохранение доменного состояния и outbox и тесты PostgreSQL на порядок, восстановление, clock skew и конкурентные сценарии. Результаты exact-head CI и решение Human Merge Gate для PR-3 фиксируются в PR #208, а не в дорожной карте. **PR-3 не запускает realtime worker:** автоматическое получение и доставка WS-наблюдений в эксплуатационном контуре и полный G-06 остаются следующими работами. Follow-up: [#209](https://github.com/vbondarev/intelligence.trade.system/issues/209) (история позиций), [#210](https://github.com/vbondarev/intelligence.trade.system/issues/210) (SQL Balance evidence), [#211](https://github.com/vbondarev/intelligence.trade.system/issues/211) (несмежные REST-окна), [#212](https://github.com/vbondarev/intelligence.trade.system/issues/212) и [#213](https://github.com/vbondarev/intelligence.trade.system/issues/213) (корректность при утрате evidence). #209 устранён PR #216, #210 — PR #217, #211 — PR #218, #212 — PR #214, #213 — PR #215; все follow-up PR вошли в `develop`. Issue #202 остаётся задачей всего G-06, даже после слияния отдельных follow-up PR.
@@ -645,6 +647,7 @@ G-AUTH-01 — G-AUTH-03 являются параллельным направл
 
 | Дата | Версия | Изменение |
 |---|---|---|
+| 2026-11-24 | 3.82 | Подготовлено целевое состояние после слияния [PR #234](https://github.com/vbondarev/intelligence.trade.system/pull/234) в `develop`. Выполнена отдельная задача [#186](https://github.com/vbondarev/intelligence.trade.system/issues/186) по ограничению JSON-тела запросов BFF для управления подключениями. Проверенная база PR — `develop` @ `489cc0252d83ec140953d372c238cd296de52786`. Условия приёмки G-08, G-09 и релиза сохраняются. |
 | 2026-11-24 | 3.81 | Подготовлено целевое состояние после слияния [PR #233](https://github.com/vbondarev/intelligence.trade.system/pull/233) в `develop`. Завершена оптимизация начальной загрузки страницы позиции по [#197](https://github.com/vbondarev/intelligence.trade.system/issues/197). Проверенная база PR — `develop` @ `1a9141a5386c6404ce3197925b2d4bb3cd3a4e53`. Условия приёмки G-08, G-09 и релиза сохраняются. |
 | 2026-11-24 | 3.80 | Подготовлено целевое состояние G‑08 после слияния PR #232. Завершена проверяемая часть по клавиатурной пагинации истории. Условия приёмки #225, #226 и релиза сохраняются. |
 | 2026-11-23 | 3.79 | Отражены целевое состояние исправления истечения сессии в PR #231, закрытие #228, остаток AC‑07 в #230 и статус `PAUSED_BY_OWNER`. Условие #226 сохраняется. |

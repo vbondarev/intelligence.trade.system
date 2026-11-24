@@ -25,14 +25,14 @@ internal sealed partial class ExchangeAccountsApiClient(
         SendAsync(HttpMethod.Get, CollectionPath, null, accessToken, cancellationToken);
 
     public Task<ApiForwardResponse> CreateAsync(
-        byte[] body,
+        ArraySegment<byte> body,
         string accessToken,
         CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, CollectionPath, body, accessToken, cancellationToken);
 
     public Task<ApiForwardResponse> RenameAsync(
         Guid id,
-        byte[] body,
+        ArraySegment<byte> body,
         string accessToken,
         CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Patch, ItemPath(id), body, accessToken, cancellationToken);
@@ -42,7 +42,7 @@ internal sealed partial class ExchangeAccountsApiClient(
 
     public Task<ApiForwardResponse> RotateCredentialsAsync(
         Guid id,
-        byte[] body,
+        ArraySegment<byte> body,
         string accessToken,
         CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Put, ItemPath(id) + "/credentials", body, accessToken, cancellationToken);
@@ -55,7 +55,7 @@ internal sealed partial class ExchangeAccountsApiClient(
     private async Task<ApiForwardResponse> SendAsync(
         HttpMethod method,
         string path,
-        byte[]? body,
+        ArraySegment<byte>? body,
         string accessToken,
         CancellationToken cancellationToken)
     {
@@ -64,9 +64,9 @@ internal sealed partial class ExchangeAccountsApiClient(
         using var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(JsonMediaType));
-        if (body is not null)
+        if (body is { } segment)
         {
-            request.Content = new ByteArrayContent(body);
+            request.Content = new ByteArrayContent(segment.Array!, segment.Offset, segment.Count);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(JsonMediaType) { CharSet = "utf-8" };
         }
 
