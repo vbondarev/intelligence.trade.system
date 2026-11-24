@@ -126,6 +126,7 @@ test('прямой URL позиции загружает график и сох�
 
 const delayedPositionScenarios = {
   loaded: 'после загрузки модуля фокус переходит на заголовок позиции',
+  'neutral-shift': 'нейтральное нажатие Shift во время загрузки сохраняет перенос фокуса на заголовок',
   keyboard: 'после перехода к позиции клавишей Enter фокус получает заголовок',
   'keep-focus': 'завершение загрузки сохраняет фокус, перенесённый пользователем',
   'skip-link': 'переход к основному содержимому сохраняет фокус после загрузки модуля',
@@ -138,7 +139,8 @@ for (const [outcome, title] of Object.entries(delayedPositionScenarios)) {
   test(title, async ({ page, browserName }) => {
     const windowsWebKit = process.platform === 'win32' && browserName === 'webkit';
     const preservesMainFocus = outcome === 'skip-link' || outcome === 'already-on-main';
-    test.skip(preservesMainFocus && !windowsWebKit, 'Проверка происхождения фокуса на main в Windows WebKit');
+    const usesNeutralShift = outcome === 'neutral-shift';
+    test.skip((preservesMainFocus || usesNeutralShift) && !windowsWebKit, 'Проверка происхождения фокуса на main в Windows WebKit');
     test.skip(outcome === 'keyboard' && windowsWebKit, 'Клавиатурный сценарий A1 проверяется в Chromium и Linux WebKit');
     const { positionLink, positionReads, isNewScript } = await openPositionOverview(page);
     const main = page.getByRole('main');
@@ -172,7 +174,12 @@ for (const [outcome, title] of Object.entries(delayedPositionScenarios)) {
       await expect(page).toHaveTitle('Позиция — Intelligence Trade');
       await expect.poll(() => requested.size).toBeGreaterThan(0);
       expect(positionReads).toHaveLength(0);
-      if (windowsWebKit && (outcome === 'loaded' || preservesMainFocus)) await expect(main).toBeFocused();
+      if (windowsWebKit && (outcome === 'loaded' || preservesMainFocus || usesNeutralShift)) await expect(main).toBeFocused();
+      if (usesNeutralShift) {
+        await page.keyboard.press('Shift');
+        await expect(main).toBeFocused();
+        await expect(loading).toBeVisible();
+      }
 
       const searchLink = navigation.getByRole('link', { name: 'Поиск позиций' });
       if (outcome === 'keep-focus') await searchLink.focus();

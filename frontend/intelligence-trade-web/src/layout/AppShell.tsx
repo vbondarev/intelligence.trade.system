@@ -133,7 +133,9 @@ export function AppShell() {
       className="app-shell"
       onMouseDownCapture={capturePositionLinkPress}
       onClick={confirmPositionLinkClick}
-      onKeyDownCapture={cancelPositionLinkFocus}
+      onKeyDownCapture={() => {
+        positionLinkPress.current = null;
+      }}
       onPointerCancelCapture={cancelPositionLinkFocus}
       onContextMenuCapture={cancelPositionLinkFocus}
     >
