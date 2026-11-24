@@ -24,6 +24,7 @@ Project-owned skills не заменяют долговечные правила
 | Skill | Ответственность |
 | --- | --- |
 | `trade-system-web-design-review` | UI/UX/accessibility review React Web-клиента по локальному snapshot Web Interface Guidelines; routing — `frontend/intelligence-trade-web/AGENTS.md` |
+| `next-stage` | Выбор ближайшего действия по Issue, PR или текущей задаче и подготовка короткого задания по запросу |
 
 ## External skills
 
