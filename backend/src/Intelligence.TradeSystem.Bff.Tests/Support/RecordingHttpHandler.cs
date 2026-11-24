@@ -34,7 +34,10 @@ internal sealed class RecordingHttpHandler : HttpMessageHandler
             request.RequestUri!,
             request.Headers.Authorization?.Scheme,
             request.Headers.Authorization?.Parameter,
-            body);
+            body)
+        {
+            ContentType = request.Content?.Headers.ContentType?.ToString(),
+        };
         requests.Enqueue(recorded);
 
         return await Responder(recorded, cancellationToken);
@@ -48,6 +51,8 @@ internal sealed record RecordedRequest(
     string? AuthorizationParameter,
     string Body)
 {
+    public string? ContentType { get; init; }
+
     public IReadOnlyDictionary<string, string> Form =>
         Body.Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(pair => pair.Split('=', 2))
