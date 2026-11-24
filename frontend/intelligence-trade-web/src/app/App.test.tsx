@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../auth/AuthProvider';
 import { useAuth } from '../auth/authContext';
@@ -21,10 +22,11 @@ function authRequestUrls(requests: { url: string }[]): string[] {
   return requests.map((request) => request.url).filter((url) => url.startsWith('/bff/auth/'));
 }
 
-function renderAt(path: string) {
+function renderAt(path: string, navigation?: ReactNode) {
   return render(
     <AuthProvider>
       <MemoryRouter initialEntries={[path]}>
+        {navigation}
         <AppRoutes />
       </MemoryRouter>
     </AuthProvider>,
@@ -58,6 +60,18 @@ describe('App routing and session bootstrap', () => {
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
 
+  it('сохраняет путь, query и hash позиции при входе по прямому URL', async () => {
+    const assign = stubLocationAssign();
+    const requests = mockFetch({ '/bff/auth/session': () => jsonResponse({ authenticated: false }) });
+    const path = '/app/positions/btc?interval=4h#chart';
+
+    renderAt(path);
+    await userEvent.click(await screen.findByRole('button', { name: 'Войти' }));
+
+    expect(assign).toHaveBeenCalledWith(`/bff/auth/login?returnUrl=${encodeURIComponent(path)}`);
+    expect(requests.map(({ url }) => url)).toEqual(['/bff/auth/session']);
+  });
+
   it('shows the authenticated shell on /app', async () => {
     mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
 
@@ -66,6 +80,22 @@ describe('App routing and session bootstrap', () => {
     expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Выйти' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Обзор' })).toHaveAttribute('href', '/app');
+  });
+
+  it('переносит фокус на заголовок при смене пути и сохраняет фокус при смене query', async () => {
+    mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
+    renderAt('/app', <Link to="/app/settings/connections?source=test">Изменить query</Link>);
+
+    await screen.findByRole('heading', { name: 'Обзор' });
+    await userEvent.click(screen.getByRole('link', { name: 'Подключения' }));
+    const heading = await screen.findByRole('heading', { name: 'Подключения', level: 1 });
+    expect(heading).toHaveFocus();
+    expect(document.title).toBe('Подключения — Intelligence Trade');
+
+    const queryLink = screen.getByRole('link', { name: 'Изменить query' });
+    await userEvent.click(queryLink);
+    expect(queryLink).toHaveFocus();
+    expect(document.title).toBe('Подключения — Intelligence Trade');
   });
 
   it.each([403, 503])('обрабатывает статус %s при проверке доступа на паузе', async (status) => {
