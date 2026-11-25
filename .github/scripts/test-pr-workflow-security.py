@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
+from io import BytesIO
+import json
 from pathlib import Path
 import os
 import re
@@ -11,6 +14,8 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 
 WORKFLOW_PATH = (
@@ -281,6 +286,140 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
         permissions = match.group("permissions")
         self.assertRegex(permissions, r"(?m)^\s+contents: read\s*$")
         self.assertNotRegex(permissions, r"(?m)^\s+(?:issues|pull-requests):")
+
+    def test_prior_attempt_lookup_is_read_only_and_has_no_checkout(self) -> None:
+        lookup = self.workflow.split("\n  pr-ci-reuse:\n")[1].split("\n  docs-validation:\n")[0]
+        self.assertRegex(lookup, r"\n    permissions:\n      actions: read\n    outputs:")
+        self.assertNotIn("uses:", lookup)
+        self.assertNotIn(".github/scripts/", lookup)
+
+    def test_lookup_skip_cannot_suppress_normal_route(self) -> None:
+        self.assertIn("needs: [classify-changes, pr-ci-reuse]", self.workflow)
+        for name in ("docs-validation", "backend", "frontend", "docker-build-pr", "docker-build"):
+            with self.subTest(job=name):
+                job = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", self.workflow)[1]
+                if name == "frontend":
+                    self.assertIn("if: *run_full_checks", job)
+                else:
+                    self.assertIn("!cancelled()", job)
+                    self.assertIn("needs['classify-changes'].result == 'success'", job)
+                if name in {"docs-validation", "backend"}:
+                    self.assertIn("needs['pr-ci-reuse'].result == 'success'", job)
+                    self.assertIn("outputs.source_attempt != ''", job)
+                elif name in {"docker-build-pr", "docker-build"}:
+                    self.assertIn("needs.frontend.result == 'success'", job)
+                    self.assertNotIn("pr-ci-reuse", job)
+        self.assertIn("needs.backend.result == 'success'", self.workflow)
+
+    def _run_inline_python(self, step, env, event=None, open_url=None):
+        marker = f"      - name: {step}\n"
+        block = self.workflow.split(marker, 1)[1]
+        payload = block.split("          python3 - <<'PY'\n", 1)[1].split("          PY\n", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            event_path = Path(temp) / "event.json"
+            output_path = Path(temp) / "output"
+            event_path.write_text(json.dumps(event), encoding="utf-8")
+            env = {"GITHUB_EVENT_PATH": str(event_path), "GITHUB_OUTPUT": str(output_path), **env}
+            with patch.dict(os.environ, env), patch("urllib.request.urlopen", side_effect=open_url):
+                exec(compile(textwrap.dedent(payload), step, "exec"), {})
+            return output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+
+    @staticmethod
+    def _pr_fixture():
+        return {
+            "number": 243, "state": "open", "body": "описание",
+            "head": {"sha": "a" * 40},
+            "base": {"ref": "develop", "sha": "b" * 40, "repo": {"id": 100}},
+            "merge_commit_sha": "c" * 40,
+        }
+
+    @staticmethod
+    def _api_json(payload):
+        response = BytesIO(json.dumps(payload).encode("utf-8"))
+        response.headers = {}
+        return response
+
+    def test_snapshot_only_accepts_description_edits(self) -> None:
+        env = {"GITHUB_REF": "refs/pull/243/merge", "GITHUB_SHA": "c" * 40, "CI_PATH": "full"}
+        body_change = {"body": {"from": None}}
+        for action, changes, eligible in (
+            ("edited", body_change, True),
+            ("edited", {"body": {"from": "описание"}}, False),
+            ("edited", {"title": {"from": "old"}}, False),
+            ("edited", {"base": {"ref": {"from": "other"}}, **body_change}, False),
+            ("edited", {"body": {}}, False),
+            ("synchronize", body_change, False),
+        ):
+            with self.subTest(action=action, changes=changes):
+                event = {"action": action, "changes": changes, "repository": {"id": 100},
+                         "pull_request": self._pr_fixture()}
+                result = self._run_inline_python("Identify the pull request snapshot", env, event)
+                self.assertIn(f"eligible={str(eligible).lower()}", result)
+                self.assertRegex(result, r"digest=[0-9a-f]{64}")
+
+    def test_lookup_requires_real_successful_jobs_from_one_identical_attempt(self) -> None:
+        snapshot, head = "d" * 64, "a" * 40
+        run = {"id": 50, "path": ".github/workflows/build.yml", "run_number": 5,
+               "event": "pull_request", "head_sha": head, "run_attempt": 2,
+               "status": "completed", "conclusion": "success"}
+        names = ("classify-changes", "agent-assets-validation", "ci-gate",
+                 "Backend · Build, Tests & Coverage", "Frontend · Build & Checks",
+                 "Full stack · Containers & E2E (PR)")
+        env = {"GITHUB_REPOSITORY": "owner/repo", "GITHUB_RUN_NUMBER": "6", "SNAPSHOT": snapshot,
+               "PR_HEAD": head, "CI_PATH": "full", "GH_TOKEN": "fixture"}
+        for variant in ("exact", "other-head", "other-target", "mixed-attempt", "skipped",
+                        "duplicate", "in-progress", "failed", "cancelled", "missing", "api-error"):
+            with self.subTest(variant=variant):
+                candidate = dict(run)
+                marker = "e" * 64 if variant == "other-target" else snapshot
+                jobs = [{"name": name, "run_id": 50, "run_attempt": 2, "head_sha": head,
+                         "status": "completed", "conclusion": "success", "steps": []} for name in names]
+                jobs[0]["steps"] = [{"name": f"PR snapshot v1 {marker}", "conclusion": "success"}]
+                if variant == "mixed-attempt":
+                    jobs[-1]["run_attempt"] = 1
+                elif variant == "skipped":
+                    jobs[-1]["conclusion"] = "skipped"
+                elif variant == "duplicate":
+                    jobs.append(dict(jobs[-1]))
+                elif variant == "other-head":
+                    candidate["head_sha"] = "e" * 40
+                elif variant == "in-progress":
+                    candidate.update(status="in_progress", conclusion=None)
+                elif variant in {"failed", "cancelled"}:
+                    candidate["conclusion"] = "failure" if variant == "failed" else "cancelled"
+
+                def api(request, **kwargs):
+                    url = urlsplit(request.full_url)
+                    if variant == "api-error":
+                        raise TimeoutError
+                    if url.path.endswith("/workflows/build.yml/runs"):
+                        self.assertEqual(["success"], parse_qs(url.query)["status"])
+                        return self._api_json({"workflow_runs": [] if variant == "missing" else [candidate]})
+                    self.assertTrue(url.path.endswith("/runs/50/attempts/2/jobs"))
+                    return self._api_json({"jobs": jobs})
+
+                result = self._run_inline_python("Find a completed CI attempt for this snapshot", env,
+                                                 open_url=api)
+                self.assertEqual(variant == "exact", "source_run=50" in result)
+                if variant == "exact":
+                    self.assertIn("source_attempt=2", result)
+
+    def test_final_gate_rejects_stale_description_and_changed_snapshot(self) -> None:
+        event = {"pull_request": self._pr_fixture()}
+        env = {"GITHUB_REPOSITORY": "owner/repo", "GITHUB_SHA": "c" * 40,
+               "BODY_DIGEST": sha256("описание".encode("utf-8")).hexdigest()}
+        step = "Check that validated pull request metadata is current"
+        for field, value, error in (
+            ("body", "другой текст", "description fingerprint mismatch"),
+            ("merge_commit_sha", None, "snapshot changed or is unavailable"),
+            ("head", {"sha": "d" * 40}, "snapshot changed or is unavailable"),
+        ):
+            with self.subTest(field=field):
+                current = self._pr_fixture()
+                current[field] = value
+                with self.assertRaisesRegex(SystemExit, error):
+                    self._run_inline_python(step, env, event, lambda *_a, **_kw: self._api_json(current))
+        self._run_inline_python(step, env, event, lambda *_a, **_kw: self._api_json(self._pr_fixture()))
 
 
 if __name__ == "__main__":

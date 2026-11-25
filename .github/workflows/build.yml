@@ -18,6 +18,8 @@ jobs:
       diff_base_sha: ${{ steps.classify.outputs.diff_base_sha }}
       diff_head_sha: ${{ steps.classify.outputs.diff_head_sha }}
       reason: ${{ steps.classify.outputs.reason }}
+      reuse_eligible: ${{ steps.snapshot.outputs.eligible }}
+      snapshot: ${{ steps.snapshot.outputs.digest }}
 
     steps:
       - name: Checkout classified ref
@@ -158,10 +160,185 @@ jobs:
 
           emit_route docs "All changed paths are in the documentation/instructions whitelist."
 
-  docs-validation:
+      - name: Identify the pull request snapshot
+        id: snapshot
+        if: github.event_name == 'pull_request'
+        env:
+          CI_PATH: ${{ steps.classify.outputs.ci_path }}
+        run: |
+          python3 - <<'PY'
+          from hashlib import sha256
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          try:
+              event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+              pr = event["pull_request"]
+              repo_id, number = event["repository"]["id"], pr["number"]
+              head, base = pr["head"]["sha"], pr["base"]["sha"]
+              base_ref, merge = pr["base"]["ref"], os.environ["GITHUB_SHA"]
+          except (OSError, ValueError, TypeError, KeyError):
+              print("Incomplete pull request snapshot; using normal CI.")
+              raise SystemExit(0)
+          ci_path = os.environ["CI_PATH"]
+          changes = event.get("changes")
+          eligible = (
+              event.get("action") == "edited"
+              and isinstance(changes, dict) and changes.keys() == {"body"}
+              and isinstance(changes["body"], dict) and "from" in changes["body"]
+              and isinstance(changes["body"]["from"], (str, type(None)))
+              and "body" in pr and isinstance(pr["body"], (str, type(None)))
+              and changes["body"]["from"] != pr["body"]
+          )
+          if (
+              type(repo_id) is not int or repo_id < 1
+              or type(number) is not int or number < 1
+              or not isinstance(base_ref, str) or not base_ref
+              or os.environ["GITHUB_REF"] != f"refs/pull/{number}/merge"
+              or ci_path not in {"docs", "full"}
+              or not all(isinstance(s, str) and re.fullmatch(r"[0-9a-f]{40}", s)
+                         for s in (head, base, merge))
+          ):
+              print("Invalid pull request snapshot; using normal CI.")
+              raise SystemExit(0)
+          payload = [1, repo_id, number, head, base_ref, base, merge, ci_path]
+          digest = sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"digest={digest}", file=output)
+              print(f"eligible={'true' if eligible else 'false'}", file=output)
+          PY
+
+      - name: PR snapshot v1 ${{ steps.snapshot.outputs.digest }}
+        if: steps.snapshot.outputs.digest != ''
+        run: echo "Pull request snapshot recorded."
+
+  pr-ci-reuse:
     runs-on: ubuntu-latest
     needs: classify-changes
-    if: needs['classify-changes'].outputs.ci_path == 'docs'
+    if: needs['classify-changes'].outputs.reuse_eligible == 'true'
+    permissions:
+      actions: read
+    outputs:
+      snapshot: ${{ steps.lookup.outputs.snapshot }}
+      source_run: ${{ steps.lookup.outputs.source_run }}
+      source_attempt: ${{ steps.lookup.outputs.source_attempt }}
+      reason: ${{ steps.lookup.outputs.reason }}
+    steps:
+      - name: Find a completed CI attempt for this snapshot
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SNAPSHOT: ${{ needs['classify-changes'].outputs.snapshot }}
+          CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from time import monotonic
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          root = f"https://api.github.com/repos/{repo}/actions"
+          run_number = int(os.environ["GITHUB_RUN_NUMBER"])
+          snapshot = os.environ["SNAPSHOT"]
+          head = os.environ["PR_HEAD"]
+          required = {"classify-changes", "agent-assets-validation", "ci-gate"}
+          if os.environ["CI_PATH"] == "docs":
+              required.add("docs-validation")
+          else:
+              required.update({
+                  "Backend · Build, Tests & Coverage",
+                  "Frontend · Build & Checks",
+                  "Full stack · Containers & E2E (PR)",
+              })
+          deadline = monotonic() + 25
+
+          def api_pages(path, key, **filters):
+              page = 1
+              while True:
+                  remaining = deadline - monotonic()
+                  if remaining <= 0:
+                      raise TimeoutError
+                  query = urlencode({**filters, "per_page": 100, "page": page})
+                  request = Request(f"{root}/{path}?{query}", headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  })
+                  with urlopen(request, timeout=min(remaining, 5)) as response:
+                      data = json.load(response)
+                      next_page = 'rel="next"' in response.headers.get("Link", "")
+                  items = data[key]
+                  if not isinstance(items, list):
+                      raise ValueError("Unexpected GitHub API response")
+                  yield from items
+                  if not next_page:
+                      return
+                  page += 1
+
+          def matches(run_id, attempt):
+              jobs = list(api_pages(f"runs/{run_id}/attempts/{attempt}/jobs", "jobs"))
+              applicable = [job for job in jobs if job["name"] in required]
+              by_name = {job["name"]: job for job in applicable}
+              if required != by_name.keys() or len(applicable) != len(required):
+                  return False
+              for job in applicable:
+                  if (
+                      job["run_id"] != run_id or job["run_attempt"] != attempt
+                      or job["head_sha"] != head or job["status"] != "completed"
+                      or job["conclusion"] != "success"
+                  ):
+                      return False
+              marker = f"PR snapshot v1 {snapshot}"
+              steps = [step for step in by_name["classify-changes"]["steps"]
+                       if step["name"] == marker]
+              return len(steps) == 1 and steps[0]["conclusion"] == "success"
+
+          def find_source():
+              for run in api_pages("workflows/build.yml/runs", "workflow_runs",
+                                   event="pull_request", status="success", head_sha=head):
+                  if (
+                      run["run_number"] >= run_number or run["event"] != "pull_request"
+                      or run["path"] != ".github/workflows/build.yml"
+                      or run["head_sha"] != head or run["status"] != "completed"
+                      or run["conclusion"] != "success"
+                  ):
+                      continue
+                  run_id, attempt = run["id"], run["run_attempt"]
+                  if type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0:
+                      if matches(run_id, attempt):
+                          return run_id, attempt
+              return None
+
+          try:
+              proof = find_source()
+              reason = "verified prior attempt" if proof else "no applicable completed successful attempt"
+          except (OSError, ValueError, KeyError, TypeError):
+              proof = None
+              reason = "lookup API error, timeout or incomplete response"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              if proof:
+                  print(f"snapshot={snapshot}", file=output)
+                  print(f"source_run={proof[0]}", file=output)
+                  print(f"source_attempt={proof[1]}", file=output)
+              print(f"reason={reason}", file=output)
+          PY
+
+  docs-validation:
+    runs-on: ubuntu-latest
+    needs: [classify-changes, pr-ci-reuse]
+    if: >-
+      !cancelled() && needs['classify-changes'].result == 'success' &&
+      needs['classify-changes'].outputs.ci_path == 'docs' &&
+      !(needs['pr-ci-reuse'].result == 'success' &&
+      needs['pr-ci-reuse'].outputs.source_run != '' &&
+      needs['pr-ci-reuse'].outputs.source_attempt != '' &&
+      needs['pr-ci-reuse'].outputs.snapshot == needs['classify-changes'].outputs.snapshot)
 
     steps:
       - name: Checkout classified head
@@ -221,6 +398,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     permissions: {}
+    outputs:
+      body_digest: ${{ steps.validate.outputs.body_digest }}
 
     steps:
       - name: Fetch the public pull request head without credentials
@@ -265,13 +444,20 @@ jobs:
         run: python3 .github/scripts/test-pr-workflow-security.py
 
       - name: Validate PR workflow links
+        id: validate
         run: python3 .github/scripts/check-pr-approved-plan.py
 
   backend:
     name: Backend · Build, Tests & Coverage
     runs-on: ubuntu-latest
-    needs: classify-changes
-    if: needs['classify-changes'].outputs.ci_path == 'full'
+    needs: [classify-changes, pr-ci-reuse]
+    if: &run_full_checks >-
+      !cancelled() && needs['classify-changes'].result == 'success' &&
+      needs['classify-changes'].outputs.ci_path == 'full' &&
+      !(needs['pr-ci-reuse'].result == 'success' &&
+      needs['pr-ci-reuse'].outputs.source_run != '' &&
+      needs['pr-ci-reuse'].outputs.source_attempt != '' &&
+      needs['pr-ci-reuse'].outputs.snapshot == needs['classify-changes'].outputs.snapshot)
 
     steps:
       - name: Checkout
@@ -338,8 +524,8 @@ jobs:
   frontend:
     name: Frontend · Build & Checks
     runs-on: ubuntu-latest
-    needs: classify-changes
-    if: needs['classify-changes'].outputs.ci_path == 'full'
+    needs: [classify-changes, pr-ci-reuse]
+    if: *run_full_checks
     defaults:
       run:
         working-directory: frontend/intelligence-trade-web
@@ -380,6 +566,8 @@ jobs:
       - backend
       - frontend
     if: >-
+      !cancelled() && needs['classify-changes'].result == 'success' &&
+      needs.backend.result == 'success' && needs.frontend.result == 'success' &&
       needs['classify-changes'].outputs.ci_path == 'full' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
@@ -516,7 +704,10 @@ jobs:
     needs:
       - classify-changes
       - frontend
-    if: needs['classify-changes'].outputs.ci_path == 'full' && github.event_name == 'pull_request'
+    if: >-
+      !cancelled() && needs['classify-changes'].result == 'success' &&
+      needs.frontend.result == 'success' &&
+      needs['classify-changes'].outputs.ci_path == 'full' && github.event_name == 'pull_request'
     steps: *full_stack_steps
 
   ci-gate:
@@ -530,15 +721,27 @@ jobs:
       - docker-build
       - agent-assets-validation
       - pr-workflow-validation
+      - pr-ci-reuse
     if: always()
+    concurrency:
+      group: ci-gate-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      queue: max
+      cancel-in-progress: false
 
     steps:
       - name: Validate selected CI path
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_CANCELLED: ${{ cancelled() }}
           CLASSIFIER_RESULT: ${{ needs['classify-changes'].result }}
           CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
+          CI_SNAPSHOT: ${{ needs['classify-changes'].outputs.snapshot }}
+          REUSE_RESULT: ${{ needs['pr-ci-reuse'].result }}
+          REUSE_SNAPSHOT: ${{ needs['pr-ci-reuse'].outputs.snapshot }}
+          SOURCE_RUN: ${{ needs['pr-ci-reuse'].outputs.source_run }}
+          SOURCE_ATTEMPT: ${{ needs['pr-ci-reuse'].outputs.source_attempt }}
+          REUSE_REASON: ${{ needs['pr-ci-reuse'].outputs.reason }}
           DOCS_VALIDATION_RESULT: ${{ needs['docs-validation'].result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
@@ -548,6 +751,11 @@ jobs:
           PR_WORKFLOW_VALIDATION_RESULT: ${{ needs['pr-workflow-validation'].result }}
         run: |
           set -euo pipefail
+
+          if [[ "$WORKFLOW_CANCELLED" == "true" ]]; then
+            echo "CI workflow was cancelled." >&2
+            exit 1
+          fi
 
           {
             echo "## CI gate"
@@ -560,6 +768,7 @@ jobs:
             echo "- docker-build: \`$PUSH_E2E_RESULT\`"
             echo "- agent-assets-validation: \`$AGENT_ASSETS_VALIDATION_RESULT\`"
             echo "- pr-workflow-validation: \`$PR_WORKFLOW_VALIDATION_RESULT\`"
+            echo "- pr-ci-reuse: $REUSE_RESULT ${REUSE_REASON:+($REUSE_REASON)}"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$CLASSIFIER_RESULT" != "success" ]]; then
@@ -578,6 +787,23 @@ jobs:
           elif [[ "$PR_WORKFLOW_VALIDATION_RESULT" != "skipped" ]]; then
             echo "Проверка PR workflow должна быть пропущена вне pull_request." >&2
             exit 1
+          fi
+
+          if [[ "$REUSE_RESULT" == "success" && -n "$SOURCE_RUN" && -n "$SOURCE_ATTEMPT" &&
+                "$REUSE_SNAPSHOT" == "$CI_SNAPSHOT" ]]; then
+            if [[ "$EVENT_NAME" != "pull_request" || ! "$CI_PATH" =~ ^(docs|full)$ ||
+                  ! "$CI_SNAPSHOT" =~ ^[0-9a-f]{64}$ ||
+                  ! "$SOURCE_RUN" =~ ^[1-9][0-9]*$ || ! "$SOURCE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Invalid prior CI attempt proof." >&2
+              exit 1
+            fi
+            [[ "$DOCS_VALIDATION_RESULT" == "skipped" ]]
+            [[ "$BACKEND_RESULT" == "skipped" ]]
+            [[ "$FRONTEND_RESULT" == "skipped" ]]
+            [[ "$PR_E2E_RESULT" == "skipped" ]]
+            [[ "$PUSH_E2E_RESULT" == "skipped" ]]
+            echo "- Reused [run $SOURCE_RUN, attempt $SOURCE_ATTEMPT]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
           case "$CI_PATH" in
@@ -612,3 +838,45 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Check that validated pull request metadata is current
+        if: github.event_name == 'pull_request'
+        env:
+          BODY_DIGEST: ${{ needs['pr-workflow-validation'].outputs.body_digest }}
+        run: |
+          python3 - <<'PY'
+          from hashlib import sha256
+          import json
+          import os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          def revision(pr, merge):
+              return (pr["base"]["repo"]["id"], pr["number"], pr["head"]["sha"],
+                      pr["base"]["ref"], pr["base"]["sha"], merge)
+
+          try:
+              event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+              expected = event["pull_request"]
+              repo = os.environ["GITHUB_REPOSITORY"]
+              number = int(expected["number"])
+              request = Request(f"https://api.github.com/repos/{repo}/pulls/{number}", headers={
+                  "Accept": "application/vnd.github+json",
+                  "Cache-Control": "no-cache",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+              with urlopen(request, timeout=15) as response:
+                  current = json.load(response)
+              if current["state"] != "open" or revision(current, current["merge_commit_sha"]) != (
+                  revision(expected, os.environ["GITHUB_SHA"])
+              ):
+                  raise SystemExit("Pull request snapshot changed or is unavailable.")
+              body = current["body"]
+              if body is not None and not isinstance(body, str):
+                  raise ValueError("Invalid pull request body")
+              if sha256((body or "").encode("utf-8")).hexdigest() != os.environ["BODY_DIGEST"]:
+                  raise SystemExit("Pull request description fingerprint mismatch.")
+              print("The validated pull request description is current.")
+          except (OSError, KeyError, TypeError, ValueError):
+              raise SystemExit("Unable to verify current pull request metadata.") from None
+          PY
