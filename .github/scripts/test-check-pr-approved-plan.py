@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 import runpy
 from unittest import TestCase, main
@@ -705,6 +706,23 @@ class PullRequestPlanValidatorTests(TestCase):
                 200,
                 expected_head_sha="old-head",
             )
+
+    def test_current_pull_request_returns_digest_of_exact_validated_description(self) -> None:
+        body = make_body() + "\r\n\r\n## Описание\r\n\r\nТекст  \r\n"
+        with patch.dict(
+            validate_current_pull_request.__globals__,
+            {
+                "fetch_current_pull_request": lambda *_args: {
+                    "head": {"sha": "event-head"},
+                    "body": body,
+                },
+                "fetch_issue": lambda *_args: make_issue(),
+                "fetch_issue_comments": lambda *_args: [make_base_plan()],
+            },
+        ):
+            result = validate_current_pull_request(REPOSITORY, 200, "event-head")
+
+        self.assertEqual(sha256(body.encode("utf-8")).hexdigest(), result.body_digest)
 
     def test_inline_base_plan_permalink_succeeds(self) -> None:
         amendment_id = BASE_COMMENT_ID + 1

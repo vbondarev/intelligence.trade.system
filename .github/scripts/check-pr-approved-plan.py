@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,7 @@ class PullRequestValidation:
     issue_number: int
     pull_request_number: int
     head_sha: str
+    body_digest: str
 
 
 def visible_markdown_lines(body: str) -> list[str]:
@@ -569,6 +571,7 @@ def validate_current_pull_request(
         issue_number=issue_number,
         pull_request_number=pull_request_number,
         head_sha=current_head_sha,
+        body_digest=sha256(body.encode("utf-8")).hexdigest(),
     )
 
 
@@ -621,6 +624,14 @@ def main() -> int:
         print(f"PR workflow validation не пройдена: {exception}", file=sys.stderr)
         return 1
 
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        try:
+            with Path(output_path).open("a", encoding="utf-8") as output:
+                print(f"body_digest={result.body_digest}", file=output)
+        except OSError as exception:
+            print(f"Не удалось сохранить отпечаток описания PR: {exception}", file=sys.stderr)
+            return 1
     print(f"PR workflow validation пройдена: {result.message}")
     return 0
 
