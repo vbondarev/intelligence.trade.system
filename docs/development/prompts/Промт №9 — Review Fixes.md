@@ -18,7 +18,7 @@
 
 1. Восстанови текущий PR из результатов последнего External Review.
 2. Определи связанный GitHub Issue.
-3. Проверь, что PR соответствует текущей задаче и утверждённому Implementation Plan.
+3. Проверь, что PR соответствует текущей задаче и применимому основанию исполнения.
 4. Убедись, что отсутствует неоднозначность между несколькими PR.
 
 Не выбирай произвольный PR.
@@ -35,9 +35,7 @@
 - актуальные head и base SHA;
 - полный текущий diff;
 - связанный Issue / WHAT;
-- Base Approved Implementation Plan;
-- все действующие Approved Plan Amendments;
-- effective HOW;
+- effective HOW, включая Base Approved Implementation Plan и применимые Amendments, либо основание `N/A`;
 - `AGENTS.md`;
 - применимые локальные и path-specific instructions;
 - ADR и contract docs;
@@ -51,7 +49,7 @@
 
 Проверь доверенное авторство и действующие правила неизменяемости canonical HOW.
 
-Если Issue, Approved Plan или Amendments недостоверны, не пытайся восстановить правильный вариант из предположений.
+Если Issue или применимое основание недостоверны, укажи пробел в доказательствах. Для `N/A` проверь по `trade-system-pr-review` связь PR с Issue, точечный проверяемый объём, отсутствие доверенных плана и Amendments, а также явное разрешение владельца до реализации. Зафиксируй `N/A`, ссылку на Issue и доказательство разрешения. Применимые технические проверки и отдельный Human Merge Gate обязательны. Для малого FIX в запланированном PR сохрани его permalink. При росте объёма или существенном техническом выборе на `N/A` останови FIX и передай задачу на согласование базового плана.
 
 При критическом конфликте источников остановись.
 
@@ -65,8 +63,8 @@
 2. Head SHA.
 3. Base SHA.
 4. Связанный Issue.
-5. Base Approved Plan permalink.
-6. Список и порядок Amendments.
+5. Base Approved Plan permalink либо `N/A` со ссылкой на разрешение.
+6. Список и порядок Amendments или их отсутствие.
 7. Effective HOW.
 8. Существенные метаданные PR.
 9. Актуальные reviews и threads.
@@ -338,7 +336,7 @@
 Для каждого предлагаемого исправления проверь:
 
 - соответствие Issue;
-- соответствие effective Approved Plan;
+- соответствие effective Approved Plan либо требованиям и критериям Issue на разрешённом `N/A`;
 - отсутствие scope expansion;
 - сохранение архитектурных границ;
 - отсутствие несогласованных изменений API/contracts;
@@ -367,8 +365,7 @@
 - Repository.
 - Номер и permalink существующего PR.
 - Связанный Issue.
-- Base Approved Plan permalink.
-- Все применимые Amendments.
+- Base Approved Plan permalink и Amendments либо `N/A` со ссылкой на разрешение владельца.
 - Текущий проверенный head SHA.
 - Base branch.
 - Рабочую ветку PR.

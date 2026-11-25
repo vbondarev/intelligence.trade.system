@@ -4,7 +4,7 @@
 
 ## 1. Подтверди действительность допуска
 
-Установи PR, Issue, целевую ветку, HEAD/BASE, effective HOW, применимое независимое ревью и результат №12. Сверь с GitHub текущие SHA, CI, approvals, reviews, threads, Draft, branch protection и mergeability.
+Установи PR, Issue, целевую ветку, HEAD/BASE, effective HOW либо основание `N/A`, применимое независимое ревью и результат №12. Для `N/A` проверь указанное в №12 основание по `trade-system-pr-review`, включая ссылку на разрешение владельца. Сверь с GitHub текущие SHA, CI, approvals, reviews, threads, Draft, branch protection и mergeability.
 
 Проверь, что доказательство по каждому затронутому пункту ROADMAP относится к версии, которую предстоит слить. Если проверенное состояние сохранилось, используй результат №12 без повторного полного аудита.
 

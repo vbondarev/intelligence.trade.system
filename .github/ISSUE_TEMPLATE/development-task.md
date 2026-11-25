@@ -1,6 +1,6 @@
 ---
 name: Задача разработки
-about: "Спецификация задачи для agent-first workflow: Issue → Implementation Plan → Human Gate → Implementation → External Review → Human Merge Gate"
+about: "Спецификация задачи для agent-first workflow: Issue → согласованное основание → Implementation → External Review → Human Merge Gate"
 title: ""
 labels: ""
 assignees: ""
@@ -52,8 +52,7 @@ assignees: ""
 
 ## Definition of Done
 
-- [ ] После фиксации Issue агент подготовил Implementation Plan, а для нетривиальной задачи он прошёл Human Gate до начала implementation.
-- [ ] После Human Gate Approved Implementation Plan сохранён отдельным GitHub Issue comment с marker `# Approved Implementation Plan`; implementation начат только после получения permalink.
+- [ ] Для обычного маршрута план прошёл Human Gate, после разрешения на публикацию сохранён как отдельный `# Approved Implementation Plan`, а его permalink проверен до порученного implementation. Для `N/A` Issue точечный и проверяемый, доверенных плана и Amendments нет, а владелец явно разрешил `N/A` для этого Issue до реализации.
 - [ ] Base Plan и Amendments опубликованы только trusted owner-автором и после публикации не редактируются; утверждённые изменения HOW после нового Human Gate сохраняются отдельными append-only Approved Plan Amendments.
 - [ ] Canonical Approved Plan и Amendments остаются immutable; edit/delete или невозможность восстановить effective HOW приводит к STOP → Human Decision.
 - [ ] Реализация соответствует всем требованиям Issue и, если для задачи требовался Implementation Plan, утверждённому Implementation Plan; изменение не выходит за согласованный scope.
@@ -63,8 +62,8 @@ assignees: ""
 - [ ] Добавлены или обновлены необходимые тесты либо в разделе «Тестирование» явно обосновано, почему дополнительные тесты неприменимы.
 - [ ] Документация синхронизирована с фактическим поведением, если это требуется задачей.
 - [ ] После fixes/tests/docs выполнен короткий final self-review.
-- [ ] Commit и Draft Pull Request ссылаются на этот Issue; PR содержит permalink на Approved Plan и все применимые amendments либо явное `- Нет`; выполнен PR sanity check.
-- [ ] После изменения PR head/base/effective HOW предыдущий Re-review недействителен; перед Human Merge Gate выполнен live Re-review актуального GitHub state.
+- [ ] Commit и Draft PR ссылаются на Issue. В PR указаны permalink плана и применимые Amendments либо `- Нет`. Для `N/A` используются `Approved Implementation Plan: N/A`, `Approved Plan Amendments:` со строкой `- Нет` и ссылка на разрешение владельца. Выполнен PR sanity check.
+- [ ] Перед Human Merge Gate актуальное состояние проверено по применимому маршруту №8, №10 или №12 §4B. Для допуска подтверждены актуальные HEAD/BASE и обязательный CI.
 - [ ] Выполнен External Review актуального head; подтверждённые замечания исправлены, устаревшие/дублирующие — явно разрешены.
 - [ ] После существенных review fixes выполнен Re-review актуального head.
 - [ ] Merge выполняется только после явного Human Merge Gate.
