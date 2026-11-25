@@ -310,6 +310,7 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
                     self.assertIn("needs.frontend.result == 'success'", job)
                     self.assertNotIn("pr-ci-reuse", job)
         self.assertIn("needs.backend.result == 'success'", self.workflow)
+        self.assertIn("- name: Reject cancelled CI\n        if: cancelled()\n        run: exit 1", self.workflow)
 
     def _run_inline_python(self, step, env, event=None, open_url=None):
         marker = f"      - name: {step}\n"

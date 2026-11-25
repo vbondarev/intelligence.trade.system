@@ -729,11 +729,15 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      - name: Reject cancelled CI
+        if: cancelled()
+        run: exit 1
+
       - name: Validate selected CI path
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_CANCELLED: ${{ cancelled() }}
           CLASSIFIER_RESULT: ${{ needs['classify-changes'].result }}
           CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
           CI_SNAPSHOT: ${{ needs['classify-changes'].outputs.snapshot }}
@@ -751,11 +755,6 @@ jobs:
           PR_WORKFLOW_VALIDATION_RESULT: ${{ needs['pr-workflow-validation'].result }}
         run: |
           set -euo pipefail
-
-          if [[ "$WORKFLOW_CANCELLED" == "true" ]]; then
-            echo "CI workflow was cancelled." >&2
-            exit 1
-          fi
 
           {
             echo "## CI gate"
