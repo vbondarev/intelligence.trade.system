@@ -366,9 +366,9 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
         names = ("classify-changes", "agent-assets-validation", "ci-gate",
                  "Backend · Build, Tests & Coverage", "Frontend · Build & Checks",
                  "Full stack · Containers & E2E (PR)")
-        env = {"GITHUB_REPOSITORY": "owner/repo", "GITHUB_RUN_NUMBER": "6", "SNAPSHOT": snapshot,
+        env = {"GITHUB_REPOSITORY": "owner/repo", "GITHUB_RUN_NUMBER": "10", "SNAPSHOT": snapshot,
                "PR_HEAD": head, "CI_PATH": "full", "GH_TOKEN": "fixture"}
-        for variant in ("exact", "other-head", "other-target", "mixed-attempt", "skipped",
+        for variant in ("exact", "mixed-history", "other-head", "other-target", "mixed-attempt", "skipped",
                         "duplicate", "in-progress", "failed", "cancelled", "missing", "api-error"):
             with self.subTest(variant=variant):
                 candidate = dict(run)
@@ -394,15 +394,23 @@ class PullRequestWorkflowSecurityTests(unittest.TestCase):
                     if variant == "api-error":
                         raise TimeoutError
                     if url.path.endswith("/workflows/build.yml/runs"):
-                        self.assertEqual(["success"], parse_qs(url.query)["status"])
-                        return self._api_json({"workflow_runs": [] if variant == "missing" else [candidate]})
+                        self.assertEqual(["pull_request"], parse_qs(url.query)["event"])
+                        self.assertNotIn("status", parse_qs(url.query))
+                        candidates = [] if variant == "missing" else [candidate]
+                        if variant == "mixed-history":
+                            candidates = [
+                                dict(run, id=51, run_number=8, status="in_progress", conclusion=None),
+                                dict(run, id=52, run_number=7, conclusion="failure"),
+                                *candidates,
+                            ]
+                        return self._api_json({"workflow_runs": candidates})
                     self.assertTrue(url.path.endswith("/runs/50/attempts/2/jobs"))
                     return self._api_json({"jobs": jobs})
 
                 result = self._run_inline_python("Find a completed CI attempt for this snapshot", env,
                                                  open_url=api)
-                self.assertEqual(variant == "exact", "source_run=50" in result)
-                if variant == "exact":
+                self.assertEqual(variant in {"exact", "mixed-history"}, "source_run=50" in result)
+                if variant in {"exact", "mixed-history"}:
                     self.assertIn("source_attempt=2", result)
 
     def test_final_gate_rejects_stale_description_and_changed_snapshot(self) -> None:

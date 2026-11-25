@@ -300,8 +300,9 @@ jobs:
               return len(steps) == 1 and steps[0]["conclusion"] == "success"
 
           def find_source():
+              # The server-side status filter can omit a completed success during overlapping runs.
               for run in api_pages("workflows/build.yml/runs", "workflow_runs",
-                                   event="pull_request", status="success", head_sha=head):
+                                   event="pull_request", head_sha=head):
                   if (
                       run["run_number"] >= run_number or run["event"] != "pull_request"
                       or run["path"] != ".github/workflows/build.yml"
