@@ -308,7 +308,10 @@ jobs:
 
       - name: Test
         id: backend-tests
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
+        run: |
+          dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
+          echo 'ITS237_A3_AFTER_BACKEND_TESTS'
+          exit 1
 
       - name: Verify coverage
         shell: bash
