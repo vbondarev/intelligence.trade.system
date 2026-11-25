@@ -267,8 +267,8 @@ jobs:
       - name: Validate PR workflow links
         run: python3 .github/scripts/check-pr-approved-plan.py
 
-  build:
-    name: Backend · Build
+  backend:
+    name: Backend · Build, Tests & Coverage
     runs-on: ubuntu-latest
     needs: classify-changes
     if: needs['classify-changes'].outputs.ci_path == 'full'
@@ -302,6 +302,38 @@ jobs:
 
       - name: Build
         run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
+
+      - name: Test coverage aggregator
+        run: python3 .github/scripts/test-check-coverage.py
+
+      - name: Test
+        id: backend-tests
+        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
+
+      - name: Verify coverage
+        shell: bash
+        run: |
+          python3 .github/scripts/check-coverage.py \
+            backend/TestResults \
+            --minimum-line-coverage 92.00
+
+      - name: Upload test results
+        if: ${{ always() && contains(fromJSON('["success", "failure", "cancelled"]'), steps.backend-tests.outcome) }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results
+          path: |
+            backend/TestResults/**/*.trx
+            **/TestResults/*.trx
+          if-no-files-found: ignore
+
+      - name: Upload coverage
+        if: ${{ always() && contains(fromJSON('["success", "failure", "cancelled"]'), steps.backend-tests.outcome) }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-coverage
+          path: backend/TestResults/**/coverage.cobertura.xml
+          if-no-files-found: error
 
   frontend:
     name: Frontend · Build & Checks
@@ -340,64 +372,18 @@ jobs:
       - name: Build
         run: npm run build
 
-  test:
-    name: Backend · Tests & Coverage
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          global-json-file: global.json
-
-      - name: Restore
-        run: dotnet restore backend/src/Intelligence.TradeSystem.slnx
-
-      - name: Test coverage aggregator
-        run: python3 .github/scripts/test-check-coverage.py
-
-      - name: Test
-        run: dotnet test backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore --logger trx --collect:"XPlat Code Coverage" --results-directory backend/TestResults
-
-      - name: Verify coverage
-        shell: bash
-        run: |
-          python3 .github/scripts/check-coverage.py \
-            backend/TestResults \
-            --minimum-line-coverage 92.00
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-results
-          path: |
-            backend/TestResults/**/*.trx
-            **/TestResults/*.trx
-          if-no-files-found: ignore
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: backend-coverage
-          path: backend/TestResults/**/coverage.cobertura.xml
-          if-no-files-found: error
-
   docker-build:
     name: Full stack · Containers & E2E
     runs-on: ubuntu-latest
     needs:
-      - test
+      - classify-changes
+      - backend
       - frontend
+    if: >-
+      needs['classify-changes'].outputs.ci_path == 'full' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
-    steps:
+    steps: &full_stack_steps
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -524,14 +510,23 @@ jobs:
         if: always()
         run: docker compose -f backend/compose.yaml down -v
 
+  docker-build-pr:
+    name: Full stack · Containers & E2E (PR)
+    runs-on: ubuntu-latest
+    needs:
+      - classify-changes
+      - frontend
+    if: needs['classify-changes'].outputs.ci_path == 'full' && github.event_name == 'pull_request'
+    steps: *full_stack_steps
+
   ci-gate:
     runs-on: ubuntu-latest
     needs:
       - classify-changes
       - docs-validation
-      - build
+      - backend
       - frontend
-      - test
+      - docker-build-pr
       - docker-build
       - agent-assets-validation
       - pr-workflow-validation
@@ -545,10 +540,10 @@ jobs:
           CLASSIFIER_RESULT: ${{ needs['classify-changes'].result }}
           CI_PATH: ${{ needs['classify-changes'].outputs.ci_path }}
           DOCS_VALIDATION_RESULT: ${{ needs['docs-validation'].result }}
-          BUILD_RESULT: ${{ needs.build.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          DOCKER_BUILD_RESULT: ${{ needs['docker-build'].result }}
+          PR_E2E_RESULT: ${{ needs['docker-build-pr'].result }}
+          PUSH_E2E_RESULT: ${{ needs['docker-build'].result }}
           AGENT_ASSETS_VALIDATION_RESULT: ${{ needs['agent-assets-validation'].result }}
           PR_WORKFLOW_VALIDATION_RESULT: ${{ needs['pr-workflow-validation'].result }}
         run: |
@@ -559,10 +554,10 @@ jobs:
             echo "- Selected path: \`$CI_PATH\`"
             echo "- classify-changes: \`$CLASSIFIER_RESULT\`"
             echo "- docs-validation: \`$DOCS_VALIDATION_RESULT\`"
-            echo "- build: \`$BUILD_RESULT\`"
+            echo "- backend: \`$BACKEND_RESULT\`"
             echo "- frontend: \`$FRONTEND_RESULT\`"
-            echo "- test: \`$TEST_RESULT\`"
-            echo "- docker-build: \`$DOCKER_BUILD_RESULT\`"
+            echo "- docker-build-pr: \`$PR_E2E_RESULT\`"
+            echo "- docker-build: \`$PUSH_E2E_RESULT\`"
             echo "- agent-assets-validation: \`$AGENT_ASSETS_VALIDATION_RESULT\`"
             echo "- pr-workflow-validation: \`$PR_WORKFLOW_VALIDATION_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -588,17 +583,29 @@ jobs:
           case "$CI_PATH" in
             docs)
               [[ "$DOCS_VALIDATION_RESULT" == "success" ]]
-              [[ "$BUILD_RESULT" == "skipped" ]]
+              [[ "$BACKEND_RESULT" == "skipped" ]]
               [[ "$FRONTEND_RESULT" == "skipped" ]]
-              [[ "$TEST_RESULT" == "skipped" ]]
-              [[ "$DOCKER_BUILD_RESULT" == "skipped" ]]
+              [[ "$PR_E2E_RESULT" == "skipped" ]]
+              [[ "$PUSH_E2E_RESULT" == "skipped" ]]
               ;;
             full)
               [[ "$DOCS_VALIDATION_RESULT" == "skipped" ]]
-              [[ "$BUILD_RESULT" == "success" ]]
+              [[ "$BACKEND_RESULT" == "success" ]]
               [[ "$FRONTEND_RESULT" == "success" ]]
-              [[ "$TEST_RESULT" == "success" ]]
-              [[ "$DOCKER_BUILD_RESULT" == "success" ]]
+              case "$EVENT_NAME" in
+                pull_request)
+                  [[ "$PR_E2E_RESULT" == "success" ]]
+                  [[ "$PUSH_E2E_RESULT" == "skipped" ]]
+                  ;;
+                push|workflow_dispatch)
+                  [[ "$PR_E2E_RESULT" == "skipped" ]]
+                  [[ "$PUSH_E2E_RESULT" == "success" ]]
+                  ;;
+                *)
+                  echo "Неподдерживаемое событие CI: $EVENT_NAME" >&2
+                  exit 1
+                  ;;
+              esac
               ;;
             *)
               echo "Unknown CI path: $CI_PATH" >&2
