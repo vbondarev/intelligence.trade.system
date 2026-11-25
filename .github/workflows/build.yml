@@ -447,6 +447,10 @@ jobs:
         id: validate
         run: python3 .github/scripts/check-pr-approved-plan.py
 
+      - name: Hold original AC-05 attempt A before its gate (fixture only)
+        if: github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- ci-243-race-a -->')
+        run: sleep 300
+
   backend:
     name: Backend · Build, Tests & Coverage
     runs-on: ubuntu-latest
