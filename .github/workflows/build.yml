@@ -303,6 +303,30 @@ jobs:
       - name: Build
         run: dotnet build backend/src/Intelligence.TradeSystem.slnx --configuration Release --no-restore
 
+      - name: Diagnostic early backend failure after E2E starts
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 300))
+          jobs_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100"
+          while (( SECONDS < deadline )); do
+            remaining=$((deadline - SECONDS))
+            request_timeout=$((remaining < 5 ? remaining : 5))
+            if payload=$(curl --silent --show-error --fail --max-time "$request_timeout" "$jobs_url"); then
+              if job=$(jq -ce 'first(.jobs[] | select(.name == "Full stack · Containers & E2E (PR)" and .status == "in_progress" and .started_at != null) | {id, started_at})' <<< "$payload"); then
+                echo "ITS237_B_AFTER_E2E_START $job"
+                exit 1
+              fi
+            fi
+            remaining=$((deadline - SECONDS))
+            if (( remaining > 0 )); then
+              sleep "$((remaining < 10 ? remaining : 10))"
+            fi
+          done
+          echo "ITS237_B_INCONCLUSIVE: E2E start was not observed." >&2
+          exit 2
+
       - name: Test coverage aggregator
         run: python3 .github/scripts/test-check-coverage.py
 
