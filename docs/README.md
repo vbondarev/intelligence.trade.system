@@ -4,7 +4,7 @@
 
 ## Источники и их назначение
 
-- [Процесс разработки и промты](development/README.md) — этапы работы от Discovery до постпроверки и ссылки на промты.
+- [Процесс разработки и промты](development/README.md) — этапы от Discovery до постпроверки, маршрут `N/A` и выбор между №8, №10 и №12 §4B. [Шпаргалка](development/quick-reference.md) даёт команды для ближайшего действия.
 - [Корневой README](../README.md) — краткое описание продукта, текущее состояние, запуск и основные технические сведения.
 - [Локальная разработка](local-development.md) — сборка, запуск и тестирование на Windows, Linux и macOS, Docker Compose/Aspire, локальные secrets, migrations и диагностика окружения.
 - [Product Vision](product/vision.md) — долгосрочное целевое состояние продукта и основные продуктовые направления.
@@ -45,4 +45,4 @@ ROADMAP отвечает на другой вопрос: «что действи
 
 Idea → Research → Concept → Human decision → Architecture / ADR при необходимости → ROADMAP → GitHub Issue → Implementation Plan → Human Gate → durable Approved Plan → Implementation.
 
-Конкретный шаг может быть пропущен только когда он неприменим, но Idea, Research или Concept сами по себе не являются implementation scope. Актуальность WHAT/HOW перед merge подтверждается live External Re-review; Human Merge Gate является окончательной границей допуска к merge.
+Конкретный шаг может быть пропущен только когда он неприменим, но Idea, Research или Concept сами по себе не являются implementation scope. Для точечного Issue допустим `N/A` на условиях `AGENTS.md`. Перед merge актуальность WHAT/HOW подтверждается применимым независимым маршрутом и №12. Решение о merge проходит отдельный Human Merge Gate.

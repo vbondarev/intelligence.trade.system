@@ -9,7 +9,7 @@ description: Выполняет согласованную Issue-задачу о
 
 Каноническая последовательность:
 
-`Issue → Implementation Plan → Human Gate → durable Approved Plan → refresh target branch → branch → implementation → self-review → checks → docs → final self-review → commit → push → Draft PR → PR sanity`
+`Issue → проверенное основание (durable Approved Plan или разрешённый N/A) → поручение на реализацию → refresh target branch → branch → implementation → self-review → checks → docs → final self-review → commit → push → Draft PR → PR sanity`
 
 После PR sanity передай работу в `.agents/skills/trade-system-pr-review/SKILL.md`; там выполняется полный цикл `External Review → Review fixes → Re-review → Human Merge Gate`. Не дублируй здесь детали этого цикла.
 
@@ -19,14 +19,22 @@ description: Выполняет согласованную Issue-задачу о
 
 Для нетривиальной задачи implementation запрещён до явного Human Gate — утверждения Plan человеком. Остановись и верни вопрос человеку при новом архитектурном выборе, scope expansion, конфликте Issue/Plan/ADR/contract или необходимости изменить согласованный `WHAT`.
 
-После Human Gate до обновления target branch и создания branch:
+Утверждение точного HOW завершает Human Gate. Публикуй только после разрешения владельца на публикацию утверждённой редакции. После публикации и проверки остановись до явного поручения реализовать задачу. Так же разделяй утверждение, публикацию и поручение продолжить работу после Amendment. Одно сообщение владельца может содержать несколько явных разрешений.
+
+На обычном маршруте до обновления target branch и создания branch:
 
 1. Сохрани полный Approved Implementation Plan отдельным комментарием связанного GitHub Issue с точной первой строкой `# Approved Implementation Plan`; canonical comment должен быть опубликован `vbondarev` с `author_association=OWNER`.
 2. Получи permalink комментария и проверь, что он доступен для чтения. При ошибке публикации или проверки остановись до исправления состояния.
-3. Не редактируй base Plan или Amendment. После human decision и нового Human Gate создай отдельный append-only comment `# Approved Implementation Plan — Amendment` со ссылкой `Base Approved Implementation Plan: <permalink>` и только утверждённым изменением `HOW`.
+3. Не редактируй base Plan или Amendment. После human decision, нового Human Gate и разрешения на публикацию создай отдельный append-only comment `# Approved Implementation Plan — Amendment` со ссылкой `Base Approved Implementation Plan: <permalink>` и только утверждённым изменением `HOW`.
 4. Если canonical artifact изменён/удалён или effective HOW невозможно восстановить, остановись и запроси Human Decision.
 
-После успешной проверки permalink повторно получи актуальную target branch и создай отдельную ветку вида `task/<issue>-<kebab-case>`. Реализуй только согласованные Issue `WHAT` и effective Approved Plan `HOW` — trusted immutable base Plan вместе со всеми применимыми trusted Amendments. Соседние улучшения не добавляй.
+### Сокращённый маршрут N/A
+
+Для подтверждённой публикации Issue сначала установи наличие и состояние плана и поправок. Если данные неполны, укажи источник для сверки. Для точечного и проверяемого Issue без доверенных Approved Plan и Amendments примени `N/A`, только если владелец явно разрешил его для этого Issue до реализации. После разрешения предложи №6 с номером Issue и доказательством решения. Для запуска нужно явное поручение на реализацию. Если Issue подходит, а решения ещё нет, спроси владельца, разрешает ли он `N/A` или выбирает №4. Если нужен план, предложи №4, когда его предстоит подготовить, или первое оставшееся действие по существующему плану. Сохрани действующий permalink, в том числе для малого FIX.
+
+На `N/A` используй требования и критерии Issue как основание исполнения, сохрани проверяемую ссылку на разрешение владельца и передай её на ревью. При росте объёма или существенном техническом выборе — STOP и обычный маршрут с базовым планом.
+
+После проверки применимого основания и получения поручения на реализацию повторно получи актуальную target branch и создай `task/<issue>-<kebab-case>`. Ограничь работу согласованным WHAT и effective HOW или точечными требованиями Issue на разрешённом `N/A`.
 
 ## Implementation и проверки
 
@@ -36,9 +44,8 @@ description: Выполняет согласованную Issue-задачу о
 
 ## Commit, Draft PR и sanity check
 
-- В PR description добавь permalink базового Approved Plan и permalink каждого применимого amendment либо `- Нет`; отклонения сверяй с effective Approved Plan.
-- PR sanity check подтверждает, что base permalink ведёт к immutable comment связанной Issue от `vbondarev/OWNER`, а все current Amendments существуют, immutable, доверенно авторизованы, ссылаются на base Plan и перечислены в Issue-comment order.
-- PR sanity check подтверждает Issue, base Plan, все current Amendments, PR metadata и текущий head.
+- В PR description добавь permalink базового Approved Plan и permalink каждого применимого Amendment либо `- Нет`. Для разрешённого `N/A` укажи `Approved Implementation Plan: N/A`, `Approved Plan Amendments:` с `- Нет` и проверяемую ссылку на разрешение владельца.
+- PR sanity check подтверждает Issue, основание исполнения, PR metadata и текущий head. Для планового маршрута проверь доверенность и неизменность base Plan и Amendments, ссылку поправок на base Plan и порядок Issue comments. Для `N/A` подтверди применимость, отсутствие доверенных плана и Amendments, связь с Issue и разрешение владельца.
 
 - Commit message: `#<issue>: <текст на русском языке в прошедшем времени>`.
 - PR title: `#<issue>: <краткое название на русском языке>`.
