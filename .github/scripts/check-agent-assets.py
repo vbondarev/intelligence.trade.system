@@ -17,6 +17,7 @@ WORKFLOW_PROJECT_OWNED_SKILLS = {
     "trade-system-pr-review",
 }
 SPECIALIZED_PROJECT_OWNED_SKILLS = {
+    "next-stage",
     "trade-system-web-design-review",
 }
 PROJECT_OWNED_SKILLS = WORKFLOW_PROJECT_OWNED_SKILLS | SPECIALIZED_PROJECT_OWNED_SKILLS
