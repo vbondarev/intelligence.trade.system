@@ -51,7 +51,7 @@ jobs:
 
           is_whitelisted() {
             case "$1" in
-              README.md|ROADMAP.md|AGENTS.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/copilot-instructions.md|.github/instructions/*|.github/pull_request_template.md|.agents/skills/README.md|.agents/skills/trade-system-discovery/SKILL.md|.agents/skills/trade-system-delivery/SKILL.md|.agents/skills/trade-system-pr-review/SKILL.md)
+              *.md|README.md|ROADMAP.md|AGENTS.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/copilot-instructions.md|.github/instructions/*|.github/pull_request_template.md|.agents/skills/README.md|.agents/skills/trade-system-discovery/SKILL.md|.agents/skills/trade-system-delivery/SKILL.md|.agents/skills/trade-system-pr-review/SKILL.md)
                 return 0
                 ;;
               *)
