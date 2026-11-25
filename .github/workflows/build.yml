@@ -300,7 +300,7 @@ jobs:
               return len(steps) == 1 and steps[0]["conclusion"] == "success"
 
           def find_source():
-              # The server-side status filter can omit a completed success during overlapping runs.
+              # Серверный фильтр по статусу может пропустить завершённый успешный прогон, если запуски пересекаются по времени.
               for run in api_pages("workflows/build.yml/runs", "workflow_runs",
                                    event="pull_request", head_sha=head):
                   if (
