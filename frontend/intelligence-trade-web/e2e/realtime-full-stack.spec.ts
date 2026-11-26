@@ -21,11 +21,30 @@ const composeArgs = [
   '--profile', 'ci',
 ];
 
+function verifyDatabaseRoute(accountId: string, positionId?: string) {
+  if (process.env.GITHUB_REF !== 'refs/heads/validation/259-browser-e2e-isolation') return;
+  const browser = test.info().project.name;
+  const expected = browser === 'chromium' ? 'backend' : 'browser-e2e-webkit';
+  for (const side of ['backend', 'browser-e2e-webkit']) {
+    const files = ['-f', 'backend/compose.yaml'];
+    if (side !== 'backend') files.push('-f', 'backend/compose.browser-e2e-webkit.yaml');
+    const accountSql = "SELECT count(*) FROM exchange_accounts WHERE id = '" + accountId + "'";
+    const positionSql = positionId ? "; SELECT count(*) FROM positions WHERE id = '" + positionId + "'" : '';
+    const output = execFileSync('docker', ['compose', '-p', side, ...files, 'exec', '-T', 'postgres',
+      'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'tradesystem', '-d', 'tradesystem', '-Atc', accountSql + positionSql],
+    { cwd: repository, encoding: 'utf8', timeout: 15000 }).trim().split(/\s+/);
+    const count = side === expected ? '1' : '0';
+    expect(output).toEqual(positionId ? [count, count] : [count]);
+    console.log(JSON.stringify({ browser, side, accountId, positionId, rows: output }));
+  }
+}
+
 function changeState(userId: string, accountId: string, name: string) {
   const args = [...composeArgs,
     'run', '--rm', '--no-deps', '-e', `REALTIME_E2E_USER_ID=${userId}`,
     '-e', `REALTIME_E2E_ACCOUNT_ID=${accountId}`, '-e', `REALTIME_E2E_NAME=${name}`, 'realtime-e2e-driver'];
   execFileSync('docker', args, { cwd: repository, timeout: 120000, stdio: 'pipe' });
+  if (name === 'G07 initial') verifyDatabaseRoute(accountId);
 }
 
 test('persisted outbox update and missed event recover through the browser', async ({ page, context }) => {
@@ -170,6 +189,7 @@ function positionPhase(userId: string, accountId: string, positionId: string, ph
     '-e', `REALTIME_E2E_ACCOUNT_ID=${accountId}`, '-e', `REALTIME_E2E_POSITION_ID=${positionId}`,
     '-e', `REALTIME_E2E_PHASE=${phase}`, '-e', `REALTIME_E2E_EVENT_ID=${eventId}`, 'realtime-e2e-driver'];
   execFileSync('docker', args, { cwd: repository, timeout: 120000, stdio: 'pipe' });
+  if (phase === 'initial') verifyDatabaseRoute(accountId, positionId);
 }
 
 test('позиция обновляется через outbox и восстанавливается после пропущенного события', async ({ page, context, browser }) => {

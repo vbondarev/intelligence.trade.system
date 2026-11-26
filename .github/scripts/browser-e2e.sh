@@ -34,6 +34,16 @@ cleanup() {
       status=1
     fi
     stamp "$project cleanup end"
+    if [[ -n "${CONTROL_ACCOUNT:-}" ]]; then
+      if curl --max-time 3 -fsS -o /dev/null http://localhost:8082/bff/auth/session &&
+        [[ "$("${primary[@]}" exec -T postgres psql -U tradesystem -d tradesystem -Atc \
+          "SELECT count(*) FROM exchange_accounts WHERE id = '$CONTROL_ACCOUNT'")" == 1 ]]; then
+        echo 'Independent cleanup: backend HTTP available and control row present'
+      else
+        echo 'Independent cleanup verification failed' >&2
+        status=1
+      fi
+    fi
   fi
   rm -rf -- "$results"
   exit "$status"
@@ -108,6 +118,18 @@ for service in identity-db-init identity-migrations; do
   fi
 done
 stamp "$project ready"
+export CONTROL_USER="$(cat /proc/sys/kernel/random/uuid)"
+export CONTROL_ACCOUNT="$(cat /proc/sys/kernel/random/uuid)"
+webkit_account="$(cat /proc/sys/kernel/random/uuid)"
+for side in backend browser-e2e-webkit; do
+  if [[ "$side" == backend ]]; then ctl=("${primary[@]}"); account=$CONTROL_ACCOUNT
+  else ctl=("${webkit[@]}"); account=$webkit_account; fi
+  "${ctl[@]}" run --rm --no-deps -e REALTIME_E2E_USER_ID="$CONTROL_USER" \
+    -e REALTIME_E2E_ACCOUNT_ID="$account" -e REALTIME_E2E_NAME='G07 initial' realtime-e2e-driver
+  "${ctl[@]}" config --format json |
+    jq -c '{name, networks: [.networks[].name], volumes: [.volumes[].name],
+      frontendPorts: [.services.frontend.ports[].published], identityPorts: [.services.identity.ports[].published]}'
+done
 
 run_browser() {
   local browser=$1

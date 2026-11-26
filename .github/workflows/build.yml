@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [ develop, main, validation/259-browser-e2e-isolation ]
   pull_request:
     types: [ opened, edited, reopened, synchronize ]
   workflow_dispatch:
