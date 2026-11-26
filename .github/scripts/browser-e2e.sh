@@ -37,7 +37,7 @@ cleanup() {
     if [[ -n "${CONTROL_ACCOUNT:-}" ]]; then
       if curl --max-time 3 -fsS -o /dev/null http://localhost:8082/bff/auth/session &&
         [[ "$("${primary[@]}" exec -T postgres psql -U tradesystem -d tradesystem -Atc \
-          "SELECT count(*) FROM exchange_accounts WHERE id = '$CONTROL_ACCOUNT'")" == 1 ]]; then
+          "SELECT count(*) FROM exchange_accounts WHERE exchange_account_id = '$CONTROL_ACCOUNT'")" == 1 ]]; then
         echo 'Independent cleanup: backend HTTP available and control row present'
       else
         echo 'Independent cleanup verification failed' >&2

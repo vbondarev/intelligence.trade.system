@@ -28,8 +28,8 @@ function verifyDatabaseRoute(accountId: string, positionId?: string) {
   for (const side of ['backend', 'browser-e2e-webkit']) {
     const files = ['-f', 'backend/compose.yaml'];
     if (side !== 'backend') files.push('-f', 'backend/compose.browser-e2e-webkit.yaml');
-    const accountSql = "SELECT count(*) FROM exchange_accounts WHERE id = '" + accountId + "'";
-    const positionSql = positionId ? "; SELECT count(*) FROM positions WHERE id = '" + positionId + "'" : '';
+    const accountSql = "SELECT count(*) FROM exchange_accounts WHERE exchange_account_id = '" + accountId + "'";
+    const positionSql = positionId ? "; SELECT count(*) FROM positions WHERE position_id = '" + positionId + "'" : '';
     const output = execFileSync('docker', ['compose', '-p', side, ...files, 'exec', '-T', 'postgres',
       'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'tradesystem', '-d', 'tradesystem', '-Atc', accountSql + positionSql],
     { cwd: repository, encoding: 'utf8', timeout: 15000 }).trim().split(/\s+/);
