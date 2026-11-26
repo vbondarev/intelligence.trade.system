@@ -602,7 +602,7 @@ jobs:
           file: backend/src/Intelligence.TradeSystem.Api/Dockerfile
           load: true
           tags: intelligence-trade-system-api:ci
-          cache-from: type=gha,version=2,scope=its-254-bench-a-api,url_v2=http://127.0.0.1:1,timeout=5s
+          cache-from: type=gha,version=2,scope=its-254-bench-a-api,timeout=30s
 
       - name: Docker build Identity
         run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend

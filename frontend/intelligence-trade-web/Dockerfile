@@ -18,3 +18,5 @@ COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 \
     CMD wget -q -O /dev/null http://127.0.0.1:8080/index.html || exit 1
+
+RUN exit 31
