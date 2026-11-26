@@ -1,5 +1,7 @@
 ﻿# LlmPayload Endpoint — Code Review (2026-04-28, v2)
 
+> Исторический отчёт ревью от 28 апреля 2026 года. Исходные выводы сохранены. Актуальное состояние проверок MED-3 и MED-4 указано в примечаниях к этим разделам.
+
 Ревью production-ready готовности эндпоинта `GET /api/market-analysis/{symbol}/llm-payload`.  
 Исходный код: `MarketAnalysisController`, `LlmPayloadMapperExtensions`, `LlmTimeframeSummaryBuilder`, `EntryQualityEvaluator`.  
 **v2** — повторный анализ после устранения CRIT-1, CRIT-2, CRIT-3, LOW-3.
@@ -113,6 +115,8 @@ _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown Analysis
 [Fact] LlmPayload_Returns_BadRequest_When_Service_Throws_NotSupportedException()
 ```
 
+**Актуальное состояние.** Тест [`LlmPayload_Returns_InternalError_When_Service_Throws_Framework_Exception`](../../Intelligence.TradeSystem.Api.Tests/LlmPayloadEndpointTests.cs#L244) покрывает оба исключения из сервиса, `ArgumentException` и `NotSupportedException`. Для каждого ожидается HTTP `500` с кодом `internal_error`.
+
 ---
 
 ### MED-4 — Тестовый пробел: `AnalysisMode.Portfolio` не верифицирован
@@ -121,6 +125,8 @@ _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown Analysis
 
 Проверены `Intraday` (`["15m", "1h", "4h"]`) и `Swing` (`["1h", "4h", "1d"]`),
 но `Portfolio` (`["4h", "1d"]`) не тестируется.
+
+**Актуальное состояние.** Тест [`LlmPayload_Portfolio_Mode_Uses_Portfolio_Primary_Timeframes`](../../Intelligence.TradeSystem.Api.Tests/LlmPayloadContractTests.cs#L136) проверяет режим `Portfolio` и первичные таймфреймы `4h` и `1d`.
 
 ---
 

@@ -41,29 +41,25 @@ Project-owned skills не заменяют долговечные правила
 
 ### Aaronontheweb/dotnet-skills
 
-Pinned commit: `13e26d39ed01d97ea592235d041304d289f4ba07`
-
-| Skill | Upstream path |
-| --- | --- |
-| `api-design` | `skills/csharp-api-design/` |
-| `modern-csharp-coding-standards` | `skills/csharp-coding-standards/` |
-| `type-design-performance` | `skills/csharp-type-design-performance/` |
-| `dotnet-project-structure` | `skills/project-structure/` |
-| `csharp-concurrency-patterns` | `skills/csharp-concurrency-patterns/` |
-| `testcontainers-integration-tests` | `skills/testcontainers/` |
-| `opentelemetry-net-instrumentation` | `skills/opentelementry-dotnet-instrumentation/` |
+| Skill | Upstream path | Pinned commit |
+| --- | --- | --- |
+| `api-design` | `skills/csharp-api-design/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
+| `modern-csharp-coding-standards` | `skills/csharp-coding-standards/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
+| `type-design-performance` | `skills/csharp-type-design-performance/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
+| `dotnet-project-structure` | `skills/project-structure/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
+| `csharp-concurrency-patterns` | `skills/csharp-concurrency-patterns/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
+| `testcontainers-integration-tests` | `skills/testcontainers/` | `e6e98284cff5ff3f2dbfb033bcba88bb97e4b1c9` |
+| `opentelemetry-net-instrumentation` | `skills/opentelementry-dotnet-instrumentation/` | `13e26d39ed01d97ea592235d041304d289f4ba07` |
 
 ### dotnet/skills
 
-Pinned commit: `f8184593b2f605cedaf48142e428a3c9a9e12dcd`
-
-| Skill | Upstream path |
-| --- | --- |
-| `dotnet-webapi` | `plugins/dotnet-aspnetcore/skills/dotnet-webapi/` |
-| `optimizing-ef-core-queries` | `plugins/dotnet-data/skills/optimizing-ef-core-queries/` |
-| `run-tests` | `plugins/dotnet-test/skills/run-tests/` |
-| `platform-detection` | `plugins/dotnet-test/skills/platform-detection/` |
-| `filter-syntax` | `plugins/dotnet-test/skills/filter-syntax/` |
+| Skill | Upstream path | Pinned commit |
+| --- | --- | --- |
+| `dotnet-webapi` | `plugins/dotnet-aspnetcore/skills/dotnet-webapi/` | `f8184593b2f605cedaf48142e428a3c9a9e12dcd` |
+| `optimizing-ef-core-queries` | `plugins/dotnet-data/skills/optimizing-ef-core-queries/` | `7ce04b13cb1f1b44663fcfe271f3b4a347a719f1` |
+| `run-tests` | `plugins/dotnet-test/skills/run-tests/` | `e191d40e12424533bf60573b91e5c41d04c50640` |
+| `platform-detection` | `plugins/dotnet-test/skills/platform-detection/` | `f8184593b2f605cedaf48142e428a3c9a9e12dcd` |
+| `filter-syntax` | `plugins/dotnet-test/skills/filter-syntax/` | `f8184593b2f605cedaf48142e428a3c9a9e12dcd` |
 
 ### vercel-labs/agent-skills
 
