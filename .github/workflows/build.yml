@@ -578,21 +578,54 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up shared Buildx builder
+        id: buildx
+        uses: docker/setup-buildx-action@v4.4.1
+        with:
+          driver: docker-container
+          version: v0.38.1
+          driver-opts: image=moby/buildkit:v0.34.2
+          cache-binary: false
+
+      - name: Select builder for Compose
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: printf 'BUILDX_BUILDER=%s\n' "$BUILDER_NAME" >> "$GITHUB_ENV"
+
       - name: Docker build API
-        run: docker build -f backend/src/Intelligence.TradeSystem.Api/Dockerfile -t intelligence-trade-system-api:ci backend
+        uses: docker/build-push-action@v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: backend
+          file: backend/src/Intelligence.TradeSystem.Api/Dockerfile
+          load: true
+          tags: intelligence-trade-system-api:ci
+          cache-from: type=gha,version=2,scope=its-api-linux-amd64-v1,timeout=30s
+          cache-to: type=gha,version=2,scope=its-api-linux-amd64-v1,mode=max,timeout=2m,ignore-error=true
 
       - name: Docker build Identity
-        run: docker build -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
+        run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
 
       - name: Docker build Identity migrations
-        run: docker build -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
+        run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity.Migrations/Dockerfile -t intelligence-trade-system-identity-migrations:ci backend
 
       # BFF и frontend собираются из разных contexts: ни один image не может получить файлы другого.
       - name: Docker build BFF
-        run: docker build -f backend/src/Intelligence.TradeSystem.Bff/Dockerfile -t intelligence-trade-system-bff:ci backend
+        run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Bff/Dockerfile -t intelligence-trade-system-bff:ci backend
 
       - name: Docker build frontend
-        run: docker build -t intelligence-trade-web:ci frontend/intelligence-trade-web
+        uses: docker/build-push-action@v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: frontend/intelligence-trade-web
+          load: true
+          tags: intelligence-trade-web:ci
+          cache-from: type=gha,version=2,scope=its-frontend-linux-amd64-v1,timeout=30s
+          cache-to: type=gha,version=2,scope=its-frontend-linux-amd64-v1,mode=max,timeout=2m,ignore-error=true
 
       - name: Verify BFF and frontend image contents
         shell: bash
