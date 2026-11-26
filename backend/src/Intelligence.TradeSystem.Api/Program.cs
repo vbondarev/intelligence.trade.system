@@ -65,3 +65,5 @@ public partial class Program
         app.Run();
     }
 }
+
+// BuildKit pilot: source invalidation fixture.
