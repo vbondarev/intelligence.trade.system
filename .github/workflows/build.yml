@@ -602,8 +602,7 @@ jobs:
           file: backend/src/Intelligence.TradeSystem.Api/Dockerfile
           load: true
           tags: intelligence-trade-system-api:ci
-          cache-from: type=gha,version=2,scope=its-254-bench-a-api,timeout=30s
-          cache-to: type=gha,version=2,scope=its-254-bench-a-api,mode=max,timeout=2m,ignore-error=true
+          cache-from: type=gha,version=2,scope=its-254-bench-a-api,url_v2=http://127.0.0.1:1,timeout=5s
 
       - name: Docker build Identity
         run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
@@ -625,7 +624,6 @@ jobs:
           load: true
           tags: intelligence-trade-web:ci
           cache-from: type=gha,version=2,scope=its-254-bench-a-frontend,timeout=30s
-          cache-to: type=gha,version=2,scope=its-254-bench-a-frontend,mode=max,timeout=2m,ignore-error=true
 
       - name: Verify BFF and frontend image contents
         shell: bash
