@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [ develop, main, validation/259-browser-e2e ]
   pull_request:
     types: [ opened, edited, reopened, synchronize ]
   workflow_dispatch:
@@ -602,8 +602,8 @@ jobs:
           file: backend/src/Intelligence.TradeSystem.Api/Dockerfile
           load: true
           tags: intelligence-trade-system-api:ci
-          cache-from: type=gha,version=2,scope=its-api-linux-amd64-v1,timeout=30s
-          cache-to: type=gha,version=2,scope=its-api-linux-amd64-v1,mode=max,timeout=2m,ignore-error=true
+          cache-from: type=gha,version=2,scope=its-259-e2e-api-v1,timeout=30s
+          cache-to: type=gha,version=2,scope=its-259-e2e-api-v1,mode=max,timeout=2m,ignore-error=true
 
       - name: Docker build Identity
         run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
@@ -624,8 +624,8 @@ jobs:
           context: frontend/intelligence-trade-web
           load: true
           tags: intelligence-trade-web:ci
-          cache-from: type=gha,version=2,scope=its-frontend-linux-amd64-v1,timeout=30s
-          cache-to: type=gha,version=2,scope=its-frontend-linux-amd64-v1,mode=max,timeout=2m,ignore-error=true
+          cache-from: type=gha,version=2,scope=its-259-e2e-frontend-v1,timeout=30s
+          cache-to: type=gha,version=2,scope=its-259-e2e-frontend-v1,mode=max,timeout=2m,ignore-error=true
 
       - name: Verify BFF and frontend image contents
         shell: bash
@@ -716,7 +716,7 @@ jobs:
         env:
           E2E_USERNAME: trade-dev-user
           REALTIME_E2E_ENABLED: 'true'
-        run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" bash .github/scripts/browser-e2e.sh
+        run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" bash .github/scripts/browser-e2e-benchmark.sh
 
       - name: HTTPS BFF session cookie security gate
         run: bash .github/scripts/https-security-e2e.sh
