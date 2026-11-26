@@ -603,7 +603,6 @@ jobs:
           load: true
           tags: intelligence-trade-system-api:ci
           cache-from: type=gha,version=2,scope=its-254-bench-b-api,timeout=30s
-          cache-to: type=gha,version=2,scope=its-254-bench-b-api,mode=max,timeout=2m,ignore-error=true
 
       - name: Docker build Identity
         run: docker buildx build --builder "$BUILDX_BUILDER" --load -f backend/src/Intelligence.TradeSystem.Identity/Dockerfile -t intelligence-trade-system-identity:ci backend
@@ -625,7 +624,11 @@ jobs:
           load: true
           tags: intelligence-trade-web:ci
           cache-from: type=gha,version=2,scope=its-254-bench-b-frontend,timeout=30s
-          cache-to: type=gha,version=2,scope=its-254-bench-b-frontend,mode=max,timeout=2m,ignore-error=true
+
+      - name: Verify diagnostic frontend marker
+        run: >-
+          docker run --rm --entrypoint sh intelligence-trade-web:ci -c
+          'grep -F buildkit-254-diagnostic-source /usr/share/nginx/html/index.html'
 
       - name: Verify BFF and frontend image contents
         shell: bash
