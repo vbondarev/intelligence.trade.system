@@ -85,6 +85,7 @@ test.describe('подсказка автообновления на узком �
       await mockBusinessData(page);
       await loginThroughLanding(page);
       await expect(page.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+      await expect(page.getByText('REST-снимок устарел', { exact: true })).toBeVisible();
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
       const heading = page.getByRole('heading', { name: 'Обзор', exact: true });
@@ -141,6 +142,91 @@ test.describe('подсказка автообновления на узком �
       await expect(pause).toBeEnabled();
       await expect(page.getByText(/^Автообновление приостановлено\./)).toHaveCount(0);
     });
+  }
+});
+
+test('подсказка остаётся в окне, когда снимок счёта сдвигает кнопку с фокусом', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 842 });
+  await mockBusinessData(page);
+  let releasePortfolio!: () => void;
+  const pendingPortfolio = new Promise<void>((resolve) => { releasePortfolio = resolve; });
+  await page.route(`**/bff/me/exchange-accounts/${MAIN_ID}/portfolio`, async (route) => {
+    await pendingPortfolio;
+    await route.fallback();
+  });
+
+  try {
+    await loginThroughLanding(page);
+    await expect(page.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+    const freshness = page.getByText('REST-снимок устарел', { exact: true });
+    const pause = page.getByRole('button', { name: 'Приостановить автообновление' });
+    const tooltip = page.getByRole('tooltip');
+    await expect(freshness).toBeHidden();
+    await page.keyboard.press('Tab');
+    await pause.focus();
+    await expect(pause).toBeFocused();
+    await expect(tooltip).toBeInViewport({ ratio: 1 });
+
+    releasePortfolio();
+    await expect(freshness).toBeVisible();
+    await expect(pause).toBeFocused();
+    await expect(tooltip).toBeInViewport({ ratio: 1 });
+    await expectNoHorizontalScroll(page);
+  } finally {
+    releasePortfolio();
+  }
+});
+
+test('при смене режима автообновления подсказка остаётся в окне при ширине 600px', async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 842 });
+  await mockBusinessData(page);
+  await loginThroughLanding(page);
+  await expect(page.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+  await expect(page.getByText('REST-снимок устарел', { exact: true })).toBeVisible();
+
+  const pauseLabel = 'Приостановить автообновление';
+  const resumeLabel = 'Возобновить автообновление';
+  const pause = page.getByRole('button', { name: pauseLabel });
+  const resume = page.getByRole('button', { name: resumeLabel });
+  const tooltip = page.getByRole('tooltip');
+  await page.keyboard.press('Tab');
+  await pause.focus();
+  await expect(pause).toBeFocused();
+  await expect(tooltip).toHaveText(pauseLabel);
+  await expect(tooltip).toBeInViewport({ ratio: 1 });
+
+  await page.keyboard.press('Enter');
+  await expect(resume).toBeFocused();
+  await expect(tooltip).toHaveText(resumeLabel);
+  await expect(tooltip).toBeInViewport({ ratio: 1 });
+
+  let releaseResume!: () => void;
+  const pendingResume = new Promise<void>((resolve) => { releaseResume = resolve; });
+  await page.route('**/bff/me/exchange-accounts', async (route) => {
+    await pendingResume;
+    await route.fallback();
+  }, { times: 1 });
+
+  try {
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Возобновляем автообновление…')).toBeVisible();
+    await expect(resume).toBeFocused();
+    await expect(resume).toBeDisabled();
+    await expect(tooltip).toBeInViewport({ ratio: 1 });
+
+    for (const width of [760, 600]) {
+      await page.setViewportSize({ width, height: 842 });
+      await expect(resume).toBeFocused();
+      await expect(tooltip).toBeInViewport({ ratio: 1 });
+      await expectNoHorizontalScroll(page);
+    }
+
+    releaseResume();
+    await expect(pause).toBeFocused();
+    await expect(tooltip).toHaveText(pauseLabel);
+    await expect(tooltip).toBeInViewport({ ratio: 1 });
+  } finally {
+    releaseResume();
   }
 });
 

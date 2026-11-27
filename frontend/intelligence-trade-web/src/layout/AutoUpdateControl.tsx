@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 
 export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
@@ -18,6 +18,11 @@ export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
     anchor.style.setProperty('--overview-tooltip-room', `${Math.max(roomOnRight, left) - 8}px`);
   }, []);
 
+  // Статус автообновления и соседние данные могут перенести кнопку при сохранённом фокусе.
+  useLayoutEffect(() => {
+    if (tooltip.current?.getClientRects().length) positionTooltip();
+  });
+
   useEffect(() => {
     if (!icon) return;
     function dismissTooltip(event: KeyboardEvent) {
@@ -25,7 +30,6 @@ export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
         setTooltipDismissed(true);
       }
     }
-    positionTooltip();
     document.addEventListener('keydown', dismissTooltip);
     window.addEventListener('resize', positionTooltip);
     return () => {
