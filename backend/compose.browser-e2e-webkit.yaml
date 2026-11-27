@@ -1,0 +1,59 @@
+# Файл переопределений Compose для изолированного HTTP-стэка mobile WebKit. Используется только в CI.
+services:
+  api:
+    image: backend-api:latest
+    build: !reset null
+    pull_policy: never
+    container_name: !reset null
+    ports: !reset []
+    environment:
+      Authentication__Issuer: http://localhost:18091
+  identity-db-init:
+    pull_policy: never
+  identity-migrations:
+    image: backend-identity-migrations:latest
+    build: !reset null
+    pull_policy: never
+  identity:
+    image: backend-identity:latest
+    build: !reset null
+    pull_policy: never
+    container_name: !reset null
+    ports: !override
+      - '127.0.0.1:18091:8080'
+    environment:
+      Identity__Issuer: http://localhost:18091
+      Identity__WebBffClient__RedirectUris__0: http://localhost:18092/signin-oidc
+      Identity__WebBffClient__PostLogoutRedirectUris__0: http://localhost:18092/signout-callback-oidc
+  bff:
+    image: backend-bff:latest
+    build: !reset null
+    pull_policy: never
+    container_name: !reset null
+    environment:
+      Bff__Oidc__Authority: http://localhost:18091
+      Bff__ForwardedHeaders__KnownNetworks__0: 172.30.227.0/24
+  frontend:
+    image: backend-frontend:latest
+    build: !reset null
+    pull_policy: never
+    container_name: !reset null
+    ports: !override
+      - '127.0.0.1:18092:8080'
+  realtime-e2e-driver:
+    image: backend-realtime-e2e-driver:latest
+    build: !reset null
+    pull_policy: never
+  auth-test-seeder:
+    image: backend-auth-test-seeder:latest
+    build: !reset null
+    pull_policy: never
+  postgres:
+    pull_policy: never
+
+networks:
+  trade-agent-network:
+    name: browser-e2e-webkit-network
+    ipam:
+      config: !override
+        - subnet: 172.30.227.0/24

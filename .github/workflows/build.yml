@@ -713,13 +713,10 @@ jobs:
         run: docker compose -f backend/compose.yaml --profile ci build realtime-e2e-driver
 
       - name: Browser E2E Web login, session and logout
-        working-directory: frontend/intelligence-trade-web
         env:
-          WEB_BASE_URL: http://localhost:8082
-          IDENTITY_BASE_URL: http://localhost:8081
           E2E_USERNAME: trade-dev-user
           REALTIME_E2E_ENABLED: 'true'
-        run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" npm run test:e2e
+        run: E2E_PASSWORD="$TRADE_WEB_DEV_PASSWORD" bash .github/scripts/browser-e2e.sh
 
       - name: HTTPS BFF session cookie security gate
         run: bash .github/scripts/https-security-e2e.sh
