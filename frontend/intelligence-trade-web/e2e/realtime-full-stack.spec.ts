@@ -253,10 +253,12 @@ test('позиция обновляется через outbox и восстан�
     await updatedCard.click();
     await expect(page).toHaveURL(new RegExp(`/app/positions/${positionId}`));
     await expect(page.getByRole('heading', { name: /BTCUSDT.*2/ })).toBeVisible();
-    const timeline = page.getByRole('region', { name: 'История позиции', exact: true });
-    const timelineToggle = timeline.getByRole('button', { name: 'История позиции', exact: true });
+    const timelineName = /История позиции$/;
+    const timeline = page.getByRole('region', { name: timelineName });
+    const timelineToggle = timeline.getByRole('button', { name: timelineName });
     const changedTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 1 → 2', exact: true, level: 3 });
     const recoveredTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 2 → 3', exact: true, level: 3 });
+    await expect(timelineToggle).toBeVisible();
     await timelineToggle.click();
     await expect(timelineToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(changedTimelineItem).toBeVisible();
@@ -312,7 +314,10 @@ test('позиция обновляется через outbox и восстан�
     expect(await page.evaluate(() => window.__realtimePageMarker)).toBe('position-document');
     expect(mutations).toEqual([]);
   } finally {
-    await context.setOffline(false);
-    positionPhase(userId, accountId, positionId, 'cleanup', randomUUID());
+    try {
+      await context.setOffline(false);
+    } finally {
+      positionPhase(userId, accountId, positionId, 'cleanup', randomUUID());
+    }
   }
 });
