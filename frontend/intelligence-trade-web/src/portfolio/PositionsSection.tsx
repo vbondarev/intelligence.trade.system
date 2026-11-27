@@ -220,7 +220,13 @@ export function PositionsSection({
                     >
                       {position.symbol}
                     </Link>
-                    {selected && <span className="overview-open-indicator"><span className="screen-reader-only">Карточка </span>Открыта</span>}
+                    {selected && (
+                      <span className="overview-open-indicator">
+                        {position.trackingState === 'closed'
+                          ? 'Карточка открыта'
+                          : <><span className="screen-reader-only">Карточка </span>Открыта</>}
+                      </span>
+                    )}
                     <span className="overview-position-side">{SIDE_LABELS[position.side]}</span>
                     {context && <span className="position-link-context">{context}</span>}
                     {position.trackingState !== 'active' && (

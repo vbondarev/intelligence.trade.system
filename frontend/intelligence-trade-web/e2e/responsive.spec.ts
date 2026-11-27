@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { timelineEvaluationItem, timelinePageFixture, timelineRecommendationItem } from '../src/test/positionFixtures';
+import { positionFixture, timelineEvaluationItem, timelinePageFixture, timelineRecommendationItem } from '../src/test/positionFixtures';
 import { LONG_DISPLAY_NAME, MAIN_ID, mockBusinessData, mockOverviewDesign, mockPositionPage, position } from './uiMock';
 import { identityBaseUrl, loginThroughLanding, submitIdentityLogin } from './support';
 
@@ -103,6 +103,59 @@ test('контрольный кадр обзора XRPUSDT при 1707×842', as
   await page.mouse.move(0, 0);
   await page.screenshot({ path, animations: 'disabled', scale: 'css' });
   await testInfo.attach('Обзор XRPUSDT 1707×842', { path, contentType: 'image/png' });
+});
+
+test.describe('выбранная закрытая позиция', () => {
+  test.use({ hasTouch: false, isMobile: false });
+
+  test('метка карточки отличается от состояния сделки и остаётся видимой при наведении на другую строку', async ({ page }) => {
+    await page.setViewportSize({ width: 1250, height: 842 });
+    await mockBusinessData(page);
+    await page.route('**/bff/me/positions/closed-long', (route) => route.fulfill({
+      json: positionFixture({
+        id: 'closed-long', exchangeAccountId: MAIN_ID, symbol: 'XRPUSDT',
+        trackingState: 'closed', closedAt: '2026-10-05T10:00:00Z',
+      }),
+    }));
+    await page.route('**/bff/me/positions/closed-long/evaluation', (route) => route.fulfill({ status: 204 }));
+    await loginThroughLanding(page);
+    await page.getByRole('button', { name: 'Закрытые', exact: true }).click();
+    const selected = page.getByRole('row', { name: /^XRPUSDT/ });
+    const other = page.getByRole('row', { name: /^ADAUSDT/ });
+    const ticker = selected.getByRole('link');
+    await selected.getByRole('cell').last().click();
+    await page.getByRole('heading', { name: 'Обзор счёта', exact: true }).hover();
+    const card = page.getByRole('region', { name: 'XRPUSDT', exact: true });
+    await expect(card).toBeVisible();
+    const indicator = selected.getByText('Карточка открыта', { exact: true });
+    await expect(indicator).toBeVisible();
+    expect(await indicator.evaluate((element) => {
+      const text = element.firstChild;
+      if (text?.nodeType !== Node.TEXT_NODE) return false;
+      const word = document.createRange();
+      word.setStart(text, 0);
+      word.setEnd(text, 'Карточка'.length);
+      const { left, top, width, height } = word.getBoundingClientRect();
+      return width > 0 && height > 0 && element.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+    })).toBe(true);
+    await expect(selected.getByText('Закрыта', { exact: true })).toBeVisible();
+    await expect(ticker).toHaveAttribute('aria-current', 'true');
+    const selectedColor = await selected.evaluate((row) => getComputedStyle(row).backgroundColor);
+    await other.hover();
+    await expect(selected).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(other).toHaveCSS('background-color', selectedColor);
+    await expect(indicator).toBeVisible();
+    await expect(ticker).toHaveAttribute('aria-current', 'true');
+    await expect(card).toBeVisible();
+
+    await page.setViewportSize({ width: 320, height: 842 });
+    await expect(ticker).toBeHidden();
+    await expectNoHorizontalScroll(page);
+    await card.getByRole('button', { name: 'Закрыть карточку позиции' }).click();
+    await expect(ticker).toBeVisible();
+    await expect(ticker).not.toHaveAttribute('aria-current', 'true');
+    await expectNoHorizontalScroll(page);
+  });
 });
 
 test('граница 680 пикселей измеряется по контейнеру обзора, фокус возвращается к позиции', async ({ page }) => {
