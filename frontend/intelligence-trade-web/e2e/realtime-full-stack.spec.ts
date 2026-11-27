@@ -253,6 +253,7 @@ test('позиция обновляется через outbox и восстан�
     await updatedCard.click();
     await expect(page).toHaveURL(url.href);
     const preview = page.getByRole('region', { name: 'BTCUSDT', exact: true });
+    await preview.locator('summary').filter({ hasText: 'Рыночные данные и параметры' }).click();
     const details = preview.getByRole('region', { name: 'Параметры позиции' });
     const size = details.getByText('Размер', { exact: true }).locator('..').locator('dd');
     await expect(size).toHaveText('2');

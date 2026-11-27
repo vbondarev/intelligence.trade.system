@@ -162,3 +162,38 @@ export async function mockPositionPage(page: Page, action: PositionAction = 'hol
 
   return timelineRequests;
 }
+
+export async function mockOverviewDesign(page: Page) {
+  const xrp = positionFixture({
+    id: 'xrp', exchangeAccountId: MAIN_ID, symbol: 'XRPUSDT', side: 'short', size: 170,
+    averageEntryPrice: 0.9485, markPrice: 0.9570, positionValue: 163.20, unrealizedPnl: -8.24,
+  });
+  const rows = [
+    xrp,
+    position('eth', 'ETHUSDT', 'long', 'USDT', { averageEntryPrice: 2810.20, markPrice: 2827.40, positionValue: 188.30, unrealizedPnl: 2.70 }),
+    position('sol', 'SOLUSDT', 'short', 'USDT', { averageEntryPrice: 142.20, markPrice: 145.10, positionValue: 72.30, unrealizedPnl: -7.10 }),
+  ];
+  await page.route('**/bff/me/exchange-accounts', (route) => route.fulfill({ json: {
+    items: [{ id: MAIN_ID, displayName: 'BYBIT / USDT', exchange: 'bybit', connectionStatus: 'connected',
+      capabilities: ['readBalance', 'readPositions'], lastSyncedAt: '2026-10-06T10:00:00Z' }],
+  } }));
+  await page.route('**/bff/me/exchange-accounts/' + MAIN_ID + '/portfolio', (route) => route.fulfill({ json: {
+    exchangeAccountId: MAIN_ID,
+    calculatedAt: '2026-10-06T10:00:00Z',
+    capital: { totalEquity: 1248.57, availableCapital: 1026.40, totalWalletBalance: 1248.57, observedAt: '2026-10-06T10:00:00Z' },
+    totalUnrealizedPnl: -12.64,
+    positionsFullyReconciled: true,
+    isComplete: true,
+    isFresh: true,
+    currentPositionCount: rows.length,
+    exposures: [{ settlementAsset: 'USDT', grossExposure: 423.80, longExposure: 188.30, shortExposure: 235.50 }],
+  } }));
+  await page.route(/\/bff\/me\/positions\?/, (route) => route.fulfill({ json: {
+    items: rows, nextCursor: null, hasMore: false,
+  } }));
+  const detail = '**/bff/me/positions/xrp';
+  await page.route(detail, (route) => route.fulfill({ json: xrp }));
+  await page.route(detail + '/evaluation', (route) => route.fulfill({ status: 204 }));
+  await page.route(detail + '/market', (route) => route.fulfill({ json: marketFixture({ positionId: 'xrp', symbol: 'XRPUSDT' }) }));
+  await page.route(detail + '/candles?*', (route) => route.fulfill({ json: candlesFixture('1h', []) }));
+}

@@ -305,7 +305,7 @@ describe('HomePage portfolio summary', () => {
     expect(valueOf(summary, 'Общий капитал')).toBe('$18 420');
     expect(valueOf(summary, 'Доступно')).toBe('$7 310');
     expect(valueOf(summary, 'Нереализованный PnL')).toBe('+$265');
-    expect(valueOf(summary, 'Открытые позиции')).toBe('3');
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
     const account = await openAccountDetails();
     expect(within(account).getByText('Подключено')).toBeVisible();
     expect(within(account).getByText('REST-снимок актуален на момент ответа')).toBeVisible();
@@ -345,11 +345,10 @@ describe('HomePage portfolio summary', () => {
   it('shows a single USDT exposure group', async () => {
     renderHome('/app', accountRoutes([mainAccount]));
 
-    const block = await screen.findByRole('region', { name: 'Экспозиция — USDT' });
-    const group = within(block).getByRole('region', { name: 'Экспозиция USDT' });
-    expect(valueOf(group, 'Всего')).toBe('13 000 USDT');
-    expect(valueOf(group, 'Long')).toBe('10 000 USDT');
-    expect(valueOf(group, 'Short')).toBe('3 000 USDT');
+    const summary = await findSummary();
+    expect(valueOf(summary, 'Объём позиций')).toBe('13 000 USDT');
+    expect(plain(within(summary).getByText(/Long/).textContent)).toContain('Long 10 000 USDT · Short 3 000 USDT');
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
   });
 
   it('shows a single USDC exposure group', async () => {
@@ -363,9 +362,9 @@ describe('HomePage portfolio summary', () => {
       }),
     );
 
-    const block = await screen.findByRole('region', { name: 'Экспозиция — USDC' });
-    expect(valueOf(block, 'Всего')).toBe('5 000 USDC');
-    expect(valueOf(block, 'Short')).toBe('0 USDC');
+    const summary = await findSummary();
+    expect(valueOf(summary, 'Объём позиций')).toBe('5 000 USDC');
+    expect(plain(within(summary).getByText(/Long/).textContent)).toContain('Short 0 USDC');
   });
 
   it('shows USDT and USDC exposure separately without a cross-asset total', async () => {
@@ -384,25 +383,43 @@ describe('HomePage portfolio summary', () => {
       }),
     );
 
-    const block = await screen.findByRole('region', { name: 'Экспозиция' });
-    expect(valueOf(within(block).getByRole('region', { name: 'Экспозиция USDC' }), 'Всего')).toBe('5 000 USDC');
-    expect(valueOf(within(block).getByRole('region', { name: 'Экспозиция USDT' }), 'Всего')).toBe('13 000 USDT');
-    expect(plain(block.textContent)).not.toContain('18 000');
+    const summary = await findSummary();
+    await userEvent.click(within(summary).getByText('Экспозиция', { exact: true }));
+    expect(valueOf(within(summary).getByRole('region', { name: 'Экспозиция USDC' }), 'Всего')).toBe('5 000 USDC');
+    expect(valueOf(within(summary).getByRole('region', { name: 'Экспозиция USDT' }), 'Всего')).toBe('13 000 USDT');
+    expect(plain(summary.textContent)).not.toContain('18 000');
   });
 });
 
 describe('HomePage positions', () => {
+  it('показывает счётчик портфеля при пустой экспозиции и фильтрации списка', async () => {
+    renderHome('/app?side=short', {
+      ...accountRoutes([mainAccount], MAIN_ID, {
+        portfolio: () => jsonResponse(portfolio({ exposures: [], currentPositionCount: 3, isComplete: false })),
+      }),
+      [positionsUrl(MAIN_ID, '&side=short')]: () => page([position({ side: 'short' })]),
+      [positionsUrl(MAIN_ID, '&trackingState=closed&side=short')]: () => page([]),
+    });
+
+    const summary = await findSummary();
+    expect(within(summary).getByText('Экспозиция недоступна.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Закрытые' }));
+    expect(await screen.findByText('Закрытых позиций нет.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
+  });
+
   it('показывает текущие позиции с объёмом и PnL в активе расчёта', async () => {
     renderHome('/app', accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position(), ethPosition]) }));
 
     const btc = (await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).closest('tr')!;
-    expect(within(btc).getByRole('cell', { name: 'LONG' })).toBeVisible();
+    expect(within(btc).getByText('LONG', { exact: true })).toBeVisible();
     expect(plain(btc.textContent)).toContain('10 000 USDT');
     expect(plain(btc.textContent)).toContain('+230 USDT');
     const eth = screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' }).closest('tr')!;
     expect(plain(eth.textContent)).toContain('5 000 USDC');
     expect(plain(eth.textContent)).toContain('+35 USDC');
-    expect(screen.getByRole('button', { name: 'Текущие' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Открытые/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('при переходе к закрытым позициям отправляет trackingState=closed и сбрасывает фильтр состояния', async () => {
@@ -432,6 +449,7 @@ describe('HomePage positions', () => {
     });
     await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
+    await userEvent.click(screen.getByText('Фильтры', { selector: 'summary' }));
     await userEvent.selectOptions(screen.getByLabelText('Состояние'), 'stale');
 
     await screen.findByText('Устарела');
@@ -446,6 +464,7 @@ describe('HomePage positions', () => {
     });
     await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
+    await userEvent.click(screen.getByText('Фильтры', { selector: 'summary' }));
     await userEvent.selectOptions(screen.getByLabelText('Направление'), 'short');
 
     expect(await screen.findByRole('link', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
@@ -549,7 +568,7 @@ describe('HomePage manual sync', () => {
     expect(await screen.findByRole('button', { name: 'Синхронизация…' })).toBeDisabled();
     sync.resolve(jsonResponse(mainAccount));
     expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
-    await waitFor(() => expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('4'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Открытые 4' })).toBeVisible());
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
     const post = urls(requests, syncUrl(MAIN_ID));
     expect(post).toHaveLength(1);
@@ -599,8 +618,8 @@ describe('HomePage manual sync', () => {
       [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
     });
 
-    const summary = await findSummary();
-    expect(valueOf(summary, 'Открытые позиции')).toBe('3');
+    await findSummary();
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
     expect(await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeVisible();
 
@@ -613,7 +632,7 @@ describe('HomePage manual sync', () => {
       expect(positionsCalls).toBe(2);
     });
 
-    expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('3');
+    expect(screen.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Сервис временно недоступен. Повторите попытку позже.')).toHaveLength(2);
@@ -710,7 +729,7 @@ describe('HomePage manual sync bound to its account', () => {
 
     expect(searchParams().get('account')).toBe(SECOND_ID);
     expect(screen.getByText('Второй', { selector: 'summary' })).toBeVisible();
-    expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('7');
+    expect(screen.getByRole('button', { name: 'Открытые 7' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
     expect(screen.queryByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument();
     expect(screen.queryByText('Синхронизация завершена.')).not.toBeInTheDocument();
@@ -772,12 +791,12 @@ describe('HomePage async race protection', () => {
     await screen.findByText('Загружаем портфель…');
 
     await userEvent.selectOptions(screen.getByLabelText('Подключение'), SECOND_ID);
-    const summary = await findSummary();
+    await findSummary();
     lateMain.resolve(jsonResponse(portfolio({ currentPositionCount: 1 })));
 
     await screen.findByRole('link', { name: 'ETHUSDC · 2,4 LONG' });
     await new Promise((settle) => setTimeout(settle, 0));
-    expect(valueOf(summary, 'Открытые позиции')).toBe('7');
+    expect(screen.getByRole('button', { name: 'Открытые 7' })).toBeVisible();
     expect(screen.getByText('Второй', { selector: 'summary' })).toBeVisible();
   });
 
@@ -789,6 +808,7 @@ describe('HomePage async race protection', () => {
     });
     await findSummary();
 
+    await userEvent.click(screen.getByText('Фильтры', { selector: 'summary' }));
     await userEvent.selectOptions(screen.getByLabelText('Направление'), 'short');
     await screen.findByRole('link', { name: 'BTCUSDT · 0,15 SHORT' });
     lateAll.resolve(page([ethPosition]));
@@ -853,6 +873,43 @@ describe('HomePage async race protection', () => {
 });
 
 describe('HomePage position navigation', () => {
+  it('показывает в карточке один принятый снимок, даже если список ещё хранит прежние значения', async () => {
+    const btc = position();
+    const detail = deferred<Response>();
+    const positionPath = '/bff/me/positions/' + btc.id;
+    let lost = false;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount]),
+      [positionPath]: () => lost ? problem(404, 'resource_not_found') : detail.promise,
+      [positionPath + '/market']: () => jsonResponse(marketFixture()),
+      [positionPath + '/candles?interval=1h&limit=200']: () => jsonResponse(candlesFixture()),
+      [positionPath + '/evaluation']: () => new Response(null, { status: 204 }),
+    });
+
+    const ticker = await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(ticker);
+    const card = screen.getByRole('region', { name: 'BTCUSDT' });
+    await within(card).findByText('Загружаем позицию…');
+    expect(within(card).queryByText(/LONG|10 000/)).not.toBeInTheDocument();
+
+    await act(async () => detail.resolve(jsonResponse(positionFixture({
+      side: 'short', positionValue: 432, unrealizedPnl: -11, averageEntryPrice: null, markPrice: 0.958,
+    }))));
+    expect(await within(card).findByText('SHORT · 432 USDT')).toBeVisible();
+    const metrics = within(card).getByLabelText('Краткие параметры позиции');
+    expect(valueOf(metrics, 'PnL')).toBe('−11 USDT');
+    expect(valueOf(metrics, 'Вход')).toBe('—');
+    expect(valueOf(metrics, 'Mark позиции')).toBe('0,958');
+    expect(ticker).toHaveAccessibleName('BTCUSDT · 0,15 LONG');
+
+    lost = true;
+    act(() => emitRealtime({ type: 'position.updated', positionId: btc.id }));
+    await waitFor(() => expect(urls(requests, positionPath)).toHaveLength(2));
+    await screen.findByText('Позиция недоступна.');
+    expect(screen.queryByText('SHORT · 432 USDT')).not.toBeInTheDocument();
+    expect(ticker).toHaveFocus();
+  });
+
   it('не перезапускает чтение карточки при изменении списка и возвращает фокус к его заголовку, если строка исчезла', async () => {
     const btc = position();
     const positionPath = `/bff/me/positions/${btc.id}`;
@@ -1224,11 +1281,11 @@ describe('непрерывная инвалидация портфеля', () =>
     });
     expect(calls).toBe(1);
     await act(async () => first.resolve(jsonResponse(portfolio({ currentPositionCount: 4 }))));
-    await waitFor(() => expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('4'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Открытые 4' })).toBeVisible());
     await waitFor(() => expect(calls).toBe(2));
     act(() => emitRealtime({ type: 'portfolio.updated', exchangeAccountId: MAIN_ID }));
     await act(async () => second.resolve(jsonResponse(portfolio({ currentPositionCount: 7 }))));
-    await waitFor(() => expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('9'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Открытые 9' })).toBeVisible());
     expect(calls).toBe(3);
     expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });

@@ -77,6 +77,7 @@ test('фокус переходит к заголовку при смене ст
   await expect(page).toHaveTitle('Подключения — Intelligence Trade');
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Обзор' }).click();
   await expect(page.getByRole('heading', { name: 'Обзор', level: 1 })).toBeFocused();
+  await page.locator('summary').filter({ hasText: 'Фильтры' }).click();
   const filter = page.getByLabel('Направление');
   await filter.focus();
   await filter.selectOption('short');

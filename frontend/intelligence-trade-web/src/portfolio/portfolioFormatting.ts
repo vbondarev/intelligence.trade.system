@@ -69,6 +69,14 @@ export function formatSignedAssetAmount(value: number | null, asset: string): st
   return assetAmount(value, asset, true);
 }
 
+export function pnlClassName(value: number | null): string {
+  if (value === null || value === 0) {
+    return '';
+  }
+
+  return value > 0 ? 'value-positive' : 'value-negative';
+}
+
 export function formatNumber(value: number | null): string {
   return value === null ? MISSING_VALUE : NUMBER.format(value);
 }

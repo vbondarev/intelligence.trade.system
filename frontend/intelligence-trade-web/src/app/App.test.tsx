@@ -77,7 +77,7 @@ describe('App routing and session bootstrap', () => {
 
     renderAt('/app');
 
-    expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Обзор счёта' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Выйти' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Обзор' })).toHaveAttribute('href', '/app');
   });
@@ -86,7 +86,7 @@ describe('App routing and session bootstrap', () => {
     mockFetch({ '/bff/auth/session': () => jsonResponse(authenticatedSession), ...noConnections });
     renderAt('/app', <Link to="/app/settings/connections?source=test">Изменить query</Link>);
 
-    await screen.findByRole('heading', { name: 'Обзор' });
+    await screen.findByRole('heading', { name: 'Обзор счёта' });
     await userEvent.click(screen.getByRole('link', { name: 'Подключения' }));
     const heading = await screen.findByRole('heading', { name: 'Подключения', level: 1 });
     expect(heading).toHaveFocus();
@@ -142,7 +142,7 @@ describe('App routing and session bootstrap', () => {
       },
     });
     renderAt('/app');
-    const heading = await screen.findByRole('heading', { name: 'Обзор' });
+    const heading = await screen.findByRole('heading', { name: 'Обзор счёта' });
     await waitFor(() => expect(accountReads).toBe(1));
     await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
     await act(async () => emitRealtime({ type: 'recovery' }));
@@ -468,7 +468,7 @@ describe('App routing and session bootstrap', () => {
 
     renderAt('/');
 
-    expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Обзор счёта' })).toBeVisible();
   });
 
   it('starts login through the BFF endpoint from the landing', async () => {

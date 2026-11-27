@@ -51,6 +51,7 @@ test('предупреждение при 320 CSS px сохраняет форм
   const extend = dialog.getByRole('button', { name: 'Продлить сессию' });
   await expect(extend).toBeFocused();
   await expect(dialog).toHaveAttribute('data-opacity-at-first-focus', '1');
+  await expect(dialog).toHaveCSS('background-color', 'rgb(20, 28, 40)');
   await expect(dialog).toHaveAccessibleDescription('Продлите сессию, чтобы сохранить доступ к приложению.');
   const audit = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

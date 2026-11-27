@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { timelineEvaluationItem, timelinePageFixture, timelineRecommendationItem } from '../src/test/positionFixtures';
-import { LONG_DISPLAY_NAME, MAIN_ID, mockBusinessData, mockPositionPage, position } from './uiMock';
+import { LONG_DISPLAY_NAME, MAIN_ID, mockBusinessData, mockOverviewDesign, mockPositionPage, position } from './uiMock';
 import { identityBaseUrl, loginThroughLanding, submitIdentityLogin } from './support';
 
 const viewports = [
@@ -76,6 +76,59 @@ test('счёт и первая позиция видны на первом эк�
   await expect(page.getByRole('tooltip')).toHaveText('Приостановить автообновление');
 });
 
+test('контрольный кадр обзора XRPUSDT при 1707×842', async ({ page, isMobile }, testInfo) => {
+  test.skip(isMobile, 'Контрольная пара снимается в настольном Chromium');
+  await page.setViewportSize({ width: 1707, height: 842 });
+  await mockOverviewDesign(page);
+  await loginThroughLanding(page);
+  const ticker = page.getByRole('link', { name: /^XRPUSDT/ });
+  await ticker.click();
+  const card = page.getByRole('region', { name: 'XRPUSDT', exact: true });
+  await expect(card.getByText('SHORT · 163,2 USDT')).toBeVisible();
+  const metrics = card.getByLabel('Краткие параметры позиции');
+  await expect(metrics.getByText('−8,24 USDT')).toBeVisible();
+  await expect(metrics.getByText('0,9485', { exact: true })).toBeVisible();
+  await expect(metrics.getByText('0,957', { exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Оценить позицию' })).toBeVisible();
+  await expect(card.getByRole('region', { name: 'Параметры позиции' })).toBeHidden();
+  await expect(card.getByRole('button', { name: 'История позиции' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: 'Открытые 3' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Сводка' })).toContainText(/\$1\s248,57/);
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(13, 17, 24)');
+  await expect(card).toHaveCSS('background-color', 'rgb(20, 28, 40)');
+  await expect(card).toHaveCSS('border-top-color', 'rgb(41, 53, 71)');
+  await expect(page.getByText('REST-снимок актуален', { exact: true })).toBeInViewport();
+  await expect(card).toBeInViewport({ ratio: 1 });
+  const path = testInfo.outputPath('overview-xrpusdt-1707x842.png');
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path, animations: 'disabled', scale: 'css' });
+  await testInfo.attach('Обзор XRPUSDT 1707×842', { path, contentType: 'image/png' });
+});
+
+test('граница 680 пикселей измеряется по контейнеру обзора, фокус возвращается к позиции', async ({ page }) => {
+  await page.setViewportSize({ width: 980, height: 842 });
+  await mockBusinessData(page);
+  await mockPositionPage(page);
+  await loginThroughLanding(page);
+  const widthStyle = await page.addStyleTag({ content: '.home-page { width: 680px; }' });
+  const overview = page.locator('.home-page');
+  const ticker = page.getByRole('link', { name: /^BTCUSDT/ });
+  await expect(overview).toHaveCSS('width', '680px');
+  await ticker.press('Enter');
+  const close = page.getByRole('button', { name: 'Закрыть карточку позиции' });
+  await expect(close).toBeFocused();
+  await expect(ticker).toBeHidden();
+  await close.press('Enter');
+  await expect(ticker).toBeFocused();
+  await widthStyle.evaluate((style) => { style.textContent = '.home-page { width: 681px; }'; });
+  await expect(overview).toHaveCSS('width', '681px');
+  await ticker.press('Enter');
+  await expect(ticker).toBeVisible();
+  await expect(close).toBeFocused();
+  await close.press('Enter');
+  await expect(ticker).toBeFocused();
+});
+
 test.describe('подсказка автообновления на узком экране', () => {
   test.use({ hasTouch: false, isMobile: false });
 
@@ -88,7 +141,7 @@ test.describe('подсказка автообновления на узком �
       await expect(page.getByText('REST-снимок устарел', { exact: true })).toBeVisible();
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
-      const heading = page.getByRole('heading', { name: 'Обзор', exact: true });
+      const heading = page.getByRole('heading', { name: 'Обзор счёта', exact: true });
       const body = page.locator('body');
       const pause = page.getByRole('button', { name: 'Приостановить автообновление' });
       const tooltip = page.getByRole('tooltip');
@@ -242,6 +295,7 @@ test('узкий обзор возвращает прокрученный спи
   } }));
   await loginThroughLanding(page);
   await expect(page).toHaveURL(/\/app\?account=/);
+  await page.locator('summary').filter({ hasText: 'Фильтры' }).click();
   await page.getByLabel('Направление').selectOption('long');
   await expect(page).toHaveURL(/[?&]side=long/);
   await expect(page.getByLabel('Направление')).toHaveValue('long');
@@ -301,9 +355,11 @@ for (const viewport of viewports) {
     await expect(summary.getByText('+$265')).toBeVisible();
     await expect(page.getByText('REST-снимок устарел', { exact: true })).toBeVisible();
 
-    const exposure = page.getByRole('region', { name: 'Экспозиция', exact: true });
-    await expect(exposure.getByRole('region', { name: 'Экспозиция USDT' })).toBeVisible();
-    await expect(exposure.getByRole('region', { name: 'Экспозиция USDC' })).toBeVisible();
+    const exposureToggle = summary.locator('summary').filter({ hasText: 'Экспозиция' });
+    await exposureToggle.click();
+    await expect(summary.getByRole('region', { name: 'Экспозиция USDT' })).toBeVisible();
+    await expect(summary.getByRole('region', { name: 'Экспозиция USDC' })).toBeVisible();
+    await exposureToggle.click();
     await expect(page.getByRole('row', { name: /^BTCUSDT/ })).toBeVisible();
     await expect(page.getByRole('row', { name: /^ETHUSDC/ })).toContainText('USDC');
     await page.locator('.overview-account summary').click();
@@ -311,6 +367,7 @@ for (const viewport of viewports) {
     await page.locator('.overview-account summary').click();
     await expectNoHorizontalScroll(page);
 
+    await page.locator('summary').filter({ hasText: 'Фильтры' }).click();
     await page.getByLabel('Направление').selectOption('short');
     await expect(page).toHaveURL(/side=short/);
     await expect(page.getByRole('row', { name: /^SOLUSDT/ })).toBeVisible();
@@ -352,7 +409,10 @@ for (const viewport of viewports) {
     await expect(page.getByRole('heading', { level: 2, name: /^BTCUSDT/ })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Закрыть карточку позиции' })).not.toBeFocused();
 
+    const details = page.locator('summary').filter({ hasText: 'Рыночные данные и параметры' });
     const chart = page.getByRole('group', { name: /^Свечной график BTCUSDT/ });
+    await expect(chart).not.toBeVisible();
+    await details.click();
     await expect(chart.locator('canvas').first()).toBeVisible();
     const box = await chart.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(200);
@@ -372,6 +432,11 @@ for (const viewport of viewports) {
     await expect(page).not.toHaveURL(/interval=4h/);
     await expect(page.getByRole('group', { name: /интервал 4h$/ })).toBeVisible();
     await expect(page.getByRole('table', { name: /Свечи BTCUSDT, 4h, UTC/ }).getByRole('row')).toHaveCount(201);
+    await details.click();
+    await expect(chart).not.toBeVisible();
+    await details.click();
+    await expect(chart.locator('canvas').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: '4h' })).toHaveAttribute('aria-pressed', 'true');
     await expectNoHorizontalScroll(page);
 
     const history = page.getByRole('region', { name: 'История позиции' });

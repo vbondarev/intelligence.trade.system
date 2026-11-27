@@ -131,7 +131,7 @@ export function AppShell() {
 
   return (
     <div
-      className="app-shell"
+      className={matchPath('/app', pathname) ? 'app-shell app-shell-overview' : 'app-shell'}
       onMouseDownCapture={capturePositionLinkPress}
       onClick={confirmPositionLinkClick}
       onKeyDownCapture={() => {
