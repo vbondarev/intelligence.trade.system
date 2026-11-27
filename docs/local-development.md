@@ -386,7 +386,11 @@ npm run build
 
 ### Browser E2E
 
-Browser E2E выполняется против запущенного Compose stack. Полный realtime E2E дополнительно требует disposable database и test-only `realtime-e2e-driver` из Compose profile `ci`; production endpoint он не добавляет. CI собирает driver и запускает тест с `REALTIME_E2E_ENABLED=true`. Driver применяет существующие business migrations и создаёт тестовое отключённое подключение с outbox-событием для явного test UserId; не запускайте этот сценарий против рабочих данных.
+В CI Chromium использует основной HTTP-стэк Compose, а mobile WebKit одновременно работает со вторым проектом с отдельной сетью и отдельным томом PostgreSQL. Второй стэк использует те же локальные образы. Playwright устанавливается один раз для обоих проектов, а отдельная HTTPS-проверка выполняется после их успеха.
+
+Локальный Browser E2E выполняется против запущенного Compose stack. Для realtime-драйвера можно явно задать `REALTIME_E2E_COMPOSE_PROJECT`, `REALTIME_E2E_COMPOSE_FILE` и необязательный `REALTIME_E2E_COMPOSE_OVERRIDE_FILE`. Обе команды драйвера применяют файлы в этом порядке и обращаются к PostgreSQL указанного проекта.
+
+Полный realtime E2E дополнительно требует disposable database и test-only `realtime-e2e-driver` из Compose profile `ci`; production endpoint он не добавляет. CI собирает driver и запускает тест с `REALTIME_E2E_ENABLED=true`. Driver применяет существующие business migrations и создаёт тестовое отключённое подключение с outbox-событием для явного test UserId; не запускайте этот сценарий против рабочих данных.
 
 Сценарий позиции запускается только на disposable Compose: `REALTIME_E2E_SCENARIO=position` и явные `REALTIME_E2E_USER_ID`, `REALTIME_E2E_ACCOUNT_ID`, `REALTIME_E2E_POSITION_ID`. `REALTIME_E2E_PHASE` принимает `initial`, `changed`, `recovered`, `wait-processed` или `cleanup`; для записи и ожидания нужен `REALTIME_E2E_EVENT_ID`. Для доказательства восстановления пропущенного события браузер отключается, WebSocket закрывается, затем после `recovered` фаза `wait-processed` ожидает `ProcessedAt` конкретного event до возвращения браузера online. По умолчанию режим `account` сохраняет `REALTIME_E2E_NAME`.
 

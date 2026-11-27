@@ -11,10 +11,18 @@ declare global {
 const enabled = process.env.REALTIME_E2E_ENABLED === 'true';
 const composeFile = process.env.REALTIME_E2E_COMPOSE_FILE ?? 'backend/compose.yaml';
 const project = process.env.REALTIME_E2E_COMPOSE_PROJECT;
+const overlay = process.env.REALTIME_E2E_COMPOSE_OVERRIDE_FILE;
 const repository = resolve(process.cwd(), '../..');
+const composeArgs = [
+  'compose',
+  ...(project ? ['-p', project] : []),
+  '-f', composeFile,
+  ...(overlay ? ['-f', overlay] : []),
+  '--profile', 'ci',
+];
 
 function changeState(userId: string, accountId: string, name: string) {
-  const args = ['compose', ...(project ? ['-p', project] : []), '-f', composeFile, '--profile', 'ci',
+  const args = [...composeArgs,
     'run', '--rm', '--no-deps', '-e', `REALTIME_E2E_USER_ID=${userId}`,
     '-e', `REALTIME_E2E_ACCOUNT_ID=${accountId}`, '-e', `REALTIME_E2E_NAME=${name}`, 'realtime-e2e-driver'];
   execFileSync('docker', args, { cwd: repository, timeout: 120000, stdio: 'pipe' });
@@ -157,7 +165,7 @@ test('пауза сохраняет снимок, пока реальный тр
 });
 
 function positionPhase(userId: string, accountId: string, positionId: string, phase: string, eventId: string) {
-  const args = ['compose', ...(project ? ['-p', project] : []), '-f', composeFile, '--profile', 'ci',
+  const args = [...composeArgs,
     'run', '--rm', '--no-deps', '-e', 'REALTIME_E2E_SCENARIO=position', '-e', `REALTIME_E2E_USER_ID=${userId}`,
     '-e', `REALTIME_E2E_ACCOUNT_ID=${accountId}`, '-e', `REALTIME_E2E_POSITION_ID=${positionId}`,
     '-e', `REALTIME_E2E_PHASE=${phase}`, '-e', `REALTIME_E2E_EVENT_ID=${eventId}`, 'realtime-e2e-driver'];
