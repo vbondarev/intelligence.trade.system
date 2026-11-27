@@ -1,7 +1,6 @@
 import { useId } from 'react';
-import { factualFreshnessLabel, valuationFreshnessLabel } from '../freshness/freshness';
 import type { Portfolio, PortfolioExposure } from './portfolioTypes';
-import { formatAssetAmount, formatSignedUsd, formatTimestamp, formatUsd } from './portfolioFormatting';
+import { formatAssetAmount, formatSignedUsd, formatUsd } from './portfolioFormatting';
 
 function pnlClassName(value: number | null): string {
   if (value === null || value === 0) {
@@ -25,10 +24,6 @@ export function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
           Сводка
         </h2>
         <dl className="metric-grid">
-          <div className="metric"><dt>Фактическое состояние</dt><dd>{factualFreshnessLabel(portfolio.factualFreshness?.status)}
-            {portfolio.factualFreshness?.lastFullyReconciledAt && <> · сверка: <time dateTime={portfolio.factualFreshness.lastFullyReconciledAt}>{formatTimestamp(portfolio.factualFreshness.lastFullyReconciledAt)}</time></>}</dd></div>
-          <div className="metric"><dt>Свежесть рыночной оценки</dt><dd>{valuationFreshnessLabel(portfolio.valuationFreshness?.status)}
-            {portfolio.valuationFreshness?.calculatedAt && <> · расчёт: <time dateTime={portfolio.valuationFreshness.calculatedAt}>{formatTimestamp(portfolio.valuationFreshness.calculatedAt)}</time></>}</dd></div>
           <div className="metric">
             <dt>Общий капитал</dt>
             <dd>{formatUsd(portfolio.capital.totalEquity)}</dd>
@@ -47,12 +42,11 @@ export function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
           </div>
         </dl>
       </section>
-      <ExposureBlock exposures={portfolio.exposures} />
     </>
   );
 }
 
-function ExposureBlock({ exposures }: { exposures: readonly PortfolioExposure[] }) {
+export function ExposureBlock({ exposures }: { exposures: readonly PortfolioExposure[] }) {
   const titleId = useId();
   const single = exposures.length === 1 ? exposures[0] : undefined;
 

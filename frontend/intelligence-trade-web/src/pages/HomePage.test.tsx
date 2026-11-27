@@ -7,7 +7,7 @@ import { AppRoutes } from '../app/router';
 import type { ExchangeAccount } from '../connections/connectionTypes';
 import type { Portfolio, PositionListItem } from '../portfolio/portfolioTypes';
 import { jsonResponse, mockFetch, type RecordedRequest, type RouteHandler } from '../test/fetchMock';
-import { positionFixture } from '../test/positionFixtures';
+import { candlesFixture, evaluationFixture, marketFixture, positionFixture } from '../test/positionFixtures';
 import { SessionRecheck } from '../test/SessionRecheck';
 import { emitRealtime } from '../test/realtimeTestDriver';
 
@@ -175,6 +175,17 @@ function urls(requests: RecordedRequest[], url: string): RecordedRequest[] {
 
 const findSummary = () => screen.findByRole('region', { name: 'Сводка' });
 
+async function openAccountDetails(): Promise<HTMLDetailsElement> {
+  const details = await waitFor(() => {
+    const panel = document.querySelector<HTMLDetailsElement>('.overview-account');
+    if (!panel) throw new Error('Сведения о подключении ещё не загружены.');
+    return panel;
+  });
+  const summary = details.querySelector('summary');
+  if (!details.open && summary) await userEvent.click(summary);
+  return details;
+}
+
 describe('HomePage account selection', () => {
   it('shows an empty state with a link to connections when there are no accounts', async () => {
     const requests = renderHome('/app', { [ACCOUNTS_URL]: () => jsonResponse({ items: [] }) });
@@ -184,11 +195,11 @@ describe('HomePage account selection', () => {
     expect(requests.some((request) => request.url.includes('/portfolio') || request.url.includes('/positions'))).toBe(false);
   });
 
-  it('selects the only account automatically and writes it to the URL', async () => {
+  it('автоматически выбирает единственное подключение и записывает его в URL', async () => {
     renderHome(`/app?account=${SECOND_ID}`, accountRoutes([mainAccount]));
 
     await findSummary();
-    expect(screen.getByRole('heading', { name: 'Основной' })).toBeVisible();
+    expect(screen.getByText('Основной', { selector: 'summary' })).toBeVisible();
     expect(screen.queryByLabelText('Подключение')).not.toBeInTheDocument();
     await waitFor(() => expect(searchParams().get('account')).toBe(MAIN_ID));
   });
@@ -228,18 +239,20 @@ describe('HomePage account selection', () => {
     await waitFor(() => expect(searchParams().get('account')).toBe(SECOND_ID));
   });
 
-  it('keeps the saved portfolio of an unavailable account visible and allows sync', async () => {
+  it('показывает сохранённый портфель недоступного подключения и разрешает синхронизацию', async () => {
     renderHome(`/app?account=${UNAVAILABLE_ID}`, accountRoutes([mainAccount, unavailableAccount], UNAVAILABLE_ID));
 
     await findSummary();
+    await openAccountDetails();
     expect(screen.getByText('Подключение недоступно: показаны последние сохранённые данные.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
   });
 
-  it('disables sync for a disabled account', async () => {
+  it('отключает синхронизацию для отключённого подключения', async () => {
     renderHome(`/app?account=${DISABLED_ID}`, accountRoutes([mainAccount, disabledAccount], DISABLED_ID));
 
     await findSummary();
+    await openAccountDetails();
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeDisabled();
     expect(screen.getByText('Подключение отключено: синхронизация недоступна.')).toBeVisible();
   });
@@ -283,7 +296,7 @@ describe('HomePage portfolio summary', () => {
     expect(screen.queryByRole('region', { name: 'Сводка' })).not.toBeInTheDocument();
   });
 
-  it('shows account-level values in USD, the position count and fresh complete data', async () => {
+  it('показывает суммы счёта в USD, количество позиций и свежесть полного снимка', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T10:00:00Z'));
     renderHome('/app', accountRoutes([mainAccount]));
@@ -293,26 +306,27 @@ describe('HomePage portfolio summary', () => {
     expect(valueOf(summary, 'Доступно')).toBe('$7 310');
     expect(valueOf(summary, 'Нереализованный PnL')).toBe('+$265');
     expect(valueOf(summary, 'Открытые позиции')).toBe('3');
-    const account = screen.getByRole('region', { name: 'Основной' });
+    const account = await openAccountDetails();
     expect(within(account).getByText('Подключено')).toBeVisible();
     expect(within(account).getByText('REST-снимок актуален на момент ответа')).toBeVisible();
     expect(valueOf(account, 'Обновлено')).toBe('2 минуты назад');
     expect(within(account).queryByText('Данные неполные')).not.toBeInTheDocument();
   });
 
-  it('marks stale data with the last successful sync', async () => {
+  it('отмечает устаревший снимок и время последней успешной синхронизации', async () => {
     renderHome('/app', accountRoutes([mainAccount], MAIN_ID, { portfolio: () => jsonResponse(portfolio({ isFresh: false })) }));
 
     await findSummary();
-    const account = screen.getByRole('region', { name: 'Основной' });
-    expect(within(account).getByText(/REST-снимок устарел/)).toHaveTextContent('Последняя успешная синхронизация');
+    const account = await openAccountDetails();
+    expect(within(account).getByText(/REST-снимок устарел.*Последняя успешная синхронизация/)).toHaveTextContent('Последняя успешная синхронизация');
     expect(within(account).queryByText('REST-снимок актуален на момент ответа')).not.toBeInTheDocument();
   });
 
-  it('marks partial data', async () => {
+  it('отмечает неполные данные', async () => {
     renderHome('/app', accountRoutes([mainAccount], MAIN_ID, { portfolio: () => jsonResponse(portfolio({ isComplete: false })) }));
 
     await findSummary();
+    await openAccountDetails();
     expect(screen.getByText('Данные неполные')).toBeVisible();
   });
 
@@ -378,22 +392,20 @@ describe('HomePage portfolio summary', () => {
 });
 
 describe('HomePage positions', () => {
-  it('shows current positions with values in their settlement asset', async () => {
+  it('показывает текущие позиции с объёмом и PnL в активе расчёта', async () => {
     renderHome('/app', accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position(), ethPosition]) }));
 
-    const btc = await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
-    expect(valueOf(btc, 'Вход')).toBe('68 500');
-    expect(valueOf(btc, 'Mark')).toBe('70 120');
-    expect(valueOf(btc, 'Стоимость')).toBe('10 000 USDT');
-    expect(valueOf(btc, 'PnL')).toBe('+230 USDT');
-    expect(valueOf(btc, 'Плечо')).toBe('5x');
-    const eth = screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
-    expect(valueOf(eth, 'Стоимость')).toBe('5 000 USDC');
-    expect(valueOf(eth, 'PnL')).toBe('+35 USDC');
+    const btc = (await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).closest('tr')!;
+    expect(within(btc).getByRole('cell', { name: 'LONG' })).toBeVisible();
+    expect(plain(btc.textContent)).toContain('10 000 USDT');
+    expect(plain(btc.textContent)).toContain('+230 USDT');
+    const eth = screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' }).closest('tr')!;
+    expect(plain(eth.textContent)).toContain('5 000 USDC');
+    expect(plain(eth.textContent)).toContain('+35 USDC');
     expect(screen.getByRole('button', { name: 'Текущие' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('switches to closed positions, always sends trackingState=closed and drops the state filter', async () => {
+  it('при переходе к закрытым позициям отправляет trackingState=closed и сбрасывает фильтр состояния', async () => {
     const closed = position({ trackingState: 'closed', closedAt: '2026-10-06T12:00:00Z', unrealizedPnl: null });
     const requests = renderHome(`/app?account=${MAIN_ID}&state=stale`, {
       ...accountRoutes([mainAccount]),
@@ -404,21 +416,21 @@ describe('HomePage positions', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Закрытые' }));
 
-    const card = await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
-    expect(within(card).getByText('Закрыта', { selector: 'span' })).toBeVisible();
+    const card = await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
+    expect(within(card.closest('tr')!).getByText('Закрыта', { selector: 'span' })).toBeVisible();
     expect(urls(requests, positionsUrl(MAIN_ID, '&trackingState=closed'))).toHaveLength(1);
     expect(searchParams().get('view')).toBe('closed');
     expect(searchParams().has('state')).toBe(false);
     expect(screen.queryByLabelText('Состояние')).not.toBeInTheDocument();
   });
 
-  it('filters current positions by tracking state', async () => {
+  it('фильтрует текущие позиции по состоянию', async () => {
     const stale = position({ trackingState: 'stale' });
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),
       [positionsUrl(MAIN_ID, '&trackingState=stale')]: () => page([stale]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
     await userEvent.selectOptions(screen.getByLabelText('Состояние'), 'stale');
 
@@ -427,34 +439,34 @@ describe('HomePage positions', () => {
     expect(searchParams().get('state')).toBe('stale');
   });
 
-  it('filters positions by side', async () => {
+  it('фильтрует позиции по направлению', async () => {
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),
       [positionsUrl(MAIN_ID, '&side=short')]: () => page([position({ side: 'short' })]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
     await userEvent.selectOptions(screen.getByLabelText('Направление'), 'short');
 
-    expect(await screen.findByRole('article', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
     expect(urls(requests, positionsUrl(MAIN_ID, '&side=short'))).toHaveLength(1);
     expect(searchParams().get('side')).toBe('short');
   });
 
-  it('filters positions by exact symbol through the backend', async () => {
+  it('передаёт серверу точный фильтр по тикеру', async () => {
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position(), ethPosition]) }),
       [positionsUrl(MAIN_ID, '&symbol=ETHUSDC')]: () => page([ethPosition]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
     await userEvent.type(screen.getByLabelText('Символ'), '  ETHUSDC ');
     await userEvent.click(screen.getByRole('button', { name: 'Найти' }));
 
     await waitFor(() =>
-      expect(screen.queryByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
     expect(urls(requests, positionsUrl(MAIN_ID, '&symbol=ETHUSDC'))).toHaveLength(1);
     expect(searchParams().get('symbol')).toBe('ETHUSDC');
   });
@@ -468,12 +480,12 @@ describe('HomePage positions', () => {
       ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'opaque+cursor/=') }),
       [nextUrl]: () => ++continuationReads === 1 ? new Response(null, { status: 503 }) : page([second]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
     await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Повторить' }));
 
-    expect(await screen.findAllByRole('article', { name: 'SOLUSDT · 10 LONG' })).toHaveLength(1);
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(await screen.findAllByRole('link', { name: 'SOLUSDT · 10 LONG' })).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(urls(requests, firstUrl)).toHaveLength(1);
     expect(urls(requests, nextUrl)).toHaveLength(2);
   });
@@ -485,31 +497,31 @@ describe('HomePage positions', () => {
       ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'next') }),
       [nextUrl]: () => pending.promise,
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
     expect(urls(requests, nextUrl)).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
     await act(async () => pending.resolve(new Response(null, { status: 403 })));
 
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(urls(requests, '/bff/auth/session')).toHaveLength(2);
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
     expect(urls(requests, nextUrl)).toHaveLength(2);
   });
 
-  it('appends the next page with the opaque cursor', async () => {
+  it('добавляет следующую страницу по непрозрачному cursor', async () => {
     const second = position({ id: 'second', symbol: 'SOLUSDT', size: 10 });
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([position()], 'opaque+cursor/=') }),
       [positionsUrl(MAIN_ID, '&cursor=opaque%2Bcursor%2F%3D')]: () => page([second]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
 
-    expect(await screen.findByRole('article', { name: 'SOLUSDT · 10 LONG' })).toBeVisible();
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'SOLUSDT · 10 LONG' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     expect(urls(requests, positionsUrl(MAIN_ID, '&cursor=opaque%2Bcursor%2F%3D'))).toHaveLength(1);
     expect(searchParams().has('cursor')).toBe(false);
@@ -517,7 +529,7 @@ describe('HomePage positions', () => {
 });
 
 describe('HomePage manual sync', () => {
-  it('syncs with antiforgery and reloads connections, portfolio and the first positions page', async () => {
+  it('синхронизирует с antiforgery и перечитывает подключение, портфель и первую страницу', async () => {
     const sync = deferred<Response>();
     let portfolioCalls = 0;
     const requests = renderHome('/app', {
@@ -531,6 +543,7 @@ describe('HomePage manual sync', () => {
     });
     await findSummary();
 
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
 
     expect(await screen.findByRole('button', { name: 'Синхронизация…' })).toBeDisabled();
@@ -557,6 +570,7 @@ describe('HomePage manual sync', () => {
       [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
     });
     await findSummary();
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
     await waitFor(() => expect(reads).toBe(2));
     await userEvent.click(screen.getByRole('button', { name: 'Проверить сессию' }));
@@ -568,7 +582,7 @@ describe('HomePage manual sync', () => {
     expect(urls(requests, syncUrl(MAIN_ID))).toHaveLength(1);
   });
 
-  it('keeps the last successful portfolio and positions visible when the post-sync reload fails', async () => {
+  it('сохраняет последний портфель и позиции при сбое чтения после синхронизации', async () => {
     let portfolioCalls = 0;
     let positionsCalls = 0;
     const requests = renderHome('/app', {
@@ -587,9 +601,10 @@ describe('HomePage manual sync', () => {
 
     const summary = await findSummary();
     expect(valueOf(summary, 'Открытые позиции')).toBe('3');
-    expect(await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeVisible();
 
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
 
     expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
@@ -599,20 +614,21 @@ describe('HomePage manual sync', () => {
     });
 
     expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('3');
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Сервис временно недоступен. Повторите попытку позже.')).toHaveLength(2);
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(2);
     expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2);
   });
 
-  it('shows a sync failure without retry and still reloads factual state', async () => {
+  it('показывает ошибку синхронизации без повтора и перечитывает фактические данные', async () => {
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),
       [syncUrl(MAIN_ID)]: () => problem(503, 'exchange_unavailable'),
     });
     await findSummary();
 
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Bybit сейчас недоступен. Повторите попытку позже.');
@@ -622,13 +638,14 @@ describe('HomePage manual sync', () => {
     expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2);
   });
 
-  it('does not reload data when sync reports an ended session', async () => {
+  it('не перечитывает данные после ответа синхронизации об истечении сессии', async () => {
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),
       [syncUrl(MAIN_ID)]: () => new Response(null, { status: 401 }),
     });
     await findSummary();
 
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
 
     const alert = await screen.findByRole('alert');
@@ -638,7 +655,7 @@ describe('HomePage manual sync', () => {
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(1);
   });
 
-  it('ignores a repeated click while sync is running', async () => {
+  it('игнорирует повторное нажатие во время синхронизации', async () => {
     const sync = deferred<Response>();
     const requests = renderHome('/app', {
       ...accountRoutes([mainAccount]),
@@ -646,6 +663,7 @@ describe('HomePage manual sync', () => {
     });
     await findSummary();
 
+    await openAccountDetails();
     await userEvent.dblClick(screen.getByRole('button', { name: 'Синхронизировать' }));
     await screen.findByRole('button', { name: 'Синхронизация…' });
     sync.resolve(jsonResponse(mainAccount));
@@ -670,14 +688,15 @@ describe('HomePage manual sync bound to its account', () => {
 
   async function startMainSyncAndSwitchToSecond(): Promise<void> {
     await findSummary();
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
     await screen.findByRole('button', { name: 'Синхронизация…' });
 
     await userEvent.selectOptions(screen.getByLabelText('Подключение'), SECOND_ID);
-    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+    await screen.findByRole('link', { name: 'ETHUSDC · 2,4 LONG' });
   }
 
-  it('does not show the result of a sync started for another account and does not overwrite its data', async () => {
+  it('не показывает результат синхронизации другого счёта и не подменяет данные текущего', async () => {
     const sync = deferred<Response>();
     const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
     await startMainSyncAndSwitchToSecond();
@@ -690,10 +709,10 @@ describe('HomePage manual sync bound to its account', () => {
     await new Promise((settle) => setTimeout(settle, 0));
 
     expect(searchParams().get('account')).toBe(SECOND_ID);
-    expect(screen.getByRole('heading', { name: 'Второй' })).toBeVisible();
+    expect(screen.getByText('Второй', { selector: 'summary' })).toBeVisible();
     expect(valueOf(screen.getByRole('region', { name: 'Сводка' }), 'Открытые позиции')).toBe('7');
-    expect(screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
-    expect(screen.queryByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument();
     expect(screen.queryByText('Синхронизация завершена.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
     expect(urls(requests, portfolioUrl(MAIN_ID))).toHaveLength(1);
@@ -703,10 +722,10 @@ describe('HomePage manual sync bound to its account', () => {
 
     await userEvent.selectOptions(screen.getByLabelText('Подключение'), MAIN_ID);
     expect(await screen.findByText('Синхронизация завершена.')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Основной' })).toBeVisible();
+    expect(screen.getByText('Основной', { selector: 'summary' })).toBeVisible();
   });
 
-  it('does not start a second sync of the same account while the first one is running', async () => {
+  it('не запускает вторую синхронизацию счёта, пока выполняется первая', async () => {
     const sync = deferred<Response>();
     const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
     await startMainSyncAndSwitchToSecond();
@@ -722,7 +741,7 @@ describe('HomePage manual sync bound to its account', () => {
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
   });
 
-  it('does not show a sync error of another account under the selected one', async () => {
+  it('не показывает ошибку синхронизации другого счёта', async () => {
     const sync = deferred<Response>();
     const requests = renderHome(`/app?account=${MAIN_ID}`, twoAccountRoutes(() => sync.promise));
     await startMainSyncAndSwitchToSecond();
@@ -733,15 +752,15 @@ describe('HomePage manual sync bound to its account', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('Bybit сейчас недоступен. Повторите попытку позже.')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Второй' })).toBeVisible();
-    expect(screen.getByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
+    expect(screen.getByText('Второй', { selector: 'summary' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Синхронизировать' })).toBeEnabled();
     expect(urls(requests, syncUrl(MAIN_ID))).toHaveLength(1);
   });
 });
 
 describe('HomePage async race protection', () => {
-  it('does not let a late portfolio of the previous account overwrite the selected one', async () => {
+  it('не подменяет текущий портфель поздним ответом предыдущего счёта', async () => {
     const lateMain = deferred<Response>();
     renderHome(`/app?account=${MAIN_ID}`, {
       [ACCOUNTS_URL]: () => jsonResponse({ items: [mainAccount, secondAccount] }),
@@ -756,13 +775,13 @@ describe('HomePage async race protection', () => {
     const summary = await findSummary();
     lateMain.resolve(jsonResponse(portfolio({ currentPositionCount: 1 })));
 
-    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+    await screen.findByRole('link', { name: 'ETHUSDC · 2,4 LONG' });
     await new Promise((settle) => setTimeout(settle, 0));
     expect(valueOf(summary, 'Открытые позиции')).toBe('7');
-    expect(screen.getByRole('heading', { name: 'Второй' })).toBeVisible();
+    expect(screen.getByText('Второй', { selector: 'summary' })).toBeVisible();
   });
 
-  it('does not let a late first page of the previous filter overwrite the current list', async () => {
+  it('не подменяет текущий список первой страницей прежнего фильтра', async () => {
     const lateAll = deferred<Response>();
     renderHome('/app', {
       ...accountRoutes([mainAccount], MAIN_ID, { positions: () => lateAll.promise }),
@@ -771,15 +790,15 @@ describe('HomePage async race protection', () => {
     await findSummary();
 
     await userEvent.selectOptions(screen.getByLabelText('Направление'), 'short');
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 SHORT' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 SHORT' });
     lateAll.resolve(page([ethPosition]));
 
     await new Promise((settle) => setTimeout(settle, 0));
-    expect(screen.queryByRole('article', { name: 'ETHUSDC · 2,4 LONG' })).not.toBeInTheDocument();
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'ETHUSDC · 2,4 LONG' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 SHORT' })).toBeVisible();
   });
 
-  it('does not continue the list with a cursor obtained before the reload after sync', async () => {
+  it('не продолжает список по cursor до перечитывания после синхронизации', async () => {
     const reload = deferred<Response>();
     let firstPageCalls = 0;
     const requests = renderHome('/app', {
@@ -792,24 +811,25 @@ describe('HomePage async race protection', () => {
       [positionsUrl(MAIN_ID, '&cursor=next')]: () => page([ethPosition], 'stale'),
       [syncUrl(MAIN_ID)]: () => jsonResponse(mainAccount),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
-    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+    await screen.findByRole('link', { name: 'ETHUSDC · 2,4 LONG' });
 
+    await openAccountDetails();
     await userEvent.click(screen.getByRole('button', { name: 'Синхронизировать' }));
     await waitFor(() => expect(urls(requests, positionsUrl(MAIN_ID))).toHaveLength(2));
 
-    expect(screen.getByRole('article', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
 
     reload.resolve(page([position({ id: 'fresh', symbol: 'SOLUSDT', side: 'short' })], 'fresh-next'));
-    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 SHORT' });
-    expect(screen.getAllByRole('article')).toHaveLength(1);
+    await screen.findByRole('link', { name: 'SOLUSDT · 0,15 SHORT' });
+    expect(within(screen.getByRole('table', { name: 'Позиции' })).getAllByRole('link')).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
     expect(urls(requests, positionsUrl(MAIN_ID, '&cursor=stale'))).toHaveLength(0);
   });
 
-  it('does not append a late next page after the account changes', async () => {
+  it('не добавляет запоздалую страницу после смены счёта', async () => {
     const lateMore = deferred<Response>();
     renderHome(`/app?account=${MAIN_ID}`, {
       [ACCOUNTS_URL]: () => jsonResponse({ items: [mainAccount, secondAccount] }),
@@ -819,21 +839,84 @@ describe('HomePage async race protection', () => {
       [positionsUrl(MAIN_ID, '&cursor=next')]: () => lateMore.promise,
       [positionsUrl(SECOND_ID)]: () => page([ethPosition]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
 
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
     await userEvent.selectOptions(screen.getByLabelText('Подключение'), SECOND_ID);
-    await screen.findByRole('article', { name: 'ETHUSDC · 2,4 LONG' });
+    await screen.findByRole('link', { name: 'ETHUSDC · 2,4 LONG' });
     lateMore.resolve(page([position({ id: 'late', symbol: 'LATEUSDT' })]));
 
     await new Promise((settle) => setTimeout(settle, 0));
     expect(screen.queryByText(/LATEUSDT/)).not.toBeInTheDocument();
-    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(within(screen.getByRole('table', { name: 'Позиции' })).getAllByRole('link')).toHaveLength(1);
   });
 });
 
 describe('HomePage position navigation', () => {
-  it('opens the position page from the list and returns to the same account and filters', async () => {
+  it('не перезапускает чтение карточки при изменении списка и возвращает фокус к его заголовку, если строка исчезла', async () => {
+    const btc = position();
+    const positionPath = `/bff/me/positions/${btc.id}`;
+    let items = [btc, ethPosition];
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page(items) }),
+      [positionPath]: () => jsonResponse(positionFixture({ id: btc.id, exchangeAccountId: MAIN_ID })),
+      [`${positionPath}/market`]: () => jsonResponse(marketFixture()),
+      [`${positionPath}/candles?interval=1h&limit=200`]: () => jsonResponse(candlesFixture()),
+      [`${positionPath}/evaluation`]: () => new Response(null, { status: 204 }),
+    });
+
+    await userEvent.click(await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' }));
+    await screen.findByRole('button', { name: 'Оценить позицию' });
+    items = [ethPosition];
+    act(() => emitRealtime({ type: 'position.updated', positionId: ethPosition.id }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'BTCUSDT · 0,15 LONG' })).not.toBeInTheDocument());
+    expect(urls(requests, positionPath)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть карточку позиции' }));
+    expect(screen.getByRole('heading', { name: 'Позиции' })).toHaveFocus();
+  });
+
+  it('подтверждает прежний POST только для текущей карточки после переходов A → B → A', async () => {
+    const btc = position();
+    const btcPath = `/bff/me/positions/${btc.id}`;
+    const ethPath = `/bff/me/positions/${ethPosition.id}`;
+    const lateEth = deferred<Response>();
+    const post = deferred<Response>();
+    let btcReads = 0;
+    const routesForPosition = (item: PositionListItem, path: string) => ({
+      [path]: () => jsonResponse(positionFixture({ id: item.id, symbol: item.symbol, exchangeAccountId: MAIN_ID })),
+      [`${path}/market`]: () => jsonResponse(marketFixture({ symbol: item.symbol })),
+      [`${path}/candles?interval=1h&limit=200`]: () => jsonResponse(candlesFixture()),
+    });
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, { positions: () => page([btc, ethPosition]) }),
+      ...routesForPosition(btc, btcPath),
+      ...routesForPosition(ethPosition, ethPath),
+      [`${btcPath}/evaluation`]: (init) => {
+        if (init?.method === 'POST') return post.promise;
+        return ++btcReads === 3 ? jsonResponse(evaluationFixture()) : new Response(null, { status: 204 });
+      },
+      [`${ethPath}/evaluation`]: () => lateEth.promise,
+    });
+
+    const btcTicker = await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(btcTicker);
+    await userEvent.click(await screen.findByRole('button', { name: 'Оценить позицию' }));
+    await userEvent.click(screen.getByRole('link', { name: 'ETHUSDC · 2,4 LONG' }));
+    await waitFor(() => expect(urls(requests, `${ethPath}/evaluation`)).toHaveLength(1));
+    await userEvent.click(btcTicker);
+    expect(await screen.findByRole('button', { name: 'Оценка выполняется…' })).toBeDisabled();
+    await waitFor(() => expect(btcReads).toBe(2));
+
+    await act(async () => { post.resolve(jsonResponse(evaluationFixture())); });
+    await act(async () => { lateEth.resolve(new Response(null, { status: 204 })); });
+    const active = screen.getByRole('region', { name: 'BTCUSDT' });
+    expect(await within(active).findByRole('button', { name: 'Переоценить' })).toBeEnabled();
+    expect(screen.queryByRole('region', { name: 'ETHUSDC' })).not.toBeInTheDocument();
+    expect(urls(requests, `${btcPath}/evaluation`).filter((request) => request.init?.method === 'POST')).toHaveLength(1);
+    expect(btcReads).toBe(3);
+  });
+
+  it('открывает карточку в обзоре и возвращает фокус к позиции с теми же счётом и фильтрами', async () => {
     const btc = position();
     const positionPath = `/bff/me/positions/${btc.id}`;
     const pending = () => new Promise<Response>(() => {});
@@ -850,13 +933,83 @@ describe('HomePage position navigation', () => {
     expect(link).toHaveAttribute('href', `/app/positions/${btc.id}`);
     await userEvent.click(link);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'BTCUSDT · 0,15 LONG' })).toBeVisible();
-    await userEvent.click(screen.getByRole('link', { name: '← К списку позиций' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'BTCUSDT' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть карточку позиции' }));
+    expect(link).toHaveFocus();
 
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     expect(searchParams().get('account')).toBe(MAIN_ID);
     expect(searchParams().get('side')).toBe('long');
     expect(requests.some((request) => request.url.includes('/sync') || request.init?.method === 'POST')).toBe(false);
+  });
+
+  it.each(['поздний', 'подготовленный', 'отказ возобновления', 'пауза'] as const)('подтверждает оценку после повторного открытия: %s', async (timing) => {
+    const btc = position();
+    const positionPath = `/bff/me/positions/${btc.id}`;
+    const evaluationUrl = `${positionPath}/evaluation`;
+    const empty = () => new Response(null, { status: 204 });
+    const post = deferred<Response>();
+    const resumeEvaluation = deferred<Response>();
+    const resumePortfolio = deferred<Response>();
+    let evaluationReads = 0;
+    let portfolioReads = 0;
+    const requests = renderHome('/app', {
+      ...accountRoutes([mainAccount], MAIN_ID, {
+        portfolio: () => ++portfolioReads === 2 ? resumePortfolio.promise : jsonResponse(portfolio()),
+      }),
+      [positionPath]: () => jsonResponse(positionFixture({ id: btc.id, exchangeAccountId: MAIN_ID })),
+      [`${positionPath}/market`]: () => jsonResponse(marketFixture()),
+      [`${positionPath}/candles?interval=1h&limit=200`]: () => jsonResponse(candlesFixture()),
+      [evaluationUrl]: (init) => {
+        if (init?.method === 'POST') return post.promise;
+        evaluationReads += 1;
+        if (evaluationReads === 3 && timing !== 'пауза') return resumeEvaluation.promise;
+        if (evaluationReads === 3) return jsonResponse(evaluationFixture());
+        if (evaluationReads > 3) return jsonResponse(evaluationFixture());
+        return empty();
+      },
+    });
+    const ticker = await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
+    await userEvent.click(screen.getByRole('button', { name: 'Приостановить автообновление' }));
+    await userEvent.click(ticker);
+    await userEvent.click(await screen.findByRole('button', { name: 'Оценить позицию' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть карточку позиции' }));
+    await userEvent.click(ticker);
+    expect(await screen.findByRole('button', { name: 'Оценка выполняется…' })).toBeDisabled();
+    await waitFor(() => expect(evaluationReads).toBe(2));
+    if (timing === 'пауза') {
+      await act(async () => { post.resolve(jsonResponse(evaluationFixture())); });
+      expect(await screen.findByRole('button', { name: 'Переоценить' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Возобновить автообновление' })).toBeEnabled();
+      expect(urls(requests, evaluationUrl).filter((request) => request.init?.method === 'POST')).toHaveLength(1);
+      expect(evaluationReads).toBe(3);
+      return;
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Возобновить автообновление' }));
+    await waitFor(() => expect(evaluationReads).toBe(3));
+
+    if (timing === 'подготовленный') {
+      await act(async () => { resumeEvaluation.resolve(empty()); });
+    }
+    await act(async () => { post.resolve(jsonResponse(evaluationFixture())); });
+    expect(screen.getByText('Возобновляем автообновление…')).toBeVisible();
+    expect(screen.queryByText(/Оценка ещё не выполнялась/)).not.toBeInTheDocument();
+    expect(evaluationReads).toBe(3);
+    if (timing !== 'подготовленный') {
+      await act(async () => { resumeEvaluation.resolve(empty()); });
+    }
+    await act(async () => {
+      resumePortfolio.resolve(timing === 'отказ возобновления' ? problem(503, 'service_unavailable') : jsonResponse(portfolio()));
+    });
+    if (timing === 'отказ возобновления') {
+      expect(await screen.findByText('Не удалось возобновить автообновление. Повторите попытку.')).toBeVisible();
+    } else {
+      expect(await screen.findByRole('button', { name: 'Приостановить автообновление' })).toBeVisible();
+    }
+    expect(await screen.findByRole('button', { name: 'Переоценить' })).toBeEnabled();
+    expect(screen.queryByText(/Оценка ещё не выполнялась/)).not.toBeInTheDocument();
+    expect(urls(requests, evaluationUrl).filter((request) => request.init?.method === 'POST')).toHaveLength(1);
+    expect(evaluationReads).toBe(4);
   });
 });
 
@@ -884,7 +1037,7 @@ describe('realtime overview invalidation', () => {
     expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });
 
-  it('does not announce success when refreshing positions fails', async () => {
+  it('не объявляет обновление позиций при ошибке', async () => {
     let calls = 0;
     renderHome(`/app?account=${MAIN_ID}`, {
       ...accountRoutes([mainAccount]),
@@ -893,15 +1046,15 @@ describe('realtime overview invalidation', () => {
         return calls === 1 ? page([position()]) : problem(503, 'service_unavailable');
       },
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'position.updated', positionId: 'changed' }));
     await screen.findByText('Сервис временно недоступен. Повторите попытку позже.');
     expect(screen.queryByText('Список позиций обновлён.')).not.toBeInTheDocument();
   });
 
-  it('announces a later realtime refresh after the quiet interval', async () => {
+  it('объявляет последующее realtime-обновление после интервала тишины', async () => {
     renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount]));
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
     await screen.findByText('Список позиций обновлён.');
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_001);
@@ -913,9 +1066,9 @@ describe('realtime overview invalidation', () => {
     }
   });
 
-  it('announces the last refresh in a burst after the quiet interval', async () => {
+  it('после интервала тишины объявляет последнее обновление из серии', async () => {
     renderHome(`/app?account=${MAIN_ID}`, accountRoutes([mainAccount]));
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
     await screen.findByText('Список позиций обновлён.');
     vi.useFakeTimers();
@@ -933,7 +1086,7 @@ describe('realtime overview invalidation', () => {
     }
   });
 
-  it('cancels a pending announcement when a newer refresh fails', async () => {
+  it('отменяет отложенное объявление при сбое нового обновления', async () => {
     let calls = 0;
     renderHome(`/app?account=${MAIN_ID}`, {
       ...accountRoutes([mainAccount]),
@@ -942,7 +1095,7 @@ describe('realtime overview invalidation', () => {
         return calls < 4 ? page([position()]) : problem(503, 'service_unavailable');
       },
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'position.updated', positionId: 'first' }));
     await screen.findByText('Список позиций обновлён.');
     vi.useFakeTimers();
@@ -968,7 +1121,7 @@ describe('realtime overview invalidation', () => {
 
 
 describe('realtime pagination consistency', () => {
-  it('discards the previous cursor and coalesces notifications while a filtered first page is pending', async () => {
+  it('отбрасывает старый cursor и объединяет события, пока загружается первая страница по фильтру', async () => {
     const slow = deferred<Response>();
     const final = deferred<Response>();
     let calls = 0;
@@ -982,7 +1135,7 @@ describe('realtime pagination consistency', () => {
         return page([position({ id: 'new', symbol: 'SOLUSDT' })]);
       },
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
     act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
     await waitFor(() => expect(calls).toBe(2));
@@ -993,11 +1146,11 @@ describe('realtime pagination consistency', () => {
     });
     expect(calls).toBe(2);
     await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
-    await screen.findByRole('article', { name: 'STALEUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'STALEUSDT · 0,15 LONG' });
     expect(screen.queryByText('Список позиций обновлён.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     await act(async () => final.resolve(page([position({ id: 'new', symbol: 'SOLUSDT' })], 'fresh-cursor')));
-    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'SOLUSDT · 0,15 LONG' });
     expect(await screen.findByText('Список позиций обновлён.')).toHaveAttribute('role', 'status');
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
     expect(searchParams().get('side')).toBe('long');
@@ -1008,7 +1161,7 @@ describe('realtime pagination consistency', () => {
 
 
 describe('recovery of a pending positions page', () => {
-  it('keeps account and filter, drops the old cursor and ignores a late response', async () => {
+  it('сохраняет счёт и фильтр, сбрасывает прежний cursor и игнорирует поздний ответ', async () => {
     const slow = deferred<Response>();
     let calls = 0;
     const requests = renderHome(`/app?account=${MAIN_ID}&side=long`, {
@@ -1020,11 +1173,11 @@ describe('recovery of a pending positions page', () => {
         return page([position({ id: 'new', symbol: 'SOLUSDT' })]);
       },
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
     await waitFor(() => expect(calls).toBe(2));
     act(() => emitRealtime({ type: 'recovery' }));
-    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'SOLUSDT · 0,15 LONG' });
     expect(calls).toBe(3);
     await act(async () => slow.resolve(page([position({ id: 'stale', symbol: 'STALEUSDT' })], 'stale-cursor')));
     expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
@@ -1037,14 +1190,14 @@ describe('recovery of a pending positions page', () => {
 
 
 describe('recovery of closed positions', () => {
-  it('retains the selected account, closed mode and filter', async () => {
+  it('сохраняет выбранный счёт, режим закрытых позиций и фильтр', async () => {
     const closed = position({ trackingState: 'closed', closedAt: '2026-10-06T12:00:00Z', unrealizedPnl: null });
     const url = positionsUrl(MAIN_ID, '&trackingState=closed&side=long');
     const requests = renderHome(`/app?account=${MAIN_ID}&view=closed&side=long`, {
       ...accountRoutes([mainAccount]),
       [url]: () => page([closed]),
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     act(() => emitRealtime({ type: 'recovery' }));
     await waitFor(() => expect(urls(requests, url)).toHaveLength(2));
     expect(searchParams().get('account')).toBe(MAIN_ID);
@@ -1091,7 +1244,7 @@ describe('инвалидация continuation', () => {
       [positionsUrl(MAIN_ID)]: () => ++calls === 1 ? page([position()], 'old') : refresh.promise,
       [positionsUrl(MAIN_ID, '&cursor=old')]: () => continuation.promise,
     });
-    await screen.findByRole('article', { name: 'BTCUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'BTCUSDT · 0,15 LONG' });
     await userEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
     act(() => emitRealtime({ type: 'position.updated', positionId: 'new' }));
     await waitFor(() => expect(calls).toBe(2));
@@ -1099,7 +1252,7 @@ describe('инвалидация continuation', () => {
     expect(screen.queryByText(/STALEUSDT/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Загрузить ещё' })).not.toBeInTheDocument();
     await act(async () => refresh.resolve(page([position({ id: 'new', symbol: 'SOLUSDT' })], 'fresh')));
-    await screen.findByRole('article', { name: 'SOLUSDT · 0,15 LONG' });
+    await screen.findByRole('link', { name: 'SOLUSDT · 0,15 LONG' });
     expect(screen.getByRole('button', { name: 'Загрузить ещё' })).toBeEnabled();
     expect(requests.some((request) => request.init?.method === 'POST')).toBe(false);
   });

@@ -9,6 +9,37 @@ function deferred() {
 }
 
 describe('пауза автоматических обновлений', () => {
+  it('откладывает подтверждающий GET во время resume и заменяет активное чтение на паузе', async () => {
+    const updates = createAutoUpdates();
+    const waitForRead = deferred();
+    const pendingResume = deferred();
+    const results: string[] = [];
+    const signals: AbortSignal[] = [];
+    const reader = updates.createReader(async (signal, view) => {
+      signals.push(signal);
+      if (signals.length === 1) await waitForRead.promise;
+      if (view.kind === 'resume') await pendingResume.promise;
+      view.apply(() => results.push(view.kind));
+    });
+
+    updates.toggle();
+    reader.refresh();
+    expect(reader.refreshAfterWrite()).toBe(true);
+    expect(signals[0]?.aborted).toBe(true);
+    await vi.waitFor(() => expect(results).toEqual(['explicit']));
+    expect(updates.getSnapshot().mode).toBe('paused');
+
+    updates.toggle();
+    expect(reader.refreshAfterWrite()).toBe(false);
+    expect(updates.getSnapshot().mode).toBe('resuming');
+    pendingResume.resolve();
+    await vi.waitFor(() => expect(updates.getSnapshot().mode).toBe('live'));
+    waitForRead.resolve();
+    expect(results).toEqual(['explicit', 'resume']);
+    reader.dispose();
+    expect(reader.refreshAfterWrite()).toBe(false);
+  });
+
   it.each([true, false])('объединяет события во время ожидания повтора (online=%s)', async (initiallyOnline) => {
     vi.useFakeTimers();
     const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(initiallyOnline);

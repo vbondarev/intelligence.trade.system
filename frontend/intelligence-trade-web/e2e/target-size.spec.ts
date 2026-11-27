@@ -74,6 +74,11 @@ test('открытые формы, обзор и позиция: axe и разм
   await expectMinimumTargetSize(page);
   await expectNoAxeViolations(page);
 
+  await page.getByRole('link', { name: /BTCUSDT/ }).click();
+  await expect(page.getByRole('button', { name: 'Закрыть карточку позиции' })).toBeVisible();
+  await expectMinimumTargetSize(page);
+  await expectNoAxeViolations(page);
+
   await page.goto('/app/positions/btc');
   await expect(page.getByRole('heading', { level: 1, name: /BTCUSDT/ })).toBeVisible();
   await expect(page.getByText('Защитить прибыль', { exact: true })).toBeVisible();

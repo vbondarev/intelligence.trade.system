@@ -4,7 +4,7 @@ import { positionFixture } from '../src/test/positionFixtures';
 import { loginThroughLanding } from './support';
 import { MAIN_ID, mockBusinessData, mockPositionPage } from './uiMock';
 
-test('пауза сохраняется при переходе к позиции, ручная история доступна, возобновление можно повторить', async ({ page }) => {
+test('пауза сохраняется при переходе к позиции, ручная история доступна, возобновление можно повторить', async ({ page, hasTouch }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await mockBusinessData(page);
   const timelineReads = await mockPositionPage(page);
@@ -20,10 +20,15 @@ test('пауза сохраняется при переходе к позици�
   await pause.focus();
   await page.keyboard.press('Space');
   await expect(resume).toBeFocused();
-  await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+  const ticker = page.getByRole('link', { name: /^BTCUSDT/ });
+  if (hasTouch) await ticker.tap();
+  else await ticker.click();
   await expect(resume).toBeVisible();
-  const title = page.getByRole('heading', { name: /^BTCUSDT/, level: 1 });
-  const original = await title.innerText();
+  const card = page.getByRole('region', { name: 'BTCUSDT', exact: true });
+  await expect(card.getByRole('heading', { name: 'BTCUSDT' })).toBeVisible();
+  const sizeValue = card.getByRole('region', { name: 'Параметры позиции' })
+    .getByText('Размер', { exact: true }).locator('..').locator('dd');
+  await expect(sizeValue).toHaveText('0,15');
   await page.getByText('Данные графика и ценовые уровни').click();
   const candles = page.getByRole('table', { name: /Свечи BTCUSDT/ });
   await expect(candles.getByRole('row')).toHaveCount(201);
@@ -47,13 +52,13 @@ test('пауза сохраняется при переходе к позици�
   await resume.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText('Не удалось возобновить автообновление. Повторите попытку.')).toBeVisible();
-  await expect(title).toHaveText(original);
+  await expect(sizeValue).toHaveText('0,15');
   await expect(resume).toBeFocused();
 
   failDetail = false;
   await page.keyboard.press('Enter');
   await expect(pause).toBeFocused();
-  await expect(title).toContainText('2');
+  await expect(sizeValue).toHaveText('2');
   await expect(candles.getByRole('row')).toHaveCount(201);
 });
 

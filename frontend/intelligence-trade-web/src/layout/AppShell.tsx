@@ -8,7 +8,8 @@ import { SessionDeadline } from '../auth/SessionDeadline';
 import { RealtimeProvider } from '../realtime/RealtimeProvider';
 import { useRealtime } from '../realtime/realtimeContext';
 import { createAutoUpdates } from '../realtime/autoUpdates';
-import { AutoUpdatesContext, useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
+import { AutoUpdatesContext, useAutoUpdateState } from '../realtime/autoUpdatesContext';
+import { AutoUpdateControl } from './AutoUpdateControl';
 
 interface PositionLinkPress {
   link: HTMLAnchorElement;
@@ -201,20 +202,14 @@ function DataUpdatesShell() {
 function AuthenticatedContent() {
   const { error } = useAuth();
   const realtime = useRealtime();
-  const updates = useAutoUpdates();
-  const { mode, announcement } = useAutoUpdateState();
+  const { pathname } = useLocation();
+  const overview = matchPath('/app', pathname) !== null;
+  const { mode } = useAutoUpdateState();
 
   return (
     <>
-      <div className="auto-updates">
-        <button type="button" className="button button-secondary" aria-disabled={mode === 'resuming' || undefined} onClick={updates.toggle}>
-          {mode === 'live' ? 'Приостановить автообновление' : 'Возобновить автообновление'}
-        </button>
-        {mode !== 'live' && <p className="muted">Автообновление приостановлено. Данные могут устареть.</p>}
-        {mode === 'resuming' && <p>Возобновляем автообновление…</p>}
-        <p aria-live="polite" aria-atomic="true" className={mode === 'failed' ? 'alert' : 'screen-reader-only'}>{announcement}</p>
-      </div>
-      {mode === 'live' && realtime?.state !== 'ready' && (
+      {!overview && <AutoUpdateControl />}
+      {(overview || mode === 'live') && realtime?.state !== 'ready' && (
         <div aria-live="polite">
           <p>Realtime: {realtime?.state === 'offline' ? 'соединение недоступно' : 'подключение…'}</p>
           {realtime?.state === 'offline' && <button type="button" className="button button-secondary" onClick={realtime.retry}>Повторить подключение</button>}
