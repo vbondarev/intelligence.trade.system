@@ -79,6 +79,13 @@ function isFrontendScript(url: URL) {
   return url.origin === webOrigin && url.pathname.startsWith('/assets/') && url.pathname.endsWith('.js');
 }
 
+function expectSinglePositionModule(scripts: ReadonlySet<string>) {
+  const [moduleUrl] = scripts;
+  expect(scripts.size).toBe(1);
+  expect(new URL(moduleUrl).pathname).toMatch(/^\/assets\/PositionPage-[A-Za-z0-9_-]+\.js$/);
+  return moduleUrl;
+}
+
 async function openPositionOverview(page: Page, source: 'search' | 'overview' = 'search') {
   await mockBusinessData(page);
   await mockPositionPage(page);
@@ -130,18 +137,18 @@ test('прямой URL позиции загружает график и сох�
 
 test('обзор откладывает загрузку графика и закрывает карточку при отказе импорта', async ({ page }) => {
   const { isNewScript, positionLink, positionReads } = await openPositionOverview(page, 'overview');
-  let failed = 0;
+  const failedScripts = new Set<string>();
   expect(positionReads).toHaveLength(0);
   await page.route(isNewScript, (route) => {
-    failed += 1;
-    return route.fulfill({ status: 404 });
+    failedScripts.add(route.request().url());
+    return route.fulfill({ status: 404, headers: { 'Cache-Control': 'no-store' } });
   });
   await positionLink.focus();
   await page.keyboard.press('Enter');
   const close = page.getByRole('button', { name: 'Закрыть карточку позиции' });
   await expect(page.getByText('Не удалось загрузить страницу позиции.')).toBeVisible();
   await expect(close).toBeFocused();
-  expect(failed).toBeGreaterThan(0);
+  expectSinglePositionModule(failedScripts);
   expect(positionReads).toHaveLength(0);
   await page.keyboard.press('Enter');
   await expect(positionLink).toBeFocused();
@@ -268,9 +275,7 @@ for (const keepMissing of [true, false]) {
     const rejectNewScripts = (route: Route) => {
       if (available) return route.continue();
       failedScripts.add(route.request().url());
-      return keepMissing
-        ? route.fulfill({ status: 404, headers: { 'Cache-Control': 'no-store' } })
-        : route.abort('failed');
+      return route.fulfill({ status: 404, headers: { 'Cache-Control': 'no-store' } });
     };
     await page.route(isNewScript, rejectNewScripts);
     await positionLink.click();
@@ -281,11 +286,10 @@ for (const keepMissing of [true, false]) {
     await expect(alert).toBeVisible();
     await expect(navigation).toBeVisible();
     expect(positionReads).toHaveLength(0);
-    expect(failedScripts.size).toBeGreaterThan(0);
+    const moduleUrl = expectSinglePositionModule(failedScripts);
     available = !keepMissing;
 
-    // Проверяем новый документ, стартовый модуль и ошибку после reload. WebKit может
-    // не публиковать отдельный response event для неудачной загрузки ESM.
+    // Маркер подтверждает замену документа. Query и hash должны пережить reload.
     await page.evaluate((url) => {
       window.history.replaceState(window.history.state, '', url);
       document.documentElement.dataset.positionTestDocument = 'initial';
@@ -296,11 +300,13 @@ for (const keepMissing of [true, false]) {
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documentRequests.push(request.url());
     });
     const entryResponse = page.waitForResponse((response) => response.url() === entryScript && response.ok());
+    const moduleResponse = page.waitForResponse((response) => response.url() === moduleUrl);
     const reload = main.getByRole('button', { name: 'Обновить страницу' });
     await reload.focus();
     await expect(reload).toBeFocused();
     await page.keyboard.press('Enter');
     await entryResponse;
+    expect((await moduleResponse).status()).toBe(keepMissing ? 404 : 200);
     await expect(page).toHaveURL(new URL(positionUrlWithChart, webOrigin).href);
     await expect(page.locator('html')).not.toHaveAttribute('data-position-test-document', 'initial');
 

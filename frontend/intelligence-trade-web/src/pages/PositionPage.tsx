@@ -4,6 +4,8 @@ import { PositionContent } from '../position/PositionContent';
 import { parseChartInterval } from '../position/positionFormatting';
 import { usePositionEvaluationRequests } from '../position/usePositionEvaluationRequests';
 
+export { PositionPreview } from '../position/PositionContent';
+
 export function PositionPage() {
   const { id = '' } = useParams();
   const { state } = useLocation();

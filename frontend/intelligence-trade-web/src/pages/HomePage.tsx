@@ -32,7 +32,7 @@ import { PositionsSection } from '../portfolio/PositionsSection';
 import { usePositionEvaluationRequests } from '../position/usePositionEvaluationRequests';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
-const PositionPreview = lazy(() => import('../position/PositionContent').then(
+const PositionPreview = lazy(() => import('./PositionPage').then(
   ({ PositionPreview }) => ({ default: PositionPreview }),
   () => ({ default: PreviewLoadError }),
 ));
