@@ -79,7 +79,14 @@ function isFrontendScript(url: URL) {
   return url.origin === webOrigin && url.pathname.startsWith('/assets/') && url.pathname.endsWith('.js');
 }
 
-async function openPositionOverview(page: Page) {
+function expectSinglePositionModule(scripts: ReadonlySet<string>) {
+  const [moduleUrl] = scripts;
+  expect(scripts.size).toBe(1);
+  expect(new URL(moduleUrl).pathname).toMatch(/^\/assets\/PositionPage-[A-Za-z0-9_-]+\.js$/);
+  return moduleUrl;
+}
+
+async function openPositionOverview(page: Page, source: 'search' | 'overview' = 'search') {
   await mockBusinessData(page);
   await mockPositionPage(page);
   await loginThroughLanding(page);
@@ -97,8 +104,12 @@ async function openPositionOverview(page: Page) {
   });
   page.on('request', recordInitialScript);
   await page.goto('/app');
-  const positionLink = page.getByRole('link', { name: /^BTCUSDT/ });
+  const overviewTicker = page.getByRole('link', { name: /^BTCUSDT/ });
   await expect(page.getByRole('heading', { name: 'Обзор', exact: true })).toBeVisible();
+  await expect(overviewTicker).toBeVisible();
+  if (source === 'search') await page.goto('/app/positions/search?symbol=BTCUSDT');
+  const positionLink = source === 'overview' ? overviewTicker
+    : page.getByRole('region', { name: 'Текущие позиции' }).getByRole('link', { name: /^BTCUSDT/ });
   await expect(positionLink).toBeVisible();
   page.off('request', recordInitialScript);
   const entryScript = await page.locator('script[type="module"][src]').evaluate((script) => (script as HTMLScriptElement).src);
@@ -122,6 +133,38 @@ test('прямой URL позиции загружает график и сох�
   await expect(page.getByRole('group', { name: /Свечной график BTCUSDT, интервал 4h/ }).locator('canvas').first()).toBeVisible();
   await expect(page.getByRole('button', { name: '4h' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('link', { name: '← К списку позиций' })).toHaveAttribute('href', '/app?account=' + MAIN_ID);
+});
+
+test('обзор откладывает загрузку графика и закрывает карточку при отказе импорта', async ({ page }) => {
+  const { isNewScript, positionLink, positionReads } = await openPositionOverview(page, 'overview');
+  const failedScripts = new Set<string>();
+  expect(positionReads).toHaveLength(0);
+  await page.route(isNewScript, (route) => {
+    failedScripts.add(route.request().url());
+    return route.fulfill({ status: 404, headers: { 'Cache-Control': 'no-store' } });
+  });
+  await positionLink.focus();
+  await page.keyboard.press('Enter');
+  const close = page.getByRole('button', { name: 'Закрыть карточку позиции' });
+  await expect(page.getByText('Не удалось загрузить страницу позиции.')).toBeVisible();
+  await expect(close).toBeFocused();
+  expectSinglePositionModule(failedScripts);
+  expect(positionReads).toHaveLength(0);
+  await page.keyboard.press('Enter');
+  await expect(positionLink).toBeFocused();
+  await expect(page).toHaveURL(/\/app\?account=/);
+});
+
+test('ссылка из обзора открывает прямой маршрут позиции в новой вкладке', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Открытие вкладки средней кнопкой проверяется в Chromium');
+  const { positionLink } = await openPositionOverview(page, 'overview');
+  await expect(positionLink).toHaveAttribute('href', positionPath);
+  const opened = page.context().waitForEvent('page');
+  await positionLink.click({ button: 'middle' });
+  const tab = await opened;
+  await expect(tab).toHaveURL(new URL(positionPath, webOrigin).href);
+  await expect(page.getByRole('button', { name: 'Закрыть карточку позиции' })).toHaveCount(0);
+  await tab.close();
 });
 
 const delayedPositionScenarios = {
@@ -228,9 +271,11 @@ for (const keepMissing of [true, false]) {
   test(keepMissing ? 'после обновления отсутствующий модуль снова показывает ошибку' : 'обновление восстанавливает доступный модуль позиции', async ({ page }) => {
     const { entryScript, isNewScript, positionLink, positionReads } = await openPositionOverview(page);
     const failedScripts = new Set<string>();
+    let available = false;
     const rejectNewScripts = (route: Route) => {
+      if (available) return route.continue();
       failedScripts.add(route.request().url());
-      return route.fulfill({ status: 404 });
+      return route.fulfill({ status: 404, headers: { 'Cache-Control': 'no-store' } });
     };
     await page.route(isNewScript, rejectNewScripts);
     await positionLink.click();
@@ -241,43 +286,41 @@ for (const keepMissing of [true, false]) {
     await expect(alert).toBeVisible();
     await expect(navigation).toBeVisible();
     expect(positionReads).toHaveLength(0);
-    expect(failedScripts.size).toBeGreaterThan(0);
-    await page.unroute(isNewScript, rejectNewScripts);
+    const moduleUrl = expectSinglePositionModule(failedScripts);
+    available = !keepMissing;
 
-    // Первоначальный переход был клиентским. Query и hash включаем в проверку обновления того же документа.
-    await page.evaluate((url) => window.history.replaceState(window.history.state, '', url), positionUrlWithChart);
-    if (keepMissing) {
-      const missingModuleUrls = new Set(failedScripts);
-      // После reload отклоняем только уже обнаруженные модули, чтобы entry и его зависимости загрузились.
-      await page.route((url) => missingModuleUrls.has(url.href), (route) => route.fulfill({ status: 404 }));
-    }
+    // Маркер подтверждает замену документа. Query и hash должны пережить reload.
+    await page.evaluate((url) => {
+      window.history.replaceState(window.history.state, '', url);
+      document.documentElement.dataset.positionTestDocument = 'initial';
+    }, positionUrlWithChart);
 
     const documentRequests: string[] = [];
     page.on('request', (request) => {
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documentRequests.push(request.url());
     });
     const entryResponse = page.waitForResponse((response) => response.url() === entryScript && response.ok());
-    const failedAgain = keepMissing
-      ? page.waitForResponse((response) => failedScripts.has(response.url()) && response.status() === 404)
-      : undefined;
+    const moduleResponse = page.waitForResponse((response) => response.url() === moduleUrl);
     const reload = main.getByRole('button', { name: 'Обновить страницу' });
     await reload.focus();
     await expect(reload).toBeFocused();
     await page.keyboard.press('Enter');
     await entryResponse;
+    expect((await moduleResponse).status()).toBe(keepMissing ? 404 : 200);
     await expect(page).toHaveURL(new URL(positionUrlWithChart, webOrigin).href);
+    await expect(page.locator('html')).not.toHaveAttribute('data-position-test-document', 'initial');
 
-    if (failedAgain) {
-      await failedAgain;
+    if (keepMissing) {
       await expect(alert).toBeVisible();
       await expect(navigation).toBeVisible();
       expect(positionReads).toHaveLength(0);
 
-      const back = main.getByRole('link', { name: 'Вернуться к списку' });
+      const back = main.getByRole('link', { name: 'Вернуться к результатам поиска' });
       await back.focus();
       await expect(back).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(page.getByRole('heading', { name: 'Обзор' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Поиск позиций', level: 1 })).toBeVisible();
+      await expect(page).toHaveURL(/\/app\/positions\/search\?symbol=BTCUSDT$/);
       expect(documentRequests).toHaveLength(1);
     } else {
       await expect(alert).toHaveCount(0);

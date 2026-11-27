@@ -20,7 +20,7 @@ test('позиция при 403 с несовместимым кодом пок�
   await mockBusinessData(page);
   await mockPositionPage(page);
   await loginThroughLanding(page);
-  await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+  await page.goto('/app/positions/btc');
   await expect(page.getByRole('heading', { name: /BTCUSDT/ })).toBeVisible();
 
   await page.route('**/bff/me/positions/btc', (route) => route.fulfill({

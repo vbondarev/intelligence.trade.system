@@ -1,5 +1,5 @@
 import { StatusMessage } from '../ui/StatusMessage';
-import { useId, type FormEvent, type ReactNode } from 'react';
+import { useId, type FormEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MarketValuationDetails } from '../freshness/FreshnessDetails';
 import { positionPagePath, type PositionPageState } from '../position/positionNavigation';
@@ -45,6 +45,10 @@ interface PositionsSectionProps {
   filters: PositionFilters;
   list: PositionsListState;
   accountName?: string;
+  activePositionId?: string;
+  previewId: string;
+  headingRef: Ref<HTMLHeadingElement>;
+  onOpenPosition: (position: PositionListItem, offset: number, keyboard: boolean) => void;
   onViewChange: (view: PositionsView) => void;
   onStateChange: (state: CurrentTrackingState | null) => void;
   onSideChange: (side: PositionSide | null) => void;
@@ -60,6 +64,10 @@ export function PositionsSection({
   filters,
   list,
   accountName,
+  activePositionId,
+  previewId,
+  headingRef,
+  onOpenPosition,
   onViewChange,
   onStateChange,
   onSideChange,
@@ -79,7 +87,7 @@ export function PositionsSection({
 
   return (
     <section className="positions-section" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">
+      <h2 id={titleId} className="section-title" ref={headingRef} tabIndex={-1}>
         Позиции
       </h2>
       <div className="segmented" role="group" aria-label="Режим списка позиций">
@@ -165,7 +173,65 @@ export function PositionsSection({
         <StatusMessage kind="empty" text={filters.view === 'closed' ? 'Закрытых позиций нет.' : 'Текущих позиций нет.'} />
       )}
       {list.items.length > 0 && (
-        <PositionCards items={list.items} returnTo={returnTo} accountName={accountName} />
+        <table className="overview-positions" aria-labelledby={titleId}>
+          <thead>
+            <tr>
+              <th scope="col">Инструмент</th>
+              <th scope="col">Направление</th>
+              <th scope="col">Объём</th>
+              <th scope="col">PnL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((position, index) => {
+              const selected = position.id === activePositionId;
+              const duplicate = list.items.some((other) => other.id !== position.id && positionLabel(other) === positionLabel(position));
+              const context = duplicate ? positionLinkContext(position, accountName, index) : null;
+              const activate = (event: MouseEvent<HTMLTableRowElement>) => {
+                if (event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                onOpenPosition(position, event.currentTarget.getBoundingClientRect().top, event.detail === 0);
+              };
+
+              return (
+                <tr
+                  key={position.id}
+                  data-position-id={position.id}
+                  className={selected ? 'overview-position-selected' : undefined}
+                  onClick={activate}
+                >
+                  <th scope="row">
+                    <Link
+                      className="position-link overview-ticker"
+                      aria-label={[positionLabel(position), context].filter(Boolean).join(' — ')}
+                      aria-current={selected ? 'true' : undefined}
+                      aria-controls={selected ? previewId : undefined}
+                      to={positionPagePath(position.id)}
+                      state={{ returnTo } satisfies PositionPageState}
+                      onClick={(event) => {
+                        if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+                          event.preventDefault();
+                          const row = event.currentTarget.closest('tr');
+                          if (row) onOpenPosition(position, row.getBoundingClientRect().top, event.detail === 0);
+                        }
+                      }}
+                    >
+                      {position.symbol}
+                    </Link>
+                    {context && <span className="position-link-context">{context}</span>}
+                    {position.trackingState !== 'active' && (
+                      <span className={`tracking-state tracking-state-${position.trackingState}`}>
+                        {TRACKING_STATE_LABELS[position.trackingState]}
+                      </span>
+                    )}
+                  </th>
+                  <td>{SIDE_LABELS[position.side]}</td>
+                  <td>{formatAssetAmount(position.positionValue, position.settlementAsset)}</td>
+                  <td>{formatSignedAssetAmount(position.unrealizedPnl, position.settlementAsset)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
       {list.error}
       {!list.loading && list.hasMore && (
@@ -181,6 +247,14 @@ export function PositionsSection({
 
 function positionLabel(position: PositionListItem) {
   return `${position.symbol} · ${formatNumber(position.size)} ${SIDE_LABELS[position.side]}`;
+}
+
+function positionLinkContext(position: PositionListItem, account: string | undefined, duplicateIndex?: number) {
+  return [
+    account, position.settlementAsset, `вход ${formatNumber(position.averageEntryPrice)}`,
+    formatTimestamp(position.closedAt ?? position.firstDetectedAt),
+    duplicateIndex === undefined ? null : `позиция ${duplicateIndex + 1}`,
+  ].filter(Boolean).join(' · ');
 }
 
 export function PositionCards({ items, returnTo, accounts, accountName }: {
@@ -201,9 +275,7 @@ export function PositionCards({ items, returnTo, accounts, accountName }: {
         const duplicate = (counts.get(positionLabel(position)) ?? 0) > 1;
         const account = accounts?.get(position.exchangeAccountId) ?? accountName;
         const context = accounts || duplicate
-          ? [account, position.settlementAsset, `вход ${formatNumber(position.averageEntryPrice)}`,
-              formatTimestamp(position.closedAt ?? position.firstDetectedAt), duplicate ? `позиция ${index + 1}` : null]
-              .filter(Boolean).join(' · ')
+          ? positionLinkContext(position, account, duplicate ? index : undefined)
           : null;
         return (
           <li key={position.id}>

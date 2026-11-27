@@ -1,9 +1,11 @@
 import { presentError } from '../errors/errorPresentation';
 import { StatusMessage } from '../ui/StatusMessage';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/authContext';
 import { ObservationDetails } from '../freshness/FreshnessDetails';
+import { factualFreshnessLabel, valuationFreshnessLabel } from '../freshness/freshness';
+import { AutoUpdateControl } from '../layout/AutoUpdateControl';
 import { explicitPresentation, isStaleSessionAccessFailure, resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
@@ -25,10 +27,24 @@ import type {
   PositionSide,
   PositionsView,
 } from '../portfolio/portfolioTypes';
-import { PortfolioSummary } from '../portfolio/PortfolioSummary';
+import { ExposureBlock, PortfolioSummary } from '../portfolio/PortfolioSummary';
 import { PositionsSection } from '../portfolio/PositionsSection';
+import { usePositionEvaluationRequests } from '../position/usePositionEvaluationRequests';
 
 const CONNECTIONS_PATH = '/app/settings/connections';
+const PositionPreview = lazy(() => import('./PositionPage').then(
+  ({ PositionPreview }) => ({ default: PositionPreview }),
+  () => ({ default: PreviewLoadError }),
+));
+
+interface PreviewSelection {
+  positionId: string;
+  symbol: string;
+  context: string;
+  opening: number;
+  offset: number;
+  keyboard: boolean;
+}
 
 const POSITIONS_ANNOUNCEMENT_INTERVAL_MS = 10_000;
 
@@ -135,6 +151,17 @@ export function HomePage() {
   const [syncStates, setSyncStates] = useState<Readonly<Record<string, SyncState>>>({});
   const [reloadToken, setReloadToken] = useState(0);
   const [positionsAnnouncement, setPositionsAnnouncement] = useState('');
+  const [selection, setSelection] = useState<PreviewSelection | null>(null);
+  const [unavailablePositionContext, setUnavailablePositionContext] = useState<string | null>(null);
+  const requests = usePositionEvaluationRequests();
+  const previewId = useId();
+  const previewTitleId = useId();
+  const opening = useRef(0);
+  const previewClose = useRef<HTMLButtonElement>(null);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const positionsHeading = useRef<HTMLHeadingElement>(null);
+  const positionsContainer = useRef<HTMLDivElement>(null);
+  const returnAnchor = useRef<PreviewSelection | null>(null);
 
   const accountsRead = useRef<ScreenReader | null>(null);
   const portfolioRead = useRef<ScreenReader | null>(null);
@@ -155,6 +182,35 @@ export function HomePage() {
   const selectedAccount = accounts === null ? null : chooseAccount(accounts.items, urlAccountId);
   const selectedId = selectedAccount?.id ?? null;
   const queryKey = selectedId === null ? null : JSON.stringify(toQuery(selectedId, filters));
+  const activePreview = selection?.context === queryKey ? selection : null;
+  if (selection && !activePreview) setSelection(null);
+
+  useLayoutEffect(() => {
+    if (activePreview) {
+      if (activePreview.keyboard) previewClose.current?.focus({ preventScroll: true });
+      if ((positionsContainer.current?.getClientRects().length ?? 0) > 0) return;
+      const heading = previewHeading.current;
+      const rect = heading?.getBoundingClientRect();
+      if (rect && (rect.top < 0 || rect.bottom > window.innerHeight)) {
+        heading?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+      }
+      return;
+    }
+
+    const anchor = returnAnchor.current;
+    returnAnchor.current = null;
+    if (!anchor || anchor.context !== queryKey) return;
+    const row = Array.from(positionsContainer.current?.querySelectorAll<HTMLTableRowElement>('tr[data-position-id]') ?? [])
+      .find((entry) => entry.dataset.positionId === anchor.positionId);
+    const ticker = row?.querySelector<HTMLAnchorElement>('.overview-ticker');
+    if (row && ticker) {
+      ticker.focus({ preventScroll: true });
+      const delta = row.getBoundingClientRect().top - anchor.offset;
+      if (delta !== 0) window.scrollBy({ top: delta, behavior: 'instant' });
+    } else {
+      positionsHeading.current?.focus();
+    }
+  }, [activePreview, queryKey]);
   const queryKeyRef = useRef(queryKey);
   useEffect(() => { queryKeyRef.current = queryKey; }, [queryKey]);
   const selectedSync = selectedId === null ? undefined : syncStates[selectedId];
@@ -192,6 +248,7 @@ export function HomePage() {
             setAccounts(null);
             setPortfolioLoad(null);
             setPositions(null);
+            setSelection(null);
             if (view.kind !== 'silent') setAccountsError(toErrorNotice(error, 'Не удалось загрузить подключения. Повторите попытку позже.'));
           }, isCurrent);
         }
@@ -257,6 +314,7 @@ export function HomePage() {
             });
           }, () => {
             portfolioGeneration.current += 1;
+          setSelection(null);
             setPortfolioLoad({ accountId: selectedId, portfolio: null, hasSnapshot: false, error: view.kind === 'silent' ? null : toErrorNotice(error, 'Не удалось загрузить портфель. Повторите попытку позже.') });
           }, isCurrent);
         }
@@ -340,6 +398,7 @@ export function HomePage() {
             );
           }, () => {
             positionsGeneration.current += 1;
+            setSelection(null);
             pagination.current?.abort();
             setPositions({ key: queryKey, reload: reloadToken, items: [], nextCursor: null, hasMore: false, loadingMore: false,
               error: view.kind === 'silent' ? null : toErrorNotice(error, 'Не удалось загрузить позиции. Повторите попытку позже.') });
@@ -553,9 +612,39 @@ export function HomePage() {
     ? canRetryContinuation ? () => handleLoadMore(failedContinuation) : undefined
     : () => positionsRead.current?.refresh();
 
+  function openPosition(position: PositionListItem, offset: number, keyboard: boolean) {
+    if (queryKey === null || position.id === activePreview?.positionId) return;
+    setUnavailablePositionContext(null);
+    setSelection({ positionId: position.id, symbol: position.symbol, context: queryKey, opening: ++opening.current, offset, keyboard });
+  }
+
+  const closePreview = useCallback(() => {
+    returnAnchor.current = activePreview;
+    setSelection(null);
+  }, [activePreview]);
+
+  const handlePreviewAccessLoss = useCallback(() => {
+    closePreview();
+    setUnavailablePositionContext(queryKey);
+  }, [closePreview, queryKey]);
+
   return (
     <section className="page home-page">
-      <h1>Обзор</h1>
+      <div className="overview-header">
+        <h1>Обзор</h1>
+        <div className="overview-controls">
+          {selectedAccount && (
+            <SelectedAccountPanel
+              account={selectedAccount}
+              portfolio={currentPortfolio?.portfolio ?? null}
+              now={accounts?.loadedAt ?? 0}
+              syncing={selectedSync?.running === true}
+              onSync={() => void handleSync(selectedAccount)}
+            />
+          )}
+          <AutoUpdateControl icon />
+        </div>
+      </div>
       <p className="screen-reader-only" role="status" aria-atomic="true">{positionsAnnouncement}</p>
 
       {accountsError && (
@@ -588,13 +677,6 @@ export function HomePage() {
 
       {accounts !== null && selectedAccount !== null && (
         <>
-          <SelectedAccountPanel
-            account={selectedAccount}
-            portfolio={currentPortfolio?.portfolio ?? null}
-            now={accounts.loadedAt}
-            syncing={selectedSync?.running === true}
-            onSync={() => void handleSync(selectedAccount)}
-          />
           {selectedSync?.notice && <NoticeMessage notice={selectedSync.notice} onLogin={login} />}
 
           {currentPortfolio === null && (
@@ -606,20 +688,27 @@ export function HomePage() {
           )}
           {currentPortfolio?.portfolio && <PortfolioSummary portfolio={currentPortfolio.portfolio} />}
 
-          <PositionsSection
-            filters={filters}
-            accountName={selectedAccount.displayName}
-            list={{
-              loading: currentPositions === null,
-              items: currentPositions?.items ?? [],
-              hasMore: currentPositions !== null && currentPositions.reload === reloadToken && currentPositions.hasMore,
-              loadingMore: currentPositions?.loadingMore ?? false,
-              error: currentPositions?.error ? (
-                <NoticeMessage
-                  notice={currentPositions.error}
-                  onLogin={login}
-                  onRetry={retryPositions}
-                />
+          {unavailablePositionContext !== null && unavailablePositionContext === queryKey && <StatusMessage kind="error" text="Позиция недоступна." />}
+          <div className={activePreview ? 'overview-workspace overview-workspace-selected' : 'overview-workspace'}>
+            <div className="overview-position-list" ref={positionsContainer}>
+              <PositionsSection
+                filters={filters}
+                accountName={selectedAccount.displayName}
+                activePositionId={activePreview?.positionId}
+                headingRef={positionsHeading}
+                previewId={previewId}
+                onOpenPosition={openPosition}
+                list={{
+                  loading: currentPositions === null,
+                  items: currentPositions?.items ?? [],
+                  hasMore: currentPositions !== null && currentPositions.reload === reloadToken && currentPositions.hasMore,
+                  loadingMore: currentPositions?.loadingMore ?? false,
+                  error: currentPositions?.error ? (
+                    <NoticeMessage
+                      notice={currentPositions.error}
+                      onLogin={login}
+                      onRetry={retryPositions}
+                    />
               ) : null,
             }}
             onViewChange={handleViewChange}
@@ -627,7 +716,33 @@ export function HomePage() {
             onSideChange={handleSideChange}
             onSymbolChange={handleSymbolChange}
             onLoadMore={() => handleLoadMore()}
-          />
+              />
+            </div>
+            {activePreview && (
+              <section className="panel overview-preview" id={previewId} aria-labelledby={previewTitleId}>
+                <header className="overview-preview-header">
+                  <h2 id={previewTitleId} ref={previewHeading}>{activePreview.symbol}</h2>
+                  <button
+                    ref={previewClose}
+                    type="button"
+                    className="button button-secondary overview-icon-button"
+                    aria-label="Закрыть карточку позиции"
+                    title="Закрыть карточку позиции"
+                    onClick={closePreview}
+                  ><span aria-hidden="true">×</span></button>
+                </header>
+                <Suspense fallback={<StatusMessage kind="loading" text="Загружаем страницу позиции…" />}>
+                  <PositionPreview
+                    key={activePreview.opening}
+                    id={activePreview.positionId}
+                    requests={requests}
+                    onAccessLost={handlePreviewAccessLoss}
+                  />
+                </Suspense>
+              </section>
+            )}
+          </div>
+          {currentPortfolio?.portfolio && <ExposureBlock exposures={currentPortfolio.portfolio.exposures} />}
         </>
       )}
     </section>
@@ -647,64 +762,88 @@ function SelectedAccountPanel({
   syncing: boolean;
   onSync: () => void;
 }) {
-  const titleId = useId();
   const disabled = account.connectionStatus === 'disabled';
 
   return (
-    <section className="panel account-panel" aria-labelledby={titleId}>
-      <header className="connection-header">
-        <h2 id={titleId} className="connection-title">
-          {account.displayName}
-        </h2>
+    <details className="overview-account">
+      <summary className="button button-secondary">
+        {account.displayName}
         <span className={`connection-status connection-status-${account.connectionStatus}`}>
           {CONNECTION_STATUS_LABELS[account.connectionStatus]}
         </span>
-      </header>
-      <dl className="connection-details">
-        <ObservationDetails observation={account.realtimeObservation} />
-        <div>
-          <dt>Обновлено</dt>
-          <dd>
-            {account.lastSyncedAt === null ? (
-              'Синхронизаций ещё не было'
-            ) : (
-              <time dateTime={account.lastSyncedAt} title={formatTimestamp(account.lastSyncedAt)}>
-                {formatRelativeTime(account.lastSyncedAt, now)}
-              </time>
-            )}
-          </dd>
-        </div>
-      </dl>
-
-      {portfolio !== null && (
-        <ul className="data-state">
-          {portfolio.isFresh ? (
-            <li className="data-state-ok">REST-снимок актуален на момент ответа</li>
-          ) : (
-            <li className="data-state-warning">
-              REST-снимок устарел
-              {account.lastSyncedAt !== null && (
-                <>
-                  . Последняя успешная синхронизация:{' '}
-                  <time dateTime={account.lastSyncedAt}>{formatTimestamp(account.lastSyncedAt)}</time>
-                </>
-              )}
-            </li>
+        {portfolio && !portfolio.isFresh && <span className="data-state-warning">REST-снимок устарел</span>}
+        {portfolio?.factualFreshness && portfolio.factualFreshness.status !== 'fresh' && (
+          <span className="data-state-warning">Фактические данные: {factualFreshnessLabel(portfolio.factualFreshness.status)}</span>
+        )}
+        {portfolio?.valuationFreshness && !['fresh', 'notApplicable'].includes(portfolio.valuationFreshness.status) && (
+          <span className="data-state-warning">Рыночные данные: {valuationFreshnessLabel(portfolio.valuationFreshness.status)}</span>
+        )}
+      </summary>
+      <div className="panel account-panel">
+        <dl className="connection-details">
+          <ObservationDetails observation={account.realtimeObservation} />
+          {portfolio && (
+            <>
+              <div><dt>Фактическое состояние</dt><dd>{factualFreshnessLabel(portfolio.factualFreshness?.status)}
+                {portfolio.factualFreshness?.lastFullyReconciledAt && <> · сверка: <time dateTime={portfolio.factualFreshness.lastFullyReconciledAt}>{formatTimestamp(portfolio.factualFreshness.lastFullyReconciledAt)}</time></>}</dd></div>
+              <div><dt>Свежесть рыночной оценки</dt><dd>{valuationFreshnessLabel(portfolio.valuationFreshness?.status)}
+                {portfolio.valuationFreshness?.calculatedAt && <> · расчёт: <time dateTime={portfolio.valuationFreshness.calculatedAt}>{formatTimestamp(portfolio.valuationFreshness.calculatedAt)}</time></>}</dd></div>
+            </>
           )}
-          {!portfolio.isComplete && <li className="data-state-warning">Данные неполные</li>}
-        </ul>
-      )}
-      {account.connectionStatus === 'unavailable' && (
-        <p className="muted">Подключение недоступно: показаны последние сохранённые данные.</p>
-      )}
-      {disabled && <p className="muted">Подключение отключено: синхронизация недоступна.</p>}
+          <div>
+            <dt>Обновлено</dt>
+            <dd>
+              {account.lastSyncedAt === null ? (
+                'Синхронизаций ещё не было'
+              ) : (
+                <time dateTime={account.lastSyncedAt} title={formatTimestamp(account.lastSyncedAt)}>
+                  {formatRelativeTime(account.lastSyncedAt, now)}
+                </time>
+              )}
+            </dd>
+          </div>
+        </dl>
 
-      <div className="connection-actions">
-        <button type="button" className="button" disabled={disabled || syncing} onClick={onSync}>
-          {syncing ? 'Синхронизация…' : 'Синхронизировать'}
-        </button>
+        {portfolio !== null && (
+          <ul className="data-state">
+            {portfolio.isFresh ? (
+              <li className="data-state-ok">REST-снимок актуален на момент ответа</li>
+            ) : (
+              <li className="data-state-warning">
+                REST-снимок устарел
+                {account.lastSyncedAt !== null && (
+                  <>
+                    . Последняя успешная синхронизация:{' '}
+                    <time dateTime={account.lastSyncedAt}>{formatTimestamp(account.lastSyncedAt)}</time>
+                  </>
+                )}
+              </li>
+            )}
+            {!portfolio.isComplete && <li className="data-state-warning">Данные неполные</li>}
+          </ul>
+        )}
+        {account.connectionStatus === 'unavailable' && (
+          <p className="muted">Подключение недоступно: показаны последние сохранённые данные.</p>
+        )}
+        {disabled && <p className="muted">Подключение отключено: синхронизация недоступна.</p>}
+
+        <div className="connection-actions">
+          <button type="button" className="button" disabled={disabled || syncing} onClick={onSync}>
+            {syncing ? 'Синхронизация…' : 'Синхронизировать'}
+          </button>
+        </div>
       </div>
-    </section>
+    </details>
+  );
+}
+
+function PreviewLoadError() {
+  return (
+    <StatusMessage
+      kind="error"
+      text="Не удалось загрузить страницу позиции."
+      actions={<button type="button" className="button button-secondary" onClick={() => window.location.reload()}>Обновить страницу</button>}
+    />
   );
 }
 

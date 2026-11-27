@@ -251,10 +251,13 @@ test('позиция обновляется через outbox и восстан�
     expect(url.searchParams.get('side')).toBe('long');
     expect(url.searchParams.get('symbol')).toBe('BTCUSDT');
     await updatedCard.click();
-    await expect(page).toHaveURL(new RegExp(`/app/positions/${positionId}`));
-    await expect(page.getByRole('heading', { name: /BTCUSDT.*2/ })).toBeVisible();
+    await expect(page).toHaveURL(url.href);
+    const preview = page.getByRole('region', { name: 'BTCUSDT', exact: true });
+    const details = preview.getByRole('region', { name: 'Параметры позиции' });
+    const size = details.getByText('Размер', { exact: true }).locator('..').locator('dd');
+    await expect(size).toHaveText('2');
     const timelineName = /История позиции$/;
-    const timeline = page.getByRole('region', { name: timelineName });
+    const timeline = preview.getByRole('region', { name: timelineName });
     const timelineToggle = timeline.getByRole('button', { name: timelineName });
     const changedTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 1 → 2', exact: true, level: 3 });
     const recoveredTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 2 → 3', exact: true, level: 3 });
@@ -310,7 +313,7 @@ test('позиция обновляется через outbox и восстан�
     ), { timeout: 30000 }).toBe(true);
     await expect(recoveredTimelineItem).toBeVisible({ timeout: 30000 });
     await expect(timelineToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('heading', { name: /BTCUSDT.*3/ })).toBeVisible({ timeout: 30000 });
+    await expect(size).toHaveText('3', { timeout: 30000 });
     expect(await page.evaluate(() => window.__realtimePageMarker)).toBe('position-document');
     expect(mutations).toEqual([]);
   } finally {

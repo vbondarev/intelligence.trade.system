@@ -163,7 +163,7 @@ describe('PositionPage loading', () => {
     expect(screen.getByRole('link', { name: '← К списку позиций' })).toHaveAttribute('href', '/app');
   });
 
-  it('keeps other areas when market, candles or evaluation fail independently', async () => {
+  it('сохраняет остальные области при независимых сбоях рынка, свечей или оценки', async () => {
     renderPage(
       pagePath(),
       positionRoutes(POSITION_ID, {
@@ -180,7 +180,7 @@ describe('PositionPage loading', () => {
       await within(evaluationPanel()).findByText('Не удалось загрузить оценку. Повторите попытку позже.'),
     ).toBeVisible();
     expect(screen.getByText('Средняя цена входа')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Переоценить' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Выполнить оценку' })).toBeEnabled();
   });
 
   it('keeps the page when only the position fails with a server error', async () => {
@@ -192,10 +192,10 @@ describe('PositionPage loading', () => {
     await findTitle('BTCUSDT');
   });
 
-  it('shows that the position has not been evaluated yet', async () => {
+  it('показывает отсутствие оценки позиции', async () => {
     renderPage(pagePath(), positionRoutes(POSITION_ID, { [evaluationUrl()]: () => new Response(null, { status: 204 }) }));
 
-    expect(await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».')).toBeVisible();
+    expect(await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Оценить позицию».')).toBeVisible();
     expect(screen.queryByText('Удерживать')).not.toBeInTheDocument();
   });
 
@@ -278,7 +278,7 @@ describe('PositionPage navigation', () => {
     expect(within(table).getByText(/2026-10-11 00:00:00 UTC/)).toBeVisible();
   });
 
-  it('does not show late responses of the previous position after switching', async () => {
+  it('не показывает поздние ответы предыдущей позиции после переключения', async () => {
     const latePosition = deferred<Response>();
     const lateEvaluation = deferred<Response>();
     renderPage(pagePath(), {
@@ -294,7 +294,7 @@ describe('PositionPage navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
     await findTitle('ETHUSDT · 0,5 LONG');
-    await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».');
+    await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Оценить позицию».');
     latePosition.resolve(jsonResponse(positionFixture()));
     lateEvaluation.resolve(jsonResponse(evaluationFixture()));
     await settle();
@@ -401,7 +401,7 @@ describe('PositionPage evaluation command', () => {
     expect(screen.queryByRole('region', { name: 'Оценка и рекомендация' })).not.toBeInTheDocument();
   });
 
-  it('does not apply an evaluation result to another position', async () => {
+  it('не применяет результат оценки к другой позиции', async () => {
     const evaluate = deferred<Response>();
     const requests = renderPage(pagePath(), {
       ...positionRoutes(POSITION_ID, {
@@ -412,13 +412,13 @@ describe('PositionPage evaluation command', () => {
         [evaluationUrl(OTHER_POSITION_ID)]: () => new Response(null, { status: 204 }),
       }),
     });
-    await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».');
-    await userEvent.click(screen.getByRole('button', { name: 'Переоценить' }));
+    await screen.findByText('Оценка ещё не выполнялась. Запустите её кнопкой «Оценить позицию».');
+    await userEvent.click(screen.getByRole('button', { name: 'Оценить позицию' }));
     await screen.findByRole('button', { name: 'Оценка выполняется…' });
 
     await userEvent.click(screen.getByRole('button', { name: 'Открыть другую позицию' }));
     await findTitle('ETHUSDT · 0,5 LONG');
-    expect(screen.getByRole('button', { name: 'Переоценить' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Оценить позицию' })).toBeEnabled();
     evaluate.resolve(jsonResponse(evaluationFixture()));
     await settle();
 
@@ -778,7 +778,7 @@ describe('realtime position invalidation', () => {
 
   it('сохраняет применённый пустой снимок оценки при фоновом сбое и повторе', async () => {
     let calls = 0;
-    const empty = 'Оценка ещё не выполнялась. Запустите её кнопкой «Переоценить».';
+    const empty = 'Оценка ещё не выполнялась. Запустите её кнопкой «Оценить позицию».';
     const requests = renderPage(pagePath(), positionRoutes(POSITION_ID, {
       [evaluationUrl()]: () => new Response(null, { status: ++calls === 2 ? 503 : 204 }),
     }));

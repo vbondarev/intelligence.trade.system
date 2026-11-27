@@ -13,6 +13,7 @@ type Read = (signal: AbortSignal, presentation: ReadPresentation) => Promise<voi
 export type ScreenReader = Omit<InvalidationScheduler, 'cancelPending' | 'dispose'> & {
   dispose: (reason?: 'access-revoked') => void;
   refresh: () => void;
+  refreshAfterWrite: () => boolean;
   supersedeExplicitRead: () => void;
 };
 type EndSession = SessionReadContext['endSession'];
@@ -158,6 +159,14 @@ export function createAutoUpdates(captureSessionRead?: () => SessionReadContext)
         explicitPending = true;
         replacementExplicit = false;
         live.invalidate();
+      },
+      refreshAfterWrite() {
+        if (!readers.has(reader) || snapshot.mode === 'resuming') return false;
+        live.cancelPending();
+        explicitPending = true;
+        replacementExplicit = false;
+        live.invalidate();
+        return true;
       },
       supersedeExplicitRead() {
         explicitPending = false;

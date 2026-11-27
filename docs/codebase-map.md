@@ -10,7 +10,7 @@
 которая показывает устаревшие данные.
 
 - **Ожидаемое поведение.** Начни с разделов о событиях и восстановлении через REST. [Realtime v1](realtime-v1-contract.md)
-- **Точка входа.** Если событие доходит до браузера, найди обработчики `position.updated` и `recovery` в [PositionPage.tsx](../frontend/intelligence-trade-web/src/pages/PositionPage.tsx). Если событие теряется раньше, проследи цепочку через [RealtimeProvider.tsx](../frontend/intelligence-trade-web/src/realtime/RealtimeProvider.tsx) и [BrowserUpdatesHub.cs](../backend/src/Intelligence.TradeSystem.Bff/Realtime/BrowserUpdatesHub.cs).
+- **Точка входа.** Если событие доходит до браузера, найди обработчики `position.updated` и `recovery` в [PositionContent.tsx](../frontend/intelligence-trade-web/src/position/PositionContent.tsx). Если событие теряется раньше, проследи цепочку через [RealtimeProvider.tsx](../frontend/intelligence-trade-web/src/realtime/RealtimeProvider.tsx) и [BrowserUpdatesHub.cs](../backend/src/Intelligence.TradeSystem.Bff/Realtime/BrowserUpdatesHub.cs).
 - **Проверка.** Для поведения карточки начни с [PositionPage.test.tsx](../frontend/intelligence-trade-web/src/pages/PositionPage.test.tsx). Для границы BFF открой [BrowserUpdatesHubTests.cs](../backend/src/Intelligence.TradeSystem.Bff.Tests/BrowserUpdatesHubTests.cs). Для доставки события и последующего REST-чтения смотри [realtime-full-stack.spec.ts](../frontend/intelligence-trade-web/e2e/realtime-full-stack.spec.ts).
 
 ## Вход и сессия через BFF и Identity

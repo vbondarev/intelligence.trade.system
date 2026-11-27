@@ -63,6 +63,7 @@ const INITIAL_STATE: TimelineState = {
 };
 
 interface PositionTimelineProps {
+  heading?: 'h2' | 'h3';
   positionId: string;
   settlementAsset: string;
   onLogin: () => void;
@@ -117,7 +118,7 @@ function appendUnique(current: readonly TimelineItem[], page: readonly TimelineI
  * unmount отменяют прежний запрос, а его поздний ответ не применяется. Polling, sync и оценку
  * блок не запускает.
  */
-export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionRead, isPositionAccessible, isPositionRevoked }: PositionTimelineProps) {
+export function PositionTimeline({ positionId, settlementAsset, onLogin, captureSessionRead, isPositionAccessible, isPositionRevoked, heading: Heading = 'h2' }: PositionTimelineProps) {
   const updates = useAutoUpdates();
   const titleId = useId();
   const contentId = useId();
@@ -416,7 +417,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
     <section className="panel position-timeline" aria-labelledby={titleId}>
       <p className="screen-reader-only" role="status" aria-atomic="true">{manualLoadStatus}</p>
       <header className="position-timeline-header">
-        <h2 id={titleId} className="section-title">
+        <Heading id={titleId} className="section-title">
           <button
             type="button"
             className="position-timeline-toggle"
@@ -426,7 +427,7 @@ export function PositionTimeline({ positionId, settlementAsset, onLogin, capture
           >
             История позиции
           </button>
-        </h2>
+        </Heading>
         {isOpen && !sessionEnded && (
           <button ref={refreshButton} type="button" className="button button-secondary" onClick={handleRefresh}>
             Обновить

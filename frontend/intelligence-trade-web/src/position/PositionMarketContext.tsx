@@ -94,16 +94,16 @@ function TimeframeCard({ label, timeframe }: { label: string; timeframe: MarketT
  * Публичный рыночный контекст инструмента. Показатели рассчитаны backend и отображаются как
  * есть; момент снимка `capturedAt` не связан с моментом оценки позиции.
  */
-export function PositionMarketContext({ market }: { market: PositionMarket }) {
+export function PositionMarketContext({ market, heading: Heading = 'h2' }: { market: PositionMarket; heading?: 'h2' | 'h3' }) {
   const titleId = useId();
   const { price, derivatives, orderBook, tradeFlow, sentiment } = market;
   const change = price.price24hChangePct;
 
   return (
     <section className="panel market-context" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">
+      <Heading id={titleId} className="section-title">
         Рыночный контекст
-      </h2>
+      </Heading>
       <p className="muted market-captured">
         Снимок рынка: <time dateTime={market.capturedAt}>{formatTimestamp(market.capturedAt)}</time>
       </p>

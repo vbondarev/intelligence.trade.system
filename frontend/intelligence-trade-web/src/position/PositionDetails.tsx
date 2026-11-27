@@ -26,16 +26,16 @@ function signClass(value: number | null): string | undefined {
  * Сохранённое состояние позиции. Стоимость и PnL подписаны фактическим `settlementAsset`;
  * отсутствующие уровни показываются прочерком, а не нулём.
  */
-export function PositionDetails({ position }: { position: Position }) {
+export function PositionDetails({ position, heading: Heading = 'h2' }: { position: Position; heading?: 'h2' | 'h3' }) {
   const titleId = useId();
   const asset = position.settlementAsset;
 
   return (
     <section className="panel position-details" aria-labelledby={titleId}>
       <header className="position-header">
-        <h2 id={titleId} className="position-title">
+        <Heading id={titleId} className="position-title">
           Параметры позиции
-        </h2>
+        </Heading>
         <span className={`tracking-state tracking-state-${position.trackingState}`}>
           {TRACKING_STATE_LABELS[position.trackingState]}
         </span>
