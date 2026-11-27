@@ -44,6 +44,13 @@ describe('PositionMarketContext', () => {
     expect(valueOf('Изменение 24ч')).toBe(expected);
   });
 
+  it('показывает количество Open Interest и его стоимость в соответствующих строках', () => {
+    render(<PositionMarketContext market={marketFixture()} />);
+
+    expect(valueOf('Open Interest')).toBe('52 тыс.');
+    expect(valueOf('Open Interest, стоимость')).toBe('3,17 млрд');
+  });
+
   it('keeps metrics already expressed in percent units unscaled', () => {
     const market = marketFixture();
     render(

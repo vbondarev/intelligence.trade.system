@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Request } from '@playwright/test';
 import { loginThroughLanding } from './support';
 
 declare global {
@@ -192,6 +192,8 @@ test('позиция обновляется через outbox и восстан�
   let detailGets = 0;
   const detailRequests = new Map<object, number>();
   const successfulDetailReads: number[] = [];
+  const timelineRequests = new Map<Request, { startedAt: number; readyAtStart: number }>();
+  const successfulTimelineReads: { startedAt: number; readyAtStart: number }[] = [];
   const mutations: string[] = [];
   const accountId = randomUUID();
   const positionId = randomUUID();
@@ -209,11 +211,16 @@ test('позиция обновляется через outbox и восстан�
       detailGets++;
       detailRequests.set(request, Date.now());
     }
+    if (request.method() === 'GET' && url.pathname === `/bff/me/positions/${positionId}/timeline`) {
+      timelineRequests.set(request, { startedAt: Date.now(), readyAtStart: ready });
+    }
     if (request.method() === 'POST' && /\/(sync|evaluation)(\?|$)/.test(request.url())) mutations.push(request.url());
   });
   page.on('response', (response) => {
     const startedAt = detailRequests.get(response.request());
     if (startedAt !== undefined && response.ok()) successfulDetailReads.push(startedAt);
+    const timelineRead = timelineRequests.get(response.request());
+    if (timelineRead && response.ok()) successfulTimelineReads.push(timelineRead);
   });
   await loginThroughLanding(page);
   await expect.poll(() => ready, { timeout: 20000 }).toBeGreaterThan(0);
@@ -246,46 +253,71 @@ test('позиция обновляется через outbox и восстан�
     await updatedCard.click();
     await expect(page).toHaveURL(new RegExp(`/app/positions/${positionId}`));
     await expect(page.getByRole('heading', { name: /BTCUSDT.*2/ })).toBeVisible();
+    const timelineName = /История позиции$/;
+    const timeline = page.getByRole('region', { name: timelineName });
+    const timelineToggle = timeline.getByRole('button', { name: timelineName });
+    const changedTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 1 → 2', exact: true, level: 3 });
+    const recoveredTimelineItem = timeline.getByRole('heading', { name: 'Размер позиции увеличился: 2 → 3', exact: true, level: 3 });
+    await expect(timelineToggle).toBeVisible();
+    await timelineToggle.click();
+    await expect(timelineToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(changedTimelineItem).toBeVisible();
+    await expect(recoveredTimelineItem).toHaveCount(0);
+
+    let beforeDetail: number;
+    let beforeReady: number;
     const observerContext = await browser.newContext({ baseURL: process.env.WEB_BASE_URL ?? 'http://localhost:8082' });
-    const observer = await observerContext.newPage();
-    let observerReady = false;
-    const observedEvents: string[] = [];
-    observer.on('websocket', (socket) => {
-      if (socket.url().includes('/bff/hubs/v1/updates')) socket.on('framereceived', ({ payload }) => {
-        if (typeof payload !== 'string') return;
-        if (payload.includes('bff.realtime.ready')) observerReady = true;
-        if (payload.includes('position.updated') && payload.includes(positionId)) observedEvents.push(payload);
+    try {
+      const observer = await observerContext.newPage();
+      let observerReady = false;
+      const observedEvents: string[] = [];
+      observer.on('websocket', (socket) => {
+        if (socket.url().includes('/bff/hubs/v1/updates')) socket.on('framereceived', ({ payload }) => {
+          if (typeof payload !== 'string') return;
+          if (payload.includes('bff.realtime.ready')) observerReady = true;
+          if (payload.includes('position.updated') && payload.includes(positionId)) observedEvents.push(payload);
+        });
       });
-    });
-    await loginThroughLanding(observer);
-    await expect.poll(() => observerReady, { timeout: 20000 }).toBe(true);
-    await expect.poll(() => page.evaluate(() => window.__realtimeTestSocket?.readyState)).toBe(1);
-    const beforeDetail = detailGets;
-    const beforeReady = ready;
-    await context.setOffline(true);
-    await page.evaluate(async () => {
-      const socket = window.__realtimeTestSocket;
-      if (!socket) throw new Error('Realtime WebSocket отсутствует.');
-      if (socket.readyState === WebSocket.CLOSED) return;
-      await new Promise<void>((resolve) => { socket.addEventListener('close', () => resolve(), { once: true }); socket.close(); });
-    });
-    expect(await page.evaluate(() => window.__realtimeTestSocket?.readyState)).toBe(3);
-    const eventId = randomUUID();
-    positionPhase(userId, accountId, positionId, 'recovered', eventId);
-    positionPhase(userId, accountId, positionId, 'wait-processed', eventId);
-    await expect.poll(() => observedEvents.some((event) => event.includes(eventId)), { timeout: 30000 }).toBe(true);
-    await observerContext.close();
+      await loginThroughLanding(observer);
+      await expect.poll(() => observerReady, { timeout: 20000 }).toBe(true);
+      await expect.poll(() => page.evaluate(() => window.__realtimeTestSocket?.readyState)).toBe(1);
+      beforeDetail = detailGets;
+      beforeReady = ready;
+      await context.setOffline(true);
+      await page.evaluate(async () => {
+        const socket = window.__realtimeTestSocket;
+        if (!socket) throw new Error('Realtime WebSocket отсутствует.');
+        if (socket.readyState === WebSocket.CLOSED) return;
+        await new Promise<void>((resolve) => { socket.addEventListener('close', () => resolve(), { once: true }); socket.close(); });
+      });
+      expect(await page.evaluate(() => window.__realtimeTestSocket?.readyState)).toBe(3);
+      const eventId = randomUUID();
+      positionPhase(userId, accountId, positionId, 'recovered', eventId);
+      positionPhase(userId, accountId, positionId, 'wait-processed', eventId);
+      await expect.poll(() => observedEvents.some((event) => event.includes(eventId)), { timeout: 30000 }).toBe(true);
+      await expect(recoveredTimelineItem).toHaveCount(0);
+    } finally {
+      await observerContext.close();
+    }
     await context.setOffline(false);
     const onlineAt = await page.evaluate(() => window.__realtimeOnlineAt);
     expect(onlineAt).toBeDefined();
     await expect.poll(() => ready, { timeout: 45000 }).toBeGreaterThan(beforeReady);
     await expect.poll(() => detailGets).toBeGreaterThan(beforeDetail);
     await expect.poll(() => successfulDetailReads.some((startedAt) => startedAt >= onlineAt!), { timeout: 30000 }).toBe(true);
+    await expect.poll(() => successfulTimelineReads.some(({ startedAt, readyAtStart }) =>
+      startedAt >= onlineAt! && readyAtStart > beforeReady,
+    ), { timeout: 30000 }).toBe(true);
+    await expect(recoveredTimelineItem).toBeVisible({ timeout: 30000 });
+    await expect(timelineToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('heading', { name: /BTCUSDT.*3/ })).toBeVisible({ timeout: 30000 });
     expect(await page.evaluate(() => window.__realtimePageMarker)).toBe('position-document');
     expect(mutations).toEqual([]);
   } finally {
-    await context.setOffline(false);
-    positionPhase(userId, accountId, positionId, 'cleanup', randomUUID());
+    try {
+      await context.setOffline(false);
+    } finally {
+      positionPhase(userId, accountId, positionId, 'cleanup', randomUUID());
+    }
   }
 });

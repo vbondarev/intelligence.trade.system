@@ -31,18 +31,30 @@ describe('toChartCandles', () => {
     );
   });
 
-  it('drops candles with an invalid time or non-finite prices', () => {
+  it('отбрасывает свечи с некорректным временем', () => {
     const valid = candleFixture('2026-10-12T08:00:00Z');
 
     const result = toChartCandles([
       { ...valid, openTimeUtc: 'not-a-date' },
-      { ...candleFixture('2026-10-12T05:00:00Z'), high: Number.NaN },
-      { ...candleFixture('2026-10-12T06:00:00Z'), close: Number.POSITIVE_INFINITY },
       valid,
     ]);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.close).toBe(valid.close);
+  });
+
+  describe.each(['open', 'high', 'low', 'close'] as const)('%s', (field) => {
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+      'отбрасывает свечу со значением %s и сохраняет корректную свечу без изменений',
+      (invalidPrice) => {
+        const invalid = { ...candleFixture('2026-10-12T07:00:00Z'), [field]: invalidPrice };
+        const valid = candleFixture('2026-10-12T08:00:00Z', 61000);
+
+        expect(toChartCandles([invalid, valid])).toEqual([
+          { time: Date.UTC(2026, 9, 12, 8) / 1000, open: 60900, high: 61200, low: 60700, close: 61000 },
+        ]);
+      },
+    );
   });
 
   it('returns an empty series for no candles', () => {
