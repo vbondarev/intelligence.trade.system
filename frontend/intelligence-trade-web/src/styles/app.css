@@ -855,7 +855,6 @@ h2.section-title {
 }
 
 .overview-controls {
-  position: relative;
   min-width: min(100%, 15rem);
   align-items: center;
   margin-bottom: var(--space-3);
@@ -890,19 +889,31 @@ h2.section-title {
   font-size: 1.25rem;
 }
 
+.overview-auto-update-action {
+  position: relative;
+}
+
 .overview-tooltip {
   display: none;
   position: absolute;
   z-index: 1;
-  inset-block-start: 100%;
-  inset-inline-end: 0;
-  max-width: 100%;
+  inset-block-start: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  inline-size: max-content;
+  max-inline-size: var(--overview-tooltip-room);
+  overflow-wrap: anywhere;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-small);
   background-color: var(--color-surface-raised);
   color: var(--color-text);
   font-size: var(--font-size-small);
+}
+
+.overview-auto-update-action[data-tooltip-side="left"] .overview-tooltip {
+  right: 100%;
+  left: auto;
 }
 
 .overview-auto-update-action button:focus-visible + .overview-tooltip {

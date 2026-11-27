@@ -76,6 +76,74 @@ test('счёт и первая позиция видны на первом эк�
   await expect(page.getByRole('tooltip')).toHaveText('Приостановить автообновление');
 });
 
+test.describe('подсказка автообновления на узком экране', () => {
+  test.use({ hasTouch: false, isMobile: false });
+
+  for (const width of [320, 390]) {
+    test(`указатель и Escape управляют подсказкой при ширине ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 842 });
+      await mockBusinessData(page);
+      await loginThroughLanding(page);
+      await expect(page.getByRole('link', { name: /^BTCUSDT/ })).toBeVisible();
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+      const heading = page.getByRole('heading', { name: 'Обзор', exact: true });
+      const body = page.locator('body');
+      const pause = page.getByRole('button', { name: 'Приостановить автообновление' });
+      const tooltip = page.getByRole('tooltip');
+      await expect(body).toBeFocused();
+      await expect(tooltip).toBeHidden();
+      await pause.hover();
+      await expect(tooltip).toBeInViewport({ ratio: 1 });
+      await expect(tooltip).toHaveText('Приостановить автообновление');
+      await expectNoHorizontalScroll(page);
+
+      const button = (await pause.boundingBox())!;
+      const bounds = (await tooltip.boundingBox())!;
+      const startX = button.x + button.width / 2;
+      const startY = button.y + button.height / 2;
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+      const gap = Math.max(bounds.x - (button.x + button.width), button.x - (bounds.x + bounds.width));
+      expect(gap).toBeLessThanOrEqual(1);
+      for (const step of [0, 0.125, 0.25, 0.5, 0.75, 1]) {
+        await page.mouse.move(startX + (x - startX) * step, startY + (y - startY) * step);
+        await expect(tooltip).toBeVisible();
+      }
+      expect(await tooltip.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), { x, y })).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(tooltip).toBeHidden();
+      await expect(body).toBeFocused();
+
+      await pause.hover();
+      await expect(tooltip).toBeVisible();
+      await heading.hover();
+      await expect(tooltip).toBeHidden();
+
+      await page.keyboard.press('Tab');
+      await pause.focus();
+      await expect(pause).toBeFocused();
+      await expect(tooltip).toBeInViewport({ ratio: 1 });
+      await page.keyboard.press('Escape');
+      await expect(tooltip).toBeHidden();
+      await expect(pause).toBeFocused();
+      await pause.hover();
+      await expect(tooltip).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(tooltip).toBeHidden();
+      await expect(pause).toBeFocused();
+      await heading.hover();
+      await expect(tooltip).toBeHidden();
+      await page.keyboard.press('Tab');
+      await expect(pause).not.toBeFocused();
+      await pause.focus();
+      await expect(tooltip).toBeVisible();
+      await expect(pause).toBeEnabled();
+      await expect(page.getByText(/^Автообновление приостановлено\./)).toHaveCount(0);
+    });
+  }
+});
+
 test('узкий обзор возвращает прокрученный список к тикеру и прежней высоте строки', async ({ page, hasTouch }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await mockBusinessData(page);

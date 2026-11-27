@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 
 export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
@@ -6,6 +6,38 @@ export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
   const { mode, announcement } = useAutoUpdateState();
   const label = mode === 'live' ? 'Приостановить автообновление' : 'Возобновить автообновление';
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
+  const tooltipAnchor = useRef<HTMLDivElement>(null);
+  const tooltip = useRef<HTMLSpanElement>(null);
+
+  const positionTooltip = useCallback(() => {
+    const anchor = tooltipAnchor.current;
+    if (!anchor) return;
+    const { left, right } = anchor.getBoundingClientRect();
+    const roomOnRight = document.documentElement.clientWidth - right;
+    anchor.dataset.tooltipSide = roomOnRight >= left ? 'right' : 'left';
+    anchor.style.setProperty('--overview-tooltip-room', `${Math.max(roomOnRight, left) - 8}px`);
+  }, []);
+
+  useEffect(() => {
+    if (!icon) return;
+    function dismissTooltip(event: KeyboardEvent) {
+      if (event.key === 'Escape' && tooltip.current?.getClientRects().length) {
+        setTooltipDismissed(true);
+      }
+    }
+    positionTooltip();
+    document.addEventListener('keydown', dismissTooltip);
+    window.addEventListener('resize', positionTooltip);
+    return () => {
+      document.removeEventListener('keydown', dismissTooltip);
+      window.removeEventListener('resize', positionTooltip);
+    };
+  }, [icon, positionTooltip]);
+
+  function activateTooltip() {
+    positionTooltip();
+    setTooltipDismissed(false);
+  }
 
   const button = (
     <button
@@ -14,10 +46,7 @@ export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
       aria-disabled={mode === 'resuming' || undefined}
       aria-label={icon ? label : undefined}
       onClick={updates.toggle}
-      onFocus={icon ? () => setTooltipDismissed(false) : undefined}
-      onKeyDown={icon ? (event) => {
-        if (event.key === 'Escape') setTooltipDismissed(true);
-      } : undefined}
+      onFocus={icon ? activateTooltip : undefined}
     >
       {icon ? <span aria-hidden="true">{mode === 'live' ? '⏸' : '▶'}</span> : label}
     </button>
@@ -26,9 +55,9 @@ export function AutoUpdateControl({ icon = false }: { icon?: boolean }) {
   return (
     <div className={icon ? 'overview-auto-updates' : 'auto-updates'}>
       {icon ? (
-        <div className="overview-auto-update-action" onPointerEnter={() => setTooltipDismissed(false)}>
+        <div className="overview-auto-update-action" ref={tooltipAnchor} onPointerEnter={activateTooltip}>
           {button}
-          {!tooltipDismissed && <span className="overview-tooltip" role="tooltip">{label}</span>}
+          {!tooltipDismissed && <span className="overview-tooltip" ref={tooltip} role="tooltip">{label}</span>}
         </div>
       ) : button}
       {mode !== 'live' && <p className="muted">Автообновление приостановлено. Данные могут устареть.</p>}
