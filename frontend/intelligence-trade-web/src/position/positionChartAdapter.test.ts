@@ -31,7 +31,7 @@ describe('toChartCandles', () => {
     );
   });
 
-  it('drops candles with an invalid time', () => {
+  it('отбрасывает свечи с некорректным временем', () => {
     const valid = candleFixture('2026-10-12T08:00:00Z');
 
     const result = toChartCandles([
@@ -45,7 +45,7 @@ describe('toChartCandles', () => {
 
   describe.each(['open', 'high', 'low', 'close'] as const)('%s', (field) => {
     it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
-      'drops a candle with %s and keeps the valid candle unchanged',
+      'отбрасывает свечу со значением %s и сохраняет корректную свечу без изменений',
       (invalidPrice) => {
         const invalid = { ...candleFixture('2026-10-12T07:00:00Z'), [field]: invalidPrice };
         const valid = candleFixture('2026-10-12T08:00:00Z', 61000);
