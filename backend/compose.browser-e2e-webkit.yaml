@@ -1,4 +1,4 @@
-# CI-only overlay for the isolated mobile WebKit HTTP stack.
+# Файл переопределений Compose для изолированного HTTP-стэка mobile WebKit. Используется только в CI.
 services:
   api:
     image: backend-api:latest
