@@ -37,6 +37,7 @@ test('точные малые цены прокручиваются внутри
   }));
   await loginThroughLanding(page);
   await page.getByRole('link', { name: /^BTCUSDT/ }).click();
+  await page.locator('summary').filter({ hasText: 'Рыночные данные и параметры' }).click();
   await page.getByText('Данные графика и ценовые уровни', { exact: true }).click();
   const region = page.getByRole('region', { name: 'Таблица свечей' });
   const cells = region.getByRole('cell');
@@ -93,7 +94,9 @@ test('поиск сохраняет фокус и восстанавливает
 
 function contrast(left: string, right: string) {
   const luminance = (hex: string) => {
-    const channels = hex.slice(1).match(/../g)!.map((channel) => parseInt(channel, 16) / 255);
+    const channels = hex.startsWith('#')
+      ? hex.slice(1).match(/../g)!.map((channel) => parseInt(channel, 16) / 255)
+      : hex.match(/[\d.]+/g)!.slice(0, 3).map((channel) => Number(channel) / 255);
     const [red, green, blue] = channels.map((channel) => channel <= 0.04045
       ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
     return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
@@ -118,7 +121,7 @@ test('canvas рисует контрастные ценовые подписи, 
   await mockBusinessData(page);
   await mockPositionPage(page);
   await loginThroughLanding(page);
-  const selected = page.getByRole('button', { name: 'Текущие', exact: true });
+  const selected = page.getByRole('button', { name: 'Открытые 3' });
   const unselected = page.getByRole('button', { name: 'Закрытые', exact: true });
   const marker = (element: Element) => getComputedStyle(element, '::after').borderBlockEndWidth;
   await expect(selected).toHaveAttribute('aria-pressed', 'true');
@@ -126,8 +129,24 @@ test('canvas рисует контрастные ценовые подписи, 
   expect(await unselected.evaluate(marker)).toBe('0px');
   await selected.focus();
   expect(await selected.evaluate(marker)).toBe('3px');
-  expect(contrast('#93c5fd', '#18202b')).toBeGreaterThanOrEqual(3);
+  const states = await selected.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [getComputedStyle(element, '::after').borderBlockEndColor, style.backgroundColor];
+  });
+  expect(contrast(states[0], states[1])).toBeGreaterThanOrEqual(3);
+  const initialViewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 1100, height: 842 });
+  const row = page.getByRole('row', { name: /^BTCUSDT/ });
+  await row.getByRole('link').click();
+  await expect(row.getByRole('link')).toHaveAttribute('aria-current', 'true');
+  await expect(row.getByText('Открыта')).toBeVisible();
+  const [markerColor, rowBackground] = await row.evaluate((element) => [
+    getComputedStyle(element.querySelector('.overview-open-indicator')!).color,
+    getComputedStyle(element).backgroundColor,
+  ]);
+  expect(contrast(markerColor, rowBackground)).toBeGreaterThanOrEqual(4.5);
 
+  await page.setViewportSize(initialViewport);
   await page.goto('/app/positions/btc');
   await page.locator('summary').filter({ hasText: 'Вид графика' }).click();
   await page.getByLabel('Минимальная цена').fill('40000');
@@ -145,9 +164,9 @@ test('canvas рисует контрастные ценовые подписи, 
   for (const [label, background] of Object.entries(backgrounds)) {
     expect(contrast(paints[label], background), label).toBeGreaterThanOrEqual(4.5);
   }
-  expect(contrast('#000000', '#4ade80')).toBeGreaterThanOrEqual(4.5);
-  expect(contrast('#000000', '#ff9c9c')).toBeGreaterThanOrEqual(4.5);
-  expect(contrast('#ffffff', '#253041')).toBeGreaterThanOrEqual(4.5);
+  expect(contrast('#000000', '#72d9a8')).toBeGreaterThanOrEqual(4.5);
+  expect(contrast('#000000', '#ff98a7')).toBeGreaterThanOrEqual(4.5);
+  expect(contrast('#ffffff', '#293547')).toBeGreaterThanOrEqual(4.5);
 });
 
 test('вид графика: шкалы, нативные действия и reflow', async ({ page, hasTouch }) => {

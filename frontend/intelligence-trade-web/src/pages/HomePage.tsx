@@ -27,7 +27,7 @@ import type {
   PositionSide,
   PositionsView,
 } from '../portfolio/portfolioTypes';
-import { ExposureBlock, PortfolioSummary } from '../portfolio/PortfolioSummary';
+import { PortfolioSummary } from '../portfolio/PortfolioSummary';
 import { PositionsSection } from '../portfolio/PositionsSection';
 import { usePositionEvaluationRequests } from '../position/usePositionEvaluationRequests';
 
@@ -158,6 +158,7 @@ export function HomePage() {
   const previewTitleId = useId();
   const opening = useRef(0);
   const previewClose = useRef<HTMLButtonElement>(null);
+  const [previewMeta, setPreviewMeta] = useState<HTMLSpanElement | null>(null);
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const positionsHeading = useRef<HTMLHeadingElement>(null);
   const positionsContainer = useRef<HTMLDivElement>(null);
@@ -631,7 +632,10 @@ export function HomePage() {
   return (
     <section className="page home-page">
       <div className="overview-header">
-        <h1>Обзор</h1>
+        <div>
+          {selectedAccount && <p className="overview-account-label">{selectedAccount.displayName}</p>}
+          <h1>Обзор счёта</h1>
+        </div>
         <div className="overview-controls">
           {selectedAccount && (
             <SelectedAccountPanel
@@ -695,6 +699,7 @@ export function HomePage() {
                 filters={filters}
                 accountName={selectedAccount.displayName}
                 activePositionId={activePreview?.positionId}
+                currentPositionCount={currentPortfolio?.portfolio?.currentPositionCount}
                 headingRef={positionsHeading}
                 previewId={previewId}
                 onOpenPosition={openPosition}
@@ -709,23 +714,24 @@ export function HomePage() {
                       onLogin={login}
                       onRetry={retryPositions}
                     />
-              ) : null,
-            }}
-            onViewChange={handleViewChange}
-            onStateChange={handleStateChange}
-            onSideChange={handleSideChange}
-            onSymbolChange={handleSymbolChange}
-            onLoadMore={() => handleLoadMore()}
+                  ) : null,
+                }}
+                onViewChange={handleViewChange}
+                onStateChange={handleStateChange}
+                onSideChange={handleSideChange}
+                onSymbolChange={handleSymbolChange}
+                onLoadMore={() => handleLoadMore()}
               />
             </div>
             {activePreview && (
               <section className="panel overview-preview" id={previewId} aria-labelledby={previewTitleId}>
                 <header className="overview-preview-header">
                   <h2 id={previewTitleId} ref={previewHeading}>{activePreview.symbol}</h2>
+                  <span className="overview-preview-meta" ref={setPreviewMeta} />
                   <button
                     ref={previewClose}
                     type="button"
-                    className="button button-secondary overview-icon-button"
+                    className="button button-secondary overview-icon-button overview-preview-close"
                     aria-label="Закрыть карточку позиции"
                     title="Закрыть карточку позиции"
                     onClick={closePreview}
@@ -737,12 +743,12 @@ export function HomePage() {
                     id={activePreview.positionId}
                     requests={requests}
                     onAccessLost={handlePreviewAccessLoss}
+                    previewMeta={previewMeta}
                   />
                 </Suspense>
               </section>
             )}
           </div>
-          {currentPortfolio?.portfolio && <ExposureBlock exposures={currentPortfolio.portfolio.exposures} />}
         </>
       )}
     </section>
@@ -771,7 +777,11 @@ function SelectedAccountPanel({
         <span className={`connection-status connection-status-${account.connectionStatus}`}>
           {CONNECTION_STATUS_LABELS[account.connectionStatus]}
         </span>
-        {portfolio && !portfolio.isFresh && <span className="data-state-warning">REST-снимок устарел</span>}
+        {portfolio && (
+          <span className={portfolio.isFresh ? 'data-state-ok' : 'data-state-warning'}>
+            {portfolio.isFresh ? 'REST-снимок актуален' : 'REST-снимок устарел'}
+          </span>
+        )}
         {portfolio?.factualFreshness && portfolio.factualFreshness.status !== 'fresh' && (
           <span className="data-state-warning">Фактические данные: {factualFreshnessLabel(portfolio.factualFreshness.status)}</span>
         )}

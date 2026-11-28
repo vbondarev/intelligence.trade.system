@@ -21,11 +21,12 @@ interface PositionChartProps {
 }
 
 const COLORS = {
-  text: '#8b98a8',
-  grid: '#1b2430',
-  border: '#253041',
-  up: '#4ade80',
-  down: '#ff9c9c',
+  text: '#a2aec3',
+  grid: '#293547',
+  border: '#667789',
+  crosshairLabel: '#293547',
+  up: '#72d9a8',
+  down: '#ff98a7',
 } as const;
 
 type ChartView = {
@@ -103,6 +104,7 @@ export function PositionChart({ candles, levels, dataKey, label }: PositionChart
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: COLORS.text,
+        fontFamily: getComputedStyle(container).fontFamily,
         attributionLogo: false,
       },
       grid: {
@@ -112,8 +114,8 @@ export function PositionChart({ candles, levels, dataKey, label }: PositionChart
       rightPriceScale: { borderColor: COLORS.border },
       timeScale: { borderColor: COLORS.border, timeVisible: true, secondsVisible: false },
       crosshair: {
-        vertLine: { labelBackgroundColor: COLORS.border },
-        horzLine: { labelBackgroundColor: COLORS.border },
+        vertLine: { labelBackgroundColor: COLORS.crosshairLabel },
+        horzLine: { labelBackgroundColor: COLORS.crosshairLabel },
       },
       kineticScroll: { mouse: false, touch: false },
       localization: { locale: 'ru-RU' },

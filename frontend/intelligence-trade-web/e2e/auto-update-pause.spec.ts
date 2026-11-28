@@ -26,6 +26,7 @@ test('пауза сохраняется при переходе к позици�
   await expect(resume).toBeVisible();
   const card = page.getByRole('region', { name: 'BTCUSDT', exact: true });
   await expect(card.getByRole('heading', { name: 'BTCUSDT' })).toBeVisible();
+  await page.locator('summary').filter({ hasText: 'Рыночные данные и параметры' }).click();
   const sizeValue = card.getByRole('region', { name: 'Параметры позиции' })
     .getByText('Размер', { exact: true }).locator('..').locator('dd');
   await expect(sizeValue).toHaveText('0,15');

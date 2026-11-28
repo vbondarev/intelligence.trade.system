@@ -20,7 +20,8 @@ function passwordInput(page: Page) {
 }
 
 const sharedTokens = [
-  '--color-background', '--color-surface', '--color-border', '--color-text', '--color-text-muted',
+  '--color-background', '--color-surface', '--color-border', '--color-control-border', '--color-focus',
+  '--color-text', '--color-text-muted',
   '--color-accent', '--color-accent-hover', '--color-danger', '--color-danger-surface',
   '--font-family', '--font-size-base', '--font-size-small', '--font-size-title',
   '--space-3', '--space-4', '--space-6', '--radius-small', '--radius-medium',
@@ -65,8 +66,12 @@ for (const viewport of viewports) {
     expect(stylesheet.status()).toBe(200);
     expect(stylesheet.headers()['content-type']).toContain('text/css');
 
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 15, 20)');
-    await expect(card).toHaveCSS('background-color', 'rgb(18, 24, 33)');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(13, 17, 24)');
+    await expect(page.locator('body')).toHaveCSS('font-size', '14px');
+    await expect(card).toHaveCSS('background-color', 'rgb(20, 28, 40)');
+    await expect(card).toHaveCSS('border-top-color', 'rgb(41, 53, 71)');
+    await expect(usernameInput(page)).toHaveCSS('border-top-color', 'rgb(102, 119, 137)');
+    await expect(page.getByRole('button', { name: 'Войти' })).toHaveCSS('background-color', 'rgb(50, 95, 220)');
     expect(await card.evaluate((element) => getComputedStyle(element).borderTopLeftRadius)).not.toBe('0px');
 
     const overflow = await page.evaluate(() => ({
@@ -115,7 +120,7 @@ test('wrong password keeps the user on the Identity form with one generic error,
   await expect(usernameInput(page)).toHaveAttribute('aria-invalid', 'true');
   await expect(passwordInput(page)).toHaveAttribute('aria-invalid', 'true');
   await expect(alert).toHaveCSS('background-color', 'rgb(42, 21, 23)');
-  await expect(alert).toHaveCSS('color', 'rgb(248, 113, 113)');
+  await expect(alert).toHaveCSS('color', 'rgb(255, 152, 167)');
   const audit = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();

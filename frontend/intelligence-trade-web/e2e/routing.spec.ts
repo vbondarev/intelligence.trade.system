@@ -105,7 +105,7 @@ async function openPositionOverview(page: Page, source: 'search' | 'overview' = 
   page.on('request', recordInitialScript);
   await page.goto('/app');
   const overviewTicker = page.getByRole('link', { name: /^BTCUSDT/ });
-  await expect(page.getByRole('heading', { name: 'Обзор', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Обзор счёта', exact: true })).toBeVisible();
   await expect(overviewTicker).toBeVisible();
   if (source === 'search') await page.goto('/app/positions/search?symbol=BTCUSDT');
   const positionLink = source === 'overview' ? overviewTicker

@@ -1,6 +1,7 @@
 import { presentError } from '../errors/errorPresentation';
 import { StatusMessage } from '../ui/StatusMessage';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import type { SessionReadContext } from '../auth/authTypes';
 import type { PositionEvaluationRequests } from './usePositionEvaluationRequests';
@@ -8,7 +9,7 @@ import { useAuth } from '../auth/authContext';
 import { resourceUnavailable, type ScreenReader } from '../realtime/autoUpdates';
 import { useAutoUpdates, useAutoUpdateState } from '../realtime/autoUpdatesContext';
 import { useRealtimeInvalidation } from '../realtime/useRealtimeInvalidation';
-import { SIDE_LABELS, formatNumber } from '../portfolio/portfolioFormatting';
+import { SIDE_LABELS, formatAssetAmount, formatNumber, formatSignedAssetAmount, pnlClassName } from '../portfolio/portfolioFormatting';
 import { PositionChart } from './PositionChart';
 import { PositionChartData } from './PositionChartData';
 import { toChartCandles, toPriceLevels, type ChartCandle } from './positionChartAdapter';
@@ -95,25 +96,30 @@ interface PositionContentProps {
   onIntervalChange: (interval: ChartInterval) => void;
   requests: PositionEvaluationRequests;
   routeState?: unknown;
-  onAccessLost?: () => void;
+  preview?: { meta: HTMLSpanElement | null; onAccessLost: () => void };
 }
 
-export function PositionPreview({ id, requests, onAccessLost }: Pick<PositionContentProps, 'id' | 'requests' | 'onAccessLost'>) {
+export function PositionPreview({ id, requests, onAccessLost, previewMeta }: Pick<PositionContentProps, 'id' | 'requests'> & {
+  onAccessLost: () => void;
+  previewMeta: HTMLSpanElement | null;
+}) {
   const [interval, setInterval] = useState<ChartInterval>('1h');
-  return <PositionContent id={id} requests={requests} interval={interval} onIntervalChange={setInterval} onAccessLost={onAccessLost} />;
+  return <PositionContent id={id} requests={requests} interval={interval} onIntervalChange={setInterval} preview={{ meta: previewMeta, onAccessLost }} />;
 }
 
-export function PositionContent({ id, interval, onIntervalChange, requests, routeState, onAccessLost }: PositionContentProps) {
+export function PositionContent({ id, interval, onIntervalChange, requests, routeState, preview: previewPresentation }: PositionContentProps) {
   const { login, captureSessionRead } = useAuth();
   const updates = useAutoUpdates();
   const { pausedAt } = useAutoUpdateState();
-  const preview = onAccessLost !== undefined;
+  const onAccessLost = previewPresentation?.onAccessLost;
+  const preview = previewPresentation !== undefined;
   const SectionHeading = preview ? 'h3' : 'h2';
   const candlesKey = `${id}|${interval}`;
   const titleId = useId();
   const chartTitleId = useId();
   const evaluationTitleId = useId();
 
+  const [hasOpenedDetails, setHasOpenedDetails] = useState(false);
   const [position, setPosition] = useState<Load<Position> | null>(null);
   const [notFound, setNotFound] = useState<string | null>(null);
   const [market, setMarket] = useState<Load<PositionMarket> | null>(null);
@@ -450,20 +456,23 @@ export function PositionContent({ id, interval, onIntervalChange, requests, rout
       ? (symbol ?? 'Позиция')
       : `${positionValue.symbol} · ${formatNumber(positionValue.size)} ${SIDE_LABELS[positionValue.side]}`;
 
+  const evaluationButton = (
+    <button
+      type="button"
+      className="button"
+      disabled={running || confirming}
+      onClick={handleEvaluate}
+    >
+      {running ? 'Оценка выполняется…' : confirming ? 'Подтверждаем оценку…' : evaluateLabel}
+    </button>
+  );
   const evaluationPanel = (
     <section className="panel evaluation-panel" aria-labelledby={evaluationTitleId}>
       <header className="evaluation-header">
         <SectionHeading id={evaluationTitleId} className="section-title">
           Оценка и рекомендация
         </SectionHeading>
-        <button
-          type="button"
-          className="button"
-          disabled={running || confirming}
-          onClick={handleEvaluate}
-        >
-          {running ? 'Оценка выполняется…' : confirming ? 'Подтверждаем оценку…' : evaluateLabel}
-        </button>
+        {!preview && evaluationButton}
       </header>
       {running && (
         <StatusMessage kind="loading" text="Выполняем оценку позиции…" />
@@ -486,21 +495,12 @@ export function PositionContent({ id, interval, onIntervalChange, requests, rout
           <PositionRecommendation recommendation={evaluationValue.recommendation} now={now} />
         </>
       )}
+      {preview && evaluationButton}
     </section>
   );
 
-  return (
-    <section className={className} aria-labelledby={preview ? undefined : titleId}>
-      {backLink}
-      {!preview && <h1 id={titleId}>{title}</h1>}
-
-      {currentPosition === null && (
-        <StatusMessage kind="loading" text="Загружаем позицию…" />
-      )}
-      {currentPosition?.error && (
-        <NoticeMessage notice={currentPosition.error} onLogin={login} onRetry={() => positionRead.current?.refresh()} />
-      )}
-      {preview && evaluationPanel}
+  const details = (
+    <>
       {positionValue !== null && <PositionDetails position={positionValue} heading={SectionHeading} />}
 
       <section className="panel chart-panel" aria-labelledby={chartTitleId}>
@@ -529,12 +529,14 @@ export function PositionContent({ id, interval, onIntervalChange, requests, rout
         {currentCandles?.value && chartCandles.length === 0 && (
           <p className="muted">Свечей для интервала {CHART_INTERVAL_LABELS[interval]} нет.</p>
         )}
-        <PositionChart
-          candles={chartCandles}
-          levels={levels}
-          dataKey={candlesKey}
-          label={`Свечной график ${symbol ?? 'позиции'}, интервал ${CHART_INTERVAL_LABELS[interval]}`}
-        />
+        {(!preview || hasOpenedDetails) && (
+          <PositionChart
+            candles={chartCandles}
+            levels={levels}
+            dataKey={candlesKey}
+            label={`Свечной график ${symbol ?? 'позиции'}, интервал ${CHART_INTERVAL_LABELS[interval]}`}
+          />
+        )}
         <PositionChartData
           symbol={symbol ?? 'Позиция'}
           interval={interval}
@@ -556,8 +558,61 @@ export function PositionContent({ id, interval, onIntervalChange, requests, rout
         </section>
       )}
       {marketValue !== null && <PositionMarketContext market={marketValue} heading={SectionHeading} />}
+    </>
+  );
 
-      {!preview && evaluationPanel}
+  const meta = previewPresentation?.meta;
+  return (
+    <section className={className} aria-labelledby={preview ? undefined : titleId}>
+      {backLink}
+      {!preview && <h1 id={titleId}>{title}</h1>}
+
+      {currentPosition === null && (
+        <StatusMessage kind="loading" text="Загружаем позицию…" />
+      )}
+      {currentPosition?.error && (
+        <NoticeMessage notice={currentPosition.error} onLogin={login} onRetry={() => positionRead.current?.refresh()} />
+      )}
+      {preview && positionValue && (
+        <>
+          {meta && createPortal(
+            <>{SIDE_LABELS[positionValue.side]} · {formatAssetAmount(positionValue.positionValue, positionValue.settlementAsset)}</>,
+            meta,
+          )}
+          <dl className="overview-preview-metrics" aria-label="Краткие параметры позиции">
+            <div>
+              <dt>PnL</dt>
+              <dd className={pnlClassName(positionValue.unrealizedPnl)}>
+                {formatSignedAssetAmount(positionValue.unrealizedPnl, positionValue.settlementAsset)}
+              </dd>
+            </div>
+            <div>
+              <dt>Вход</dt>
+              <dd>{formatNumber(positionValue.averageEntryPrice)}</dd>
+            </div>
+            <div>
+              <dt>Mark позиции</dt>
+              <dd>{formatNumber(positionValue.markPrice)}</dd>
+            </div>
+          </dl>
+        </>
+      )}
+      {preview ? (
+        <>
+          {evaluationPanel}
+          <details className="overview-disclosure" onToggle={(event) => {
+            if (event.currentTarget.open && !hasOpenedDetails) setHasOpenedDetails(true);
+          }}>
+            <summary>Рыночные данные и параметры</summary>
+            <div className="position-preview-details">{details}</div>
+          </details>
+        </>
+      ) : (
+        <>
+          {details}
+          {evaluationPanel}
+        </>
+      )}
 
       {positionValue !== null && (
         <PositionTimeline
